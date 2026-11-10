@@ -51,9 +51,10 @@ src/rag_load_test/
   corpus.py         synthetic handbook corpus, JSONL loader, chunking, rag-ingest
   loadtest.py       locust-free helpers (auth headers, stage events, questions) + rag-compare
   model_server.py   FastAPI model server with the OVMS /v3 contract (rag-model-server)
+  served_models.py  ServedModel (source id + alias) from the settings defaults, rag-served-models
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
-ovms/               versions.env (single version pin), export_models.sh, models/ (exported, git-ignored)
+ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
 domino/             app.sh (one entry point, role from RAG_ROLE), Dockerfile (targets `rag` and `ovms`)
 tests/              pytest: no model weights, no network, no Elasticsearch
 ```
@@ -92,7 +93,7 @@ documents at start-up (nothing to ingest: `rag-ingest` refuses the fake store).
 ## Split topologies on a laptop
 
 ```bash
-make ovms-export              # once: export both models (int8) into ovms/models, needs HF Hub access
+make ovms-export              # once, after make install: export both models (int8) into ovms/models, needs HF Hub access
 make infra-up                 # the OVMS containers now serve the reranker on :8001 and the embedder on :8002
 
 # split-reranker: reranker over HTTP, embedder in-process
@@ -254,19 +255,27 @@ topology, or a bad run label fails at start-up with the accepted values listed.
 
 ## OpenVINO Model Server
 
-`ovms/versions.env` is the single pin, sourced by `export_models.sh`, read by
-`domino/Dockerfile` and passed to docker compose with `--env-file`:
+`ovms/versions.env` is the single pin of the OpenVINO Model Server version,
+sourced by `export_models.sh`, read by `domino/Dockerfile` and passed to docker
+compose with `--env-file`:
 
 | Key | Value |
 | --- | --- |
 | `OVMS_VERSION` / `OVMS_IMAGE` | `2026.3.1` / `openvino/model_server:2026.3.1` |
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
-| `RERANKER_SOURCE_MODEL` / `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-base` / `bge-reranker-base` |
-| `EMBEDDER_SOURCE_MODEL` / `EMBEDDER_MODEL_NAME` | `BAAI/bge-small-en-v1.5` / `bge-small-en-v1.5` |
+
+The served models (source id and alias) are pinned once, by the `RagSettings`
+defaults in `settings.py` (`RAG_RERANKER_MODEL` / `RAG_OVMS_RERANK_MODEL` =
+`BAAI/bge-reranker-base` / `bge-reranker-base`, `RAG_EMBEDDER_MODEL` /
+`RAG_OVMS_EMBEDDINGS_MODEL` = `BAAI/bge-small-en-v1.5` / `bge-small-en-v1.5`).
+`rag-served-models` prints them, `RAG_*` overrides included, as shell
+assignments (`RERANKER_SOURCE_MODEL=...`) for `export_models.sh`; the `rag`
+Domino image reads the source ids from the installed package.
 
 **Export** (`make ovms-export` = `./ovms/export_models.sh [MODELS_DIR]`, default
-`ovms/models`): downloads `export_model.py` and its `requirements.txt` from the
-OVMS repository at tag `v${OVMS_VERSION}` into `<MODELS_DIR>/.export/` (cached),
+`ovms/models`; run `make install` first so `rag-served-models` is on `PATH`, or
+the script stops and says so): takes the served models from `rag-served-models`,
+downloads `export_model.py` and its `requirements.txt` from the OVMS repository at tag `v${OVMS_VERSION}` into `<MODELS_DIR>/.export/` (cached),
 `pip install`s them into `$PYTHON` (set `PYTHON=/path/to/venv/bin/python` for a
 separate environment), then runs `rerank_ov` and `embeddings_ov --pooling CLS`
 with `--weight-format int8`. The result is `config_reranker.json`,
@@ -298,7 +307,9 @@ fail immediately. Readiness probes `GET /v3/models/{model}`.
 
 **Bumping OVMS**: change `ovms/versions.env` only, re-run `make ovms-export`
 (the exporter is fetched from the new tag), rebuild the `ovms` Domino image and
-refill the models Dataset.
+refill the models Dataset. **Changing a served model**: change its default in
+`settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
+image (it pre-downloads the source ids) and refill the models Dataset.
 
 ## Deploying on Domino 6.2
 
