@@ -14,7 +14,9 @@
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's
 # instructions into the environment's "Dockerfile Instructions" field.
-ARG BASE_IMAGE=quay.io/domino/compute-environment-images:ubuntu22-py3.10-r4.4-domino6.2-standard
+# Domino's 6.2 standard environment: Ubuntu 22.04, Python 3.10. CI runs `make check`
+# inside this same image (.github/workflows/checks.yml reads this line).
+ARG BASE_IMAGE=quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard
 
 # --- rag ---------------------------------------------------------------------
 FROM ${BASE_IMAGE} AS rag

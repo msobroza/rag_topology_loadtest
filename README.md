@@ -99,6 +99,7 @@ docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS e
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
 domino/             app.sh (one entry point, role from RAG_ROLE), Dockerfile (targets `rag` and `ovms`)
 tests/              pytest: no model weights, no network, no Elasticsearch
+  fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
 ```
 
 ## Quickstart (monolith on a laptop)
@@ -445,7 +446,7 @@ through untouched. The run label ends up in every response, so set a distinct
 
 **Environments.** `domino/Dockerfile` has two targets built from the project
 root (commands in its header): `rag` installs this package with the
-`[loadtest,domino]` extras on `quay.io/domino/compute-environment-images:ubuntu22-py3.10-r4.4-domino6.2-standard`,
+`[loadtest,domino]` extras on `quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard`,
 pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
 pinned binary tarball under `/opt/ovms`. Push both images and create two Domino
 Environments from them (custom base image), or paste one stage's instructions
@@ -860,9 +861,12 @@ make format        # ruff --fix + black
 `.github/workflows/checks.yml` runs the same command on every pull request and on
 every push to `main`. The verdict is deterministic: every gate tool is pinned to an
 exact version in the `dev` extra, and every threshold is written in
-`pyproject.toml`. Two platforms are supported and no other is targeted: Ubuntu,
-where CI and Domino run, and macOS for local work. Each gate is also a `make`
-target of its own:
+`pyproject.toml`. Two platforms are supported and no other is targeted: Domino's
+Ubuntu, and macOS for local work. CI runs the gates inside the image
+`domino/Dockerfile` builds from (Domino's 6.2 standard environment: Ubuntu 22.04,
+Python 3.10), as the `ubuntu` user Domino runs Apps as; the workflow reads the
+image from the Dockerfile's `BASE_IMAGE` line, so the two cannot drift. Each gate
+is also a `make` target of its own:
 
 | target | runs | passes when |
 |---|---|---|
