@@ -69,7 +69,7 @@ compare: ## Compare all runs found under results/ into results/comparison.md
 ovms-export: ## Export reranker + embedder to ovms/models (needs HF access)
 	./ovms/export_models.sh
 
-deploy: ## On Domino: publish every App of RAG_DEPLOY_TOPOLOGY (settings in deploy.env)
+deploy: ## On Domino: publish (or redeploy) every App of the topology (settings in deploy.yaml)
 	$(BIN)rag-deploy deploy all
 
 deploy-embedder: ## On Domino: publish (or redeploy) the rag-embedder App only
@@ -81,10 +81,10 @@ deploy-reranker: ## On Domino: publish (or redeploy) the rag-reranker App only
 deploy-workflow: ## On Domino: publish (or redeploy) the rag-workflow App only
 	$(BIN)rag-deploy deploy workflow
 
-status: ## On Domino: each App's status and URL, then the workflow App's /readyz
+status: ## On Domino: each App's status and instance URL, then the workflow App's /readyz
 	$(BIN)rag-deploy status
 
-deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's entry script
+deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's settings and entry script
 	$(BIN)rag-deploy --dry-run deploy all
 
 fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow

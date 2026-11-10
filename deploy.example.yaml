@@ -1,0 +1,78 @@
+# rag-deploy settings: cp deploy.example.yaml deploy.yaml, then edit (deploy.yaml is
+# git-ignored). Run `make deploy` / `make status` from the repository root (for
+# example /repos/<project>) in a Domino Workspace of the one project that hosts all
+# the Apps: the Apps run domino/app.sh by that absolute path.
+#
+# Secrets do NOT go here: every `settings` value is written into an App's launch
+# script. Keep OPENAI_API_KEY, RAG_ES_API_KEY and any bearer token for
+# RAG_OVMS_AUTH in Domino's project or user environment variables (rag-deploy
+# refuses all three in this file).
+#
+# Unknown keys are refused. A RAG_DEPLOY_<KEY> environment variable overrides a
+# top-level key, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`; RAG_DEPLOY_FILE
+# names another file.
+
+# monolith | split-reranker | split-all
+topology: split-all
+# fastapi | ovms: what serves the models in the model server Apps
+model_server: fastapi
+# The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
+project_id: ""
+# Required for ovms: the OVMS bundle as the Apps see it (project files or a Dataset),
+# either a folder with bin/ovms and lib/ or the release .tar.gz, for example
+# /domino/datasets/local/<dataset>/ovms.tar.gz
+ovms_bundle: ""
+# Where Apps answer: {domino_host}/{owner}/{project}/r/notebookSession/{instance id}.
+# "" = the scheme and host of the App's own url.
+domino_host: ""
+# Rarely changed: waiting for an App, and talking to Domino.
+# wait_timeout_s: 600
+# poll_interval_s: 5
+# no_instance_grace_s: 60   # an App with no instance after this long is reported
+# http_timeout_s: 30
+# http_retries: 2
+# run_token_url: http://localhost:8899/access-token
+
+# Every App, unless its own block below says otherwise. rag-deploy refuses to
+# deploy while a value still holds an <angle-bracket> placeholder.
+defaults:
+  # Required: the Domino compute environment (its id is in the URL of the
+  # environment's page in Domino). Any environment with `uv` works: the Apps
+  # install their own dependencies when they start.
+  environment_id: "<environment id>"
+  # The hardware tier id; "" = the project's default.
+  hardware_tier_id: ""
+  # Environment variables for the App, exported by its launch script. rag-deploy
+  # itself sets RAG_ROLE, RAG_TOPOLOGY, RAG_OVMS_RERANK_URL, RAG_OVMS_EMBEDDINGS_URL,
+  # RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those win), and RAG_RUN_LABEL unless set here.
+  settings:
+    # Required: the Elasticsearch cluster every workflow App queries.
+    RAG_ES_URL: "https://<elasticsearch host>:9200"
+    # The model paths are here, not per App, because which App loads a model
+    # depends on the topology (the workflow loads the embedder in split-reranker
+    # and both models in monolith). A Hugging Face id works as well as a folder.
+    RAG_EMBEDDER_MODEL: /domino/datasets/local/<dataset>/models/bge-small-en-v1.5
+    RAG_RERANKER_MODEL: /domino/datasets/local/<dataset>/models/bge-reranker-base
+    # The folder holding config_reranker.json and config_embedder.json (ovms):
+    # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
+
+# One block per App, for what really differs per App: kind (app | agent),
+# environment_id, hardware_tier_id, autoscaling {min_replicas (default 1),
+# max_replicas, target_cpu_pct (1..100)} and settings (merged with the defaults'
+# settings, this block's winning).
+apps:
+  # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
+  # An Agent also gets RAG_DOMINO_TRACING=1 and RAG_BOOTSTRAP_EXTRAS=domino unless
+  # its settings set them.
+  workflow:
+    kind: agent
+    autoscaling: {min_replicas: 1, max_replicas: 2}
+  # The model servers are plain Apps.
+  embedder:
+    kind: app
+    # hardware_tier_id: <a tier with 8 cores>
+  reranker:
+    kind: app
+    # hardware_tier_id: <a tier with 16 cores>
+    # settings:
+    #   RAG_MODEL_WORKERS: "2"

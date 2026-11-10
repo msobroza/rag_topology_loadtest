@@ -301,6 +301,23 @@ def test_bootstrap_installs_the_project_in_a_venv_before_serving(
     assert log(tmp_path, "apt-get") == ""
 
 
+def test_bootstrap_installs_the_extras_an_agent_asks_for(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        RAG_ROLE="workflow",
+        RAG_BOOTSTRAP="1",
+        RAG_BOOTSTRAP_EXTRAS="domino",
+    )
+    assert result.returncode == 0, result.stderr
+    venv = tmp_path / "home" / "rag-venv"
+    assert log(tmp_path, "uv").splitlines()[1] == (
+        f"pip install --python {venv}/bin/python .[domino]"
+    )
+
+
 def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
     tmp_path: Path, bin_dir: Path
 ) -> None:

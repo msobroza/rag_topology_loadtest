@@ -8,12 +8,14 @@ from fastapi.testclient import TestClient
 from rag_load_test.deploy.fake_domino import (
     FAKE_DOMINO_URL,
     FAKE_RUN_TOKEN,
+    FAKE_TIER_CORES,
     FakeDominoApps,
     create_fake_domino,
     main,
 )
 
 APPS_PATH = "/api/apps/beta/apps"
+INSTANCE_PATH = "/fake-owner/fake-project/r/notebookSession"  # + /{instance id}
 CREATE_BODY = {
     "name": "rag-workflow",
     "projectId": "proj-1",
@@ -176,9 +178,9 @@ RUN_SCRIPT = (
 def test_readyz_stand_in_reports_the_run_headers_from_the_entry_script() -> None:
     http = http_to(FakeDominoApps())
     body = {**CREATE_BODY, "version": {"entryScript": RUN_SCRIPT}}
-    app_id = http.post(APPS_PATH, json=body).json()["id"]
+    assert http.post(APPS_PATH, json=body).json()["id"] == "app-1"
     auth = {"Authorization": f"Bearer {FAKE_RUN_TOKEN}"}
-    response = http.get(f"/apps/{app_id}/readyz", headers=auth)
+    response = http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz", headers=auth)
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert response.json()["checks"][0]["ok"] is True
@@ -188,18 +190,31 @@ def test_readyz_stand_in_reports_the_run_headers_from_the_entry_script() -> None
 
 def test_readyz_stand_in_has_no_run_headers_when_the_script_has_none() -> None:
     http = http_to(FakeDominoApps())
-    app_id = create(http, "rag-workflow")
+    create(http, "rag-workflow")
     auth = {"Authorization": f"Bearer {FAKE_RUN_TOKEN}"}
-    response = http.get(f"/apps/{app_id}/readyz", headers=auth)
+    response = http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz", headers=auth)
     assert response.status_code == 200
     assert "X-RAG-Topology" not in response.headers
     assert "X-RAG-Run-Label" not in response.headers
 
 
-def test_readyz_of_an_unknown_app_is_404() -> None:
+def test_readyz_of_an_unknown_instance_is_404() -> None:
     auth = {"Authorization": f"Bearer {FAKE_RUN_TOKEN}"}
-    response = http_to(FakeDominoApps()).get("/apps/app-9/readyz", headers=auth)
+    response = http_to(FakeDominoApps()).get(
+        f"{INSTANCE_PATH}/app-9-v1-i/readyz", headers=auth
+    )
     assert response.status_code == 404
+
+
+def test_readyz_answers_for_the_version_the_instance_belongs_to() -> None:
+    http = http_to(FakeDominoApps())
+    app_id = create(http, "rag-workflow")
+    script = "export RAG_TOPOLOGY=monolith"
+    http.post(f"{APPS_PATH}/{app_id}/versions", json={"entryScript": script})
+    first = http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz")
+    second = http.get(f"{INSTANCE_PATH}/app-1-v2-i/readyz")
+    assert "X-RAG-Topology" not in first.headers
+    assert second.headers["X-RAG-Topology"] == "monolith"
 
 
 def test_the_openapi_document_shows_the_documented_contract() -> None:
@@ -208,6 +223,8 @@ def test_the_openapi_document_shows_the_documented_contract() -> None:
         f"{APPS_PATH}": {"get", "post"},
         f"{APPS_PATH}/{{appId}}": {"get"},
         f"{APPS_PATH}/{{appId}}/versions": {"post"},
+        f"{APPS_PATH}/{{appId}}/versions/{{versionId}}/instances": {"get"},
+        "/api/hardwaretiers/v1/hardwaretiers/{hardwareTierId}": {"get"},
     }.items() <= {path: set(ops) for path, ops in document["paths"].items()}.items()
     schemas = document["components"]["schemas"]
     assert sorted(schemas["AppCreationRequest"]["required"]) == [
@@ -217,6 +234,11 @@ def test_the_openapi_document_shows_the_documented_contract() -> None:
         "visibility",
     ]
     assert "required" not in schemas["AppVersionCreationRequest"]
+    assert schemas["AppAutoscalingSpecification"]["required"] == ["enabled"]
+    assert sorted(schemas["ListAppInstancesResponse"]["required"]) == [
+        "items",
+        "metadata",
+    ]
     assert "FailureEnvelopeV1" in schemas
 
 
@@ -224,7 +246,10 @@ def test_the_stand_ins_are_tagged_as_not_the_apps_api() -> None:
     document = http_to(FakeDominoApps()).get("/openapi.json").json()
     tags = {
         path: document["paths"][path]["get"]["tags"]
-        for path in ("/access-token", "/apps/{appId}/readyz")
+        for path in (
+            "/access-token",
+            "/{owner}/{project}/r/notebookSession/{instanceId}/readyz",
+        )
     }
     assert all(tag == ["Stand-ins (not Domino's Apps API)"] for tag in tags.values())
 
@@ -243,7 +268,7 @@ def test_the_command_serves_the_named_behaviour_on_the_run_token_port() -> None:
         serve=lambda app, host, port: served.append((app, host, port)),
     )
     [(app, host, port)] = served
-    # 8899 is where `rag-deploy status` asks for the run token (ovms.DOMINO_TOKEN_URL)
+    # 8899 is where `rag-deploy status` asks for the run token (run_token_url)
     assert (host, port) == ("127.0.0.1", 8899)
     assert app.state.fake_domino_apps.statuses == ["Pending", "Failed"]  # type: ignore[attr-defined]
 
@@ -280,6 +305,87 @@ def test_readyz_stand_in_takes_the_last_export_of_a_name_as_a_shell_would() -> N
     http = http_to(FakeDominoApps())
     script = "export RAG_TOPOLOGY=monolith\nexport RAG_TOPOLOGY=split-all"
     body = {**CREATE_BODY, "version": {"entryScript": script}}
-    app_id = http.post(APPS_PATH, json=body).json()["id"]
-    response = http.get(f"/apps/{app_id}/readyz")
+    http.post(APPS_PATH, json=body)
+    response = http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz")
     assert response.headers["X-RAG-Topology"] == "split-all"
+
+
+# --- instances, Agents, autoscaling, hardware tiers ---
+
+
+def instances(http: TestClient, version: str = "app-1-v1") -> list[object]:
+    path = f"{APPS_PATH}/app-1/versions/{version}/instances"
+    body = http.get(path).json()
+    return [(item["id"], item["status"]) for item in body["items"]]
+
+
+def test_an_app_shows_its_owner_and_project() -> None:
+    http = http_to(FakeDominoApps())
+    project = http.post(APPS_PATH, json=CREATE_BODY).json()["project"]
+    assert (project["ownerUsername"], project["name"]) == ("fake-owner", "fake-project")
+
+
+def test_a_versions_instance_follows_the_status_its_last_get_showed() -> None:
+    http = http_to(FakeDominoApps.from_behaviour("starts"))
+    create(http, "rag-workflow")
+    assert instances(http) == [("app-1-v1-i", "Pending")]  # not polled yet
+    statuses_seen(http, "app-1", 2)
+    assert instances(http) == [("app-1-v1-i", "Running")]
+
+
+def test_a_version_with_no_instance_lists_none() -> None:
+    http = http_to(FakeDominoApps.from_behaviour("never-starts"))
+    create(http, "rag-workflow")
+    assert instances(http) == []
+
+
+def test_after_a_redeploy_only_the_new_version_has_an_instance() -> None:
+    http = http_to(FakeDominoApps(["Running"]))
+    create(http, "rag-workflow")
+    http.post(f"{APPS_PATH}/app-1/versions", json={})
+    assert instances(http, "app-1-v1") == []
+    assert instances(http, "app-1-v2") == [("app-1-v2-i", "Running")]
+
+
+@pytest.mark.parametrize("path", ["app-9/versions/v1", "app-1/versions/app-1-v9"])
+def test_instances_of_an_unknown_app_or_version_are_404(path: str) -> None:
+    http = http_to(FakeDominoApps())
+    create(http, "rag-workflow")
+    assert http.get(f"{APPS_PATH}/{path}/instances").status_code == 404
+
+
+def test_configuration_type_and_autoscaling_are_echoed() -> None:
+    http = http_to(FakeDominoApps())
+    scaling = {"enabled": True, "minReplicas": 1, "maxReplicas": 4}
+    version = {**CREATE_BODY["version"], "autoscalingSpecification": scaling}  # type: ignore[dict-item]
+    body = {**CREATE_BODY, "configurationType": "AISYSTEM", "version": version}
+    app = http.post(APPS_PATH, json=body).json()
+    assert app["configurationType"] == "AISYSTEM"
+    assert app["currentVersion"]["autoscalingSpecification"] == {
+        **scaling,
+        "targetCpuAvgUtilizationPct": None,
+        "targetMemoryAvgUtilizationPct": None,
+        "scaleUpStabilizationWindowSeconds": None,
+        "scaleDownStabilizationWindowSeconds": None,
+        "useSessionAffinity": None,
+    }
+
+
+def test_an_app_created_without_a_configuration_type_is_standard() -> None:
+    app = http_to(FakeDominoApps()).post(APPS_PATH, json=CREATE_BODY).json()
+    assert app["configurationType"] == "STANDARD"
+
+
+def test_autoscaling_without_enabled_is_refused() -> None:
+    version = {"autoscalingSpecification": {"maxReplicas": 4}}
+    body = {**CREATE_BODY, "version": version}
+    assert http_to(FakeDominoApps()).post(APPS_PATH, json=body).status_code == 422
+
+
+def test_any_hardware_tier_is_described_with_a_fixed_number_of_cores() -> None:
+    http = http_to(FakeDominoApps.from_behaviour("forbidden"))  # not an Apps call
+    response = http.get("/api/hardwaretiers/v1/hardwaretiers/cpu-8")
+    assert response.status_code == 200
+    tier = response.json()["hardwareTier"]
+    assert (tier["id"], tier["resources"]["cores"]) == ("cpu-8", FAKE_TIER_CORES)
+    assert response.json()["metadata"] == {"notices": [], "requestId": "fake-request"}

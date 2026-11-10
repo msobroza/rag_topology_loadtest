@@ -27,19 +27,25 @@ from starlette.types import ASGIApp
 
 from .apps_reference import (
     AppCreationRequest,
+    AppInstanceSummaryResponse,
     AppResponse,
     AppVersionCreationRequest,
     AppVersionResponse,
     FailureEnvelopeV1,
+    HardwareTierEnvelopeV1,
+    ListAppInstancesResponse,
     ListAppsResponse,
     PaginatedMetadataV1,
 )
 
 APPS_API_PATH = "/api/apps/beta/apps"
+HARDWARE_TIERS_PATH = "/api/hardwaretiers/v1/hardwaretiers"
+FAKE_TIER_CORES = 4.0  # every hardware tier the fake describes has this many cores
 FAKE_DOMINO_URL = "http://fake-domino.test"  # the base URL of an in-process fake
 FAKE_RUN_TOKEN = "fake-run-token"
-# Where a run's token service listens (ovms.DOMINO_TOKEN_URL): served from the same
-# port, the fake answers both the Apps API and the token `rag-deploy status` asks for.
+# Where a run's token service listens (run_token_url in deploy.yaml): served from
+# the same port, the fake answers both the Apps API and the token `rag-deploy
+# status` asks for.
 FAKE_DOMINO_PORT = 8899
 
 # --- Behaviours: what a new version's instance reports, one status per GET ---
@@ -148,11 +154,33 @@ class FakeDominoApps:
         version.gets += 1
         return _version_response(version, self._status(version, offset=-1))
 
+    def instances(
+        self, app: _FakeApp, version_id: str
+    ) -> list[AppInstanceSummaryResponse] | None:
+        """A version's instances (None: no such version), as its last GET showed.
+
+        Only the latest version has one: what Domino does with the previous
+        version's instance after a redeploy is not documented.
+        """
+        if version_id not in (version.id for version in app.versions):
+            return None
+        version = app.versions[-1]
+        status = self._status(version, offset=-1 if version.gets else 0)
+        if version.id != version_id or status is None:
+            return []
+        return [_instance(version, status)]
+
+    def version_of_instance(self, instance_id: str) -> _FakeVersion | None:
+        """The version whose instance is ``instance_id``, e.g. ``"app-1-v1-i"``."""
+        versions = (v for app in self.apps.values() for v in app.versions)
+        return next((v for v in versions if _instance_id(v) == instance_id), None)
+
     def _status(self, version: _FakeVersion, offset: int = 0) -> str | None:
         return self.statuses[min(version.gets + offset, len(self.statuses) - 1)]
 
 
 _VERSION_DEFAULTS: dict[str, object] = {
+    "extendedIdentityPropagationToAppsEnabled": False,
     "environmentId": "",
     "environmentRevisionId": "",
     "hardwareTierId": "",
@@ -168,13 +196,22 @@ _APP_DEFAULTS: dict[str, object] = {
     "mountNetAppVolumes": False,
     "renderIFrame": False,
     "views": 0,
+    "accessStatuses": [],
 }
 
 
+def _instance_id(version: _FakeVersion) -> str:
+    return f"{version.id}-i"
+
+
+def _instance(version: _FakeVersion, status: str) -> AppInstanceSummaryResponse:
+    return AppInstanceSummaryResponse(
+        id=_instance_id(version), createdAt=0, status=status
+    )
+
+
 def _version_response(version: _FakeVersion, status: str | None) -> AppVersionResponse:
-    instance = None
-    if status is not None:
-        instance = {"id": f"{version.id}-i", "createdAt": 0, "status": status}
+    instance = _instance(version, status) if status is not None else None
     fields = version.request.model_dump(exclude_none=True)
     return AppVersionResponse.model_validate(
         {**_VERSION_DEFAULTS, **fields, "id": version.id, "createdAt": 0}
@@ -204,6 +241,9 @@ _FAILURES: dict[int | str, dict[str, object]] = {
 }
 _apps_router = APIRouter(
     prefix=APPS_API_PATH, tags=["Apps (Domino 6.2 beta API)"], responses=_FAILURES
+)
+_tiers_router = APIRouter(
+    prefix=HARDWARE_TIERS_PATH, tags=["Hardware tiers (Domino 6.2 API)"]
 )
 _stand_ins_router = APIRouter(tags=["Stand-ins (not Domino's Apps API)"])
 
@@ -279,17 +319,57 @@ def get_app(apps: FakeState, request: Request, appId: str) -> AppResponse:
     return _app_response(app, request, apps.poll(app))
 
 
+@_apps_router.get("/{appId}/versions/{versionId}/instances")
+def list_app_instances(
+    apps: FakeState, appId: str, versionId: str
+) -> ListAppInstancesResponse:
+    """A version's instances: the latest version's one, once it has started."""
+    items = apps.instances(_find_app(apps, appId), versionId)
+    if items is None:
+        raise HTTPException(404, f"no version {versionId} of App {appId}")
+    metadata = PaginatedMetadataV1(
+        notices=[], requestId="fake-request", limit=len(items), offset=0
+    )
+    return ListAppInstancesResponse(items=items, metadata=metadata)
+
+
+@_tiers_router.get("/{hardwareTierId}")
+def get_hardware_tier(hardwareTierId: str) -> HardwareTierEnvelopeV1:
+    """Any id is a tier with ``FAKE_TIER_CORES`` cores."""
+    memory = {"value": 16, "units": "GiB"}
+    resources = {"cores": FAKE_TIER_CORES, "memory": memory}
+    flags = dict.fromkeys(_TIER_FLAGS, False)
+    tier = {"id": hardwareTierId, "name": hardwareTierId, "flags": flags}
+    return HardwareTierEnvelopeV1.model_validate(
+        {"hardwareTier": tier | _TIER_DEFAULTS | {"resources": resources | _SHARED}}
+        | {"metadata": {"notices": [], "requestId": "fake-request"}}
+    )
+
+
+_TIER_FLAGS = ("isDefault", "isVisible", "isGlobal", "isArchived", "isDataAnalystTier")
+_SHARED = {"allowSharedMemoryToExceedDefault": False}
+_TIER_DEFAULTS: dict[str, object] = {
+    "centsPerMinute": 0.0,
+    "creationTime": "2026-01-01T00:00:00Z",
+    "updateTime": "2026-01-01T00:00:00Z",
+    "podCustomization": {},
+    "metadata": {},
+}
+
+
 @_stand_ins_router.get("/access-token", response_class=PlainTextResponse)
 def access_token() -> str:
     """A fake run token, standing in for the token service of a Domino run."""
     return FAKE_RUN_TOKEN
 
 
-@_stand_ins_router.get("/apps/{appId}/readyz")
-def app_readyz(apps: FakeState, appId: str) -> JSONResponse:
-    """What the published App would answer, run headers from its entry script."""
-    app = _find_app(apps, appId)
-    exported = _exported(app.versions[-1].request.entryScript or "")
+@_stand_ins_router.get("/{owner}/{project}/r/notebookSession/{instanceId}/readyz")
+def app_readyz(apps: FakeState, instanceId: str) -> JSONResponse:
+    """What an App instance would answer, run headers from its entry script."""
+    version = apps.version_of_instance(instanceId)
+    if version is None:
+        raise HTTPException(404, f"no App instance {instanceId}")
+    exported = _exported(version.request.entryScript or "")
     headers = {key: exported[name] for key, name in _RUN_HEADERS if name in exported}
     return JSONResponse({"status": "ready", "checks": [_FAKE_CHECK]}, headers=headers)
 
@@ -337,6 +417,7 @@ def create_fake_domino(apps: FakeDominoApps | None = None) -> FastAPI:
     fake.state.fake_domino_apps = apps or FakeDominoApps()
     fake.middleware("http")(_record_and_forbid)
     fake.include_router(_apps_router)
+    fake.include_router(_tiers_router)
     fake.include_router(_stand_ins_router)
     return fake
 

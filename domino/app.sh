@@ -14,8 +14,9 @@
 # generic environment with only uv: the OVMS roles apt-get libxml2 and curl (plus
 # nginx with RAG_OVMS_PREFIX_PROXY=1, via sudo unless root) and run ovms from
 # RAG_OVMS_BUNDLE (a folder with bin/ovms and lib/, or its .tar.gz); every other
-# role uv-installs this project into a virtualenv under $HOME. Unset, nothing is
-# installed: the prebuilt `rag` / `ovms` images already have it all.
+# role uv-installs this project into a virtualenv under $HOME, with the extras named
+# by RAG_BOOTSTRAP_EXTRAS (e.g. "domino") when set. Unset, nothing is installed:
+# the prebuilt `rag` / `ovms` images already have it all.
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedder and
 # reranker backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
@@ -100,9 +101,11 @@ bootstrap() {
   case "$ROLE" in
     ovms-*) bootstrap_ovms ;;
     *)
-      local venv="$HOME/rag-venv"
+      local venv="$HOME/rag-venv" project=.
+      # An Agent's launch script sets RAG_BOOTSTRAP_EXTRAS=domino (Domino tracing).
+      if [ -n "${RAG_BOOTSTRAP_EXTRAS:-}" ]; then project=".[$RAG_BOOTSTRAP_EXTRAS]"; fi
       uv venv "$venv"
-      uv pip install --python "$venv/bin/python" .
+      uv pip install --python "$venv/bin/python" "$project"
       export PATH="$venv/bin:$PATH"
       ;;
   esac

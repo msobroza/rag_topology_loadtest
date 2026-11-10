@@ -34,12 +34,29 @@ class GitRef(_Request):
     value: str | None = None
 
 
-class Tag(_Request):
+class AppVersionTag(_Request):
     key: str
     value: str
 
 
+class AppAutoscalingSpecification(_Request):
+    enabled: bool
+    minReplicas: int | None = None
+    maxReplicas: int | None = None
+    targetCpuAvgUtilizationPct: int | None = None
+    targetMemoryAvgUtilizationPct: int | None = None
+    scaleUpStabilizationWindowSeconds: int | None = None
+    scaleDownStabilizationWindowSeconds: int | None = None
+    useSessionAffinity: bool | None = None
+
+
+class AppAccessStatus(_Request):
+    userId: str
+    status: Literal["ALLOWED", "DENIED", "PENDING"]
+
+
 class AppVersionCreationRequest(_Request):
+    autoscalingSpecification: AppAutoscalingSpecification | None = None
     environmentId: str | None = None
     environmentRevisionId: str | None = None
     hardwareTierId: str | None = None
@@ -50,7 +67,8 @@ class AppVersionCreationRequest(_Request):
     vanityUrl: str | None = None
     externalVolumeMountIds: list[str] | None = None
     netAppVolumeIds: list[str] | None = None
-    tags: list[Tag] | None = None
+    tags: list[AppVersionTag] | None = None
+    extendedIdentityPropagationToAppsEnabled: bool | None = None
 
 
 class AppCreationRequest(_Request):
@@ -58,6 +76,7 @@ class AppCreationRequest(_Request):
     projectId: str
     visibility: Visibility
     version: AppVersionCreationRequest
+    accessStatuses: list[AppAccessStatus] | None = None
     entryPoint: str | None = None
     description: str | None = None
     discoverable: bool | None = None
@@ -84,7 +103,9 @@ class AppVersionResponse(BaseModel):
     hardwareTierId: str
     externalVolumeMountIds: list[str]
     netAppVolumeIds: list[str]
-    tags: list[Tag]
+    tags: list[AppVersionTag]
+    extendedIdentityPropagationToAppsEnabled: bool
+    autoscalingSpecification: AppAutoscalingSpecification | None = None
     gitRef: GitRef | None = None
     dfsCommitId: str | None = None
     bundleId: str | None = None
@@ -93,7 +114,7 @@ class AppVersionResponse(BaseModel):
     currentInstance: AppInstanceSummaryResponse | None = None
 
 
-class ProjectSummary(BaseModel):
+class AppProjectResponse(BaseModel):
     id: str
     name: str
     ownerId: str
@@ -101,7 +122,7 @@ class ProjectSummary(BaseModel):
     projectType: Literal["Analytic", "Dataset", "Template"]
 
 
-class Publisher(BaseModel):
+class AppUserResponse(BaseModel):
     id: str
     name: str
 
@@ -118,11 +139,12 @@ class AppResponse(BaseModel):
     mountNetAppVolumes: bool
     renderIFrame: bool
     views: int
-    project: ProjectSummary
+    project: AppProjectResponse
+    accessStatuses: list[AppAccessStatus]
     vanityUrl: str | None = None
     description: str | None = None
     updatedAt: float | None = None
-    publisher: Publisher | None = None
+    publisher: AppUserResponse | None = None
     currentVersion: AppVersionResponse | None = None
 
 
@@ -137,6 +159,66 @@ class PaginatedMetadataV1(BaseModel):
 class ListAppsResponse(BaseModel):
     items: list[AppResponse]
     metadata: PaginatedMetadataV1
+
+
+class ListAppInstancesResponse(BaseModel):
+    items: list[AppInstanceSummaryResponse]
+    metadata: PaginatedMetadataV1
+
+
+# --- Hardware tiers (GET /api/hardwaretiers/v1/hardwaretiers/{hardwareTierId}) ---
+
+
+class MetadataV1(BaseModel):
+    notices: list[str]
+    requestId: str
+
+
+class InformationV1(BaseModel):
+    value: float
+    units: Literal["MB", "MiB", "GB", "GiB"]
+
+
+class HardwareTierResourcesV1(BaseModel):
+    cores: float
+    memory: InformationV1
+    allowSharedMemoryToExceedDefault: bool
+    coresLimit: float | None = None
+    memoryLimit: InformationV1 | None = None
+
+
+class HardwareTierFlagsV1(BaseModel):
+    isDefault: bool
+    isVisible: bool
+    isGlobal: bool
+    isArchived: bool
+    isDataAnalystTier: bool
+    isModelApiTier: bool | None = None
+    isDefaultForModelApi: bool | None = None
+
+
+class HardwareTierPodCustomizationV1(BaseModel):
+    additionalRequests: dict[str, str] | None = None
+    additionalLimits: dict[str, str] | None = None
+
+
+class HardwareTierV1(BaseModel):
+    """The required fields; the reference lists more optional ones."""
+
+    id: str
+    name: str
+    resources: HardwareTierResourcesV1
+    flags: HardwareTierFlagsV1
+    centsPerMinute: float
+    creationTime: str
+    updateTime: str
+    podCustomization: HardwareTierPodCustomizationV1
+    metadata: dict[str, str]
+
+
+class HardwareTierEnvelopeV1(BaseModel):
+    hardwareTier: HardwareTierV1
+    metadata: MetadataV1
 
 
 class FailureEnvelopeV1(BaseModel):

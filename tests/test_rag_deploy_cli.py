@@ -1,76 +1,38 @@
 """End-to-end tests of the ``rag-deploy`` CLI: ``main`` over the in-process fake
-Domino (status, url, deploy, per-behaviour failures, --dry-run, deploy.env).
+Domino (status, url, deploy, per-behaviour failures, deploy.yaml, the App id
+cache).
+Dry runs: test_domino_deploy_dry_run.py. The fixtures are in domino_deploy_fixtures.
 """
 
 from __future__ import annotations
 
-import shlex
-from collections.abc import Callable
+import json
 from pathlib import Path
 
-import httpx
 import pytest
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from domino_deploy_helpers import APPS_PATH, APPS_URL, DEPLOY_ENV, add_app
-from rag_load_test.deploy.cli import main
+from domino_deploy_helpers import (
+    APPS_URL,
+    CACHE_FILE,
+    DEPLOY_YAML,
+    ENV_1,
+    INSTANCES_URL,
+    NO_ENVIRONMENT,
+    RunMain,
+    add_app,
+    deployed_lines,
+    launched,
+)
 from rag_load_test.deploy.fake_domino import FakeDominoApps, create_fake_domino
 
-PROXY = "http://proxy.test:8899"
+pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
+READYZ = "/fake-owner/fake-project/r/notebookSession/app-1-v1-i/readyz"
 
 
 # --- rag-deploy end to end: main over the fake Domino ---
-
-
-@pytest.fixture
-def domino_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A Workspace's environment, run from a repository root with no deploy.env."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "domino").mkdir()
-    (tmp_path / "domino" / "app.sh").write_text("#!/bin/bash\n")
-    for name in ("RAG_DEPLOY_TOPOLOGY", "RAG_DEPLOY_PROJECT_ID", "RAG_DEPLOY_ES_URL"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("DOMINO_API_PROXY", PROXY)
-    monkeypatch.setenv("DOMINO_PROJECT_ID", "proj-1")
-    monkeypatch.setenv("RAG_DEPLOY_ENVIRONMENT_ID", "env-1")
-
-
-@pytest.fixture
-def no_real_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail on any request through a real transport (TestClient has its own)."""
-
-    def refuse(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
-        raise AssertionError(f"real HTTP request sent: {request.url}")
-
-    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
-
-
-def launched() -> str:
-    """The tail of every entry script when rag-deploy runs from this directory."""
-    return f"exec bash {shlex.quote(str(Path.cwd() / 'domino' / 'app.sh'))}"
-
-
-RunMain = Callable[..., tuple[int, str, str]]
-
-
-@pytest.fixture
-def run_main(
-    capsys: pytest.CaptureFixture[str], domino_env: None, no_real_http: None
-) -> RunMain:
-    """Runs ``main`` against ``fake_domino``; returns (exit code, stdout, stderr)."""
-
-    def run(argv: list[str], fake_domino: ASGIApp | None) -> tuple[int, str, str]:
-        code = 0
-        try:
-            main(argv, fake_domino=fake_domino)
-        except SystemExit as exc:
-            code = int(exc.code or 0)
-        out, err = capsys.readouterr()
-        return code, out, err
-
-    return run
 
 
 def answering(
@@ -133,13 +95,13 @@ def test_status_lists_the_apps_then_the_workflow_readiness(
     add_app(apps, "rag-workflow")
     readyz = JSONResponse(READY_BODY, status_code=503, headers=RUN_HEADERS)
     token = PlainTextResponse("tok-1\n")
-    canned = {"/access-token": token, "/apps/app-1/readyz": readyz}
+    canned = {"/access-token": token, READYZ: readyz}
     fake, seen = answering(create_fake_domino(apps), canned)
     code, out, _ = run_main(["status"], fake)
     assert code == 0
     assert out == (
         "rag-reranker   not deployed\n"
-        f"rag-workflow   Running        {APPS_URL}/app-1\n"
+        f"rag-workflow   Running        {INSTANCES_URL}/app-1-v1-i\n"
         "readyz: HTTP 503, X-RAG-Topology: split-reranker, "
         "X-RAG-Run-Label: split-reranker-fastapi\n"
         "  embedder: ok ovms:bge-small-en-v1.5\n"
@@ -147,7 +109,7 @@ def test_status_lists_the_apps_then_the_workflow_readiness(
     )
     assert [str(request.url) for request in seen] == [
         "http://localhost:8899/access-token",
-        f"{APPS_URL}/app-1/readyz",
+        f"{INSTANCES_URL}/app-1-v1-i/readyz",
     ]
     assert seen[1].headers["Authorization"] == "Bearer tok-1"
 
@@ -163,11 +125,26 @@ def test_status_still_succeeds_when_the_run_token_is_unavailable(
     code, out, _ = run_main(["status"], fake)
     assert code == 0
     assert out == (
-        f"rag-workflow   Running        {APPS_URL}/app-1\n"
+        f"rag-workflow   Running        {INSTANCES_URL}/app-1-v1-i\n"
         "readyz: not checked (run token from http://localhost:8899/access-token: "
         "HTTP 500)\n"
     )
-    assert ("GET", "/apps/app-1/readyz") not in apps.received
+    assert ("GET", READYZ) not in apps.received
+
+
+def test_status_asks_for_the_run_token_where_the_settings_say(
+    run_main: RunMain,
+) -> None:
+    Path("deploy.yaml").write_text(
+        ENV_1 + "topology: monolith\nrun_token_url: http://tokens.test/t\n"
+    )
+    apps = FakeDominoApps(["Running"])
+    add_app(apps, "rag-workflow")
+    canned = {"/t": PlainTextResponse("no token", status_code=500)}
+    fake, seen = answering(create_fake_domino(apps), canned)
+    code, out, _ = run_main(["status"], fake)
+    assert code == 0 and "run token from http://tokens.test/t: HTTP 500" in out
+    assert [str(request.url) for request in seen] == ["http://tokens.test/t"]
 
 
 def test_status_skips_readiness_when_the_workflow_app_is_not_running(
@@ -181,12 +158,37 @@ def test_status_skips_readiness_when_the_workflow_app_is_not_running(
     assert ("GET", "/access-token") not in apps.received
 
 
-def test_url_prints_only_the_app_url(run_main: RunMain) -> None:
-    listed = {
-        "items": [{"id": "app-1", "name": "rag-workflow", "url": "https://d.test/a/"}]
-    }
-    fake, _ = answering(create_fake_domino(), {APPS_PATH: JSONResponse(listed)})
-    assert run_main(["url", "workflow"], fake) == (0, "https://d.test/a\n", "")
+def test_url_prints_only_where_the_app_answers(run_main: RunMain) -> None:
+    apps = FakeDominoApps(["Running"])
+    add_app(apps, "rag-workflow")
+    expected = f"{INSTANCES_URL}/app-1-v1-i\n"
+    assert run_main(["url", "workflow"], create_fake_domino(apps)) == (0, expected, "")
+
+
+def test_url_takes_the_host_from_domino_host(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_DEPLOY_DOMINO_HOST", "https://domino.example")
+    apps = FakeDominoApps(["Running"])
+    add_app(apps, "rag-workflow")
+    code, out, _ = run_main(["url", "workflow"], create_fake_domino(apps))
+    assert (code, out) == (
+        0,
+        "https://domino.example/fake-owner/fake-project/r/notebookSession/app-1-v1-i\n",
+    )
+
+
+def test_url_of_an_app_with_no_running_instance_is_an_error(
+    run_main: RunMain,
+) -> None:
+    apps = FakeDominoApps(["Pending"])
+    add_app(apps, "rag-workflow")
+    code, out, err = run_main(["url", "workflow"], create_fake_domino(apps))
+    assert (code, out) == (2, "")
+    assert err.endswith(
+        "rag-deploy: error: App rag-workflow has no Running instance of its current "
+        "version app-1-v1 to call (instance statuses seen: Pending)\n"
+    )
 
 
 def test_url_of_an_app_not_deployed_is_an_error(run_main: RunMain) -> None:
@@ -198,17 +200,12 @@ def test_url_of_an_app_not_deployed_is_an_error(run_main: RunMain) -> None:
     )
 
 
-def test_deploy_requires_the_environment_id(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("RAG_DEPLOY_ENVIRONMENT_ID")
+def test_deploy_requires_the_environment_id(run_main: RunMain) -> None:
+    Path("deploy.yaml").unlink()
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
     assert code == 2
-    assert err.endswith(
-        "rag-deploy: error: RAG_DEPLOY_ENVIRONMENT_ID is not set: it is the id of "
-        "the Domino compute environment the Apps run in\n"
-    )
+    assert err.endswith(NO_ENVIRONMENT)
     assert apps.received == []
 
 
@@ -238,7 +235,7 @@ def test_ovms_deploy_checks_the_bundle_exists_before_publishing(
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
     assert code == 2
     assert err.endswith(
-        f"rag-deploy: error: RAG_DEPLOY_OVMS_BUNDLE={tmp_path / 'missing.tar.gz'} "
+        f"rag-deploy: error: ovms_bundle={tmp_path / 'missing.tar.gz'} "
         "does not exist: set it to the OVMS bundle folder (bin/ovms, lib/) or its "
         ".tar.gz, at a path the Apps can read\n"
     )
@@ -258,13 +255,6 @@ def test_ovms_deploy_publishes_when_the_bundle_exists(
 
 
 # --- rag-deploy per fake Domino behaviour: what a user would read ---
-
-
-def deployed_lines(count: int) -> str:
-    names = ["rag-embedder", "rag-reranker", "rag-workflow"][:count]
-    return "".join(
-        f"{name}: Running {APPS_URL}/app-{n}\n" for n, name in enumerate(names, 1)
-    )
 
 
 @pytest.mark.parametrize("behaviour", ["starts", "slow"])
@@ -319,127 +309,71 @@ def test_status_after_a_deploy_shows_the_run_headers_the_app_reports(
     code, out, _ = run_main(["status"], fake)
     assert code == 0
     assert out == (
-        f"rag-embedder   Running        {APPS_URL}/app-1\n"
-        f"rag-reranker   Running        {APPS_URL}/app-2\n"
-        f"rag-workflow   Running        {APPS_URL}/app-3\n"
+        f"rag-embedder   Running        {INSTANCES_URL}/app-1-v1-i\n"
+        f"rag-reranker   Running        {INSTANCES_URL}/app-2-v1-i\n"
+        f"rag-workflow   Running        {INSTANCES_URL}/app-3-v1-i\n"
         "readyz: HTTP 200, X-RAG-Topology: split-all, "
         "X-RAG-Run-Label: split-all-fastapi\n"
         "  fake_domino: ok answered by the fake\n"
     )
 
 
-# --- rag-deploy --dry-run: the same code against an in-process fake Domino ---
+# --- deploy.yaml ---
 
 
-def dry_run_report(env_id: str, tier_line: str = "") -> str:
-    tail = launched()
-    model_servers = "".join(
-        f"\nrag-{part}\n  environmentId: {env_id}\n{tier_line}  entryScript:\n"
-        f"    export RAG_ROLE=fastapi-{part}\n    export RAG_BOOTSTRAP=1\n    {tail}\n"
-        for part in ("embedder", "reranker")
-    )
-    return (
-        "\nDry run: nothing was sent to Domino. rag-deploy would publish:\n"
-        f"{model_servers}"
-        f"\nrag-workflow\n  environmentId: {env_id}\n{tier_line}  entryScript:\n"
-        "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY=split-all\n"
-        f"    export RAG_OVMS_RERANK_URL={APPS_URL}/app-2\n"
-        f"    export RAG_OVMS_EMBEDDINGS_URL={APPS_URL}/app-1\n"
-        "    export RAG_RUN_LABEL=split-all-fastapi\n"
-        f"    export RAG_BOOTSTRAP=1\n    {tail}\n"
-    )
-
-
-def test_dry_run_deploy_needs_no_workspace_and_prints_each_entry_script(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("DOMINO_API_PROXY")
-    monkeypatch.delenv("DOMINO_PROJECT_ID")
-    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert (code, err) == (0, "")
-    assert out == deployed_lines(3) + dry_run_report("env-1")
-
-
-def test_dry_run_shows_the_hardware_tier_when_set(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_HARDWARE_TIER_ID", "tier-8")
-    code, out, _ = run_main(["--dry-run", "deploy", "all"], None)
-    assert code == 0
-    assert out.endswith(dry_run_report("env-1", "  hardwareTierId: tier-8\n"))
-
-
-def test_dry_run_still_requires_the_environment_id(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("RAG_DEPLOY_ENVIRONMENT_ID")
-    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert (code, out) == (2, "")
-    assert err.endswith("RAG_DEPLOY_ENVIRONMENT_ID is not set: it is the id of "
-        "the Domino compute environment the Apps run in\n")  # fmt: skip
-
-
-def test_dry_run_still_refuses_secrets_in_deploy_env(run_main: RunMain) -> None:
-    Path("deploy.env").write_text("RAG_ES_API_KEY=secret\n")
-    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert (code, out) == (2, "")
-    assert "RAG_ES_API_KEY is set in deploy.env" in err
-
-
-def test_dry_run_still_requires_the_repository_root(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    (tmp_path / "elsewhere").mkdir()
-    monkeypatch.chdir(tmp_path / "elsewhere")
-    code, _, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert code == 2 and "has no domino/app.sh" in err
-
-
-def test_dry_run_still_checks_the_ovms_bundle(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_MODEL_SERVER", "ovms")
-    monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", "/no/such/bundle")
-    code, _, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert code == 2 and "RAG_DEPLOY_OVMS_BUNDLE=/no/such/bundle does not exist" in err
-
-
-def test_dry_run_status_lists_nothing_deployed(
-    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("DOMINO_API_PROXY")
-    code, out, _ = run_main(["--dry-run", "status"], None)
-    assert (code, out) == (
-        0,
-        "rag-embedder   not deployed\n"
-        "rag-reranker   not deployed\n"
-        "rag-workflow   not deployed\n",
-    )
-
-
-# --- deploy.env ---
-
-
-def test_deploy_passes_deploy_env_to_every_app(run_main: RunMain) -> None:
-    Path("deploy.env").write_text(DEPLOY_ENV)  # run_main runs in an empty tmp dir
+def test_deploy_passes_each_apps_settings_to_it(run_main: RunMain) -> None:
+    Path("deploy.yaml").write_text(DEPLOY_YAML)  # run_main runs in an empty tmp dir
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
     assert code == 0, err
     scripts = [str(body.version.entryScript) for body in apps.creates]
-    assert len(scripts) == 2  # split-reranker, from RAG_DEPLOY_TOPOLOGY in the file
+    assert len(scripts) == 2  # split-reranker, from `topology` in the file
+    assert scripts[0].startswith(
+        "export RAG_ES_URL=https://es.test:9200\n"
+        "export RAG_MODEL_WORKERS=2\n"
+        "export RAG_RERANKER_MODEL='/mnt/data/models/bge reranker'\n"
+        "export RAG_ROLE=fastapi-reranker\n"
+    )
+    assert scripts[1].startswith(
+        "export RAG_ES_URL=https://es.test:9200\n"
+        "export RAG_RERANKER_MODEL='/mnt/data/models/bge reranker'\n"
+        "export RAG_ROLE=workflow\n"
+    )
     for entry in scripts:
-        assert entry.startswith(
-            "export RAG_EMBEDDER_MODEL=/mnt/data/models/bge-small\n"
-            "export RAG_ES_URL=https://es.test:9200\n"
-            "export RAG_RERANKER_MODEL='/mnt/data/models/bge reranker'\n"
-            "export RAG_ROLE="
-        )
         assert entry.endswith(f"export RAG_BOOTSTRAP=1\n{launched()}")
 
 
-def test_deploy_refuses_an_es_api_key_in_deploy_env(run_main: RunMain) -> None:
-    Path("deploy.env").write_text("RAG_ES_API_KEY=secret\n")
+def test_deploy_refuses_an_es_api_key_in_deploy_yaml(run_main: RunMain) -> None:
+    Path("deploy.yaml").write_text(ENV_1 + "  settings: {RAG_ES_API_KEY: secret}\n")
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
-    assert code == 2 and "RAG_ES_API_KEY is set in deploy.env" in err
+    assert code == 2 and "RAG_ES_API_KEY is set in deploy.yaml" in err
     assert apps.creates == []
+
+
+def test_a_misspelt_key_in_deploy_yaml_is_named(run_main: RunMain) -> None:
+    Path("deploy.yaml").write_text(ENV_1 + "apps: {embedder: {hardware_tier: x}}\n")
+    code, _, err = run_main(["status"], create_fake_domino())
+    assert code == 2 and "apps.embedder.hardware_tier" in err
+
+
+# --- the App id cache ---
+
+
+def test_a_second_deploy_redeploys_the_same_apps(run_main: RunMain) -> None:
+    apps = FakeDominoApps(["Running"])
+    fake = create_fake_domino(apps)
+    assert run_main(["deploy", "all"], fake)[0] == 0
+    assert run_main(["deploy", "all"], fake)[0] == 0
+    assert len(apps.creates) == 3
+    assert [app_id for app_id, _ in apps.new_versions] == ["app-1", "app-2", "app-3"]
+    assert json.loads(Path(CACHE_FILE).read_text()) == {
+        "proj-1": {"rag-embedder": "app-1", "rag-reranker": "app-2", "rag-workflow": "app-3"}  # fmt: skip
+    }
+
+
+def test_a_cache_file_that_cannot_be_read_is_named(run_main: RunMain) -> None:
+    Path(CACHE_FILE).write_text("{oops")
+    code, _, err = run_main(["status"], create_fake_domino())
+    assert code == 2
+    assert f"{CACHE_FILE} is not an App id cache" in err
