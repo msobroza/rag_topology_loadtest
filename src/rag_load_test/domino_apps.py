@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from .models import describe_error
+
 APPS_API_PATH = "/api/apps/beta/apps"
 WAIT_TIMEOUT_S = 600.0
 POLL_INTERVAL_S = 5.0
@@ -105,7 +107,14 @@ class DominoAppsClient:
         return _app_from_json(self._call("GET", f"{APPS_API_PATH}/{app_id}"))
 
     def _call(self, method: str, path: str, **kwargs: object) -> Mapping[str, object]:
-        response = self.http.request(method, path, **kwargs)  # type: ignore[arg-type]
+        try:
+            response = self.http.request(method, path, **kwargs)  # type: ignore[arg-type]
+        except httpx.HTTPError as exc:  # refused, timed out, DNS: no answer at all
+            base_url = str(self.http.base_url).rstrip("/")
+            raise DominoDeployError(
+                f"Domino Apps API {method} {path} could not be reached at "
+                f"{base_url}: {describe_error(exc)}"
+            ) from exc
         if response.status_code != 200:
             raise DominoDeployError(_describe_failure(method, path, response))
         return json_mapping(response.json())

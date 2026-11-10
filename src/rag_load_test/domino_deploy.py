@@ -22,7 +22,7 @@ from typing import Literal
 
 import httpx
 from dotenv import dotenv_values
-from pydantic import Field, ValidationError
+from pydantic import ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.types import ASGIApp
 
@@ -77,9 +77,13 @@ class DeploySettings(BaseSettings):
     environment_id: str = ""  # required by ``rag-deploy deploy``
     hardware_tier_id: str = ""
     ovms_bundle: str = ""  # required for ``ovms``: bin/ovms + lib/, or its .tar.gz
-    project_id: str = Field(
-        default_factory=lambda: os.environ.get("DOMINO_PROJECT_ID", "")
-    )
+    project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
+
+    @model_validator(mode="after")
+    def _project_from_the_workspace(self) -> DeploySettings:
+        # The example's empty RAG_DEPLOY_PROJECT_ID= line means "not set", not "".
+        self.project_id = self.project_id or os.environ.get("DOMINO_PROJECT_ID", "")
+        return self
 
 
 def load_app_settings(path: str = DEPLOY_ENV_FILE) -> dict[str, str]:

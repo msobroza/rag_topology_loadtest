@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
@@ -23,6 +24,7 @@ from rag_load_test.domino_apps import (
     NO_INSTANCE_GRACE_S,
     WAIT_TIMEOUT_S,
     DominoApp,
+    DominoAppsClient,
     DominoDeployError,
 )
 from rag_load_test.domino_deploy import (
@@ -166,3 +168,18 @@ def test_waiting_times_out_with_the_last_status_seen() -> None:
         "App rag-embedder is not Running after 600 s; last status: Pulling"
     )
     assert sum(sleeps) == WAIT_TIMEOUT_S
+
+
+def test_an_unreachable_domino_is_reported_with_its_address() -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("[Errno 61] Connection refused", request=request)
+
+    http = httpx.Client(
+        base_url="http://localhost:8899", transport=httpx.MockTransport(refuse)
+    )
+    with pytest.raises(DominoDeployError) as caught:
+        DominoAppsClient(http, "proj-1").find("rag-workflow")
+    assert str(caught.value) == (
+        "Domino Apps API GET /api/apps/beta/apps could not be reached at "
+        "http://localhost:8899: ConnectError: [Errno 61] Connection refused"
+    )

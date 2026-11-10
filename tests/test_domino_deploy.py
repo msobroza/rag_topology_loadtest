@@ -258,3 +258,27 @@ def test_a_run_label_in_deploy_env_replaces_the_computed_one() -> None:
         "export RAG_OVMS_RERANK_URL=https://domino.test/apps/r1\n"
         f"{BOOTSTRAP_AND_EXEC}"
     )
+
+
+# --- the project id ---
+
+EXAMPLE_ENV = Path(__file__).resolve().parents[1] / "deploy.env.example"
+
+
+def test_the_example_file_copied_as_is_takes_the_project_from_the_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The example has an empty RAG_DEPLOY_PROJECT_ID= line: empty means "not set".
+    monkeypatch.delenv("RAG_DEPLOY_PROJECT_ID", raising=False)
+    monkeypatch.setenv("DOMINO_PROJECT_ID", "proj-of-the-workspace")
+    settings = DeploySettings(_env_file=str(EXAMPLE_ENV))  # type: ignore[call-arg]
+    assert settings.project_id == "proj-of-the-workspace"
+
+
+def test_an_explicit_project_id_wins_over_the_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DOMINO_PROJECT_ID", "proj-of-the-workspace")
+    monkeypatch.setenv("RAG_DEPLOY_PROJECT_ID", "proj-named-here")
+    settings = DeploySettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.project_id == "proj-named-here"
