@@ -10,10 +10,14 @@ from fastapi.testclient import TestClient
 
 from rag_load_test.fakes import FakeEmbedder, FakeReranker
 from rag_load_test.model_server import create_model_server, main
-from rag_load_test.models import ScoredPassage
+from rag_load_test.models import RagDependencyError, ScoredPassage
 from rag_load_test.ovms import BearerToken, OvmsEmbedder, OvmsReranker
 from rag_load_test.rag_ports import RagPorts
 from rag_load_test.settings import RagSettings
+from rag_load_test.v3_contract import UNKNOWN_MODEL_ERROR
+
+EMBED_ALIAS = "bge-small-en-v1.5"  # RagSettings().ovms_embeddings_model
+RERANK_ALIAS = "bge-reranker-base"  # RagSettings().ovms_rerank_model
 
 
 @pytest.fixture
@@ -32,25 +36,26 @@ def reranker_app(settings_factory: Callable[..., RagSettings]):
 
 def test_embeddings_endpoint_matches_ovms_shape(embedder_app: TestClient) -> None:
     resp = embedder_app.post(
-        "/v3/embeddings", json={"model": "bge-small-en-v1.5", "input": ["a b", "c d"]}
+        "/v3/embeddings", json={"model": EMBED_ALIAS, "input": ["a b", "c d"]}
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["object"] == "list" and body["model"] == "bge-small-en-v1.5"
+    assert body["object"] == "list" and body["model"] == EMBED_ALIAS
     assert [row["index"] for row in body["data"]] == [0, 1]
+    assert [row["object"] for row in body["data"]] == ["embedding", "embedding"]
     assert all(len(row["embedding"]) == 4 for row in body["data"])
 
 
 def test_embeddings_accepts_a_single_string(embedder_app: TestClient) -> None:
     body = embedder_app.post(
-        "/v3/embeddings", json={"model": "m", "input": "hi"}
+        "/v3/embeddings", json={"model": EMBED_ALIAS, "input": "hi"}
     ).json()
     assert len(body["data"]) == 1
 
 
 def test_rerank_endpoint_matches_ovms_shape(reranker_app: TestClient) -> None:
     payload = {
-        "model": "bge-reranker-base",
+        "model": RERANK_ALIAS,
         "query": "vacation days",
         "documents": ["cafeteria lunch", "vacation days policy", "unrelated"],
         "top_n": 2,
@@ -62,8 +67,23 @@ def test_rerank_endpoint_matches_ovms_shape(reranker_app: TestClient) -> None:
 
 
 def test_rerank_without_top_n_returns_every_document(reranker_app: TestClient) -> None:
-    payload = {"model": "m", "query": "q", "documents": ["a", "b", "c"]}
+    payload = {"model": RERANK_ALIAS, "query": "q", "documents": ["a", "b", "c"]}
     assert len(reranker_app.post("/v3/rerank", json=payload).json()["results"]) == 3
+
+
+def test_embeddings_for_an_unknown_model_is_404_like_ovms(
+    embedder_app: TestClient,
+) -> None:
+    resp = embedder_app.post("/v3/embeddings", json={"model": "m", "input": "hi"})
+    assert resp.status_code == 404
+    assert resp.json() == {"error": UNKNOWN_MODEL_ERROR}
+
+
+def test_rerank_for_an_unknown_model_is_404_like_ovms(reranker_app: TestClient) -> None:
+    payload = {"model": EMBED_ALIAS, "query": "q", "documents": ["a"]}
+    resp = reranker_app.post("/v3/rerank", json=payload)
+    assert resp.status_code == 404
+    assert resp.json() == {"error": UNKNOWN_MODEL_ERROR}
 
 
 def test_role_specific_endpoints_and_readiness(
@@ -115,14 +135,59 @@ async def test_ovms_adapters_work_against_the_fastapi_server(
         vectors = await embedder.embed(["a", "b"])
         assert len(vectors) == 2 and len(vectors[0]) == 4
         assert (await reranker.ready())[0] and (await embedder.ready())[0]
-        assert not (
-            await OvmsReranker(
-                rerank_client,
-                "http://models",
-                "nope",
-                token=BearerToken(rerank_client, ""),
-            ).ready()
-        )[0]
+        wrong_alias = OvmsReranker(
+            rerank_client, "http://models", "nope", token=BearerToken(rerank_client, "")
+        )
+        assert not (await wrong_alias.ready())[0]
+
+
+async def test_ovms_adapters_with_a_wrong_alias_fail_fast_on_404(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    """The unhappy path of the contract: unknown model -> 404, and 4xx is not retried."""
+    sent: list[str] = []
+
+    async def record_request(request: httpx.Request) -> None:
+        sent.append(request.url.path)
+
+    reranker_app = create_model_server(
+        "reranker", RagPorts(settings_factory(), reranker=FakeReranker())
+    )
+    embedder_app = create_model_server(
+        "embedder", RagPorts(settings_factory(), embedder=FakeEmbedder(dim=4))
+    )
+    with TestClient(reranker_app), TestClient(embedder_app):  # run the lifespans
+        for app, call in [
+            (reranker_app, _rerank_with_alias),
+            (embedder_app, _embed_with_alias),
+        ]:
+            client = httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://models",
+                event_hooks={"request": [record_request]},
+            )
+            sent.clear()
+            with pytest.raises(RagDependencyError) as info:
+                await call(client, "nope")
+            assert info.value.detail == f'HTTP 404: {{"error":"{UNKNOWN_MODEL_ERROR}"}}'
+            assert len(sent) == 1  # 4xx is not retried
+
+
+async def _rerank_with_alias(client: httpx.AsyncClient, alias: str) -> None:
+    reranker = OvmsReranker(
+        client, "http://models", alias, token=BearerToken(client, "")
+    )
+    reranker.backoff_s = 0  # a retry, if any, must not sleep
+    passages = [ScoredPassage(id="x", text="a", retrieval_score=0.9)]
+    await reranker.rerank("q", passages, 1)
+
+
+async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
+    embedder = OvmsEmbedder(
+        client, "http://models", alias, token=BearerToken(client, "")
+    )
+    embedder.backoff_s = 0
+    await embedder.embed(["a"])
 
 
 def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:

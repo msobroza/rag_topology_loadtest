@@ -1,8 +1,9 @@
 """HTTP adapters for OpenVINO Model Server (the ``ovms`` backends).
 
 OVMS exposes OpenAI-compatible ``/v3/embeddings`` and Cohere-compatible
-``/v3/rerank``. On Domino each OVMS app sits behind a proxy that expects the
-run's bearer token, hence :class:`BearerToken`. Calls time out after
+``/v3/rerank``; their paths and JSON shapes come from :mod:`.v3_contract`.
+On Domino each OVMS app sits behind a proxy that expects the run's bearer
+token, hence :class:`BearerToken`. Calls time out after
 ``TIMEOUT_S`` and are retried ``RETRIES`` times on transport errors and 5xx.
 
 Example::
@@ -16,11 +17,23 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Sequence
-from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
-from .models import RagDependencyError, ScoredPassage, top_by_score
+from .models import RagDependencyError, ScoredPassage
+from .v3_contract import (
+    EMBEDDINGS_PATH,
+    RERANK_PATH,
+    EmbeddingsRequest,
+    EmbeddingsResponse,
+    RerankResponse,
+    V3Request,
+    model_probe_path,
+    passages_from_rerank,
+    rerank_request_for,
+    vectors_from_embeddings,
+)
 
 TIMEOUT_S = 30.0
 RETRIES = 2
@@ -90,7 +103,7 @@ class OvmsEndpoint:
         self.model_name = f"ovms:{model}"
 
     async def ready(self) -> tuple[bool, str]:
-        url = f"{self._base_url}/v3/models/{self.model}"
+        url = self._base_url + model_probe_path(self.model)
         try:
             headers = await self._token.headers()
             response = await self._client.get(url, headers=headers, timeout=TIMEOUT_S)
@@ -98,9 +111,9 @@ class OvmsEndpoint:
             return False, _describe(exc)
         return response.status_code == 200, f"{url} -> {response.status_code}"
 
-    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post(self, path: str, request: V3Request) -> object:
         """POST JSON; retry on transport errors, 5xx and 401 (token dropped first)."""
-        url = self._base_url + path
+        url, payload = self._base_url + path, request.to_wire()
         detail, kind = "no attempt made", "unavailable"
         for attempt in range(RETRIES + 1):
             if attempt:
@@ -133,7 +146,9 @@ class OvmsEndpoint:
 
     def _malformed(self, exc: Exception, path: str) -> RagDependencyError:
         return RagDependencyError(
-            self.component, f"malformed response: {exc!r}", target=self._base_url + path
+            self.component,
+            f"malformed response: {_describe_malformed(exc)}",
+            target=self._base_url + path,
         )
 
 
@@ -147,14 +162,14 @@ class OvmsEmbedder(OvmsEndpoint):
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
             batch = list(texts[start : start + self.batch_size])
-            body = await self._post(
-                "/v3/embeddings", {"model": self.model, "input": batch}
-            )
+            # ``input`` stays a list even for one text: the wire format OVMS is sent.
+            request = EmbeddingsRequest(model=self.model, input=batch)
+            body = await self._post(EMBEDDINGS_PATH, request)
             try:
-                rows = sorted(body["data"], key=lambda row: int(row["index"]))
-                vectors.extend([float(x) for x in row["embedding"]] for row in rows)
-            except (KeyError, TypeError, ValueError) as exc:
-                raise self._malformed(exc, "/v3/embeddings") from exc
+                response = EmbeddingsResponse.model_validate(body)
+            except ValidationError as exc:
+                raise self._malformed(exc, EMBEDDINGS_PATH) from exc
+            vectors.extend(vectors_from_embeddings(response))
         return vectors
 
 
@@ -168,21 +183,29 @@ class OvmsReranker(OvmsEndpoint):
     ) -> list[ScoredPassage]:
         if not passages:
             return []
-        payload = {
-            "model": self.model,
-            "query": query,
-            "documents": [p.text for p in passages],
-            "top_n": top_n,
-        }
-        body = await self._post("/v3/rerank", payload)
+        request = rerank_request_for(self.model, query, passages, top_n)
+        body = await self._post(RERANK_PATH, request)
         try:
-            scores = {
-                int(r["index"]): float(r["relevance_score"]) for r in body["results"]
-            }
-            chosen = [passages[i] for i in scores]  # IndexError when out of range
-        except (KeyError, TypeError, ValueError, IndexError) as exc:
-            raise self._malformed(exc, "/v3/rerank") from exc
-        return top_by_score(chosen, list(scores.values()), top_n)
+            response = RerankResponse.model_validate(body)
+            return passages_from_rerank(response, passages, top_n)
+        except (ValidationError, IndexError) as exc:  # IndexError: index out of range
+            raise self._malformed(exc, RERANK_PATH) from exc
+
+
+def _describe_malformed(exc: Exception) -> str:
+    """One line naming what broke the shape, not the whole (maybe huge) body.
+
+    Example::
+
+        _describe_malformed(exc)  # "ValidationError for RerankResponse: results: ..."
+    """
+    if not isinstance(exc, ValidationError):
+        return _describe(exc)
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or '<body>'}: {error['msg']}"
+        for error in exc.errors()
+    )
+    return f"ValidationError for {exc.title}: {problems}"
 
 
 def _describe(exc: BaseException) -> str:

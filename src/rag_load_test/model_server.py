@@ -3,6 +3,8 @@
 Like an OVMS app it serves ONE model per process: ``--serve embedder`` exposes
 ``POST /v3/embeddings``, ``--serve reranker`` exposes ``POST /v3/rerank``. Both
 answer ``GET /v3/models/{name}`` for the readiness probe of the ``ovms`` adapters.
+Paths and bodies come from :mod:`.v3_contract`, the same module the adapters read;
+like OVMS, a request for any model but this server's alias is a 404.
 The workflow app cannot tell the two servers apart, so ``RAG_OVMS_*_URL`` can
 point at either and the same load test compares FastAPI with OVMS.
 
@@ -19,30 +21,28 @@ import logging
 import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
-from .models import ScoredPassage
 from .rag_ports import RagPorts
 from .settings import RagSettings
+from .v3_contract import (
+    EMBEDDINGS_PATH,
+    MODEL_PROBE_ROUTE,
+    RERANK_PATH,
+    UNKNOWN_MODEL_ERROR,
+    EmbeddingsRequest,
+    RerankRequest,
+    candidates_from_rerank,
+    embeddings_response_for,
+    embeddings_texts,
+    rerank_response_for,
+)
 
 Role = Literal["embedder", "reranker"]
-
-
-class EmbeddingsRequest(BaseModel):
-    model: str
-    input: str | list[str]
-
-
-class RerankRequest(BaseModel):
-    model: str
-    query: str
-    documents: list[str]
-    top_n: int | None = None
 
 
 def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
@@ -84,7 +84,7 @@ def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
     async def healthz() -> dict[str, str]:
         return {"status": "ok", "role": role}
 
-    @app.get("/v3/models/{name}")
+    @app.get(MODEL_PROBE_ROUTE)
     async def model_status(name: str) -> JSONResponse:
         if name != alias:
             body = {"error": f"unknown model {name!r}, this server serves {alias!r}"}
@@ -93,36 +93,33 @@ def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
 
     if role == "embedder":
 
-        @app.post("/v3/embeddings")
-        async def embeddings(
-            body: EmbeddingsRequest, request: Request
-        ) -> dict[str, Any]:
-            texts = [body.input] if isinstance(body.input, str) else body.input
+        @app.post(EMBEDDINGS_PATH)
+        async def embeddings(body: EmbeddingsRequest, request: Request) -> JSONResponse:
+            if body.model != alias:
+                return _unknown_model()
+            texts = embeddings_texts(body)
             vectors = await request.app.state.embedder.embed(texts)
-            data = [
-                {"object": "embedding", "index": i, "embedding": v}
-                for i, v in enumerate(vectors)
-            ]
-            return {"object": "list", "model": body.model, "data": data}
+            return JSONResponse(embeddings_response_for(alias, vectors).model_dump())
 
     else:
 
-        @app.post("/v3/rerank")
-        async def rerank(body: RerankRequest, request: Request) -> dict[str, Any]:
-            passages = [
-                ScoredPassage(id=str(i), text=text, retrieval_score=0.0)
-                for i, text in enumerate(body.documents)
-            ]
+        @app.post(RERANK_PATH)
+        async def rerank(body: RerankRequest, request: Request) -> JSONResponse:
+            if body.model != alias:
+                return _unknown_model()
+            passages = candidates_from_rerank(body)
             top_n = body.top_n or len(passages)
             ranked = await request.app.state.reranker.rerank(
                 body.query, passages, top_n
             )
-            results = [
-                {"index": int(p.id), "relevance_score": p.rerank_score} for p in ranked
-            ]
-            return {"results": results}
+            return JSONResponse(rerank_response_for(ranked).model_dump())
 
     return app
+
+
+def _unknown_model() -> JSONResponse:
+    # What OVMS answers when ``model`` names no served model (checked in its source).
+    return JSONResponse(status_code=404, content={"error": UNKNOWN_MODEL_ERROR})
 
 
 def main(argv: Sequence[str] | None = None) -> int:

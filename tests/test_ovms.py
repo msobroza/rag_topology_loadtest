@@ -218,7 +218,11 @@ async def test_embedder_malformed_body_raises(client_factory: ClientFactory) -> 
     with pytest.raises(RagDependencyError) as info:
         await embedder.embed(["a"])
     assert info.value.component == "embedder"
-    assert info.value.detail.startswith("malformed response: KeyError")
+    # The shape check now lives in v3_contract (pydantic), not in a KeyError.
+    assert info.value.detail == (
+        "malformed response: ValidationError for EmbeddingsResponse: "
+        "data: Field required"
+    )
     assert info.value.target == f"{BASE_URL}/v3/embeddings"
 
 
@@ -250,6 +254,18 @@ async def test_reranker_empty_passages_make_no_request(
     script = ScriptedTransport(rerank_body())
     assert await endpoint(client_factory(script)).rerank("q", [], top_n=2) == []
     assert script.requests == []
+
+
+async def test_reranker_malformed_body_raises(client_factory: ClientFactory) -> None:
+    script = ScriptedTransport(httpx.Response(200, json={"data": []}))
+    with pytest.raises(RagDependencyError) as info:
+        await endpoint(client_factory(script)).rerank("q", passages(2), top_n=1)
+    assert info.value.component == "reranker"
+    assert info.value.detail == (
+        "malformed response: ValidationError for RerankResponse: "
+        "results: Field required"
+    )
+    assert info.value.target == f"{BASE_URL}/v3/rerank"
 
 
 async def test_reranker_out_of_range_index_raises(

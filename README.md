@@ -43,6 +43,7 @@ src/rag_load_test/
   settings.py       RagSettings: the 17 RAG_* variables (pydantic-settings, .env aware)
   topology.py       the topology rule: backends per topology, contradictions, default run label, Domino rules
   adapters.py       SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, ElasticsearchVectorStore, OpenAIChatModel
+  v3_contract.py    the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
   ovms.py           BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
   fakes.py          FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
   rag_ports.py      RagPorts: settings in, ready ports out; owns the thread pool, HTTP client, bearer token and their shutdown
@@ -152,7 +153,8 @@ as OpenVINO Model Server (`POST /v3/embeddings`, `POST /v3/rerank`,
 `GET /v3/models/<alias>`), using the in-process sentence-transformers adapters.
 The workflow app cannot tell the two servers apart, so the comparison needs no
 code change: point `RAG_OVMS_RERANK_URL` / `RAG_OVMS_EMBEDDINGS_URL` at one or
-the other.
+the other. Both servers answer a request for an unknown model with the same
+`404 {"error": "Mediapipe graph definition with requested name is not found"}`.
 
 Direct comparison (Locust straight at the model servers, same payloads as the
 workflow sends: 20 candidate passages per rerank, one question per embedding):
@@ -294,16 +296,19 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
   -d '{"model":"bge-small-en-v1.5","input":["vacation policy"]}'
 ```
 
-**Contracts** used by `ovms.py`:
+**Contracts** used by `ovms.py`, defined once in `v3_contract.py` (which the
+FastAPI model server reads too):
 
 | Adapter | Request | Response |
 | --- | --- | --- |
-| `OvmsReranker` → `POST {RAG_OVMS_RERANK_URL}/v3/rerank` | `{"model","query","documents":[...],"top_n"}` | `{"results":[{"index","relevance_score"}]}` |
-| `OvmsEmbedder` → `POST {RAG_OVMS_EMBEDDINGS_URL}/v3/embeddings` | `{"model","input":[...]}` (batches of 64) | `{"data":[{"index","embedding":[...]}]}` |
+| `OvmsReranker` → `POST {RAG_OVMS_RERANK_URL}/v3/rerank` | `RerankRequest` `{"model","query","documents":[...],"top_n"}` | `RerankResponse` `{"results":[{"index","relevance_score"}]}` |
+| `OvmsEmbedder` → `POST {RAG_OVMS_EMBEDDINGS_URL}/v3/embeddings` | `EmbeddingsRequest` `{"model","input":[...]}` (batches of 64) | `EmbeddingsResponse` `{"data":[{"index","embedding":[...]}]}` |
 
-Both re-order results by `index`, time out after 30 s and retry twice on
-transport errors, 5xx and 401 (the Domino token is refetched first); other 4xx
-fail immediately. Readiness probes `GET /v3/models/{model}`.
+Both map results back by `index` (an index outside the request, or a body that
+does not fit the shape, is a malformed response), never send a field as `null`,
+time out after 30 s and retry twice on transport errors, 5xx and 401 (the Domino
+token is refetched first); other 4xx fail immediately, including the 404 for a
+`model` that is not the server's alias. Readiness probes `GET /v3/models/{model}`.
 
 **Bumping OVMS**: change `ovms/versions.env` only, re-run `make ovms-export`
 (the exporter is fetched from the new tag), rebuild the `ovms` Domino image and
