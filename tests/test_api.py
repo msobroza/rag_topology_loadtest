@@ -15,12 +15,14 @@ from rag_load_test.models import RagDependencyError, ScoredPassage
 from rag_load_test.rag_ports import RagPorts
 from rag_load_test.settings import RagSettings
 
-TOPOLOGY = "test-topo"
+TOPOLOGY = "split-all"  # with every backend fake: the label, not the transport
+RUN_LABEL = "split-all-test-tier"
 QUESTION = "How many paid vacation days do employees accrue each year?"
 RERANK_URL = "http://ovms:8001/v3/rerank"
 RESPONSE_FIELDS = {
     "request_id",
-    "deployment",
+    "topology",
+    "run_label",
     "question",
     "mode",
     "answer",
@@ -57,12 +59,22 @@ class ExplodingProbeReranker:
 
 
 @pytest.fixture
-def client_for(fake_settings: RagSettings) -> Callable[..., TestClient]:
+def client_for(
+    settings_factory: Callable[..., RagSettings],
+) -> Callable[..., TestClient]:
     """The all-fake app, with any port replaced by keyword (``reranker=...``).
 
     Use the client as a context manager so the lifespan opens the ports.
     """
-    settings = fake_settings.model_copy(update={"topology": TOPOLOGY})
+    # Built, not model_copy'd: only construction validates topology and run label.
+    settings = settings_factory(
+        topology=TOPOLOGY,
+        run_label=RUN_LABEL,
+        embedder_backend="fake",
+        reranker_backend="fake",
+        llm_backend="fake",
+        vector_store_backend="fake",
+    )
 
     def make(**doubles: Any) -> TestClient:
         return TestClient(create_app(RagPorts(settings, **doubles)))
@@ -89,7 +101,8 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == RESPONSE_FIELDS
-    assert body["deployment"] == TOPOLOGY
+    assert body["topology"] == TOPOLOGY
+    assert body["run_label"] == RUN_LABEL
     assert body["question"] == QUESTION
     assert body["mode"] == "query"
     assert body["answer"].startswith("[fake-llm]")
@@ -97,7 +110,20 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
     assert all(p["rerank_score"] is not None for p in body["passages"])
     assert body["timings_ms"]["total"] > 0
     assert response.headers["X-RAG-Topology"] == TOPOLOGY
+    assert response.headers["X-RAG-Run-Label"] == RUN_LABEL
     assert response.headers["X-Request-ID"] == body["request_id"]
+
+
+def test_unset_run_label_reports_the_default_run_label(
+    fake_settings: RagSettings,
+) -> None:
+    with TestClient(create_app(RagPorts(fake_settings))) as test_client:
+        response = test_client.post("/retrieve", json={"question": QUESTION})
+
+    default = "monolith+embedder=fake+reranker=fake+store=fake+llm=fake"
+    assert response.json()["run_label"] == default
+    assert response.headers["X-RAG-Run-Label"] == default
+    assert response.headers["X-RAG-Topology"] == "monolith"
 
 
 def test_supplied_request_id_is_echoed(client: TestClient) -> None:
@@ -199,6 +225,7 @@ def test_dependency_error_maps_to_status(
     assert body["target"] == RERANK_URL
     assert "boom" in body["detail"]
     assert response.headers["X-RAG-Topology"] == TOPOLOGY
+    assert response.headers["X-RAG-Run-Label"] == RUN_LABEL
     assert response.headers["X-Request-ID"]
 
 
@@ -271,6 +298,77 @@ def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> No
     assert main([]) == 0
 
     assert runs == [{"host": "0.0.0.0", "port": 8888}]
+
+
+def _capture_served_ports(monkeypatch: pytest.MonkeyPatch) -> list[RagPorts]:
+    served: list[RagPorts] = []
+
+    def record(ports: RagPorts) -> object:
+        served.append(ports)
+        return object()
+
+    monkeypatch.setattr(api, "create_app", record)
+    monkeypatch.setattr(api.uvicorn, "run", lambda app, **kw: None)
+    return served
+
+
+def test_main_without_domino_leaves_the_auth_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RAG_OVMS_AUTH", raising=False)
+    served = _capture_served_ports(monkeypatch)
+
+    assert main([]) == 0
+
+    assert served[0].settings.ovms_auth == ""
+
+
+def test_main_domino_refuses_a_model_server_port_without_its_url(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
+    monkeypatch.delenv("RAG_OVMS_RERANK_URL", raising=False)
+    served = _capture_served_ports(monkeypatch)
+
+    with pytest.raises(SystemExit) as exited:
+        main(["--domino"])
+
+    assert exited.value.code == 2
+    assert "RAG_OVMS_RERANK_URL" in capsys.readouterr().err
+    assert served == []
+
+
+def test_main_domino_serves_with_the_run_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
+    monkeypatch.setenv("RAG_OVMS_RERANK_URL", "http://reranker")
+    monkeypatch.delenv("RAG_OVMS_AUTH", raising=False)
+    served = _capture_served_ports(monkeypatch)
+
+    assert main(["--domino"]) == 0
+
+    settings = served[0].settings
+    assert settings.ovms_auth == "domino"
+    assert (settings.reranker_backend, settings.ovms_rerank_url) == (
+        "ovms",
+        "http://reranker",
+    )
+
+
+def test_main_ends_on_invalid_settings_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "monolith")
+    monkeypatch.setenv("RAG_EMBEDDER_BACKEND", "ovms")
+    served = _capture_served_ports(monkeypatch)
+
+    with pytest.raises(SystemExit) as exited:
+        main([])
+
+    assert exited.value.code == 2
+    assert "RAG_EMBEDDER_BACKEND='ovms'" in capsys.readouterr().err
+    assert served == []
 
 
 def test_routes_answer_with_and_without_the_domino_prefix(

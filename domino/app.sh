@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Domino App / Agent entry point for every role of the rag_load_test topologies.
 # Pick the role with RAG_ROLE (a Project or App environment variable):
-#   monolith          (default) rag-serve with the embedder and the reranker in-process
-#   workflow          rag-serve calling OVMS for the reranker (split-reranker), or for
-#                     the reranker and the embedder (split-all, RAG_EMBEDDER_BACKEND=ovms)
+#   monolith          (default) the workflow app for RAG_TOPOLOGY=monolith (the default)
+#   workflow          the workflow app for RAG_TOPOLOGY=split-reranker (the default) or
+#                     split-all
 #   ovms-reranker     OpenVINO Model Server serving config_reranker.json
 #   ovms-embedder     OpenVINO Model Server serving config_embedder.json
 #   fastapi-reranker / fastapi-embedder   the same models behind rag-model-server
 #                     (same /v3 contract as OVMS) for the FastAPI-vs-OVMS experiment
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
+#
+# Both workflow app roles run `rag-serve --domino`: Python resolves the embedder and
+# reranker backends from RAG_TOPOLOGY (src/rag_load_test/topology.py), requires
+# RAG_OVMS_*_URL for every port on a model server and defaults RAG_OVMS_AUTH=domino.
+# A role here only picks its default topology and refuses one it does not serve.
 #
 # OVMS has no base-path option. When Domino forwards the app path prefix
 # (DOMINO_RUN_HOST_PATH) to the process instead of stripping it, set
@@ -29,28 +34,16 @@ die() {
   exit 1
 }
 
-serve_monolith() {
-  export RAG_TOPOLOGY=${RAG_TOPOLOGY:-monolith}
-  export RAG_EMBEDDER_BACKEND=local RAG_RERANKER_BACKEND=local
-  exec rag-serve --host 0.0.0.0 --port 8888
-}
-
-serve_workflow() {
-  [ -n "${RAG_OVMS_RERANK_URL:-}" ] \
-    || die "set RAG_OVMS_RERANK_URL to the reranker App URL (the adapter appends /v3/rerank)"
-  export RAG_RERANKER_BACKEND=ovms
-  export RAG_EMBEDDER_BACKEND=${RAG_EMBEDDER_BACKEND:-local}
-  local topology=split-reranker
-  if [ "$RAG_EMBEDDER_BACKEND" = ovms ]; then
-    [ -n "${RAG_OVMS_EMBEDDINGS_URL:-}" ] \
-      || die "RAG_EMBEDDER_BACKEND=ovms needs RAG_OVMS_EMBEDDINGS_URL (embedder App URL; the adapter appends /v3/embeddings)"
-    topology=split-all
-  fi
-  export RAG_TOPOLOGY=${RAG_TOPOLOGY:-$topology}
-  # App-to-app calls inside Domino need the run's bearer token, fetched from
-  # http://localhost:8899/access-token when RAG_OVMS_AUTH=domino.
-  export RAG_OVMS_AUTH=${RAG_OVMS_AUTH:-domino}
-  exec rag-serve --host 0.0.0.0 --port 8888
+# serve_workflow_app <default topology> <allowed topology>...
+serve_workflow_app() {
+  local default_topology=$1
+  shift
+  export RAG_TOPOLOGY=${RAG_TOPOLOGY:-$default_topology}
+  case " $* " in
+    *" $RAG_TOPOLOGY "*) ;;
+    *) die "RAG_TOPOLOGY='$RAG_TOPOLOGY' is not served by this role; allowed: $*" ;;
+  esac
+  exec rag-serve --host 0.0.0.0 --port 8888 --domino
 }
 
 serve_fastapi_model() {
@@ -95,8 +88,8 @@ serve_ovms() {
 }
 
 case "$ROLE" in
-  monolith) serve_monolith ;;
-  workflow) serve_workflow ;;
+  monolith) serve_workflow_app monolith monolith ;;
+  workflow) serve_workflow_app split-reranker split-reranker split-all ;;
   ovms-reranker) serve_ovms config_reranker.json ;;
   ovms-embedder) serve_ovms config_embedder.json ;;
   fastapi-reranker) serve_fastapi_model reranker ;;

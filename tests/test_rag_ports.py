@@ -136,8 +136,7 @@ async def test_both_model_server_adapters_share_one_domino_token(
         return httpx.Response(200, json={"results": [result]})
 
     settings = settings_factory(
-        embedder_backend="ovms",
-        reranker_backend="ovms",
+        topology="split-all",  # both ports on a model server
         llm_backend="fake",
         ovms_auth="domino",
         ovms_embeddings_url="http://embedder",
@@ -201,7 +200,7 @@ async def test_ingest_ports_load_only_the_embedder_weights(
 async def test_local_models_ignore_the_configured_backend(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(embedder_backend="ovms", reranker_backend="ovms")
+    settings = settings_factory(topology="split-all")  # both backends ovms
     async with RagPorts(settings) as ports:
         embedder = await ports.local_embedder()
 
@@ -252,7 +251,7 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     transport = ClosingRecorderTransport()
-    settings = settings_factory(reranker_backend="ovms", llm_backend="fake")
+    settings = settings_factory(topology="split-reranker", llm_backend="fake")
     ports = RagPorts(settings, vector_store=InMemoryVectorStore(), transport=transport)
     async with ports:
         deps = await ports.workflow_dependencies()

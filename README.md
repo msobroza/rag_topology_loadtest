@@ -13,7 +13,7 @@ topologies on Domino Data Lab 6.2 and compares them:
 
 The workflow code is identical everywhere; only the transport behind the
 `EmbedderPort` and `RerankerPort` changes (in-process model vs. HTTP call to
-OVMS), selected by environment variables, and every topology reads the same
+OVMS), selected by `RAG_TOPOLOGY` alone, and every topology reads the same
 Elasticsearch index.
 
 To run it on Domino, follow [Step by step: first test run on Domino](#step-by-step-first-test-run-on-domino).
@@ -40,7 +40,8 @@ and Locust turns those into per-stage statistics.
 src/rag_load_test/
   __init__.py       package docstring, __version__
   models.py         Passage, ScoredPassage, RagResult, the four async ports, RagDependencies, RagDependencyError
-  settings.py       RagSettings: the 16 RAG_* variables (pydantic-settings, .env aware)
+  settings.py       RagSettings: the 17 RAG_* variables (pydantic-settings, .env aware)
+  topology.py       the topology rule: backends per topology, contradictions, default run label, Domino rules
   adapters.py       SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, ElasticsearchVectorStore, OpenAIChatModel
   ovms.py           BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
   fakes.py          FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
@@ -75,7 +76,7 @@ curl -s -X POST localhost:8888/retrieve -H 'Content-Type: application/json' \
 curl -s localhost:8888/readyz
 ```
 
-`make ingest` embeds with the configured `RAG_EMBEDDER_BACKEND` and upserts by
+`make ingest` embeds with the topology's embedder backend and upserts by
 passage id (idempotent); `rag-ingest --corpus docs.jsonl` loads a real corpus, one
 `{"id","title","text","metadata"}` object per line. `make infra-down` stops the containers.
 
@@ -95,15 +96,19 @@ make ovms-export              # once: export both models (int8) into ovms/models
 make infra-up                 # the OVMS containers now serve the reranker on :8001 and the embedder on :8002
 
 # split-reranker: reranker over HTTP, embedder in-process
-RAG_TOPOLOGY=split-reranker RAG_RERANKER_BACKEND=ovms make serve
+RAG_TOPOLOGY=split-reranker make serve
 
 # split-all: reranker and embedder over HTTP
-RAG_TOPOLOGY=split-all RAG_RERANKER_BACKEND=ovms RAG_EMBEDDER_BACKEND=ovms make serve
+RAG_TOPOLOGY=split-all make serve
 ```
 
-The defaults `RAG_OVMS_RERANK_URL=http://localhost:8001` and
+The topology sets the backends; no `RAG_*_BACKEND` variable is needed. The
+defaults `RAG_OVMS_RERANK_URL=http://localhost:8001` and
 `RAG_OVMS_EMBEDDINGS_URL=http://localhost:8002` match the compose ports; `RAG_OVMS_AUTH`
-stays empty locally. `RAG_RERANKER_BACKEND=none` skips reranking (`rerank ≈ 0 ms`).
+stays empty locally. `RAG_RERANKER_BACKEND=none` skips reranking in any topology
+(`rerank ≈ 0 ms`); a backend that contradicts the topology (say
+`RAG_EMBEDDER_BACKEND=ovms` with `RAG_TOPOLOGY=monolith`) stops `rag-serve` at
+start-up with the fix in the message.
 
 ## Load test and comparison
 
@@ -167,7 +172,7 @@ rag-compare results/embed-ovms results/embed-fastapi --out results/embeddings.md
 End-to-end comparison (the split topologies with either server behind them):
 
 ```bash
-RAG_TOPOLOGY=split-reranker-fastapi RAG_RERANKER_BACKEND=ovms RAG_OVMS_RERANK_URL=http://localhost:8011 make serve
+RAG_TOPOLOGY=split-reranker RAG_RUN_LABEL=split-reranker-fastapi RAG_OVMS_RERANK_URL=http://localhost:8011 make serve
 make loadtest RUN_NAME=split-reranker-fastapi HOST=http://localhost:8888
 ```
 
@@ -181,28 +186,33 @@ servers with the `rag` environment (no OVMS binary needed); the workflow app's
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question}` → `{request_id, deployment, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}` |
+| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}` |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}` for `vector_store` (index count > 0), `embedder`, `reranker`; `503` when a check fails |
 
-`X-RAG-Topology` and `X-Request-ID` are set on every response (an incoming
-`X-Request-ID` is propagated). Errors: dependency failure → `503`
+`X-RAG-Topology` (the topology), `X-RAG-Run-Label` (the run label) and
+`X-Request-ID` are set on every response (an incoming `X-Request-ID` is
+propagated). Errors: dependency failure → `503`
 `{"error":"<component>_unavailable","detail","target"}`, upstream timeout →
 `504` `{"error":"<component>_timeout",...}`, validation → `422`. `root_path`
 follows `DOMINO_RUN_HOST_PATH`, so the app answers with or without Domino's
 prefix on the wire and `/docs` works behind the proxy.
 `rag-serve --host 0.0.0.0 --port 8888` are the defaults (host and port are
-flags, not settings).
+flags, not settings); `rag-serve --domino` (what `domino/app.sh` runs) also
+requires `RAG_OVMS_*_URL` for every port on a model server and defaults
+`RAG_OVMS_AUTH=domino`. A settings mistake ends `rag-serve` with a one-line
+usage error, not a traceback.
 
 ## Configuration (`RAG_*` environment variables or `.env`)
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RAG_TOPOLOGY` | `monolith` | Free-form label echoed as `deployment` and `X-RAG-Topology`; Locust records it |
-| `RAG_EMBEDDER_BACKEND` | `local` | `local` \| `ovms` \| `fake` |
+| `RAG_TOPOLOGY` | `monolith` | `monolith` \| `split-reranker` \| `split-all`; decides the embedder and reranker backends (`local`/`local`, `local`/`ovms`, `ovms`/`ovms`); echoed as `topology` and `X-RAG-Topology` |
+| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: the topology plus `+<port>=<backend>` for each backend off its default (e.g. `monolith+reranker=none`); letters, digits and `._+=:-`, 1 to 64 characters |
+| `RAG_EMBEDDER_BACKEND` | from the topology | only `fake` (or the topology's own value) may override it |
 | `RAG_EMBEDDER_MODEL` | `BAAI/bge-small-en-v1.5` | HF id for `local` |
-| `RAG_RERANKER_BACKEND` | `local` | `local` \| `ovms` \| `fake` \| `none` |
+| `RAG_RERANKER_BACKEND` | from the topology | only `fake` or `none` (or the topology's own value) may override it |
 | `RAG_RERANKER_MODEL` | `BAAI/bge-reranker-base` | HF id for `local` |
 | `RAG_OVMS_EMBEDDINGS_URL` | `http://localhost:8002` | base URL (App URL on Domino); the adapter appends `/v3/embeddings` |
 | `RAG_OVMS_EMBEDDINGS_MODEL` | `bge-small-en-v1.5` | servable name in the OVMS config |
@@ -219,11 +229,12 @@ flags, not settings).
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
 
-Those 16 `RAG_*` fields are the whole of `settings.py`. Retrieval sizes
+Those 17 `RAG_*` fields are the whole of `settings.py`. Retrieval sizes
 (`TOP_K_RETRIEVE=20`, `TOP_K_RERANK=5`), the model thread pool (`4`), the OVMS
 timeout (`30 s`) and retries (`2`, backoff 0.2 s then 0.4 s), the Domino token
 cache (`240 s`) and the index name are constants, so experiments only vary the
-topology. An invalid backend name fails at start-up with the accepted values listed.
+topology. An invalid backend or topology name, a backend that contradicts the
+topology, or a bad run label fails at start-up with the accepted values listed.
 
 ## Elasticsearch
 
@@ -303,13 +314,18 @@ topologies, so the Locust numbers stay comparable.
 | | **B** workflow + embedder | `workflow` | `RAG_OVMS_RERANK_URL=<URL of A>`, `OPENAI_API_KEY`, `RAG_ES_URL` | `rag` |
 | `split-all` | **A** OVMS reranker | `ovms-reranker` | as above | `ovms` |
 | | **C** OVMS embedder | `ovms-embedder` | as above | `ovms` |
-| | **B** workflow | `workflow` | `RAG_OVMS_RERANK_URL=<URL of A>`, `RAG_EMBEDDER_BACKEND=ovms`, `RAG_OVMS_EMBEDDINGS_URL=<URL of C>`, `OPENAI_API_KEY`, `RAG_ES_URL` | `rag` |
+| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_OVMS_RERANK_URL=<URL of A>`, `RAG_OVMS_EMBEDDINGS_URL=<URL of C>`, `OPENAI_API_KEY`, `RAG_ES_URL` | `rag` |
 | FastAPI variants | **A'** / **C'** the same models behind `rag-model-server` | `fastapi-reranker` / `fastapi-embedder` | none (weights from `RAG_RERANKER_MODEL` / `RAG_EMBEDDER_MODEL`); point B's `RAG_OVMS_*_URL` at these apps instead | `rag` |
 
-The `workflow` role forces `RAG_RERANKER_BACKEND=ovms`, defaults
-`RAG_OVMS_AUTH=domino` and derives `RAG_TOPOLOGY` (`split-reranker`, or
-`split-all` when `RAG_EMBEDDER_BACKEND=ovms`) unless you set it; the label ends
-up in every response, so use distinct labels when testing several hardware tiers.
+Both workflow app roles run `rag-serve --domino`. A role only defaults
+`RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and
+refuses a topology it does not serve (`monolith` serves only `monolith`;
+`workflow` serves `split-reranker` and `split-all`). Python then resolves the
+backends from the topology, requires `RAG_OVMS_RERANK_URL` /
+`RAG_OVMS_EMBEDDINGS_URL` for each port on a model server and defaults
+`RAG_OVMS_AUTH=domino`. `RAG_RERANKER_BACKEND=none` and `fake` backends pass
+through untouched. The run label ends up in every response, so set a distinct
+`RAG_RUN_LABEL` when testing several hardware tiers or model servers.
 
 **Environments.** `domino/Dockerfile` has two targets built from the project
 root (commands in its header): `rag` installs this package with the
@@ -405,6 +421,8 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `404` on `/query` | `HOST` lacks the App path prefix, or has a trailing slash |
 | `503 reranker_unavailable` / `embedder_unavailable` | OVMS app not ready (Dataset missing, wrong `RAG_OVMS_*_URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
 | `503 vector_store_unavailable` / `/readyz` not ready | `RAG_ES_URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
+| `rag-serve: error: ...` in a workflow app's log | a settings mistake: a `RAG_OVMS_*_URL` missing for a port on a model server, or a backend that contradicts `RAG_TOPOLOGY`; the message names the variable and the fix |
+| `app.sh[...]: RAG_TOPOLOGY='...' is not served by this role` | the role and the topology disagree: `monolith` serves `monolith`, `workflow` serves `split-reranker` and `split-all` |
 | `app.sh[ovms-*]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `RAG_OVMS_MODELS_DIR` |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `RAG_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
 
@@ -450,7 +468,7 @@ one project per app and set, in Project → Settings → Environment variables:
 | `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
 | `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
-| `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `OPENAI_API_KEY`, `RAG_OVMS_RERANK_URL` (+ `RAG_EMBEDDER_BACKEND=ovms`, `RAG_OVMS_EMBEDDINGS_URL` for split-all), `RAG_TOPOLOGY` |
+| `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `OPENAI_API_KEY`, `RAG_OVMS_RERANK_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_OVMS_EMBEDDINGS_URL` for split-all), `RAG_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `RAG_DOMINO_TRACING` identical across projects
 (unset, or `true` everywhere).
@@ -485,7 +503,8 @@ Order matters for the split topologies:
    FastAPI projects); wait for "Running" and copy each App URL from the Apps view;
 2. put those URLs, without a trailing slash, into `rag-workflow`'s
    `RAG_OVMS_RERANK_URL` / `RAG_OVMS_EMBEDDINGS_URL`, set `RAG_TOPOLOGY`
-   (`split-reranker`, `split-all`, `split-reranker-fastapi`, ...), then publish it;
+   (`split-reranker` or `split-all`) and, for a variant, `RAG_RUN_LABEL`
+   (`split-reranker-fastapi`, ...), then publish it;
 3. publish `rag-monolith`.
 
 Share every model app with the owner of `rag-workflow` (its run token is the
@@ -533,8 +552,8 @@ them into a Dataset before stopping it.
 
 | Experiment | Change |
 | --- | --- |
-| monolith vs split-reranker vs split-all | which app `HOST` points at; the workflow project's `RAG_TOPOLOGY`, `RAG_EMBEDDER_BACKEND`, `RAG_OVMS_*_URL` |
-| FastAPI vs OVMS behind the workflow | the workflow project's `RAG_OVMS_*_URL` (and a distinct `RAG_TOPOLOGY` label) |
+| monolith vs split-reranker vs split-all | which app `HOST` points at; the workflow project's `RAG_TOPOLOGY`, `RAG_OVMS_*_URL` |
+| FastAPI vs OVMS behind the workflow | the workflow project's `RAG_OVMS_*_URL` (and a distinct `RAG_RUN_LABEL`) |
 | FastAPI vs OVMS directly | `HOST` and `RUN_NAME` of `make loadtest-models` |
 | cost of reranking | `RAG_RERANKER_BACKEND=none` on the monolith or workflow project |
 | remove OpenAI latency | `RAG_LLM_BACKEND=fake` on the monolith and workflow projects |

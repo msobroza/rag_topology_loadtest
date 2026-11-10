@@ -37,7 +37,9 @@ def bin_dir(tmp_path: Path) -> Path:
 def run_app(
     tmp_path: Path, bin_dir: Path, **env: str
 ) -> subprocess.CompletedProcess[str]:
-    full_env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", **env}
+    # A RAG_* variable from the developer's shell would leak into the role under test.
+    inherited = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
+    full_env = {**inherited, "PATH": f"{bin_dir}:{os.environ['PATH']}", **env}
     return subprocess.run(
         ["bash", str(APP_SH)], env=full_env, capture_output=True, text=True, timeout=60
     )
@@ -46,6 +48,11 @@ def run_app(
 def log(tmp_path: Path, name: str) -> str:
     path = tmp_path / f"{name}.log"
     return path.read_text() if path.exists() else ""
+
+
+def rag_serve_env(tmp_path: Path) -> list[str]:
+    """The RAG_* variables rag-serve was started with, one ``NAME=value`` each."""
+    return (tmp_path / "rag-serve.env").read_text().splitlines()
 
 
 def models_dir(tmp_path: Path) -> Path:
@@ -120,23 +127,74 @@ def test_missing_ovms_config_fails_with_a_clear_message(
     assert result.returncode == 1 and "OVMS config not found" in result.stderr
 
 
-def test_workflow_role_requires_the_reranker_url_and_derives_the_topology(
+def test_monolith_role_is_the_default_and_serves_the_monolith(
     tmp_path: Path, bin_dir: Path
 ) -> None:
-    missing = run_app(tmp_path, bin_dir, RAG_ROLE="workflow")
-    assert missing.returncode == 1 and "RAG_OVMS_RERANK_URL" in missing.stderr
-    ok = run_app(
+    result = run_app(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
+    # Python resolves backends and auth from the topology; app.sh sets nothing else.
+    assert rag_serve_env(tmp_path) == ["RAG_TOPOLOGY=monolith"]
+
+
+@pytest.mark.parametrize(
+    ("role", "topology", "served"),
+    [
+        ("monolith", "monolith", "monolith"),
+        ("workflow", None, "split-reranker"),
+        ("workflow", "split-reranker", "split-reranker"),
+        ("workflow", "split-all", "split-all"),
+    ],
+)
+def test_workflow_app_roles_pass_their_topology_to_rag_serve(
+    tmp_path: Path, bin_dir: Path, role: str, topology: str | None, served: str
+) -> None:
+    env = {"RAG_ROLE": role} | ({"RAG_TOPOLOGY": topology} if topology else {})
+
+    result = run_app(tmp_path, bin_dir, **env)
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
+    assert f"RAG_TOPOLOGY={served}" in rag_serve_env(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("role", "topology", "allowed"),
+    [
+        ("monolith", "split-all", "monolith"),
+        ("workflow", "monolith", "split-reranker split-all"),
+        ("workflow", "split-reranker-fastapi", "split-reranker split-all"),
+    ],
+)
+def test_role_refuses_a_topology_it_does_not_serve(
+    tmp_path: Path, bin_dir: Path, role: str, topology: str, allowed: str
+) -> None:
+    result = run_app(tmp_path, bin_dir, RAG_ROLE=role, RAG_TOPOLOGY=topology)
+
+    assert result.returncode == 1
+    assert f"RAG_TOPOLOGY='{topology}'" in result.stderr
+    assert f"allowed: {allowed}" in result.stderr
+    assert log(tmp_path, "rag-serve") == ""
+
+
+def test_workflow_role_passes_backends_and_auth_through_untouched(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    result = run_app(
         tmp_path,
         bin_dir,
         RAG_ROLE="workflow",
+        RAG_RERANKER_BACKEND="none",
         RAG_OVMS_RERANK_URL="http://a",
-        RAG_EMBEDDER_BACKEND="ovms",
-        RAG_OVMS_EMBEDDINGS_URL="http://c",
     )
-    assert ok.returncode == 0, ok.stderr
-    env = (tmp_path / "rag-serve.env").read_text()
-    assert "RAG_TOPOLOGY=split-all" in env and "RAG_OVMS_AUTH=domino" in env
-    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888"
+
+    assert result.returncode == 0, result.stderr
+    env = rag_serve_env(tmp_path)
+    assert "RAG_RERANKER_BACKEND=none" in env
+    assert "RAG_OVMS_RERANK_URL=http://a" in env
+    assert not any(line.startswith("RAG_EMBEDDER_BACKEND=") for line in env)
+    assert not any(line.startswith("RAG_OVMS_AUTH=") for line in env)
 
 
 def test_fastapi_roles_run_the_model_server(tmp_path: Path, bin_dir: Path) -> None:

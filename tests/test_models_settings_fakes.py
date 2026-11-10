@@ -71,6 +71,7 @@ def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None
 
     assert s.topology == "monolith"
     assert (s.embedder_backend, s.reranker_backend) == ("local", "local")
+    assert s.run_label == "monolith"
     assert s.ovms_rerank_url == "http://localhost:8001"
     assert s.ovms_embeddings_url == "http://localhost:8002"
     assert s.es_url == "http://localhost:9200"
@@ -80,12 +81,65 @@ def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None
 def test_settings_read_rag_prefixed_env(
     settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
     monkeypatch.setenv("RAG_RERANKER_BACKEND", "ovms")
+    monkeypatch.setenv("RAG_RUN_LABEL", "split-reranker-fastapi")
     monkeypatch.setenv("RAG_DOMINO_TRACING", "true")
 
     s = settings_factory()
     assert s.reranker_backend == "ovms"
+    assert s.run_label == "split-reranker-fastapi"
     assert s.domino_tracing is True
+
+
+@pytest.mark.parametrize(
+    ("topology", "embedder", "reranker"),
+    [
+        ("monolith", "local", "local"),
+        ("split-reranker", "local", "ovms"),
+        ("split-all", "ovms", "ovms"),
+    ],
+)
+def test_settings_resolve_backends_from_the_topology(
+    settings_factory: Callable[..., RagSettings],
+    monkeypatch: pytest.MonkeyPatch,
+    topology: str,
+    embedder: str,
+    reranker: str,
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", topology)
+
+    s = settings_factory()
+    assert (s.embedder_backend, s.reranker_backend) == (embedder, reranker)
+    assert s.run_label == topology
+
+
+def test_settings_default_run_label_names_the_variant_backends(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    s = settings_factory(topology="split-all", reranker_backend="none")
+
+    assert s.run_label == "split-all+reranker=none"
+
+
+def test_settings_reject_a_backend_that_contradicts_the_topology(
+    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_EMBEDDER_BACKEND", "ovms")
+
+    with pytest.raises(ValidationError, match="RAG_EMBEDDER_BACKEND='ovms'") as caught:
+        settings_factory()
+
+    assert "set RAG_TOPOLOGY=split-all, or drop RAG_EMBEDDER_BACKEND" in str(
+        caught.value
+    )
+
+
+def test_settings_reject_a_bad_run_label(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    with pytest.raises(ValidationError, match="RAG_RUN_LABEL='two words'"):
+        settings_factory(run_label="two words")
 
 
 def test_settings_reject_unknown_backend(
@@ -93,6 +147,13 @@ def test_settings_reject_unknown_backend(
 ) -> None:
     with pytest.raises(ValidationError, match="tpu"):
         settings_factory(embedder_backend="tpu")
+
+
+def test_settings_reject_unknown_topology(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    with pytest.raises(ValidationError, match="split-reranker-fastapi"):
+        settings_factory(topology="split-reranker-fastapi")
 
 
 def test_settings_field_set_is_pinned() -> None:
@@ -112,6 +173,7 @@ def test_settings_field_set_is_pinned() -> None:
         "ovms_rerank_url",
         "reranker_backend",
         "reranker_model",
+        "run_label",
         "topology",
         "vector_store_backend",
     ]

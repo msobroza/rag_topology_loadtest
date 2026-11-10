@@ -1,8 +1,9 @@
 """FastAPI service exposing the workflow, plus the ``rag-serve`` command.
 
 Routes: ``POST /query`` (full RAG), ``POST /retrieve`` (no LLM call),
-``GET /healthz``, ``GET /readyz``. Every response carries ``X-Request-ID`` and
-``X-RAG-Topology`` so Locust can tag runs; dependency failures map to 503
+``GET /healthz``, ``GET /readyz``. Every response carries ``X-Request-ID``,
+``X-RAG-Topology`` and ``X-RAG-Run-Label`` so Locust can tag runs; dependency
+failures map to 503
 (unavailable) or 504 (timeout). ``root_path`` follows ``DOMINO_RUN_HOST_PATH``, the
 prefix Domino serves the app under, so the app answers with or without the
 prefix on the wire and needs no proxy in front (unlike OVMS).
@@ -32,6 +33,7 @@ from pydantic import BaseModel, Field
 from .models import RagDependencies, RagDependencyError, RagMode, ScoredPassage
 from .rag_ports import RagPorts
 from .settings import RagSettings
+from .topology import apply_domino_rules
 from .workflow import RagWorkflow
 
 logger = logging.getLogger("rag_load_test")
@@ -43,7 +45,8 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     request_id: str
-    deployment: str
+    topology: str
+    run_label: str
     question: str
     mode: RagMode
     answer: str | None
@@ -126,6 +129,7 @@ def create_app(ports: RagPorts) -> FastAPI:
             log_json(
                 event="rag_startup",
                 topology=settings.topology,
+                run_label=settings.run_label,
                 embedder=deps.embedder.model_name,
                 llm=deps.chat_model.model_name,
             )
@@ -145,6 +149,7 @@ def create_app(ports: RagPorts) -> FastAPI:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-RAG-Topology"] = settings.topology
+        response.headers["X-RAG-Run-Label"] = settings.run_label
         return response
 
     @app.exception_handler(RagDependencyError)
@@ -170,13 +175,15 @@ def create_app(ports: RagPorts) -> FastAPI:
             event="rag_request",
             request_id=request.state.request_id,
             topology=settings.topology,
+            run_label=settings.run_label,
             mode=mode,
             timings_ms=result.timings_ms,
             status=200,
         )
         return QueryResponse(
             request_id=request.state.request_id,
-            deployment=settings.topology,
+            topology=settings.topology,
+            run_label=settings.run_label,
             **result.model_dump(),
         )
 
@@ -204,15 +211,36 @@ def create_app(ports: RagPorts) -> FastAPI:
     return app
 
 
+def serving_settings(*, domino: bool) -> RagSettings:
+    """Settings from the environment, with the Domino rules applied when asked.
+
+    Raises ``ValueError`` (pydantic's ``ValidationError`` is one) on a contradiction.
+
+    Example::
+
+        settings = serving_settings(domino=True)   # what `rag-serve --domino` serves
+    """
+    settings = RagSettings()
+    return apply_domino_rules(settings) if domino else settings
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """``rag-serve [--host H] [--port P]``; Domino apps must listen on 0.0.0.0:8888."""
+    """``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888."""
     parser = argparse.ArgumentParser(
         prog="rag-serve", description="Serve the RAG workflow."
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)
+    parser.add_argument(
+        "--domino",
+        action="store_true",
+        help="require model server URLs and default RAG_OVMS_AUTH to domino",
+    )
     args = parser.parse_args(argv)
+    try:
+        settings = serving_settings(domino=args.domino)
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    ports = RagPorts(RagSettings())
-    uvicorn.run(create_app(ports), host=args.host, port=args.port)
+    uvicorn.run(create_app(RagPorts(settings)), host=args.host, port=args.port)
     return 0
