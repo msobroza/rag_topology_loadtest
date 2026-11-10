@@ -14,10 +14,10 @@ Example::
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Sequence
 from concurrent.futures import Executor
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Protocol, TypedDict
 
 import httpx
 from langgraph.graph import END, START, StateGraph
@@ -84,7 +84,15 @@ class RagDependencies:
     chat_model: ChatModelPort
 
 
-Node = Callable[[RagState], Awaitable[dict[str, Any]]]
+class Node(Protocol):
+    """An async graph node: ``state`` in, partial state update out.
+
+    A Protocol rather than ``Callable[[RagState], ...]`` because LangGraph 1.x
+    types nodes by a parameter named ``state``; a ``Callable`` alias erases the
+    name and mypy then rejects ``StateGraph.add_node``.
+    """
+
+    def __call__(self, state: RagState) -> Awaitable[dict[str, Any]]: ...
 
 
 def timed(stage: str, node: Node) -> Node:
