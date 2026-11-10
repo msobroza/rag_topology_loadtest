@@ -860,7 +860,9 @@ make format        # ruff --fix + black
 `.github/workflows/checks.yml` runs the same command on every pull request and on
 every push to `main`. The verdict is deterministic: every gate tool is pinned to an
 exact version in the `dev` extra, and every threshold is written in
-`pyproject.toml`. Each gate is also a `make` target of its own:
+`pyproject.toml`. Two platforms are supported and no other is targeted: Ubuntu,
+where CI and Domino run, and macOS for local work. Each gate is also a `make`
+target of its own:
 
 | target | runs | passes when |
 |---|---|---|
