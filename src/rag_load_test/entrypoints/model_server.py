@@ -8,10 +8,9 @@ like OVMS, a request for any model but this server's alias is a 404.
 The workflow app cannot tell the two servers apart, so ``RAG_OVMS_*_URL`` can
 point at either and the same load test compares FastAPI with OVMS.
 
-Example::
-
-    rag-model-server --serve reranker --port 8011
-    RAG_TOPOLOGY=split-reranker RAG_OVMS_RERANK_URL=http://localhost:8011 rag-serve
+Example:
+    $ rag-model-server --serve reranker --port 8011
+    $ RAG_TOPOLOGY=split-reranker RAG_OVMS_RERANK_URL=http://localhost:8011 rag-serve
 """
 
 from __future__ import annotations
@@ -177,7 +176,17 @@ def _unknown_model() -> JSONResponse:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``rag-model-server --serve embedder|reranker [--host H] [--port P]``."""
+    """Run ``rag-model-server --serve embedder|reranker [--host H] [--port P]``.
+
+    Serves the one model with uvicorn, on 0.0.0.0:8888 unless told otherwise, with
+    ports built from the ``RAG_*`` settings.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The exit status, 0, once the server stops.
+    """
     parser = argparse.ArgumentParser(
         prog="rag-model-server", description="Serve one model."
     )

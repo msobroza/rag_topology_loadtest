@@ -3,10 +3,9 @@
 The Apps API's ``name`` filter is not documented as exact, and a second App with
 the same name would split the traffic: the id found or created once is reused.
 
-Example::
-
-    cache = AppIdCache(".rag-deploy-cache.json")
-    cache.remember("proj-1", "rag-workflow", "app-7")
+Example:
+    >>> cache = AppIdCache(".rag-deploy-cache.json")
+    >>> cache.remember("proj-1", "rag-workflow", "app-7")
 """
 
 from __future__ import annotations
@@ -21,20 +20,47 @@ APP_ID_CACHE_FILE = ".rag-deploy-cache.json"  # in the working directory
 
 
 class AppIdCache:
-    """``{project id: {App name: App id}}`` in ``path`` (None = in memory only)."""
+    """``{project id: {App name: App id}}``, kept in a JSON file.
+
+    Args:
+        path: The JSON file; None keeps the ids in memory only. A file that is
+            not such a table raises ``DominoDeployError``.
+    """
 
     def __init__(self, path: str | None) -> None:
         self._path = path
         self._ids = _read(path) if path is not None else {}
 
     def get(self, project_id: str, name: str) -> str | None:
+        """Look up the id of an App seen before.
+
+        Args:
+            project_id: The App's project.
+            name: The App's name.
+
+        Returns:
+            Its id, or None if it has not been seen.
+        """
         return self._ids.get(project_id, {}).get(name)
 
     def remember(self, project_id: str, name: str, app_id: str) -> None:
+        """Record an App's id, and write the file.
+
+        Args:
+            project_id: The App's project.
+            name: The App's name.
+            app_id: The id Domino gave it.
+        """
         self._ids.setdefault(project_id, {})[name] = app_id
         self._write()
 
     def forget(self, project_id: str, name: str) -> None:
+        """Drop an App's id, e.g. once it is deleted in Domino, and write the file.
+
+        Args:
+            project_id: The App's project.
+            name: The App's name.
+        """
         self._ids.get(project_id, {}).pop(name, None)
         self._write()
 

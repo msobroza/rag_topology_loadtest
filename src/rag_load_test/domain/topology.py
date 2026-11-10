@@ -53,9 +53,6 @@ def resolve_embedder_backend(
 ) -> EmbedderBackend:
     """Return the embedder backend for ``topology``.
 
-    A contradicting ``explicit`` backend fails with ``ValueError``, naming the
-    topologies that would allow it.
-
     Args:
         topology: The topology that implies the backend.
         explicit: The backend asked for, or None for the implied one; it may only
@@ -63,6 +60,10 @@ def resolve_embedder_backend(
 
     Returns:
         ``explicit`` when set, else the backend the topology implies.
+
+    Raises:
+        ValueError: If ``explicit`` contradicts the topology; the message names
+            the topologies that would allow it.
 
     Example:
         >>> resolve_embedder_backend("split-all", None)
@@ -82,9 +83,6 @@ def resolve_reranker_backend(
 ) -> RerankerBackend:
     """Return the reranker backend for ``topology``.
 
-    A contradicting ``explicit`` backend fails with ``ValueError``, naming the
-    topologies that would allow it.
-
     Args:
         topology: The topology that implies the backend.
         explicit: The backend asked for, or None for the implied one; it may only
@@ -92,6 +90,10 @@ def resolve_reranker_backend(
 
     Returns:
         ``explicit`` when set, else the backend the topology implies.
+
+    Raises:
+        ValueError: If ``explicit`` contradicts the topology; the message names
+            the topologies that would allow it.
 
     Example:
         >>> resolve_reranker_backend("monolith", "none")

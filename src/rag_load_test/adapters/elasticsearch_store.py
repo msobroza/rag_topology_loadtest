@@ -22,10 +22,13 @@ class ElasticsearchVectorStore(VectorStorePort):
     and never needs a LangChain ``Embeddings`` object. Any Elasticsearch failure
     surfaces as ``RagDependencyError("vector_store", ...)``.
 
-    Example::
+    Args:
+        store: An ``AsyncElasticsearchStore`` already bound to ``index``.
+        index: The Elasticsearch index the passages live in.
 
-        store = ElasticsearchVectorStore.open("http://localhost:9200", index="rag")
-        hits = await store.query(vector, top_k=20)
+    Example:
+        >>> store = ElasticsearchVectorStore.open("http://localhost:9200", index="rag")
+        >>> hits = await store.query(vector, top_k=20)
     """
 
     def __init__(self, store: Any, index: str) -> None:
@@ -35,6 +38,16 @@ class ElasticsearchVectorStore(VectorStorePort):
     def open(
         cls, url: str, *, index: str, api_key: str = ""
     ) -> ElasticsearchVectorStore:
+        """Build the store on a new ``AsyncElasticsearchStore``, importing it here.
+
+        Args:
+            url: The Elasticsearch URL.
+            index: The index the passages live in (``RAG_ES_INDEX``).
+            api_key: An Elasticsearch API key; "" connects without one.
+
+        Returns:
+            The vector store on that index.
+        """
         from langchain_elasticsearch import AsyncElasticsearchStore
 
         store = AsyncElasticsearchStore(index, es_url=url, es_api_key=api_key or None)
@@ -43,6 +56,12 @@ class ElasticsearchVectorStore(VectorStorePort):
     async def upsert(
         self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
     ) -> None:
+        """Store passages with their vectors, keyed by passage id.
+
+        Args:
+            passages: The passages to store; none is a no-op.
+            embeddings: One vector per passage, in the same order.
+        """
         if not passages:
             return
         pairs = [(p.text, list(e)) for p, e in zip(passages, embeddings, strict=True)]
@@ -56,6 +75,16 @@ class ElasticsearchVectorStore(VectorStorePort):
     async def query(
         self, embedding: Sequence[float], top_k: int
     ) -> list[ScoredPassage]:
+        """Find the passages nearest to a vector.
+
+        Args:
+            embedding: The query vector.
+            top_k: How many passages to return at most.
+
+        Returns:
+            The nearest passages with Elasticsearch's relevance score as
+            ``retrieval_score``.
+        """
         hits = await self._call(
             self._store.asimilarity_search_by_vector_with_relevance_scores,
             list(embedding),
@@ -73,12 +102,22 @@ class ElasticsearchVectorStore(VectorStorePort):
         ]
 
     async def count(self) -> int:
+        """Count the passages in the index.
+
+        Returns:
+            The number of documents in the index; 0 when it does not exist yet.
+        """
         client = self._store.client
         if not await self._call(client.indices.exists, index=self.index):
             return 0
         return int((await self._call(client.count, index=self.index))["count"])
 
     async def ready(self) -> tuple[bool, str]:
+        """Report whether the index holds any passage.
+
+        Returns:
+            Whether the index is non-empty, and how many passages it holds.
+        """
         count = await self.count()
         return count > 0, f"{count} passages in {self.index}"
 

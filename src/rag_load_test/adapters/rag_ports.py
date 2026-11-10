@@ -13,12 +13,11 @@ Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently. This is the only adapter module that
 reads ``RagSettings``; the others take their values as constructor arguments.
 
-Example::
-
-    async with RagPorts(RagSettings()) as ports:
-        deps = await ports.workflow_dependencies()
-        workflow = RagWorkflow(deps, ports.settings.workflow_parameters())
-        result = await workflow.run("How many vacation days?")
+Example:
+    >>> async with RagPorts(RagSettings()) as ports:
+    ...     deps = await ports.workflow_dependencies()
+    ...     workflow = RagWorkflow(deps, ports.settings.workflow_parameters())
+    ...     result = await workflow.run("How many vacation days?")
 """
 
 from __future__ import annotations
@@ -139,10 +138,13 @@ class RagPorts:
     # --- one entry point per caller ----------------------------------------------
 
     async def workflow_dependencies(self) -> RagDependencies:
-        """All four ports, for the workflow app.
+        """Open all four ports, for the workflow app.
 
         The chat model opens first so a missing API key fails before any weights
         load. If a port cannot open, the error propagates and nothing is returned.
+
+        Returns:
+            The embedder, vector store, reranker and chat model.
         """
         chat_model = await self._chat_model()
         embedder = await self._embedder()
@@ -151,18 +153,35 @@ class RagPorts:
         return RagDependencies(embedder, vector_store, reranker, chat_model)
 
     async def ingest_ports(self) -> IngestPorts:
-        """The embedder and the vector store; the reranker and chat model stay shut."""
+        """Open the embedder and the vector store, for ``rag-ingest``.
+
+        The reranker and chat model stay shut.
+
+        Returns:
+            The embedder and the vector store.
+        """
         return IngestPorts(await self._embedder(), await self._vector_store())
 
     async def local_embedder(self) -> EmbedderPort:
-        """The in-process embedder whatever ``embedder_backend`` says: a model server
-        is what the ``ovms`` backend calls, so it must never resolve to ``ovms``."""
+        """Open the in-process embedder whatever ``embedder_backend`` says.
+
+        A model server is what the ``ovms`` backend calls, so it must never resolve
+        to ``ovms``.
+
+        Returns:
+            The supplied embedder if one was given, else the sentence-transformers
+            one.
+        """
         if (supplied := self._supplied.get("embedder")) is not None:
             return supplied
         return await self._local_embedder()
 
     async def local_reranker(self) -> RerankerPort:
-        """The in-process reranker whatever ``reranker_backend`` says."""
+        """Open the in-process reranker whatever ``reranker_backend`` says.
+
+        Returns:
+            The supplied reranker if one was given, else the cross-encoder one.
+        """
         if (supplied := self._supplied.get("reranker")) is not None:
             return supplied
         return await self._local_reranker()
@@ -331,10 +350,11 @@ class RagPorts:
 
     # --- bookkeeping ----------------------------------------------------------------
 
+    # Open ``name`` on first request and reuse it until the block ends; any
+    # failure but a RagDependencyError is wrapped in one naming ``name``.
     async def _once(
         self, name: str, backend: str, open_it: Callable[[], Awaitable[T]]
     ) -> T:
-        """Open ``name`` on first request and reuse it until the block ends."""
         self._stack(name)
         if name not in self._opened:
             try:

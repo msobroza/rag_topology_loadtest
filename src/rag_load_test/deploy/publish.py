@@ -47,24 +47,39 @@ APPS_BY_TOPOLOGY: dict[Topology, list[AppPart]] = {
 
 
 def apps_for_topology(topology: Topology) -> list[AppPart]:
-    """The Apps ``topology`` needs, model servers first.
+    """List the Apps ``topology`` needs, model servers first.
 
-    Example::
+    Args:
+        topology: The topology being deployed.
 
-        apps_for_topology("split-reranker")   # ["reranker", "workflow"]
+    Returns:
+        Its App parts, the workflow App last.
+
+    Example:
+        >>> apps_for_topology("split-reranker")
+        ['reranker', 'workflow']
     """
     return list(APPS_BY_TOPOLOGY[topology])
 
 
 def launch_script_in(directory: str) -> str:
-    """The absolute path of ``domino/app.sh`` under ``directory``, or raise.
+    """Return the absolute path of ``domino/app.sh`` under ``directory``.
 
     The Apps mount this repository at the same path as the Workspace (for example
     /repos/<project>) but do not start in it, so the path must be absolute.
 
-    Example::
+    Args:
+        directory: The repository root, absolute.
 
-        launch_script_in(os.getcwd())   # "/repos/rag/domino/app.sh"
+    Returns:
+        The launch script's path.
+
+    Raises:
+        DominoDeployError: If ``directory`` has no ``domino/app.sh``.
+
+    Example:
+        >>> launch_script_in(os.getcwd())
+        '/repos/rag/domino/app.sh'
     """
     path = os.path.join(directory, LAUNCH_SCRIPT)
     if not os.path.isfile(path):
@@ -81,17 +96,24 @@ def entry_script(
     urls: Mapping[AppPart, str],
     launch_script: str,
 ) -> str:
-    """Shell that exports one App's settings, then runs ``launch_script``.
+    r"""Write the shell that exports one App's settings, then runs ``launch_script``.
 
     Each App carries its own environment variables: ``app.settings`` first, then
-    the computed ones, which therefore win. ``urls`` holds where the model server
-    Apps answer (workflow App only).
+    the computed ones, which therefore win.
 
-    Example::
+    Args:
+        app: The App's merged settings.
+        settings: The whole deploy settings (topology, model server, bundle).
+        urls: Where the model server Apps answer (workflow App only).
+        launch_script: Absolute path of ``domino/app.sh``.
 
-        app = settings.for_app("reranker")
-        entry_script(app, settings, {}, "/repos/rag/domino/app.sh")
-        # "export RAG_ROLE=fastapi-reranker\n...\nexec bash /repos/rag/domino/app.sh"
+    Returns:
+        The entry script, one ``export`` per line, then ``exec bash``.
+
+    Example:
+        >>> app = settings.for_app("reranker")
+        >>> entry_script(app, settings, {}, "/repos/rag/domino/app.sh")
+        'export RAG_ROLE=fastapi-reranker\n...\nexec bash /repos/rag/domino/app.sh'
     """
     if app.part == "workflow":
         computed = _workflow_exports(settings, urls, app.settings)
@@ -130,12 +152,18 @@ def _workflow_exports(
 
 
 def version_body(app: AppSettings, script: str) -> dict[str, object]:
-    """The version object: script, environment, and the tier and autoscaling if set.
+    """Build the version object: script, environment, and tier and autoscaling if set.
 
-    Example::
+    Args:
+        app: The App's merged settings.
+        script: Its entry script.
 
-        version_body(settings.for_app("workflow"), "exec bash domino/app.sh")
-        # {"entryScript": "exec bash domino/app.sh", "environmentId": "e1", ...}
+    Returns:
+        The ``AppVersionCreationRequest`` body.
+
+    Example:
+        >>> version_body(settings.for_app("workflow"), "exec bash domino/app.sh")
+        {'entryScript': 'exec bash domino/app.sh', 'environmentId': 'e1', ...}
     """
     body: dict[str, object] = {
         "entryScript": script,
@@ -170,9 +198,25 @@ def publish_app(
 ) -> DominoApp:
     """Create ``rag-<part>`` or post a new version to it, then wait until Running.
 
-    Example::
+    Prints the App's endpoint once Running.
 
-        publish_app(client, DeploySettings(), "reranker", {}, launch_script=path)
+    Args:
+        client: Apps API client for the project.
+        settings: The deploy settings.
+        part: The App to publish.
+        urls: Where the model server Apps answer (workflow App only).
+        launch_script: Absolute path of ``domino/app.sh``.
+        sleep: Waits between polls; tests and dry runs pass a no-op.
+
+    Returns:
+        The App, Running.
+
+    Raises:
+        DominoDeployError: If the existing App is of another kind (App or Agent),
+            or it does not come up.
+
+    Example:
+        >>> publish_app(client, DeploySettings(), "reranker", {}, launch_script=path)
     """
     app_settings = settings.for_app(part)
     script = entry_script(app_settings, settings, urls, launch_script)
@@ -214,11 +258,24 @@ def deploy(
     launch_script: str,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Publish ``target`` (or every App the topology needs, in order).
+    """Publish ``target``, or every App the topology needs, in order.
 
-    Example::
+    Settings holding secrets, placeholders, no environment id or a missing OVMS
+    bundle are refused first, with ``DominoDeployError``. Redeploying a model
+    server prints a note that the workflow App still calls its old instance.
 
-        deploy(client, DeploySettings(), "all", launch_script=path)
+    Args:
+        client: Apps API client for the project.
+        settings: The deploy settings.
+        target: One App, or ``"all"``.
+        launch_script: Absolute path of ``domino/app.sh``.
+        sleep: Waits between polls; tests and dry runs pass a no-op.
+
+    Raises:
+        DominoDeployError: If the topology does not use ``target``.
+
+    Example:
+        >>> deploy(client, DeploySettings(), "all", launch_script=path)
     """
     refuse_secrets(settings)
     needed = apps_for_topology(settings.topology)
@@ -272,11 +329,21 @@ def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> No
 def model_server_urls(
     client: DominoAppsClient, settings: DeploySettings
 ) -> dict[AppPart, str]:
-    """Where the model server Apps the workflow App calls answer, or raise.
+    """Find where the model server Apps the workflow App calls answer.
 
-    Example::
+    Args:
+        client: Apps API client for the project.
+        settings: The deploy settings, for the topology and Domino host.
 
-        model_server_urls(client, DeploySettings())   # {"embedder": ..., ...}
+    Returns:
+        Each model server part's endpoint URL.
+
+    Raises:
+        DominoDeployError: If one of them is not deployed or not Running.
+
+    Example:
+        >>> model_server_urls(client, DeploySettings())
+        {'embedder': ..., ...}
     """
     model_servers = apps_for_topology(settings.topology)[:-1]  # workflow is last
     return {
@@ -286,11 +353,22 @@ def model_server_urls(
 
 
 def require_app(client: DominoAppsClient, part: AppPart) -> DominoApp:
-    """The deployed ``rag-<part>`` App, or an error naming the make target.
+    """Find the deployed ``rag-<part>`` App.
 
-    Example::
+    Args:
+        client: Apps API client for the project.
+        part: The App to find.
 
-        require_app(client, "workflow").url   # "https://domino.example/apps/a1"
+    Returns:
+        The App.
+
+    Raises:
+        DominoDeployError: If it is not deployed; the message names the make
+            target.
+
+    Example:
+        >>> require_app(client, "workflow").url
+        'https://domino.example/apps/a1'
     """
     app = client.find(f"rag-{part}")
     if app is None:

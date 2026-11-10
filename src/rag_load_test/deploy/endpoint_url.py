@@ -4,10 +4,9 @@ This path is not in the Domino 6.2 API reference: it is how the project owner
 calls Apps on their Domino. The instance id changes at every redeploy (scaling
 adds replicas inside the same instance, so it does not change the id).
 
-Example::
-
-    endpoint_url(client, client.find("rag-reranker"), "")
-    # "https://domino.example/alice/rag/r/notebookSession/6f1c..."
+Example:
+    >>> endpoint_url(client, client.find("rag-reranker"), "")
+    'https://domino.example/alice/rag/r/notebookSession/6f1c...'
 """
 
 from __future__ import annotations
@@ -18,13 +17,25 @@ from .apps_client import AppInstance, DominoApp, DominoAppsClient, DominoDeployE
 
 
 def endpoint_url(client: DominoAppsClient, app: DominoApp, domino_host: str) -> str:
-    """The URL ``app``'s Running instance answers on, or raise.
+    """Return the URL ``app``'s Running instance answers on.
 
-    ``domino_host`` ("" = the scheme and host of the App's own url) is the host.
+    Args:
+        client: Apps API client for the App's project.
+        app: The App whose instance is called.
+        domino_host: Scheme and host of Domino; "" takes them from the App's own
+            url.
 
-    Example::
+    Returns:
+        ``{host}/{owner}/{project}/r/notebookSession/{instance id}``.
 
-        endpoint_url(client, app, "https://domino.example")
+    Raises:
+        DominoDeployError: If no host can be worked out, the App lacks its owner
+            or project name, or it has no Running instance of its current
+            version.
+
+    Example:
+        >>> endpoint_url(client, app, "https://domino.example")
+        'https://domino.example/alice/rag/r/notebookSession/6f1c'
     """
     host = _host(app, domino_host)
     _refuse_missing_owner_or_project(app)

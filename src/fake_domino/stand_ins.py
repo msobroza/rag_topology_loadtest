@@ -4,9 +4,8 @@
 (the token service of a Domino run) and an App instance's ``/readyz``, so
 ``rag-deploy status`` has something to read without Domino.
 
-Example::
-
-    fake.include_router(_tiers_router)   # as create_fake_domino does
+Example:
+    >>> fake.include_router(_tiers_router)  # as create_fake_domino does
 """
 
 from __future__ import annotations
@@ -31,7 +30,14 @@ _stand_ins_router = APIRouter(tags=["Stand-ins (not Domino's Apps API)"])
 
 @_tiers_router.get("/{hardwareTierId}")
 def get_hardware_tier(hardwareTierId: str) -> HardwareTierEnvelopeV1:
-    """Any id is a tier with ``FAKE_TIER_CORES`` cores."""
+    """Get one hardware tier; any id is a tier with ``FAKE_TIER_CORES`` cores.
+
+    Args:
+        hardwareTierId: The tier's id, also used as its name.
+
+    Returns:
+        The tier, with 16 GiB of memory and every flag false.
+    """
     memory = {"value": 16, "units": "GiB"}
     resources = {"cores": FAKE_TIER_CORES, "memory": memory}
     flags = dict.fromkeys(_TIER_FLAGS, False)
@@ -55,13 +61,31 @@ _TIER_DEFAULTS: dict[str, object] = {
 
 @_stand_ins_router.get("/access-token", response_class=PlainTextResponse)
 def access_token() -> str:
-    """A fake run token, standing in for the token service of a Domino run."""
+    """Return a fake run token, standing in for the token service of a Domino run.
+
+    Returns:
+        ``FAKE_RUN_TOKEN``, as plain text.
+    """
     return FAKE_RUN_TOKEN
 
 
 @_stand_ins_router.get("/{owner}/{project}/r/notebookSession/{instanceId}/readyz")
 def app_readyz(apps: FakeState, instanceId: str) -> JSONResponse:
-    """What an App instance would answer, run headers from its entry script."""
+    """Answer as an App instance would, run headers from its entry script.
+
+    The ``X-RAG-Topology`` and ``X-RAG-Run-Label`` headers carry the values the
+    instance's version exports as ``RAG_TOPOLOGY`` and ``RAG_RUN_LABEL``.
+
+    Args:
+        apps: The fake's state.
+        instanceId: The instance that answers.
+
+    Returns:
+        A ready status with one passing check, and the run headers.
+
+    Raises:
+        HTTPException: 404 if no version has that instance.
+    """
     version = apps.version_of_instance(instanceId)
     if version is None:
         raise HTTPException(404, f"no App instance {instanceId}")

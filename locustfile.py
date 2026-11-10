@@ -45,7 +45,15 @@ RESPONSES_SEEN: Counter[tuple[str, str]] = Counter()
 
 
 def send(user: FastHttpUser, plan: RequestPlan) -> None:
-    """POST ``plan`` and record the response as ``judge_response`` decides."""
+    """POST ``plan`` and record the response as ``judge_response`` decides.
+
+    A response that names its target also counts towards the target record.
+
+    Args:
+        user: The Locust user whose client sends and whose environment fires the
+            STAGE rows.
+        plan: The path, JSON body and stats name of the request.
+    """
     with user.client.post(
         plan.path,
         json=plan.payload,
@@ -73,15 +81,19 @@ def send(user: FastHttpUser, plan: RequestPlan) -> None:
 
 
 class RagUser(FastHttpUser):
+    """POST /query and /retrieve with random questions, weighted by the config."""
+
     abstract = CONFIG.target != "rag"
     wait_time = between(0.2, 1.0)
 
     @task(CONFIG.query_weight)
     def query(self) -> None:
+        """Send one random question to ``/query``."""
         send(self, plan_rag_request("/query", POOL, RNG))
 
     @task(CONFIG.retrieve_weight)
     def retrieve(self) -> None:
+        """Send one random question to ``/retrieve``."""
         send(self, plan_rag_request("/retrieve", POOL, RNG))
 
 
@@ -93,6 +105,7 @@ class RerankUser(FastHttpUser):
 
     @task
     def rerank(self) -> None:
+        """Send one rerank request for the served reranker alias."""
         send(self, plan_rerank_request(SETTINGS.ovms_rerank_model, POOL, RNG))
 
 
@@ -104,6 +117,7 @@ class EmbeddingsUser(FastHttpUser):
 
     @task
     def embed(self) -> None:
+        """Send one embeddings request for the served embedder alias."""
         send(self, plan_embeddings_request(SETTINGS.ovms_embeddings_model, POOL, RNG))
 
 
@@ -111,7 +125,15 @@ if CONFIG.step_shape:
     STEP_USERS, STEP_SECONDS = (5, 10, 20, 40), 60
 
     class StepLoadShape(LoadTestShape):  # locust picks up shape classes defined here
+        """Ramp through 5, 10, 20 then 40 users, one step every 60 seconds."""
+
         def tick(self) -> tuple[int, float] | None:
+            """Return the step's users and spawn rate, or ``None`` after the last step.
+
+            Returns:
+                ``(users, spawn rate)`` for the current step, the spawn rate equal
+                to the users, or ``None`` to stop the run.
+            """
             step = int(self.get_run_time() // STEP_SECONDS)
             if step >= len(STEP_USERS):
                 return None
@@ -120,6 +142,11 @@ if CONFIG.step_shape:
 
 @events.test_stop.add_listener
 def write_target_record_on_stop(environment: Any, **_kwargs: Any) -> None:
-    """Write ``<--csv prefix>_target.json`` as the run stops; nothing without --csv."""
+    """Write ``<--csv prefix>_target.json`` as the run stops; nothing without --csv.
+
+    Args:
+        environment: The Locust environment, for its parsed ``--csv`` prefix.
+        **_kwargs: The rest of the ``test_stop`` event's arguments, unused.
+    """
     csv_prefix = getattr(environment.parsed_options, "csv_prefix", None)
     write_target_record(csv_prefix, CONFIG.target, RESPONSES_SEEN)

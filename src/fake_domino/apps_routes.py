@@ -3,9 +3,8 @@
 List, create, add a version, get (each GET moves an instance one status along)
 and list a version's instances, over the ``FakeDominoApps`` in the app's state.
 
-Example::
-
-    fake.include_router(_apps_router)   # as create_fake_domino does
+Example:
+    >>> fake.include_router(_apps_router)  # as create_fake_domino does
 """
 
 from __future__ import annotations
@@ -88,7 +87,21 @@ def list_apps(
     limit: int = 100,  # the reference documents no default
     offset: int = 0,
 ) -> ListAppsResponse:
-    """The project's Apps; ``name`` matches as a substring (exactness undocumented)."""
+    """List the project's Apps; ``name`` matches as a substring.
+
+    Whether Domino matches ``name`` exactly is undocumented.
+
+    Args:
+        apps: The fake's state.
+        request: The incoming request, whose base URL builds each App's url.
+        projectId: Only Apps of this project; None lists every project's.
+        name: Only Apps whose name contains this.
+        limit: Most Apps in the page.
+        offset: Apps skipped before the page starts.
+
+    Returns:
+        The page of Apps, with the total count of matches.
+    """
     found = [
         app
         for app in apps.apps.values()
@@ -112,7 +125,16 @@ def list_apps(
 def create_app(
     apps: FakeState, request: Request, body: AppCreationRequest
 ) -> AppResponse:
-    """Create an App with its first version."""
+    """Create an App with its first version.
+
+    Args:
+        apps: The fake's state.
+        request: The incoming request, whose base URL builds the App's url.
+        body: The App and its first version.
+
+    Returns:
+        The created App.
+    """
     apps.creates.append(body)
     app = apps.add_app(body)
     return _app_response(app, request, apps.current(app))
@@ -122,7 +144,16 @@ def create_app(
 def create_app_version(
     apps: FakeState, appId: str, body: AppVersionCreationRequest
 ) -> AppVersionResponse:
-    """Add a version to an App; it becomes the current one."""
+    """Add a version to an App; it becomes the current one.
+
+    Args:
+        apps: The fake's state.
+        appId: The App that gets the version.
+        body: The new version.
+
+    Returns:
+        The new version.
+    """
     app = _find_app(apps, appId)
     apps.new_versions.append((appId, body))
     apps.add_version(app, body)
@@ -131,7 +162,16 @@ def create_app_version(
 
 @_apps_router.get("/{appId}")
 def get_app(apps: FakeState, request: Request, appId: str) -> AppResponse:
-    """One App; each GET moves its instance one status along."""
+    """Get one App; each GET moves its instance one status along.
+
+    Args:
+        apps: The fake's state.
+        request: The incoming request, whose base URL builds the App's url.
+        appId: The App to get.
+
+    Returns:
+        The App with its current version.
+    """
     app = _find_app(apps, appId)
     return _app_response(app, request, apps.poll(app))
 
@@ -140,7 +180,19 @@ def get_app(apps: FakeState, request: Request, appId: str) -> AppResponse:
 def list_app_instances(
     apps: FakeState, appId: str, versionId: str
 ) -> ListAppInstancesResponse:
-    """A version's instances: the latest version's one, once it has started."""
+    """List a version's instances: the latest version's one, once it has started.
+
+    Args:
+        apps: The fake's state.
+        appId: The App the version belongs to.
+        versionId: The version whose instances are listed.
+
+    Returns:
+        The instances, in one page.
+
+    Raises:
+        HTTPException: 404 if the App has no such version.
+    """
     items = apps.instances(_find_app(apps, appId), versionId)
     if items is None:
         raise HTTPException(404, f"no version {versionId} of App {appId}")

@@ -878,6 +878,15 @@ is an `http.HTTPStatus`. Every signature has type hints. Tests are exempt from t
 docstring, annotation, unused-argument, magic-number, argument-count and
 line-length rules.
 
+Docstrings follow the Google format, checked by three rules. ruff's `D` rules
+require a docstring on every public module, class and function. `pydoclint`
+requires each docstring's `Args`, `Returns` and `Yields` to match the signature
+exactly, with constructor arguments documented on the class. ruff's `DOC501`
+requires every exception a function raises to be in its `Raises` section. A
+`Raises` entry may also name an exception raised through a helper, which is why
+pydoclint's own raise check is off: it only accepts a `raise` written in the
+function's own body.
+
 `tests/test_code_shape.py` reads the source with `ast` and checks three more
 limits: no file in `src`, `tests` or `locustfile.py` has more than 500 lines; no
 function in `src` or `locustfile.py` has a body longer than 25 lines, its docstring

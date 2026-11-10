@@ -81,9 +81,14 @@ target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
+# Preview is on for DOC501 alone: explicit-preview-rules keeps every other
+# preview rule off until it is named in `select`.
+preview = true
+explicit-preview-rules = true
 select = [
     "E", "F", "I", "W", "UP", "B",
     "D",  # docstrings, Google convention
+    "DOC501",  # an exception a function raises is in its Raises section
     "ANN", "ARG", "C4", "SIM", "RET", "RUF", "PT", "N",
     "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",
 ]
@@ -121,6 +126,10 @@ check-return-types = false
 check-yield-types = false
 check-class-attributes = false
 skip-checking-short-docstrings = false
+# pydoclint only accepts a Raises entry for a `raise` in the function's own body,
+# so an error raised through a helper could not be documented. ruff's DOC501
+# checks the direction that matters: what the body raises is documented.
+skip-checking-raises = true
 allow-init-docstring = false
 
 [tool.black]

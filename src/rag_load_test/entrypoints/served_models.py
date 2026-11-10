@@ -2,9 +2,10 @@
 
 The ``RagSettings`` defaults are the one pin for the served models (a source id and
 an alias each). ``ovms/export_models.sh`` evaluates this command's output instead
-of repeating the four names::
+of repeating the four names.
 
-    eval "$(rag-served-models)"
+Example:
+    >>> eval "$(rag-served-models)"
 """
 
 from __future__ import annotations
@@ -17,14 +18,20 @@ from ..config.settings import RagSettings
 
 
 def served_model_assignments(settings: RagSettings) -> list[str]:
-    """``NAME=value`` lines, shell-quoted so the output is safe to ``eval``.
+    """Return ``NAME=value`` lines, shell-quoted so the output is safe to ``eval``.
 
     The names are the variables ``ovms/export_models.sh`` passes to the exporter.
 
-    Example::
+    Args:
+        settings: Source of the reranker and embedder source ids and served aliases.
 
-        served_model_assignments(RagSettings())[0]
-        # 'RERANKER_SOURCE_MODEL=BAAI/bge-reranker-base'
+    Returns:
+        Four lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
+        ``EMBEDDER_SOURCE_MODEL``, ``EMBEDDER_MODEL_NAME``.
+
+    Example:
+        >>> served_model_assignments(RagSettings())[0]
+        'RERANKER_SOURCE_MODEL=BAAI/bge-reranker-base'
     """
     values = {
         "RERANKER_SOURCE_MODEL": settings.reranker_model,
@@ -36,11 +43,18 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``rag-served-models``; ``RAG_*`` overrides are honoured, as everywhere.
+    """Run ``rag-served-models``; ``RAG_*`` overrides are honoured, as everywhere.
 
-    Example::
+    Args:
+        argv: Command-line arguments (it takes none but ``--help``); ``None``
+            reads ``sys.argv``.
 
-        main([])  # prints RERANKER_SOURCE_MODEL=BAAI/bge-reranker-base, ...
+    Returns:
+        The exit status, 0, after printing the assignments one per line.
+
+    Example:
+        >>> main([])  # prints RERANKER_SOURCE_MODEL=BAAI/bge-reranker-base, ...
+        0
     """
     parser = argparse.ArgumentParser(
         prog="rag-served-models",

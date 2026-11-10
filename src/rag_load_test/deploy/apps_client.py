@@ -4,10 +4,9 @@ Calls go through ``DOMINO_API_PROXY``, the proxy that authenticates requests mad
 inside a run, so no credentials are sent. The shapes follow the 6.2 Platform API
 reference; they have not been exercised against a live Domino.
 
-Example::
-
-    http = httpx.Client(base_url=os.environ["DOMINO_API_PROXY"])
-    DominoAppsClient(http, project_id, AppIdCache(None)).find("rag-workflow")
+Example:
+    >>> http = httpx.Client(base_url=os.environ["DOMINO_API_PROXY"])
+    >>> DominoAppsClient(http, project_id, AppIdCache(None)).find("rag-workflow")
 """
 
 from __future__ import annotations
@@ -37,8 +36,11 @@ class DominoDeployError(Exception):
 
 @dataclass(frozen=True)
 class WaitLimits:
-    """How long to wait for an App to run, how often to look, and how long an App
-    may go without an instance before it is reported (6.2 has no start call)."""
+    """How long to wait for an App to run, and how often to look.
+
+    Also how long an App may go without an instance before it is reported (6.2
+    has no start call).
+    """
 
     timeout_s: float
     poll_interval_s: float
@@ -68,12 +70,26 @@ class AppInstance:
 
 
 def json_mapping(value: object) -> Mapping[str, object]:
-    """``value`` when it is a JSON object, else an empty one."""
+    """Read ``value`` as a JSON object.
+
+    Args:
+        value: A decoded JSON value.
+
+    Returns:
+        ``value`` when it is a JSON object, else an empty one.
+    """
     return value if isinstance(value, Mapping) else {}
 
 
 def json_list(value: object) -> list[object]:
-    """``value`` when it is a JSON array, else an empty one."""
+    """Read ``value`` as a JSON array.
+
+    Args:
+        value: A decoded JSON value.
+
+    Returns:
+        ``value`` when it is a JSON array, else an empty one.
+    """
     return value if isinstance(value, list) else []
 
 
@@ -99,8 +115,12 @@ def _app_from_json(body: Mapping[str, object]) -> DominoApp:
 class DominoAppsClient:
     """The Apps API calls for one project: find, create, add a version, get.
 
-    ``cache`` remembers each App's id, so an App found or created once is found
-    again by id even if the ``name`` filter would not match it exactly.
+    Args:
+        http: Client whose base URL is the Apps API host (``DOMINO_API_PROXY``
+            inside a run).
+        project_id: The project whose Apps are found and created.
+        cache: Remembers each App's id, so an App found or created once is found
+            again by id even if the ``name`` filter would not match it exactly.
     """
 
     def __init__(self, http: httpx.Client, project_id: str, cache: AppIdCache) -> None:
@@ -113,7 +133,14 @@ class DominoAppsClient:
         self.http.close()
 
     def find(self, name: str) -> DominoApp | None:
-        """The App named ``name``: by its cached id first, then by the name filter."""
+        """Find the App named ``name``: by its cached id first, then by the name filter.
+
+        Args:
+            name: The App's exact name, e.g. ``"rag-workflow"``.
+
+        Returns:
+            The App, its id then cached; None if the project has no such App.
+        """
         app = self._find_cached(name) or self._find_by_name(name)
         if app is not None:
             self.cache.remember(self.project_id, name, app.id)
@@ -139,6 +166,16 @@ class DominoAppsClient:
     def create(
         self, name: str, version: Mapping[str, object], configuration_type: str
     ) -> DominoApp:
+        """Create an App, visible to authenticated users, with its first version.
+
+        Args:
+            name: The new App's name.
+            version: The first version's body (see ``publish.version_body``).
+            configuration_type: ``STANDARD`` for an App, ``AISYSTEM`` for an Agent.
+
+        Returns:
+            The created App, its id then cached.
+        """
         # No ``entryPoint``: the version's inline ``entryScript`` takes precedence,
         # and where Domino resolves a launch file for a repo under /repos is unknown.
         body = {
@@ -153,15 +190,40 @@ class DominoAppsClient:
         return app
 
     def add_version(self, app_id: str, version: Mapping[str, object]) -> str | None:
+        """Post a new version to an App.
+
+        Args:
+            app_id: The App that gets the version.
+            version: The version's body (see ``publish.version_body``).
+
+        Returns:
+            The new version's id, or None if the answer has none.
+        """
         path = f"{APPS_API_PATH}/{app_id}/versions"
         version_id = self._call("POST", path, json=dict(version)).get("id")
         return str(version_id) if version_id is not None else None
 
     def get(self, app_id: str) -> DominoApp:
+        """Get one App by id.
+
+        Args:
+            app_id: The App's id.
+
+        Returns:
+            The App with its current version and instance status.
+        """
         return _app_from_json(self._call("GET", f"{APPS_API_PATH}/{app_id}"))
 
     def instances(self, app_id: str, version_id: str) -> list[AppInstance]:
-        """The instances of one version of an App, as ``ListAppInstancesResponse``."""
+        """List the instances of one version of an App.
+
+        Args:
+            app_id: The App the version belongs to.
+            version_id: The version whose instances are listed.
+
+        Returns:
+            The items of its ``ListAppInstancesResponse``.
+        """
         path = f"{APPS_API_PATH}/{app_id}/versions/{version_id}/instances"
         items = map(json_mapping, json_list(self._call("GET", path).get("items")))
         return [AppInstance(str(i.get("id", "")), str(i.get("status"))) for i in items]
@@ -220,13 +282,28 @@ def wait_until_running(
     *,
     sleep: Callable[[float], None] = time.sleep,
 ) -> DominoApp:
-    """Poll the App until ``version_id`` (None = any version) is Running, or raise.
+    """Poll the App until ``version_id`` is Running.
 
     Polls are counted rather than timed so tests that pass a no-op ``sleep`` end.
+    Raises ``DominoDeployError`` early when the instance is in ``FAILED_STATUSES``,
+    or has not appeared within ``limits.no_instance_grace_s``.
 
-    Example::
+    Args:
+        client: Apps API client for the App's project.
+        app: The App to poll.
+        version_id: The version that must be current and Running; None accepts
+            any version.
+        limits: How long to wait and how often to look.
+        sleep: Waits between polls; tests pass a no-op.
 
-        wait_until_running(client, app, "v2", limits, sleep=lambda _: None)
+    Returns:
+        The App as last fetched, Running.
+
+    Raises:
+        DominoDeployError: If it is not Running after ``limits.timeout_s``.
+
+    Example:
+        >>> wait_until_running(client, app, "v2", limits, sleep=lambda _: None)
     """
     last_status = "none yet"
     for poll in range(1, int(limits.timeout_s / limits.poll_interval_s) + 1):

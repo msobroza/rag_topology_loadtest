@@ -1,8 +1,7 @@
 """``rag-compare``: locust ``*_stats.csv`` files in, one markdown table per row out.
 
-Example::
-
-    rag-compare results/monolith results/split-all --out comparison.md
+Example:
+    $ rag-compare results/monolith results/split-all --out comparison.md
 """
 
 from __future__ import annotations
@@ -23,6 +22,8 @@ from .request_plans import STAGE_REQUEST_TYPE
 
 @dataclass(frozen=True)
 class RowStats:
+    """One row of a locust stats CSV: counts, throughput, latency percentiles in ms."""
+
     requests: int
     failures: int
     rps: float
@@ -32,7 +33,17 @@ class RowStats:
 
 
 def load_stats(prefix: Path) -> dict[str, RowStats]:
-    """Read ``<prefix>_stats.csv`` keyed by ``"<Type> <Name>"`` or ``"Aggregated"``."""
+    """Read ``<prefix>_stats.csv`` keyed by ``"<Type> <Name>"`` or ``"Aggregated"``.
+
+    An empty or ``N/A`` percentile, as locust writes for a zero-request row, reads
+    as 0.
+
+    Args:
+        prefix: The locust ``--csv`` prefix of the run.
+
+    Returns:
+        The stats of every row of the file, by row key.
+    """
     rows: dict[str, RowStats] = {}
     with Path(f"{prefix}_stats.csv").open(newline="", encoding="utf-8") as handle:
         for record in csv.DictReader(handle):
@@ -60,13 +71,21 @@ def render_markdown(
     runs: Mapping[str, Mapping[str, RowStats]],
     targets: Mapping[str, Any] | None = None,
 ) -> str:
-    """One table per row key across all runs; Δp95 is relative to the first run.
+    """Render one table per row key across all runs; Δp95 is relative to the first run.
 
-    ``targets`` maps a run name to its parsed ``_target.json``, when it has one.
+    Args:
+        runs: The stats of each run by row key, keyed by run name; the first run
+            is the baseline.
+        targets: Maps a run name to its parsed ``_target.json``, when it has one;
+            ``None`` when no run has one.
 
-    Example::
+    Returns:
+        The markdown: a title, the run list with the topology and run label each
+        run saw, then one table per row key, request rows first, STAGE rows next
+        and ``Aggregated`` last.
 
-        render_markdown({"monolith": load_stats(Path("results/monolith"))})
+    Example:
+        >>> render_markdown({"monolith": load_stats(Path("results/monolith"))})
     """
     labels = list(runs)
     baseline = labels[0]
@@ -88,9 +107,9 @@ def render_markdown(
     return "\n".join(lines)
 
 
+# The run list, with the topology and run label each run saw, then a warning
+# for any run that saw more than one pair (its numbers mix configurations).
 def _intro_lines(labels: Sequence[str], targets: Mapping[str, Any]) -> list[str]:
-    """The run list, with the topology and run label each run saw, then a warning
-    for any run that saw more than one pair (its numbers mix configurations)."""
     titles, warnings = [], []
     for label in labels:
         seen = targets.get(label, {}).get("seen", [])
@@ -138,7 +157,17 @@ def _delta(row: RowStats | None, base: RowStats | None, is_baseline: bool) -> st
 
 
 def compare_main(argv: Sequence[str] | None = None) -> int:
-    """``rag-compare results/monolith results/split-all [--out comparison.md]``."""
+    """Run ``rag-compare results/monolith results/split-all [--out comparison.md]``.
+
+    Each prefix's ``_target.json`` is read when it exists; runs are named by the
+    last component of their prefix.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The exit status, 0, after printing the markdown or writing it to ``--out``.
+    """
     parser = argparse.ArgumentParser(
         prog="rag-compare", description="Compare locust runs."
     )

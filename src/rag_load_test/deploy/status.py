@@ -23,11 +23,17 @@ from .settings import DeploySettings
 
 
 def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
-    """One line per App the topology needs, then the running workflow App's /readyz.
+    """Print one line per App the topology needs, then the workflow App's /readyz.
 
-    Example::
+    The /readyz lines appear only when the workflow App is Running.
 
-        print_status(client, DeploySettings())   # "rag-workflow   Running   https://..."
+    Args:
+        client: Apps API client for the project.
+        settings: The deploy settings (topology, Domino host, run token URL).
+
+    Example:
+        >>> print_status(client, DeploySettings())
+        rag-workflow   Running   https://...
     """
     endpoint: str | None = None
     for part in apps_for_topology(settings.topology):  # the workflow App is last
@@ -48,13 +54,22 @@ def _status_line(name: str, app: DominoApp | None, endpoint: str | None) -> str:
 
 
 def readiness_lines(http: httpx.Client, url: str, token_url: str) -> list[str]:
-    """The workflow App's /readyz checks and run headers, or one line saying why not.
+    """Report the workflow App's /readyz checks and run headers.
 
     Never raises: the App table is the main output of ``rag-deploy status``.
 
-    Example::
+    Args:
+        http: Client the token and /readyz requests go through.
+        url: Where the workflow App's instance answers.
+        token_url: The run's token service, whose token is sent as a Bearer.
 
-        readiness_lines(http, endpoint, settings.run_token_url)   # ["readyz: ...", ...]
+    Returns:
+        The status and run headers, then one line per check; or one line saying
+        why /readyz was not checked.
+
+    Example:
+        >>> readiness_lines(http, endpoint, settings.run_token_url)
+        ['readyz: ...', ...]
     """
     try:
         headers = {"Authorization": f"Bearer {_run_token(http, token_url)}"}

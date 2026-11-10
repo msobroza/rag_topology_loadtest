@@ -4,9 +4,9 @@ Top-level keys say what to deploy and how ``rag-deploy`` talks to Domino;
 ``defaults`` and ``apps.<part>`` say how each App runs. ``deploy.example.yaml``
 documents every key.
 
-Example::
-
-    DeploySettings().for_app("workflow").kind   # "agent"
+Example:
+    >>> DeploySettings().for_app("workflow").kind
+    'agent'
 """
 
 from __future__ import annotations
@@ -43,11 +43,14 @@ DEFAULT_KIND: dict[AppPart, AppKind] = {
 
 
 def deploy_file() -> str:
-    """The settings file: ``RAG_DEPLOY_FILE``, else ``deploy.yaml`` here.
+    """Name the settings file: ``RAG_DEPLOY_FILE``, else ``deploy.yaml`` here.
 
-    Example::
+    Returns:
+        The path of the settings file.
 
-        deploy_file()   # "deploy.yaml"
+    Example:
+        >>> deploy_file()
+        'deploy.yaml'
     """
     return os.environ.get("RAG_DEPLOY_FILE") or DEPLOY_FILE
 
@@ -117,6 +120,7 @@ class AppSettings:
 
     @property
     def name(self) -> str:
+        """The App's name in Domino, ``rag-<part>``."""
         return f"rag-{self.part}"
 
 
@@ -174,11 +178,19 @@ class DeploySettings(BaseSettings):
         return self
 
     def for_app(self, part: AppPart) -> AppSettings:
-        """``rag-<part>``'s settings: its own value, else the default.
+        """Merge ``rag-<part>``'s settings: its own value, else the default.
 
-        Example::
+        ``settings`` entries are merged key by key, the App's own winning.
 
-            DeploySettings().for_app("reranker").hardware_tier_id   # "cpu-16"
+        Args:
+            part: The App whose settings are merged.
+
+        Returns:
+            The App's settings, the kind defaulting to ``DEFAULT_KIND``.
+
+        Example:
+            >>> DeploySettings().for_app("reranker").hardware_tier_id
+            'cpu-16'
         """
         own, shared = self.apps.get(part, AppBlock()), self.defaults
         return AppSettings(
@@ -191,18 +203,30 @@ class DeploySettings(BaseSettings):
         )
 
     def wait_limits(self) -> WaitLimits:
-        """How long to wait for an App to run, and how often to look."""
+        """Say how long to wait for an App to run, and how often to look.
+
+        Returns:
+            The ``wait_timeout_s``, ``poll_interval_s`` and ``no_instance_grace_s``
+            settings.
+        """
         return WaitLimits(
             self.wait_timeout_s, self.poll_interval_s, self.no_instance_grace_s
         )
 
 
 def refuse_secrets(settings: DeploySettings) -> None:
-    """Raise when a ``settings`` block holds a secret: it would land in a script.
+    """Refuse a ``settings`` block that holds a secret: it would land in a script.
 
-    Example::
+    Args:
+        settings: The deploy settings whose ``defaults`` and ``apps`` are checked.
 
-        refuse_secrets(DeploySettings())   # DominoDeployError("RAG_ES_API_KEY ...")
+    Raises:
+        DominoDeployError: If ``RAG_ES_API_KEY`` or ``OPENAI_API_KEY`` is set, or
+            ``RAG_OVMS_AUTH`` holds a token rather than ``domino``.
+
+    Example:
+        >>> refuse_secrets(DeploySettings())
+        DominoDeployError: RAG_ES_API_KEY ...
     """
     blocks = {f"apps.{part}": block for part, block in settings.apps.items()}
     for block_name, block in {"defaults": settings.defaults, **blocks}.items():
@@ -220,11 +244,18 @@ _PLACEHOLDER = re.compile(r"<[^<>\s][^<>]*[^<>\s]>|<[^<>\s]>")
 
 
 def refuse_placeholders(settings: DeploySettings, parts: list[AppPart]) -> None:
-    """Raise when a value the deploy of ``parts`` uses still holds a placeholder.
+    """Refuse a value the deploy of ``parts`` uses that still holds a placeholder.
 
-    Example::
+    Args:
+        settings: The deploy settings.
+        parts: The Apps being deployed; other Apps' blocks are not checked.
 
-        refuse_placeholders(DeploySettings(), ["workflow"])   # "... '<dataset>' ..."
+    Raises:
+        DominoDeployError: If a value holds a placeholder such as ``<dataset>``.
+
+    Example:
+        >>> refuse_placeholders(DeploySettings(), ["workflow"])
+        DominoDeployError: ... '<dataset>' ...
     """
     for key, block, value in _values_used(settings, parts):
         if _PLACEHOLDER.search(value):

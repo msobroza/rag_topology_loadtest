@@ -8,9 +8,8 @@ failures map to 503
 prefix Domino serves the app under, so the app answers with or without the
 prefix on the wire and needs no proxy in front (unlike OVMS).
 
-Example::
-
-    uvicorn.run(create_app(RagPorts(RagSettings())), host="0.0.0.0", port=8888)
+Example:
+    >>> uvicorn.run(create_app(RagPorts(RagSettings())), host="0.0.0.0", port=8888)
 """
 
 from __future__ import annotations
@@ -43,10 +42,14 @@ logger = logging.getLogger("rag_load_test")
 
 
 class QueryRequest(BaseModel):
+    """The question to answer, 1 to 2000 characters."""
+
     question: str = Field(min_length=1, max_length=2000)
 
 
 class QueryResponse(BaseModel):
+    """The workflow's answer, the passages it used and the time each stage took."""
+
     request_id: str
     topology: str
     run_label: str
@@ -58,18 +61,27 @@ class QueryResponse(BaseModel):
 
 
 class ReadyCheck(BaseModel):
+    """One dependency probe of ``/readyz``: which dependency, whether it passed, why."""
+
     name: str
     ok: bool
     detail: str
 
 
 class ReadyResponse(BaseModel):
+    """The ``/readyz`` verdict and its checks; ``ready`` only when all checks pass."""
+
     status: Literal["ready", "not_ready"]
     checks: list[ReadyCheck]
 
 
 def find_add_tracing() -> Callable[..., Any] | None:
-    """Domino's ``add_tracing`` decorator factory, or ``None`` without the SDK."""
+    """Find Domino's ``add_tracing`` decorator factory.
+
+    Returns:
+        The factory from ``domino.aisystems.tracing`` or, failing that,
+        ``domino.agents.tracing``; ``None`` without the SDK.
+    """
     for module in ("domino.aisystems.tracing", "domino.agents.tracing"):
         try:
             return importlib.import_module(module).add_tracing
@@ -79,7 +91,16 @@ def find_add_tracing() -> Callable[..., Any] | None:
 
 
 def traced(fn: Callable[..., Any], *, enabled: bool) -> Callable[..., Any]:
-    """Wrap ``fn`` with Domino agent tracing when enabled and installed."""
+    """Wrap ``fn`` with Domino agent tracing when enabled and installed.
+
+    Args:
+        fn: The callable to trace, recorded as the ``rag_query`` span.
+        enabled: Whether tracing is asked for (``RAG_DOMINO_TRACING``).
+
+    Returns:
+        The traced callable, or ``fn`` itself when tracing is off or the SDK is
+        missing (the latter logs a warning).
+    """
     if not enabled:
         return fn
     add_tracing = find_add_tracing()
@@ -90,7 +111,18 @@ def traced(fn: Callable[..., Any], *, enabled: bool) -> Callable[..., Any]:
 
 
 async def readiness(deps: RagDependencies) -> list[ReadyCheck]:
-    """Probe the store and the model ports; a failing probe is a failed check."""
+    """Probe the store and the model ports; a failing probe is a failed check.
+
+    A probe that raises is reported as a failed check naming the exception, so
+    ``/readyz`` never crashes.
+
+    Args:
+        deps: The opened dependencies whose vector store, embedder and reranker
+            are probed.
+
+    Returns:
+        One check per dependency, in the order vector store, embedder, reranker.
+    """
     probes = (
         ("vector_store", deps.vector_store.ready),
         ("embedder", deps.embedder.ready),
@@ -265,7 +297,17 @@ async def readyz(request: Request) -> JSONResponse:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888."""
+    """Run ``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888.
+
+    ``--domino`` requires the model server URLs and defaults ``RAG_OVMS_AUTH`` to
+    ``domino``; a settings mistake exits as a usage error, not a crash.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The exit status, 0, once the server stops.
+    """
     parser = argparse.ArgumentParser(
         prog="rag-serve", description="Serve the RAG workflow."
     )

@@ -5,9 +5,8 @@ Transcribed from the Domino 6.2 Platform API reference, so it shows what
 its ``/docs`` page documents the API, ``rag-fake-domino`` serves it locally, and
 ``rag-deploy --dry-run`` runs the real deploy code against it in-process.
 
-Example::
-
-    rag-fake-domino --behaviour slow     # then open http://localhost:8899/docs
+Example:
+    >>> main(["--behaviour", "slow"])  # then open http://localhost:8899/docs
 """
 
 from __future__ import annotations
@@ -47,11 +46,18 @@ async def _record_and_forbid(
 
 
 def create_fake_domino(apps: FakeDominoApps | None = None) -> FastAPI:
-    """The fake Domino over ``apps`` (default: a fresh one that ``starts``).
+    """Build the fake Domino over ``apps``.
 
-    Example::
+    Its Swagger description lists every behaviour of ``FAKE_DOMINO_BEHAVIOURS``.
 
-        TestClient(create_fake_domino(), base_url=FAKE_DOMINO_URL)
+    Args:
+        apps: The state it serves; None takes a fresh one that ``starts``.
+
+    Returns:
+        The FastAPI app.
+
+    Example:
+        >>> TestClient(create_fake_domino(), base_url=FAKE_DOMINO_URL)
     """
     behaviours = [
         f"- `{name}`: {b.description}" for name, b in FAKE_DOMINO_BEHAVIOURS.items()
@@ -91,11 +97,18 @@ class _InProcessTransport(httpx.BaseTransport):
 
 
 def fake_domino_http(app: ASGIApp) -> httpx.Client:
-    """An ``httpx.Client`` whose requests go to ``app`` in-process, never the network.
+    """Return an ``httpx.Client`` whose requests go to ``app`` in-process.
 
-    Example::
+    The requests never reach the network.
 
-        DominoAppsClient(fake_domino_http(create_fake_domino()), "proj-1")
+    Args:
+        app: The ASGI app that answers, e.g. ``create_fake_domino()``.
+
+    Returns:
+        A client with base URL ``FAKE_DOMINO_URL``.
+
+    Example:
+        >>> DominoAppsClient(fake_domino_http(create_fake_domino()), "proj-1")
     """
     return httpx.Client(base_url=FAKE_DOMINO_URL, transport=_InProcessTransport(app))
 
@@ -109,11 +122,14 @@ _ABOUT = (
 def main(
     argv: Sequence[str] | None = None, *, serve: Callable[..., None] = uvicorn.run
 ) -> None:
-    """``rag-fake-domino [--host H] [--port P] [--behaviour B]``: serve the fake.
+    """Serve the fake: ``rag-fake-domino [--host H] [--port P] [--behaviour B]``.
 
-    Example::
+    Args:
+        argv: The command-line arguments; None reads ``sys.argv``.
+        serve: Runs the ASGI app on a host and port; tests replace uvicorn.
 
-        main(["--behaviour", "slow"])   # Swagger at http://localhost:8899/docs
+    Example:
+        >>> main(["--behaviour", "slow"])  # Swagger at http://localhost:8899/docs
     """
     parser = argparse.ArgumentParser(
         prog="rag-fake-domino", description="Serve a fake Domino 6.2 Apps API."

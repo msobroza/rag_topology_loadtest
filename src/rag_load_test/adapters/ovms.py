@@ -7,12 +7,11 @@ token, hence :class:`BearerToken`. Calls follow one :class:`HttpPolicy`: they
 time out after ``timeout_s`` and are retried ``retries`` times on transport
 errors, 5xx and 401, waiting ``backoff_s`` (doubled each time) in between.
 
-Example::
-
-    policy = HttpPolicy(timeout_s=30.0, retries=2, backoff_s=0.2)
-    token = BearerToken(client, "", token_url=url, ttl_s=240.0, policy=policy)
-    reranker = OvmsReranker(client, "http://localhost:8001", "bge-reranker-base",
-                            token=token, policy=policy)
+Example:
+    >>> policy = HttpPolicy(timeout_s=30.0, retries=2, backoff_s=0.2)
+    >>> token = BearerToken(client, "", token_url=url, ttl_s=240.0, policy=policy)
+    >>> reranker = OvmsReranker(client, "http://localhost:8001", "bge-reranker-base",
+    ...                         token=token, policy=policy)
 """
 
 from __future__ import annotations
@@ -45,14 +44,26 @@ from .v3_contract import (
 
 
 class BearerToken:
-    """``Authorization`` header: nothing, a static token, or Domino's run token,
-    fetched from ``token_url`` and reused for ``ttl_s`` seconds.
+    """The ``Authorization`` header for OVMS calls.
 
-    Example::
+    It is nothing, a static token, or Domino's run token, fetched from
+    ``token_url`` and reused for ``ttl_s`` seconds.
 
-        token = BearerToken(client, "domino", token_url=url, ttl_s=240, policy=policy)
-        await token.headers()   # {"Authorization": "Bearer <run token>"}
-        # auth "abc" -> "Bearer abc"; auth "" -> {}
+    Args:
+        client: The shared HTTP client the run token is fetched with.
+        auth: "" sends no header; "domino" sends the run token; any other value
+            is sent as a static token.
+        token_url: Where Domino's run token is fetched (``auth="domino"`` only).
+        ttl_s: Seconds a fetched run token is reused before it is fetched again.
+        policy: Only its ``timeout_s`` is used: a token fetch is tried once, and a
+            failed fetch fails the model call, which retries.
+
+    Example:
+        >>> token = BearerToken(client, "domino", token_url=url, ttl_s=240,
+        ...                     policy=policy)
+        >>> await token.headers()
+        {'Authorization': 'Bearer <run token>'}
+        >>> # auth "abc" -> "Bearer abc"; auth "" -> {}
     """
 
     def __init__(
@@ -72,12 +83,18 @@ class BearerToken:
         self._fetched_at = 0.0
 
     async def headers(self) -> dict[str, str]:
+        """Return the headers to send, fetching the run token when it is stale.
+
+        Returns:
+            ``{"Authorization": "Bearer <token>"}``, or ``{}`` when ``auth`` is "".
+        """
         if not self._auth:
             return {}
         token = await self._domino_token() if self._auth == "domino" else self._auth
         return {"Authorization": f"Bearer {token}"}
 
     def invalidate(self) -> None:
+        """Drop the cached run token, so the next ``headers`` fetches a new one."""
         self._cached = None
 
     async def _domino_token(self) -> str:
@@ -105,7 +122,15 @@ class _RetryableFailure(NamedTuple):
 
 
 class OvmsEndpoint:
-    """Shared plumbing for one OVMS servable: URLs, auth, retries, readiness."""
+    """Shared plumbing for one OVMS servable: URLs, auth, retries, readiness.
+
+    Args:
+        client: The shared HTTP client every call goes through.
+        base_url: The OVMS server's URL; a trailing slash is dropped.
+        model: The servable's name in OVMS; ``model_name`` is ``ovms:<model>``.
+        token: Supplies the ``Authorization`` header of every call.
+        policy: Timeout, retries and backoff of every call.
+    """
 
     component = "ovms"
 
@@ -123,6 +148,12 @@ class OvmsEndpoint:
         self.model_name = f"ovms:{model}"
 
     async def ready(self) -> tuple[bool, str]:
+        """Probe the servable's model endpoint once, without retries.
+
+        Returns:
+            Whether the probe answered 200, and ``"<url> -> <status>"``; on a
+            transport or token error, ``False`` and the error.
+        """
         url = self._base_url + model_probe_path(self.model)
         try:
             headers = await self._token.headers()
@@ -206,8 +237,16 @@ class OvmsEndpoint:
 
 
 class OvmsEmbedder(OvmsEndpoint, EmbedderPort):
-    """EmbedderPort over ``POST /v3/embeddings`` (rows re-ordered by ``index``),
-    ``batch_size`` texts per request."""
+    """EmbedderPort over ``POST /v3/embeddings`` (rows re-ordered by ``index``).
+
+    Args:
+        client: The shared HTTP client every call goes through.
+        base_url: The OVMS server's URL; a trailing slash is dropped.
+        model: The servable's name in OVMS.
+        token: Supplies the ``Authorization`` header of every call.
+        policy: Timeout, retries and backoff of every call.
+        batch_size: Texts per request.
+    """
 
     component = "embedder"
 
@@ -225,6 +264,17 @@ class OvmsEmbedder(OvmsEndpoint, EmbedderPort):
         self.batch_size = batch_size
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed texts, ``batch_size`` per request.
+
+        Args:
+            texts: The texts to embed; none sends no request.
+
+        Returns:
+            One vector per text, in the same order.
+
+        Raises:
+            RagDependencyError: If a response does not have the embeddings shape.
+        """
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
             batch = list(texts[start : start + self.batch_size])
@@ -240,13 +290,30 @@ class OvmsEmbedder(OvmsEndpoint, EmbedderPort):
 
 
 class OvmsReranker(OvmsEndpoint, RerankerPort):
-    """RerankerPort over ``POST /v3/rerank`` (``results[].index`` -> input order)."""
+    """RerankerPort over ``POST /v3/rerank`` (``results[].index`` -> input order).
+
+    Built with the same arguments as ``OvmsEndpoint``.
+    """
 
     component = "reranker"
 
     async def rerank(
         self, query: str, passages: Sequence[ScoredPassage], top_n: int
     ) -> list[ScoredPassage]:
+        """Re-score the candidates on OVMS and keep the best.
+
+        Args:
+            query: The question the passages are scored against.
+            passages: The retrieval candidates; none sends no request.
+            top_n: How many passages to keep.
+
+        Returns:
+            At most ``top_n`` passages, best first, with the OVMS score.
+
+        Raises:
+            RagDependencyError: If the response does not have the rerank shape, or
+                names an index outside the candidates.
+        """
         if not passages:
             return []
         request = rerank_request_for(self.model, query, passages, top_n)
@@ -258,13 +325,9 @@ class OvmsReranker(OvmsEndpoint, RerankerPort):
             raise self._malformed(exc, RERANK_PATH) from exc
 
 
+# One line naming what broke the shape, not the whole (maybe huge) body,
+# e.g. "ValidationError for RerankResponse: results: ...".
 def _describe_malformed(exc: Exception) -> str:
-    """One line naming what broke the shape, not the whole (maybe huge) body.
-
-    Example::
-
-        _describe_malformed(exc)  # "ValidationError for RerankResponse: results: ..."
-    """
     if not isinstance(exc, ValidationError):
         return describe_error(exc)
     problems = "; ".join(

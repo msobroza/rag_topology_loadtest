@@ -5,11 +5,10 @@ What to publish is decided in ``publish.py`` and with which settings in
 ``apps_client.py``, and where a running App answers in ``endpoint_url.py``. The
 model server Apps are published first, then the workflow App with their URLs.
 
-Example::
-
-    rag-deploy deploy all      # every App the topology needs, in order
-    rag-deploy status          # one line per App, then the workflow App's /readyz
-    rag-deploy --dry-run deploy all   # the same, against an in-process fake Domino
+Example:
+    >>> main(["deploy", "all"])  # every App the topology needs, in order
+    >>> main(["status"])  # one line per App, then the workflow App's /readyz
+    >>> main(["--dry-run", "deploy", "all"])  # against an in-process fake Domino
 """
 
 from __future__ import annotations
@@ -38,14 +37,16 @@ DRY_RUN_PROJECT_ID = "dry-run-project"
 
 
 def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -> None:
-    """``rag-deploy``: expected failures end through ``parser.error`` (exit 2).
+    """Run ``rag-deploy``; expected failures end through ``parser.error`` (exit 2).
 
-    ``fake_domino`` (or ``--dry-run``, which brings its own) replaces Domino with
-    an in-process fake: no ``DOMINO_API_PROXY`` needed, and waiting never sleeps.
+    Args:
+        argv: The command-line arguments; None reads ``sys.argv``.
+        fake_domino: Replaces Domino with an in-process fake (``--dry-run``
+            brings its own): no ``DOMINO_API_PROXY`` needed, and waiting never
+            sleeps.
 
-    Example::
-
-        main(["--dry-run", "deploy", "all"])
+    Example:
+        >>> main(["--dry-run", "deploy", "all"])
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -102,11 +103,17 @@ def _run_command(
 
 
 def dry_run_report(creates: list[AppCreationRequest]) -> str:
-    """What a dry run would have published: each App's settings and entry script.
+    """Describe what a dry run would have published.
 
-    Example::
+    Args:
+        creates: The create requests the fake Domino received, in order.
 
-        print(dry_run_report(fake_apps.creates))   # "Dry run: nothing was sent ..."
+    Returns:
+        Each App's kind, environment, tier, autoscaling and entry script, as text.
+
+    Example:
+        >>> print(dry_run_report(fake_apps.creates))
+        Dry run: nothing was sent ...
     """
     kinds = {ctype: kind for kind, ctype in CONFIGURATION_TYPES.items()}
     lines = ["", "Dry run: nothing was sent to Domino. rag-deploy would publish:"]

@@ -6,10 +6,10 @@ They are a transcription, not a recording of a live Domino: the client in
 ``rag_load_test/deploy/apps_client.py`` reads responses leniently and does not
 validate against them.
 
-Example::
-
-    AppCreationRequest(name="rag-workflow", projectId="p1",
-                       visibility="AUTHENTICATED", version=AppVersionCreationRequest())
+Example:
+    >>> AppCreationRequest(name="rag-workflow", projectId="p1",
+    ...                    visibility="AUTHENTICATED",
+    ...                    version=AppVersionCreationRequest())
 """
 
 from __future__ import annotations
@@ -31,16 +31,22 @@ class _Request(BaseModel):
 
 
 class GitRef(_Request):
+    """A git reference an App version is built from."""
+
     type: Literal["head", "commitId", "branches", "tags", "custom"]
     value: str | None = None
 
 
 class AppVersionTag(_Request):
+    """A key and value tagged on an App version."""
+
     key: str
     value: str
 
 
 class AppAutoscalingSpecification(_Request):
+    """How an App version scales its replicas."""
+
     enabled: bool
     minReplicas: int | None = None
     maxReplicas: int | None = None
@@ -52,11 +58,15 @@ class AppAutoscalingSpecification(_Request):
 
 
 class AppAccessStatus(_Request):
+    """One user's access to an App."""
+
     userId: str
     status: Literal["ALLOWED", "DENIED", "PENDING"]
 
 
 class AppVersionCreationRequest(_Request):
+    """The version part of a request that creates an App."""
+
     autoscalingSpecification: AppAutoscalingSpecification | None = None
     environmentId: str | None = None
     environmentRevisionId: str | None = None
@@ -73,6 +83,8 @@ class AppVersionCreationRequest(_Request):
 
 
 class AppCreationRequest(_Request):
+    """The request body that creates an App."""
+
     name: str
     projectId: str
     visibility: Visibility
@@ -89,6 +101,8 @@ class AppCreationRequest(_Request):
 
 
 class AppInstanceSummaryResponse(BaseModel):
+    """A running or stopped instance of an App version."""
+
     id: str
     createdAt: float
     status: str
@@ -96,6 +110,8 @@ class AppInstanceSummaryResponse(BaseModel):
 
 
 class AppVersionResponse(BaseModel):
+    """A version of an App, with its current instance if any."""
+
     id: str
     createdAt: float
     updatedAt: float
@@ -116,6 +132,8 @@ class AppVersionResponse(BaseModel):
 
 
 class AppProjectResponse(BaseModel):
+    """The project an App belongs to."""
+
     id: str
     name: str
     ownerId: str
@@ -124,11 +142,15 @@ class AppProjectResponse(BaseModel):
 
 
 class AppUserResponse(BaseModel):
+    """The user who published an App."""
+
     id: str
     name: str
 
 
 class AppResponse(BaseModel):
+    """An App, with its project and current version."""
+
     id: str
     name: str
     entryPoint: str
@@ -150,6 +172,8 @@ class AppResponse(BaseModel):
 
 
 class PaginatedMetadataV1(BaseModel):
+    """The paging metadata of a list response."""
+
     notices: list[str]
     requestId: str
     limit: int
@@ -158,11 +182,15 @@ class PaginatedMetadataV1(BaseModel):
 
 
 class ListAppsResponse(BaseModel):
+    """One page of Apps."""
+
     items: list[AppResponse]
     metadata: PaginatedMetadataV1
 
 
 class ListAppInstancesResponse(BaseModel):
+    """One page of an App version's instances."""
+
     items: list[AppInstanceSummaryResponse]
     metadata: PaginatedMetadataV1
 
@@ -171,16 +199,22 @@ class ListAppInstancesResponse(BaseModel):
 
 
 class MetadataV1(BaseModel):
+    """The metadata of a single-object response."""
+
     notices: list[str]
     requestId: str
 
 
 class InformationV1(BaseModel):
+    """An amount of memory with its unit."""
+
     value: float
     units: Literal["MB", "MiB", "GB", "GiB"]
 
 
 class HardwareTierResourcesV1(BaseModel):
+    """The CPU and memory a hardware tier gives a run."""
+
     cores: float
     memory: InformationV1
     allowSharedMemoryToExceedDefault: bool
@@ -189,6 +223,8 @@ class HardwareTierResourcesV1(BaseModel):
 
 
 class HardwareTierFlagsV1(BaseModel):
+    """The flags that say where a hardware tier is used."""
+
     isDefault: bool
     isVisible: bool
     isGlobal: bool
@@ -199,12 +235,14 @@ class HardwareTierFlagsV1(BaseModel):
 
 
 class HardwareTierPodCustomizationV1(BaseModel):
+    """Extra Kubernetes requests and limits of a hardware tier."""
+
     additionalRequests: dict[str, str] | None = None
     additionalLimits: dict[str, str] | None = None
 
 
 class HardwareTierV1(BaseModel):
-    """The required fields; the reference lists more optional ones."""
+    """A hardware tier: the required fields; the reference lists more optional ones."""
 
     id: str
     name: str
@@ -218,10 +256,14 @@ class HardwareTierV1(BaseModel):
 
 
 class HardwareTierEnvelopeV1(BaseModel):
+    """The response body that carries one hardware tier."""
+
     hardwareTier: HardwareTierV1
     metadata: MetadataV1
 
 
 class FailureEnvelopeV1(BaseModel):
+    """The response body of a failed request."""
+
     errors: list[str]
     requestId: str

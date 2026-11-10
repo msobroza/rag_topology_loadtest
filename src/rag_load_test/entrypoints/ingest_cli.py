@@ -2,10 +2,9 @@
 
 The synthetic handbook it ingests by default lives in ``domain/corpus.py``.
 
-Example::
-
-    rag-ingest --synthetic 200          # embed with the RAG_* configured backend
-    rag-ingest --corpus docs.jsonl
+Example:
+    $ rag-ingest --synthetic 200          # embed with the RAG_* configured backend
+    $ rag-ingest --corpus docs.jsonl
 """
 
 from __future__ import annotations
@@ -28,14 +27,17 @@ if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_por
 def load_jsonl(path: Path) -> list[SourceDocument]:
     """Read a corpus: one ``{"id", "title", "text", "metadata"?}`` object per line.
 
-    Blank lines are skipped; a line that is not such an object raises ValueError
-    naming the file and the line number.
+    Blank lines are skipped.
 
     Args:
-        path: The JSONL file.
+        path: The JSONL file to read.
 
     Returns:
         The documents, in file order.
+
+    Raises:
+        ValueError: If a line is not such an object; the message names the file
+            and the line number.
     """
     with Path(path).open(encoding="utf-8") as handle:
         return [
@@ -92,12 +94,22 @@ def _configured_ports() -> RagPorts:
 
 
 def main(argv: Sequence[str] | None = None, *, ports: RagPorts | None = None) -> int:
-    """``rag-ingest``: prints one JSON summary line.
+    """Run ``rag-ingest``: chunk, embed and upsert a corpus, then print one JSON line.
 
-    Example::
+    The summary line is the ``ingest_done`` event: the document count, the passage
+    count, the embedder's model name and what the store reports holding.
 
-        main(["--synthetic", "200"])                     # ports from RAG_* settings
-        main(["--corpus", "docs.jsonl"], ports=RagPorts(settings))
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv``.
+        ports: The ports to ingest through; ``None`` builds them from the
+            ``RAG_*`` settings, which refuses the ``fake`` vector store.
+
+    Returns:
+        The exit status, 0.
+
+    Example:
+        >>> main(["--synthetic", "200"])                     # ports from RAG_* settings
+        >>> main(["--corpus", "docs.jsonl"], ports=RagPorts(settings))
     """
     args = _parser().parse_args(argv)
     ports = ports or _configured_ports()

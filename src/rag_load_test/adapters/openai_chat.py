@@ -14,9 +14,13 @@ class OpenAIChatModel(ChatModelPort):
     The SDK reads ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` itself, so a Domino AI
     Gateway can be substituted without code changes.
 
-    Example::
+    Args:
+        client: An ``openai.AsyncOpenAI`` client, or a stand-in with the same
+            ``chat.completions.create`` and ``close``.
+        model: The chat model name sent with every request.
 
-        answer = await OpenAIChatModel.open("gpt-4o-mini").generate(messages)
+    Example:
+        >>> answer = await OpenAIChatModel.open("gpt-4o-mini").generate(messages)
     """
 
     def __init__(self, client: Any, model: str) -> None:
@@ -24,6 +28,14 @@ class OpenAIChatModel(ChatModelPort):
 
     @classmethod
     def open(cls, model: str) -> OpenAIChatModel:
+        """Build the model on a fresh ``AsyncOpenAI`` client, importing ``openai``.
+
+        Args:
+            model: The chat model name sent with every request.
+
+        Returns:
+            The chat model, with the SDK's defaults (10 min timeout, 2 retries).
+        """
         import openai  # SDK defaults: 10 min timeout, 2 retries
 
         return cls(openai.AsyncOpenAI(), model)
@@ -33,6 +45,18 @@ class OpenAIChatModel(ChatModelPort):
         await self._client.close()
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
+        """Answer a conversation at temperature 0.
+
+        Args:
+            messages: OpenAI-style messages, each with ``role`` and ``content``.
+
+        Returns:
+            The model's answer text; "" when the API returns no content.
+
+        Raises:
+            RagDependencyError: If the API call times out (kind ``timeout``) or
+                fails with any other ``openai.APIError``.
+        """
         import openai
 
         try:
