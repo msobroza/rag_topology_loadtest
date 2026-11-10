@@ -171,6 +171,7 @@ class FakeLangChainStore:
         self.add_calls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
         self.count_calls: list[str] = []
+        self.closed = False
         indices = SimpleNamespace(exists=self._indices_exist)
         self.client = SimpleNamespace(indices=indices, count=self._count_docs)
 
@@ -200,6 +201,9 @@ class FakeLangChainStore:
         self._maybe_fail()
         self.search_calls.append({"embedding": embedding, "k": k})
         return [(doc_builder(hit), score) for hit, score in self.hits[:k]]
+
+    async def aclose(self) -> None:
+        self.closed = True
 
     def _maybe_fail(self) -> None:
         if self.failure is not None:
@@ -250,6 +254,26 @@ async def test_es_count_is_zero_without_index(exists: bool, expected: int) -> No
     assert fake.count_calls == ([INDEX] if exists else [])
 
 
+@pytest.mark.parametrize(
+    ("exists", "expected"),
+    [
+        (False, (False, f"0 passages in {INDEX}")),
+        (True, (True, f"17 passages in {INDEX}")),
+    ],
+)
+async def test_es_ready_reports_the_passage_count_and_index(
+    exists: bool, expected: tuple[bool, str]
+) -> None:
+    fake = FakeLangChainStore(exists=exists, count=17)
+    assert await ElasticsearchVectorStore(fake).ready() == expected
+
+
+async def test_es_aclose_closes_the_underlying_store() -> None:
+    fake = FakeLangChainStore()
+    await ElasticsearchVectorStore(fake).aclose()
+    assert fake.closed
+
+
 StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
 
 
@@ -259,8 +283,9 @@ StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
         lambda store: store.upsert([Passage(id="p1", text="alpha")], [[0.1]]),
         lambda store: store.query([0.1], top_k=1),
         lambda store: store.count(),
+        lambda store: store.ready(),
     ],
-    ids=["upsert", "query", "count"],
+    ids=["upsert", "query", "count", "ready"],
 )
 async def test_es_failures_surface_as_vector_store_errors(
     operation: StoreOperation,
@@ -344,6 +369,16 @@ async def test_openai_errors_map_to_llm_dependency_errors(
     assert info.value.kind == kind
     assert info.value.target == "gpt-test"
     assert info.value.__cause__ is error
+
+
+async def test_openai_chat_aclose_closes_the_sdk_client() -> None:
+    closed: list[bool] = []
+
+    async def close() -> None:
+        closed.append(True)
+
+    await OpenAIChatModel(SimpleNamespace(close=close), "gpt-test").aclose()
+    assert closed == [True]
 
 
 # --- import cost -----------------------------------------------------------

@@ -39,12 +39,13 @@ and Locust turns those into per-stage statistics.
 ```text
 src/rag_load_test/
   __init__.py       package docstring, __version__
-  models.py         Passage, ScoredPassage, RagResult, the four async ports, RagDependencyError
-  settings.py       RagSettings: the 15 RAG_* variables (pydantic-settings, .env aware)
+  models.py         Passage, ScoredPassage, RagResult, the four async ports, RagDependencies, RagDependencyError
+  settings.py       RagSettings: the 16 RAG_* variables (pydantic-settings, .env aware)
   adapters.py       SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, ElasticsearchVectorStore, OpenAIChatModel
   ovms.py           BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
   fakes.py          FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
-  workflow.py       RagWorkflow (LangGraph graph with timed nodes) + build_dependencies(settings)
+  rag_ports.py      RagPorts: settings in, ready ports out; owns the thread pool, HTTP client, bearer token and their shutdown
+  workflow.py       RagWorkflow (LangGraph graph with timed nodes)
   api.py            FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
   corpus.py         synthetic handbook corpus, JSONL loader, chunking, rag-ingest
   loadtest.py       locust-free helpers (auth headers, stage events, questions) + rag-compare
@@ -77,6 +78,15 @@ curl -s localhost:8888/readyz
 `make ingest` embeds with the configured `RAG_EMBEDDER_BACKEND` and upserts by
 passage id (idempotent); `rag-ingest --corpus docs.jsonl` loads a real corpus, one
 `{"id","title","text","metadata"}` object per line. `make infra-down` stops the containers.
+
+No Elasticsearch, model weights or OpenAI key at hand? Every backend has a `fake`:
+
+```bash
+RAG_EMBEDDER_BACKEND=fake RAG_RERANKER_BACKEND=fake RAG_LLM_BACKEND=fake RAG_VECTOR_STORE_BACKEND=fake make serve
+```
+
+serves the same routes from an in-memory store seeded with the 200 synthetic
+documents at start-up (nothing to ingest: `rag-ingest` refuses the fake store).
 
 ## Split topologies on a laptop
 
@@ -201,6 +211,7 @@ flags, not settings).
 | `RAG_OVMS_AUTH` | `` | empty = no auth; `domino` = the run's token from `http://localhost:8899/access-token`; anything else = a static bearer token |
 | `RAG_LLM_BACKEND` | `openai` | `openai` \| `fake` (echoes the question, no network) |
 | `RAG_OPENAI_MODEL` | `gpt-4o-mini` | chat model id |
+| `RAG_VECTOR_STORE_BACKEND` | `elasticsearch` | `elasticsearch` \| `fake` (in-memory, seeded with the synthetic corpus at start-up) |
 | `RAG_ES_URL` | `http://localhost:9200` | `http://user:password@host:9200` for basic auth |
 | `RAG_ES_API_KEY` | `` | Elasticsearch API key (alternative to basic auth) |
 | `RAG_DOMINO_TRACING` | `false` | wrap the workflow run with Domino `add_tracing` |
@@ -208,7 +219,7 @@ flags, not settings).
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
 
-Those 15 `RAG_*` fields are the whole of `settings.py`. Retrieval sizes
+Those 16 `RAG_*` fields are the whole of `settings.py`. Retrieval sizes
 (`TOP_K_RETRIEVE=20`, `TOP_K_RERANK=5`), the model thread pool (`4`), the OVMS
 timeout (`30 s`) and retries (`2`, backoff 0.2 s then 0.4 s), the Domino token
 cache (`240 s`) and the index name are constants, so experiments only vary the

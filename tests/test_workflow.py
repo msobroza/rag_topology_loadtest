@@ -1,55 +1,28 @@
-"""Workflow tests: the graph over fake ports, the prompt helpers, and the wiring."""
+"""Workflow tests: the graph over fake ports and the prompt helpers."""
 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import AsyncIterator, Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 
-import httpx
-import pytest
-
-from rag_load_test.adapters import ElasticsearchVectorStore, NoReranker
-from rag_load_test.fakes import FakeChatModel, FakeEmbedder, FakeReranker
+from rag_load_test.adapters import NoReranker
+from rag_load_test.fakes import FakeChatModel
 from rag_load_test.loadtest import QUESTIONS
-from rag_load_test.models import STAGES, ScoredPassage
-from rag_load_test.ovms import OvmsEmbedder, OvmsReranker
-from rag_load_test.settings import RagSettings
-from rag_load_test.workflow import (
-    SYSTEM_PROMPT,
+from rag_load_test.models import (
+    STAGES,
     TOP_K_RERANK,
     TOP_K_RETRIEVE,
     RagDependencies,
+    ScoredPassage,
+)
+from rag_load_test.workflow import (
+    SYSTEM_PROMPT,
     RagWorkflow,
-    build_chat_model,
-    build_dependencies,
-    build_embedder,
-    build_reranker,
-    build_vector_store,
     merge_timings,
     rag_messages,
 )
 
 VACATION_QUESTION = QUESTIONS[0]
 TIMING_KEYS = {*STAGES, "total"}
-
-
-def _refuse(request: httpx.Request) -> httpx.Response:
-    raise AssertionError(f"unexpected HTTP request: {request.method} {request.url}")
-
-
-@pytest.fixture
-async def offline_client() -> AsyncIterator[httpx.AsyncClient]:
-    """An httpx client that fails on any request: builders must not call out."""
-    async with httpx.AsyncClient(transport=httpx.MockTransport(_refuse)) as client:
-        yield client
-
-
-@pytest.fixture
-def executor() -> Iterator[ThreadPoolExecutor]:
-    pool = ThreadPoolExecutor(1, thread_name_prefix="rag-test")
-    yield pool
-    pool.shutdown(wait=False)
 
 
 # --- the graph ----------------------------------------------------------------
@@ -83,7 +56,7 @@ async def test_vacation_question_retrieves_vacation_policy(
     result = await RagWorkflow(fake_deps).run(VACATION_QUESTION)
 
     topics = [p.metadata["topic"] for p in result.passages]
-    # The 30-document corpus holds three vacation documents; all rank first.
+    # One seeded document in ten is a vacation policy; they outrank every other topic.
     assert topics[:3] == ["vacation-policy"] * 3
 
 
@@ -135,78 +108,3 @@ def test_merge_timings_merges_dicts_right_wins() -> None:
     }
     assert merge_timings({"embed": 1.0}, {"embed": 3.0}) == {"embed": 3.0}
     assert merge_timings({}, {}) == {}
-
-
-# --- wiring from settings --------------------------------------------------------
-
-
-def test_build_embedder_fake(
-    fake_settings: RagSettings,
-    offline_client: httpx.AsyncClient,
-    executor: ThreadPoolExecutor,
-) -> None:
-    embedder = build_embedder(fake_settings, client=offline_client, executor=executor)
-    assert isinstance(embedder, FakeEmbedder)
-
-
-def test_build_embedder_ovms(
-    settings_factory: Callable[..., RagSettings],
-    offline_client: httpx.AsyncClient,
-    executor: ThreadPoolExecutor,
-) -> None:
-    settings = settings_factory(embedder_backend="ovms")
-    embedder = build_embedder(settings, client=offline_client, executor=executor)
-    assert isinstance(embedder, OvmsEmbedder)
-    assert embedder.model_name == "ovms:bge-small-en-v1.5"
-
-
-@pytest.mark.parametrize(
-    ("backend", "expected"),
-    [("fake", FakeReranker), ("none", NoReranker), ("ovms", OvmsReranker)],
-)
-def test_build_reranker_picks_backend(
-    settings_factory: Callable[..., RagSettings],
-    offline_client: httpx.AsyncClient,
-    executor: ThreadPoolExecutor,
-    backend: str,
-    expected: type,
-) -> None:
-    settings = settings_factory(reranker_backend=backend)
-    reranker = build_reranker(settings, client=offline_client, executor=executor)
-    assert isinstance(reranker, expected)
-
-
-def test_build_reranker_ovms_model_name(
-    settings_factory: Callable[..., RagSettings],
-    offline_client: httpx.AsyncClient,
-    executor: ThreadPoolExecutor,
-) -> None:
-    settings = settings_factory(reranker_backend="ovms")
-    reranker = build_reranker(settings, client=offline_client, executor=executor)
-    assert isinstance(reranker, OvmsReranker)
-    assert reranker.model_name == "ovms:bge-reranker-base"
-
-
-def test_build_chat_model_fake(fake_settings: RagSettings) -> None:
-    assert isinstance(build_chat_model(fake_settings), FakeChatModel)
-
-
-def test_build_vector_store_constructs_without_network(
-    settings_factory: Callable[..., RagSettings],
-) -> None:
-    # Port 9 (discard) would refuse a connection; construction must never try one.
-    settings = settings_factory(es_url="http://127.0.0.1:9")
-    assert isinstance(build_vector_store(settings), ElasticsearchVectorStore)
-
-
-def test_build_dependencies_wires_every_port(
-    fake_settings: RagSettings,
-    offline_client: httpx.AsyncClient,
-    executor: ThreadPoolExecutor,
-) -> None:
-    deps = build_dependencies(fake_settings, client=offline_client, executor=executor)
-
-    assert isinstance(deps.embedder, FakeEmbedder)
-    assert isinstance(deps.vector_store, ElasticsearchVectorStore)
-    assert isinstance(deps.reranker, FakeReranker)
-    assert isinstance(deps.chat_model, FakeChatModel)

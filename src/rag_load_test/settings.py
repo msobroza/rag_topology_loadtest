@@ -38,6 +38,8 @@ class RagSettings(BaseSettings):
     llm_backend: Literal["openai", "fake"] = "openai"
     openai_model: str = "gpt-4o-mini"  # OPENAI_API_KEY / OPENAI_BASE_URL via the SDK
 
+    # "fake" = in-memory store seeded with the synthetic corpus when the app starts
+    vector_store_backend: Literal["elasticsearch", "fake"] = "elasticsearch"
     es_url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     es_api_key: str = ""
     domino_tracing: bool = False

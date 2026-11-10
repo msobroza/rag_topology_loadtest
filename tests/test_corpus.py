@@ -19,6 +19,8 @@ from rag_load_test.corpus import (
     synthetic_questions,
 )
 from rag_load_test.fakes import FakeEmbedder, InMemoryVectorStore, tokenize
+from rag_load_test.rag_ports import RagPorts
+from rag_load_test.settings import RagSettings
 
 SLUGS = list(TOPICS)
 
@@ -154,24 +156,42 @@ async def test_ingest_upserts_every_passage_in_batches() -> None:
 # --- rag-ingest CLI ---
 
 
-def test_main_synthetic_fake_prints_one_summary_line(
-    capsys: pytest.CaptureFixture[str],
+def test_main_ingests_the_synthetic_corpus_and_prints_one_summary_line(
+    fake_settings: RagSettings, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["--synthetic", "3", "--fake"]) == 0
+    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
+
+    assert main(["--synthetic", "3"], ports=ports) == 0
+
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1
-    summary = json.loads(lines[0])
-    backend = {"index": "in-memory", "embedder": "fake-embedder"}
-    assert summary == {"event": "ingest_done", "documents": 3, "passages": 3, **backend}
+    assert json.loads(lines[0]) == {
+        "event": "ingest_done",
+        "documents": 3,
+        "passages": 3,
+        "embedder": "fake-embedder",
+        "store": "3 passages in memory",
+    }
 
 
-def test_main_corpus_file_fake(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_main_chunks_a_corpus_file(
+    fake_settings: RagSettings, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     short = json.dumps({"id": "b", "title": "B", "text": "short"})
     path = _jsonl(tmp_path / "docs.jsonl", _record(text=" ".join(["w"] * 30)), short)
     opts = ["--chunk-words", "20", "--overlap-words", "5"]
-    assert main(["--corpus", str(path), "--fake", *opts]) == 0
+    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
+
+    assert main(["--corpus", str(path), *opts], ports=ports) == 0
+
     summary = json.loads(capsys.readouterr().out)
     assert (summary["event"], summary["documents"]) == ("ingest_done", 2)
     assert summary["passages"] == 3  # 30 words at 20/5 -> 2 chunks, plus 1
+    assert summary["store"] == "3 passages in memory"
+
+
+def test_main_refuses_the_fake_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_VECTOR_STORE_BACKEND", "fake")
+
+    with pytest.raises(SystemExit, match="seeded when the app starts"):
+        main(["--synthetic", "1"])

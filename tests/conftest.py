@@ -8,21 +8,13 @@ import os
 # before any ``import locust`` (the locustfile tests import it).
 os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
 
-from collections.abc import Callable  # noqa: E402
+from collections.abc import AsyncIterator, Callable  # noqa: E402
 
 import pytest  # noqa: E402
 
-from rag_load_test.corpus import chunk, ingest, synthetic_corpus  # noqa: E402
-from rag_load_test.fakes import (  # noqa: E402
-    FakeChatModel,
-    FakeEmbedder,
-    FakeReranker,
-    InMemoryVectorStore,
-)
+from rag_load_test.models import RagDependencies  # noqa: E402
+from rag_load_test.rag_ports import RagPorts  # noqa: E402
 from rag_load_test.settings import RagSettings  # noqa: E402
-from rag_load_test.workflow import RagDependencies  # noqa: E402
-
-CORPUS_DOCS = 30  # 3 documents per synthetic topic
 
 
 @pytest.fixture
@@ -37,16 +29,17 @@ def settings_factory() -> Callable[..., RagSettings]:
 
 @pytest.fixture
 def fake_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
-    """Every backend set to ``fake``."""
+    """Every backend set to ``fake``: no weights, no network, no Elasticsearch."""
     return settings_factory(
-        embedder_backend="fake", reranker_backend="fake", llm_backend="fake"
+        embedder_backend="fake",
+        reranker_backend="fake",
+        llm_backend="fake",
+        vector_store_backend="fake",
     )
 
 
 @pytest.fixture
-async def fake_deps() -> RagDependencies:
-    """Fake ports over an in-memory store populated with the synthetic corpus."""
-    embedder, store = FakeEmbedder(), InMemoryVectorStore()
-    passages = [p for doc in synthetic_corpus(CORPUS_DOCS) for p in chunk(doc)]
-    await ingest(passages, embedder, store)
-    return RagDependencies(embedder, store, FakeReranker(), FakeChatModel())
+async def fake_deps(fake_settings: RagSettings) -> AsyncIterator[RagDependencies]:
+    """The four fake ports, opened from settings over the seeded in-memory store."""
+    async with RagPorts(fake_settings) as ports:
+        yield await ports.workflow_dependencies()

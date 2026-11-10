@@ -1,4 +1,4 @@
-"""Value objects, ports and errors shared by every module.
+"""Value objects, ports, their bundle and errors shared by every module.
 
 Nothing heavy is imported here, so the OVMS-only and fake topologies never pay
 for torch, elasticsearch or openai.
@@ -7,6 +7,7 @@ for torch, elasticsearch or openai.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,9 @@ MetadataValue = str | int | float | bool
 RagMode = Literal["query", "retrieve"]
 # Workflow stages, in execution order; also the keys of ``RagResult.timings_ms``.
 STAGES: tuple[str, ...] = ("embed", "retrieve", "rerank", "generate")
+# Retrieval sizes are constants so experiments only vary the topology.
+TOP_K_RETRIEVE = 20  # candidates from the vector store
+TOP_K_RERANK = 5  # passages kept after reranking and sent to the LLM
 
 
 class Passage(BaseModel):
@@ -93,12 +97,24 @@ class VectorStorePort(Protocol):
 
     async def count(self) -> int: ...
 
+    async def ready(self) -> tuple[bool, str]: ...
+
 
 @runtime_checkable
 class ChatModelPort(Protocol):
     model_name: str
 
     async def generate(self, messages: list[dict[str, str]]) -> str: ...
+
+
+@dataclass
+class RagDependencies:
+    """One open port of each kind: everything a workflow run needs."""
+
+    embedder: EmbedderPort
+    vector_store: VectorStorePort
+    reranker: RerankerPort
+    chat_model: ChatModelPort
 
 
 # --- errors ----------------------------------------------------------------

@@ -98,6 +98,9 @@ class InMemoryVectorStore:
     async def count(self) -> int:
         return len(self._rows)
 
+    async def ready(self) -> tuple[bool, str]:
+        return bool(self._rows), f"{len(self._rows)} passages in memory"
+
 
 class FakeChatModel:
     """Echoes the last user message; ``latency_ms`` imitates generation time."""

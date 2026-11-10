@@ -26,8 +26,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from .adapters import CrossEncoderReranker, SentenceTransformerEmbedder, model_executor
-from .models import EmbedderPort, RerankerPort, ScoredPassage
+from .models import ScoredPassage
+from .rag_ports import RagPorts
 from .settings import RagSettings
 
 Role = Literal["embedder", "reranker"]
@@ -45,20 +45,18 @@ class RerankRequest(BaseModel):
     top_n: int | None = None
 
 
-def create_model_server(
-    role: Role,
-    settings: RagSettings | None = None,
-    *,
-    embedder: EmbedderPort | None = None,
-    reranker: RerankerPort | None = None,
-) -> FastAPI:
-    """Build the server for ``role``; inject ``embedder``/``reranker`` in tests.
+def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
+    """Build the server for ``role`` over ``ports``; it always serves the local model.
 
     The served name is the alias the clients use (``RAG_OVMS_EMBEDDINGS_MODEL`` /
     ``RAG_OVMS_RERANK_MODEL``); the weights come from ``RAG_EMBEDDER_MODEL`` /
     ``RAG_RERANKER_MODEL``.
+
+    Example::
+
+        create_model_server("reranker", RagPorts(settings, reranker=FakeReranker()))
     """
-    settings = settings or RagSettings()
+    settings = ports.settings
     alias = (
         settings.ovms_embeddings_model
         if role == "embedder"
@@ -67,22 +65,12 @@ def create_model_server(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        executor = model_executor()
-        if role == "embedder":
-            app.state.embedder = (
-                embedder
-                or SentenceTransformerEmbedder.from_pretrained(
-                    settings.embedder_model, executor
-                )
-            )
-        else:
-            app.state.reranker = reranker or CrossEncoderReranker.from_pretrained(
-                settings.reranker_model, executor
-            )
-        try:
+        async with ports:
+            if role == "embedder":
+                app.state.embedder = await ports.local_embedder()
+            else:
+                app.state.reranker = await ports.local_reranker()
             yield
-        finally:
-            executor.shutdown(wait=False)
 
     app = FastAPI(
         title=f"rag-model-server ({role})",
@@ -147,7 +135,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    uvicorn.run(
-        create_model_server(args.serve, RagSettings()), host=args.host, port=args.port
-    )
+    ports = RagPorts(RagSettings())
+    uvicorn.run(create_model_server(args.serve, ports), host=args.host, port=args.port)
     return 0

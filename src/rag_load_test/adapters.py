@@ -15,7 +15,6 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from typing import Any, TypeVar
 
 from .models import Passage, RagDependencyError, ScoredPassage, top_by_score
-from .settings import RagSettings
 
 T = TypeVar("T")
 MODEL_THREADS = 4  # thread pool for local model inference
@@ -187,6 +186,14 @@ class ElasticsearchVectorStore:
             return 0
         return int((await self._call(client.count, index=INDEX))["count"])
 
+    async def ready(self) -> tuple[bool, str]:
+        count = await self.count()
+        return count > 0, f"{count} passages in {INDEX}"
+
+    async def aclose(self) -> None:
+        """Close the Elasticsearch connections held by the underlying store."""
+        await self._store.aclose()
+
     @staticmethod
     async def _call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         try:
@@ -216,17 +223,21 @@ class OpenAIChatModel:
 
     Example::
 
-        answer = await OpenAIChatModel.from_settings(settings).generate(messages)
+        answer = await OpenAIChatModel.open("gpt-4o-mini").generate(messages)
     """
 
     def __init__(self, client: Any, model: str) -> None:
         self._client, self.model_name = client, model
 
     @classmethod
-    def from_settings(cls, settings: RagSettings) -> OpenAIChatModel:
+    def open(cls, model: str) -> OpenAIChatModel:
         import openai  # SDK defaults: 10 min timeout, 2 retries
 
-        return cls(openai.AsyncOpenAI(), settings.openai_model)
+        return cls(openai.AsyncOpenAI(), model)
+
+    async def aclose(self) -> None:
+        """Close the SDK's HTTP connections."""
+        await self._client.close()
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
         import openai

@@ -23,8 +23,8 @@ from rag_load_test.loadtest import (
     stage_events,
     task_weights,
 )
+from rag_load_test.models import TOP_K_RERANK, TOP_K_RETRIEVE
 from rag_load_test.settings import RagSettings
-from rag_load_test.workflow import TOP_K_RERANK, TOP_K_RETRIEVE
 
 TARGET = os.environ.get("RAG_LOADTEST_TARGET", "rag")
 QUERY_WEIGHT, RETRIEVE_WEIGHT = task_weights(os.environ)

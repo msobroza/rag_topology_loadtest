@@ -1,50 +1,34 @@
-"""The LangGraph workflow (``embed -> retrieve -> rerank -> generate``) and its wiring.
+"""The LangGraph workflow (``embed -> retrieve -> rerank -> generate``).
 
-``RagWorkflow`` sees only ports, so the same graph runs in every topology;
-``build_dependencies`` picks the adapters from ``RagSettings``. Each node records
-its wall time in ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
-Retrieval sizes are constants so experiments only vary the topology.
+``RagWorkflow`` sees only ports, so the same graph runs in every topology; which
+adapters sit behind them is ``RagPorts``' business. Each node records its wall
+time in ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
 
 Example::
 
-    deps = build_dependencies(settings, client=httpx_client, executor=pool)
-    result = await RagWorkflow(deps).run("How many vacation days?", mode="retrieve")
+    async with RagPorts(settings) as ports:
+        deps = await ports.workflow_dependencies()
+        result = await RagWorkflow(deps).run("How many vacation days?", mode="retrieve")
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from concurrent.futures import Executor
-from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
-import httpx
 from langgraph.graph import END, START, StateGraph
 
-from .adapters import (
-    CrossEncoderReranker,
-    ElasticsearchVectorStore,
-    NoReranker,
-    OpenAIChatModel,
-    SentenceTransformerEmbedder,
-)
-from .fakes import FakeChatModel, FakeEmbedder, FakeReranker
 from .models import (
     STAGES,
-    ChatModelPort,
-    EmbedderPort,
+    TOP_K_RERANK,
+    TOP_K_RETRIEVE,
+    RagDependencies,
     RagMode,
     RagResult,
-    RerankerPort,
     ScoredPassage,
-    VectorStorePort,
 )
-from .ovms import BearerToken, OvmsEmbedder, OvmsReranker
-from .settings import RagSettings
 
-TOP_K_RETRIEVE = 20  # candidates from the vector store
-TOP_K_RERANK = 5  # passages kept after reranking and sent to the LLM
 SYSTEM_PROMPT = (
     "You answer questions using only the numbered context passages. "
     "Cite passages as [n]. If the context is insufficient, say so."
@@ -74,14 +58,6 @@ class RagState(TypedDict, total=False):
     reranked: list[ScoredPassage]
     answer: str | None
     timings_ms: Annotated[dict[str, float], merge_timings]
-
-
-@dataclass
-class RagDependencies:
-    embedder: EmbedderPort
-    vector_store: VectorStorePort
-    reranker: RerankerPort
-    chat_model: ChatModelPort
 
 
 Node = Callable[[RagState], Awaitable[dict[str, Any]]]
@@ -153,62 +129,3 @@ class RagWorkflow:
     async def _generate(self, state: RagState) -> dict[str, Any]:
         messages = rag_messages(state["question"], state["reranked"])
         return {"answer": await self.deps.chat_model.generate(messages)}
-
-
-# --- wiring from settings ---------------------------------------------------
-
-
-def build_embedder(
-    settings: RagSettings, *, client: httpx.AsyncClient, executor: Executor
-) -> EmbedderPort:
-    if settings.embedder_backend == "fake":
-        return FakeEmbedder()
-    if settings.embedder_backend == "ovms":
-        return OvmsEmbedder(
-            client,
-            settings.ovms_embeddings_url,
-            settings.ovms_embeddings_model,
-            token=BearerToken(client, settings.ovms_auth),
-        )
-    return SentenceTransformerEmbedder.from_pretrained(
-        settings.embedder_model, executor
-    )
-
-
-def build_reranker(
-    settings: RagSettings, *, client: httpx.AsyncClient, executor: Executor
-) -> RerankerPort:
-    if settings.reranker_backend == "none":
-        return NoReranker()
-    if settings.reranker_backend == "fake":
-        return FakeReranker()
-    if settings.reranker_backend == "ovms":
-        return OvmsReranker(
-            client,
-            settings.ovms_rerank_url,
-            settings.ovms_rerank_model,
-            token=BearerToken(client, settings.ovms_auth),
-        )
-    return CrossEncoderReranker.from_pretrained(settings.reranker_model, executor)
-
-
-def build_vector_store(settings: RagSettings) -> VectorStorePort:
-    return ElasticsearchVectorStore.open(settings.es_url, api_key=settings.es_api_key)
-
-
-def build_chat_model(settings: RagSettings) -> ChatModelPort:
-    if settings.llm_backend == "fake":
-        return FakeChatModel()
-    return OpenAIChatModel.from_settings(settings)
-
-
-def build_dependencies(
-    settings: RagSettings, *, client: httpx.AsyncClient, executor: Executor
-) -> RagDependencies:
-    """Wire every port from settings; local models load their weights here."""
-    return RagDependencies(
-        embedder=build_embedder(settings, client=client, executor=executor),
-        vector_store=build_vector_store(settings),
-        reranker=build_reranker(settings, client=client, executor=executor),
-        chat_model=build_chat_model(settings),
-    )

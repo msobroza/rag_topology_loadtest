@@ -9,7 +9,7 @@ prefix on the wire and needs no proxy in front (unlike OVMS).
 
 Example::
 
-    uvicorn.run(create_app(RagSettings()), host="0.0.0.0", port=8888)
+    uvicorn.run(create_app(RagPorts(RagSettings())), host="0.0.0.0", port=8888)
 """
 
 from __future__ import annotations
@@ -24,17 +24,15 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .adapters import INDEX, model_executor
-from .models import RagDependencyError, RagMode, ScoredPassage
-from .ovms import TIMEOUT_S
+from .models import RagDependencies, RagDependencyError, RagMode, ScoredPassage
+from .rag_ports import RagPorts
 from .settings import RagSettings
-from .workflow import RagDependencies, RagWorkflow, build_dependencies
+from .workflow import RagWorkflow
 
 logger = logging.getLogger("rag_load_test")
 
@@ -92,13 +90,8 @@ def traced(fn: Callable[..., Any], *, enabled: bool) -> Callable[..., Any]:
 
 async def readiness(deps: RagDependencies) -> list[ReadyCheck]:
     """Probe the store and the model ports; a failing probe is a failed check."""
-
-    async def store() -> tuple[bool, str]:
-        count = await deps.vector_store.count()
-        return count > 0, f"{count} passages in {INDEX}"
-
     probes = (
-        ("vector_store", store),
+        ("vector_store", deps.vector_store.ready),
         ("embedder", deps.embedder.ready),
         ("reranker", deps.reranker.ready),
     )
@@ -112,25 +105,20 @@ async def readiness(deps: RagDependencies) -> list[ReadyCheck]:
     return checks
 
 
-def create_app(
-    settings: RagSettings | None = None, *, dependencies: RagDependencies | None = None
-) -> FastAPI:
-    """Build the app; pass ``dependencies`` to skip ``build_dependencies`` (tests).
+def create_app(ports: RagPorts) -> FastAPI:
+    """Build the workflow app over ``ports``; they open and close with its lifespan.
 
     Example::
 
-        with TestClient(create_app(settings, dependencies=fake_deps)) as client:
+        with TestClient(create_app(RagPorts(fake_settings))) as client:
             client.post("/query", json={"question": "vacation days?"})
     """
-    settings = settings or RagSettings()
+    settings = ports.settings
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        executor = model_executor()
-        async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-            deps = dependencies or build_dependencies(
-                settings, client=client, executor=executor
-            )
+        async with ports:
+            deps = await ports.workflow_dependencies()
             app.state.deps = deps
             app.state.run = traced(
                 RagWorkflow(deps).run, enabled=settings.domino_tracing
@@ -141,10 +129,7 @@ def create_app(
                 embedder=deps.embedder.model_name,
                 llm=deps.chat_model.model_name,
             )
-            try:
-                yield
-            finally:
-                executor.shutdown(wait=False)
+            yield
 
     app = FastAPI(
         title="rag-load-test",
@@ -228,5 +213,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    uvicorn.run(create_app(RagSettings()), host=args.host, port=args.port)
+    ports = RagPorts(RagSettings())
+    uvicorn.run(create_app(ports), host=args.host, port=args.port)
     return 0

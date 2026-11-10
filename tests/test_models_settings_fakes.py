@@ -95,7 +95,8 @@ def test_settings_reject_unknown_backend(
         settings_factory(embedder_backend="tpu")
 
 
-def test_settings_field_set_is_exactly_fifteen() -> None:
+def test_settings_field_set_is_pinned() -> None:
+    # Experiments should vary the topology, not grow knobs: adding a field is a decision.
     assert sorted(RagSettings.model_fields) == [
         "domino_tracing",
         "embedder_backend",
@@ -112,6 +113,7 @@ def test_settings_field_set_is_exactly_fifteen() -> None:
         "reranker_backend",
         "reranker_model",
         "topology",
+        "vector_store_backend",
     ]
 
 
@@ -156,6 +158,14 @@ async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> No
     hits = await store.query([1.0, 0.0], top_k=2)
     assert [(h.id, h.retrieval_score) for h in hits] == [("p1", 1.0), ("p3", 0.6)]
     assert hits[0].metadata == {"page": 3, "src": "a.pdf"}
+
+
+async def test_in_memory_store_is_ready_once_it_holds_a_passage() -> None:
+    store = InMemoryVectorStore()
+    assert await store.ready() == (False, "0 passages in memory")
+
+    await store.upsert([Passage(id="p1", text="one")], [[1.0, 0.0]])
+    assert await store.ready() == (True, "1 passages in memory")
 
 
 async def test_in_memory_store_rejects_mismatched_lengths() -> None:

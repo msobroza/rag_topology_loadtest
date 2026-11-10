@@ -1,8 +1,7 @@
-"""API tests over fake dependencies: routes, headers, readiness, error mapping, CLI."""
+"""Workflow app tests, started from all-fake settings: routes, headers, readiness, error mapping, CLI."""
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
@@ -10,17 +9,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rag_load_test import api
-from rag_load_test.adapters import INDEX
 from rag_load_test.api import create_app, main, traced
-from rag_load_test.fakes import (
-    FakeChatModel,
-    FakeEmbedder,
-    FakeReranker,
-    InMemoryVectorStore,
-)
+from rag_load_test.fakes import InMemoryVectorStore
 from rag_load_test.models import RagDependencyError, ScoredPassage
+from rag_load_test.rag_ports import RagPorts
 from rag_load_test.settings import RagSettings
-from rag_load_test.workflow import RagDependencies
 
 TOPOLOGY = "test-topo"
 QUESTION = "How many paid vacation days do employees accrue each year?"
@@ -64,23 +57,22 @@ class ExplodingProbeReranker:
 
 
 @pytest.fixture
-def client_for(
-    settings_factory: Callable[..., RagSettings],
-) -> Callable[[RagDependencies], TestClient]:
-    """``TestClient`` factory; use it as a context manager so the lifespan runs."""
-    settings = settings_factory(topology=TOPOLOGY)
+def client_for(fake_settings: RagSettings) -> Callable[..., TestClient]:
+    """The all-fake app, with any port replaced by keyword (``reranker=...``).
 
-    def make(deps: RagDependencies) -> TestClient:
-        return TestClient(create_app(settings, dependencies=deps))
+    Use the client as a context manager so the lifespan opens the ports.
+    """
+    settings = fake_settings.model_copy(update={"topology": TOPOLOGY})
+
+    def make(**doubles: Any) -> TestClient:
+        return TestClient(create_app(RagPorts(settings, **doubles)))
 
     return make
 
 
 @pytest.fixture
-def client(
-    client_for: Callable[[RagDependencies], TestClient], fake_deps: RagDependencies
-) -> Iterator[TestClient]:
-    with client_for(fake_deps) as test_client:
+def client(client_for: Callable[..., TestClient]) -> Iterator[TestClient]:
+    with client_for() as test_client:
         yield test_client
 
 
@@ -153,16 +145,13 @@ def test_readyz_all_checks_ok(client: TestClient) -> None:
     checks = _checks_by_name(body)
     assert set(checks) == {"vector_store", "embedder", "reranker"}
     assert all(check["ok"] for check in checks.values())
-    assert checks["vector_store"]["detail"].endswith(f"passages in {INDEX}")
+    assert checks["vector_store"]["detail"] == "200 passages in memory"
 
 
 def test_readyz_empty_store_is_not_ready(
-    client_for: Callable[[RagDependencies], TestClient],
+    client_for: Callable[..., TestClient],
 ) -> None:
-    deps = RagDependencies(
-        FakeEmbedder(), InMemoryVectorStore(), FakeReranker(), FakeChatModel()
-    )
-    with client_for(deps) as test_client:
+    with client_for(vector_store=InMemoryVectorStore()) as test_client:
         response = test_client.get("/readyz")
 
     assert response.status_code == 503
@@ -174,10 +163,9 @@ def test_readyz_empty_store_is_not_ready(
 
 
 def test_readyz_reports_probe_exception(
-    client_for: Callable[[RagDependencies], TestClient], fake_deps: RagDependencies
+    client_for: Callable[..., TestClient],
 ) -> None:
-    deps = dataclasses.replace(fake_deps, reranker=ExplodingProbeReranker())
-    with client_for(deps) as test_client:
+    with client_for(reranker=ExplodingProbeReranker()) as test_client:
         response = test_client.get("/readyz")
 
     assert response.status_code == 503
@@ -197,14 +185,12 @@ def test_readyz_reports_probe_exception(
     ],
 )
 def test_dependency_error_maps_to_status(
-    client_for: Callable[[RagDependencies], TestClient],
-    fake_deps: RagDependencies,
+    client_for: Callable[..., TestClient],
     kind: str,
     status: int,
     error: str,
 ) -> None:
-    deps = dataclasses.replace(fake_deps, reranker=FailingReranker(kind))
-    with client_for(deps) as test_client:
+    with client_for(reranker=FailingReranker(kind)) as test_client:
         response = test_client.post("/query", json={"question": QUESTION})
 
     assert response.status_code == status
@@ -269,7 +255,7 @@ def test_traced_without_sdk_returns_function_unchanged(
 def test_main_parses_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
     sentinel_app = object()
     runs: list[tuple[Any, dict[str, Any]]] = []
-    monkeypatch.setattr(api, "create_app", lambda settings: sentinel_app)
+    monkeypatch.setattr(api, "create_app", lambda ports: sentinel_app)
     monkeypatch.setattr(api.uvicorn, "run", lambda app, **kw: runs.append((app, kw)))
 
     assert main(["--host", "127.0.0.1", "--port", "9999"]) == 0
@@ -279,7 +265,7 @@ def test_main_parses_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> None:
     runs: list[dict[str, Any]] = []
-    monkeypatch.setattr(api, "create_app", lambda settings: object())
+    monkeypatch.setattr(api, "create_app", lambda ports: object())
     monkeypatch.setattr(api.uvicorn, "run", lambda app, **kw: runs.append(kw))
 
     assert main([]) == 0
@@ -288,11 +274,11 @@ def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_routes_answer_with_and_without_the_domino_prefix(
-    monkeypatch: pytest.MonkeyPatch, settings_factory, fake_deps
+    monkeypatch: pytest.MonkeyPatch, fake_settings: RagSettings
 ) -> None:
     """FastAPI serves under DOMINO_RUN_HOST_PATH itself; no proxy layer needed."""
     monkeypatch.setenv("DOMINO_RUN_HOST_PATH", "/apps/abc123")
-    app = create_app(settings_factory(), dependencies=fake_deps)
+    app = create_app(RagPorts(fake_settings))
     with TestClient(app) as client:
         assert client.get("/apps/abc123/healthz").status_code == 200
         assert client.get("/healthz").status_code == 200

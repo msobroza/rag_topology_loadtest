@@ -15,6 +15,7 @@ from rag_load_test.fakes import FakeEmbedder, FakeReranker
 from rag_load_test.model_server import create_model_server, main
 from rag_load_test.models import ScoredPassage
 from rag_load_test.ovms import BearerToken, OvmsEmbedder, OvmsReranker
+from rag_load_test.rag_ports import RagPorts
 from rag_load_test.settings import RagSettings
 
 LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
@@ -22,17 +23,15 @@ LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
 
 @pytest.fixture
 def embedder_app(settings_factory: Callable[..., RagSettings]):
-    app = create_model_server(
-        "embedder", settings_factory(), embedder=FakeEmbedder(dim=4)
-    )
-    with TestClient(app) as client:
+    ports = RagPorts(settings_factory(), embedder=FakeEmbedder(dim=4))
+    with TestClient(create_model_server("embedder", ports)) as client:
         yield client
 
 
 @pytest.fixture
 def reranker_app(settings_factory: Callable[..., RagSettings]):
-    app = create_model_server("reranker", settings_factory(), reranker=FakeReranker())
-    with TestClient(app) as client:
+    ports = RagPorts(settings_factory(), reranker=FakeReranker())
+    with TestClient(create_model_server("reranker", ports)) as client:
         yield client
 
 
@@ -88,10 +87,10 @@ async def test_ovms_adapters_work_against_the_fastapi_server(
 ) -> None:
     """The contract test: the workflow's OVMS adapters cannot tell the servers apart."""
     reranker_app = create_model_server(
-        "reranker", settings_factory(), reranker=FakeReranker()
+        "reranker", RagPorts(settings_factory(), reranker=FakeReranker())
     )
     embedder_app = create_model_server(
-        "embedder", settings_factory(), embedder=FakeEmbedder(dim=4)
+        "embedder", RagPorts(settings_factory(), embedder=FakeEmbedder(dim=4))
     )
     with TestClient(reranker_app), TestClient(embedder_app):  # run the lifespans
         rerank_client = httpx.AsyncClient(
@@ -134,7 +133,7 @@ async def test_ovms_adapters_work_against_the_fastapi_server(
 def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, object] = {}
     monkeypatch.setattr(
-        "rag_load_test.model_server.create_model_server", lambda role, s: role
+        "rag_load_test.model_server.create_model_server", lambda role, ports: role
     )
     monkeypatch.setattr(
         "rag_load_test.model_server.uvicorn.run",
@@ -173,7 +172,7 @@ def test_model_server_answers_under_the_domino_prefix(
     monkeypatch: pytest.MonkeyPatch, settings_factory: Callable[..., RagSettings]
 ) -> None:
     monkeypatch.setenv("DOMINO_RUN_HOST_PATH", "/apps/abc123")
-    app = create_model_server("reranker", settings_factory(), reranker=FakeReranker())
-    with TestClient(app) as client:
+    ports = RagPorts(settings_factory(), reranker=FakeReranker())
+    with TestClient(create_model_server("reranker", ports)) as client:
         assert client.get("/apps/abc123/v3/models/bge-reranker-base").status_code == 200
         assert client.get("/v3/models/bge-reranker-base").status_code == 200

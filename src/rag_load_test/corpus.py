@@ -7,7 +7,7 @@ reuses, so retrieval stays meaningful even with the bag-of-words ``FakeEmbedder`
 Example::
 
     rag-ingest --synthetic 200          # embed with the RAG_* configured backend
-    rag-ingest --corpus docs.jsonl --fake
+    rag-ingest --corpus docs.jsonl
 """
 
 from __future__ import annotations
@@ -18,11 +18,14 @@ import json
 import random
 from collections.abc import Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from pydantic import BaseModel, Field
 
 from .models import EmbedderPort, MetadataValue, Passage, VectorStorePort
+
+if TYPE_CHECKING:  # rag_ports imports this module for the fake store's seed corpus
+    from .rag_ports import RagPorts
 
 
 class SourceDocument(BaseModel):
@@ -243,46 +246,42 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-words", type=int, default=120)
     parser.add_argument("--overlap-words", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument(
-        "--fake", action="store_true", help="FakeEmbedder + in-memory store (demo)"
-    )
     return parser
 
 
-async def _ingest_configured(
-    passages: Sequence[Passage], batch_size: int
+async def _ingest_through(
+    ports: RagPorts, passages: Sequence[Passage], batch_size: int
 ) -> dict[str, object]:
-    import httpx
+    async with ports:
+        embedder, store = await ports.ingest_ports()
+        count = await ingest(passages, embedder, store, batch_size=batch_size)
+        _, stored = await store.ready()
+    return {"passages": count, "embedder": embedder.model_name, "store": stored}
 
-    from .adapters import INDEX, model_executor
-    from .ovms import TIMEOUT_S
+
+def _configured_ports() -> RagPorts:
+    from .rag_ports import RagPorts
     from .settings import RagSettings
-    from .workflow import build_embedder, build_vector_store
 
     settings = RagSettings()
-    executor = model_executor()
-    async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
-        embedder = build_embedder(settings, client=client, executor=executor)
-        store = build_vector_store(settings)
-        count = await ingest(passages, embedder, store, batch_size=batch_size)
-    executor.shutdown(wait=True)
-    return {"passages": count, "index": INDEX, "embedder": embedder.model_name}
+    if settings.vector_store_backend == "fake":
+        raise SystemExit(
+            "rag-ingest: RAG_VECTOR_STORE_BACKEND='fake' is seeded when the app starts "
+            "and keeps nothing between processes; ingest needs 'elasticsearch'"
+        )
+    return RagPorts(settings)
 
 
-async def _ingest_fake(
-    passages: Sequence[Passage], batch_size: int
-) -> dict[str, object]:
-    from .fakes import FakeEmbedder, InMemoryVectorStore
+def main(argv: Sequence[str] | None = None, *, ports: RagPorts | None = None) -> int:
+    """``rag-ingest``: prints one JSON summary line.
 
-    count = await ingest(
-        passages, FakeEmbedder(), InMemoryVectorStore(), batch_size=batch_size
-    )
-    return {"passages": count, "index": "in-memory", "embedder": "fake-embedder"}
+    Example::
 
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """``rag-ingest``: prints one JSON summary line."""
+        main(["--synthetic", "200"])                     # ports from RAG_* settings
+        main(["--corpus", "docs.jsonl"], ports=RagPorts(settings))
+    """
     args = _parser().parse_args(argv)
+    ports = ports or _configured_ports()
     docs = (
         load_jsonl(args.corpus)
         if args.corpus
@@ -295,7 +294,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             d, chunk_words=args.chunk_words, overlap_words=args.overlap_words
         )
     ]
-    run = _ingest_fake if args.fake else _ingest_configured
-    summary = asyncio.run(run(passages, args.batch_size))
+    summary = asyncio.run(_ingest_through(ports, passages, args.batch_size))
     print(json.dumps({"event": "ingest_done", "documents": len(docs), **summary}))
     return 0
