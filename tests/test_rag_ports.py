@@ -161,13 +161,27 @@ async def test_both_model_server_adapters_share_one_domino_token(
     ]
 
 
-async def test_elasticsearch_store_opens_and_closes_without_the_network(
+async def test_elasticsearch_store_opens_without_the_network(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(embedder_backend="fake", es_url=UNREACHABLE_ES)
     async with RagPorts(settings) as ports:
         store = (await ports.ingest_ports()).vector_store
         assert isinstance(store, ElasticsearchVectorStore)
+
+
+async def test_the_chat_model_opens_before_any_weights_load(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, OpenAI chat
+    async with RagPorts(settings) as ports:
+        with pytest.raises(RagDependencyError, match="chat_model unavailable"):
+            await ports.workflow_dependencies()
+
+    assert fake_weights.loaded == []  # a missing key fails before the slow part
 
 
 # --- each caller gets only what it asks for -------------------------------------------

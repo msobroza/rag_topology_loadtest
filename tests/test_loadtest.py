@@ -254,3 +254,20 @@ def test_ask_marks_failure_on_non_200(locustfile: ModuleType) -> None:
     user._ask("/query")
     assert response.failures == ['HTTP 503: {"detail": "embedder down"}']
     assert fired == []
+
+
+@pytest.mark.parametrize(
+    ("target", "active"),
+    [("rag", "RagUser"), ("rerank", "RerankUser"), ("embeddings", "EmbeddingsUser")],
+)
+def test_loadtest_target_selects_one_user_class(
+    monkeypatch: pytest.MonkeyPatch, target: str, active: str
+) -> None:
+    monkeypatch.setenv("RAG_LOADTEST_TARGET", target)
+    module = _import_locustfile(f"locustfile_target_{target}")
+    flags = {
+        name: getattr(module, name).abstract
+        for name in ("RagUser", "RerankUser", "EmbeddingsUser")
+    }
+    assert [name for name, abstract in flags.items() if not abstract] == [active]
+    assert len(module.RERANK_DOCUMENTS) >= 20

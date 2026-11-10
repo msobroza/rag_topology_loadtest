@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from collections.abc import Callable
-from pathlib import Path
 
 import httpx
 import pytest
@@ -17,8 +14,6 @@ from rag_load_test.models import ScoredPassage
 from rag_load_test.ovms import BearerToken, OvmsEmbedder, OvmsReranker
 from rag_load_test.rag_ports import RagPorts
 from rag_load_test.settings import RagSettings
-
-LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
 
 
 @pytest.fixture
@@ -141,31 +136,6 @@ def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None
     )
     assert main(["--serve", "embedder", "--port", "8012"]) == 0
     assert calls == {"app": "embedder", "host": "0.0.0.0", "port": 8012}
-
-
-def _load_locustfile(name: str):
-    spec = importlib.util.spec_from_file_location(name, LOCUSTFILE)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.mark.parametrize(
-    ("target", "active"),
-    [("rag", "RagUser"), ("rerank", "RerankUser"), ("embeddings", "EmbeddingsUser")],
-)
-def test_loadtest_target_selects_one_user_class(
-    monkeypatch: pytest.MonkeyPatch, target: str, active: str
-) -> None:
-    monkeypatch.setenv("RAG_LOADTEST_TARGET", target)
-    module = _load_locustfile(f"locustfile_target_{target}")
-    flags = {
-        name: getattr(module, name).abstract
-        for name in ("RagUser", "RerankUser", "EmbeddingsUser")
-    }
-    assert [name for name, abstract in flags.items() if not abstract] == [active]
-    assert len(module.RERANK_DOCUMENTS) >= 20
 
 
 def test_model_server_answers_under_the_domino_prefix(
