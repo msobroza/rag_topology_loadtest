@@ -1,15 +1,24 @@
-"""domino/app.sh drives real binaries; here fake ``ovms``/``nginx``/``rag-*`` record argv."""
+"""domino/app.sh drives real binaries; here fakes (``ovms``, ``nginx``, ``rag-*``,
+``uv``, ``sudo``, ``apt-get``) record their argv instead, so nothing is installed."""
 
 from __future__ import annotations
 
 import os
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
 
 APP_SH = Path(__file__).resolve().parents[1] / "domino" / "app.sh"
-FAKES = ("ovms", "nginx", "rag-serve", "rag-model-server")
+FAKES = ("ovms", "nginx", "rag-serve", "rag-model-server", "apt-get")
+
+
+def write_fake(path: Path, log_file: Path, extra: str = "") -> None:
+    """An executable that appends its argv to ``log_file``, then runs ``extra``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'#!/usr/bin/env bash\necho "$@" >> "{log_file}"\n{extra}exit 0\n')
+    path.chmod(0o755)
 
 
 @pytest.fixture
@@ -31,6 +40,18 @@ def bin_dir(tmp_path: Path) -> Path:
             + "exit 0\n"
         )
         script.chmod(0o755)
+    # sudo runs its command; ``uv venv <dir>`` makes a venv whose rag-* log apart.
+    write_fake(bin_dir / "sudo", tmp_path / "sudo.log", 'exec "$@"\n')
+    venv_fakes = "".join(
+        f"printf '#!/usr/bin/env bash\\necho \"$@\" >> {tmp_path}/venv-{name}.log\\n' "
+        f'> "$2/bin/{name}"; chmod +x "$2/bin/{name}"\n'
+        for name in ("rag-serve", "rag-model-server")
+    )
+    write_fake(
+        bin_dir / "uv",
+        tmp_path / "uv.log",
+        f'if [ "$1" = venv ]; then mkdir -p "$2/bin"\n{venv_fakes}fi\n',
+    )
     return bin_dir
 
 
@@ -39,7 +60,10 @@ def run_app(
 ) -> subprocess.CompletedProcess[str]:
     # A RAG_* variable from the developer's shell would leak into the role under test.
     inherited = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
-    full_env = {**inherited, "PATH": f"{bin_dir}:{os.environ['PATH']}", **env}
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    path = f"{bin_dir}:{os.environ['PATH']}"
+    full_env = {**inherited, "PATH": path, "HOME": str(home), **env}
     return subprocess.run(
         ["bash", str(APP_SH)], env=full_env, capture_output=True, text=True, timeout=60
     )
@@ -209,3 +233,146 @@ def test_fastapi_roles_run_the_model_server(tmp_path: Path, bin_dir: Path) -> No
 def test_unknown_role_is_rejected(tmp_path: Path, bin_dir: Path) -> None:
     result = run_app(tmp_path, bin_dir, RAG_ROLE="bogus")
     assert result.returncode == 1 and "unknown RAG_ROLE" in result.stderr
+
+
+def ovms_bundle(tmp_path: Path) -> Path:
+    """An unpacked OVMS bundle whose ``bin/ovms`` logs argv and LD_LIBRARY_PATH."""
+    bundle = tmp_path / "bundle" / "ovms"
+    (bundle / "lib").mkdir(parents=True)
+    extra = f'echo "$LD_LIBRARY_PATH" >> "{tmp_path}/bundle-ovms.ld"\n'
+    write_fake(bundle / "bin" / "ovms", tmp_path / "bundle-ovms.log", extra)
+    return bundle
+
+
+def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -> None:
+    models = models_dir(tmp_path)
+    run_app(tmp_path, bin_dir, RAG_ROLE="workflow")
+    run_app(
+        tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(models)
+    )
+    assert (log(tmp_path, "uv"), log(tmp_path, "apt-get")) == ("", "")
+    assert log(tmp_path, "rag-serve") != "" and log(tmp_path, "ovms") != ""
+
+
+@pytest.mark.parametrize(
+    ("role", "server", "argv"),
+    [
+        ("workflow", "rag-serve", "--host 0.0.0.0 --port 8888 --domino"),
+        (
+            "fastapi-embedder",
+            "rag-model-server",
+            "--serve embedder --host 0.0.0.0 --port 8888",
+        ),
+    ],
+)
+def test_bootstrap_installs_the_project_in_a_venv_before_serving(
+    tmp_path: Path, bin_dir: Path, role: str, server: str, argv: str
+) -> None:
+    result = run_app(tmp_path, bin_dir, RAG_ROLE=role, RAG_BOOTSTRAP="1")
+    assert result.returncode == 0, result.stderr
+    venv = tmp_path / "home" / "rag-venv"
+    assert log(tmp_path, "uv").splitlines() == [
+        f"venv {venv}",
+        f"pip install --python {venv}/bin/python .",
+    ]
+    assert log(tmp_path, f"venv-{server}").strip() == argv
+    assert log(tmp_path, server) == ""  # not the one already on PATH
+    assert log(tmp_path, "apt-get") == ""
+
+
+def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    models, bundle = models_dir(tmp_path), ovms_bundle(tmp_path)
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        RAG_ROLE="ovms-reranker",
+        RAG_BOOTSTRAP="1",
+        RAG_OVMS_BUNDLE=str(bundle),
+        RAG_OVMS_MODELS_DIR=str(models),
+    )
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "sudo").splitlines() == [
+        "apt-get update",
+        "apt-get install -y --no-install-recommends libxml2 curl",
+    ]
+    assert log(tmp_path, "apt-get").splitlines() == [  # sudo ran it
+        "update",
+        "install -y --no-install-recommends libxml2 curl",
+    ]
+    assert log(tmp_path, "bundle-ovms").strip() == (
+        f"--rest_port 8888 --config_path {models}/config_reranker.json"
+    )
+    assert log(tmp_path, "ovms") == ""
+    ld_path = (tmp_path / "bundle-ovms.ld").read_text().strip()
+    assert ld_path.split(":")[0] == f"{bundle}/lib"
+    assert log(tmp_path, "uv") == ""
+
+
+def test_bootstrap_unpacks_a_bundle_tarball(tmp_path: Path, bin_dir: Path) -> None:
+    models, bundle = models_dir(tmp_path), ovms_bundle(tmp_path)
+    tarball = tmp_path / "ovms.tar.gz"
+    with tarfile.open(tarball, "w:gz") as archive:
+        archive.add(bundle, arcname="ovms")
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        RAG_ROLE="ovms-embedder",
+        RAG_BOOTSTRAP="1",
+        RAG_OVMS_BUNDLE=str(tarball),
+        RAG_OVMS_MODELS_DIR=str(models),
+    )
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "bundle-ovms").strip() == (
+        f"--rest_port 8888 --config_path {models}/config_embedder.json"
+    )
+    ld_path = (tmp_path / "bundle-ovms.ld").read_text().strip()
+    assert ld_path.split(":")[0].endswith("/ovms/lib")
+    assert not ld_path.startswith(str(bundle))  # the unpacked copy, not the source
+
+
+def test_bootstrap_runs_apt_get_directly_as_root(tmp_path: Path, bin_dir: Path) -> None:
+    write_fake(bin_dir / "id", tmp_path / "id.log", "echo 0\n")
+    models, bundle = models_dir(tmp_path), ovms_bundle(tmp_path)
+    run_app(
+        tmp_path,
+        bin_dir,
+        RAG_ROLE="ovms-reranker",
+        RAG_BOOTSTRAP="1",
+        RAG_OVMS_BUNDLE=str(bundle),
+        RAG_OVMS_MODELS_DIR=str(models),
+    )
+    assert log(tmp_path, "sudo") == ""
+    assert len(log(tmp_path, "apt-get").splitlines()) == 2
+
+
+def test_bootstrap_installs_nginx_only_with_the_prefix_proxy(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    models, bundle = models_dir(tmp_path), ovms_bundle(tmp_path)
+    run_app(
+        tmp_path,
+        bin_dir,
+        RAG_ROLE="ovms-reranker",
+        RAG_BOOTSTRAP="1",
+        RAG_OVMS_BUNDLE=str(bundle),
+        RAG_OVMS_MODELS_DIR=str(models),
+        RAG_OVMS_PREFIX_PROXY="1",
+    )
+    assert log(tmp_path, "apt-get").splitlines()[1] == (
+        "install -y --no-install-recommends libxml2 curl nginx"
+    )
+
+
+@pytest.mark.parametrize("bundle", [None, "/no/such/ovms.tar.gz"])
+def test_bootstrap_without_a_bundle_names_the_variable(
+    tmp_path: Path, bin_dir: Path, bundle: str | None
+) -> None:
+    env = {"RAG_OVMS_BUNDLE": bundle} if bundle else {}
+    result = run_app(
+        tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_BOOTSTRAP="1", **env
+    )
+    assert result.returncode == 1
+    assert "RAG_OVMS_BUNDLE" in result.stderr
+    assert log(tmp_path, "apt-get") == "" and log(tmp_path, "ovms") == ""

@@ -39,3 +39,4 @@ results/*
 !results/.gitkeep
 ovms/models/
 .env
+deploy.env

@@ -1,6 +1,6 @@
 # rag_load_test — developer tasks (run from this directory)
 .DEFAULT_GOAL := help
-.PHONY: help install install-dev lint format typecheck test ingest serve model-server loadtest loadtest-models compare ovms-export infra-up infra-down
+.PHONY: help install install-dev lint format typecheck test ingest serve model-server loadtest loadtest-models compare ovms-export infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino
 
 PYTHON ?= python
 RUN_NAME ?= monolith
@@ -60,6 +60,26 @@ compare: ## Compare all runs found under results/ into results/comparison.md
 
 ovms-export: ## Export reranker + embedder to ovms/models (needs HF access)
 	./ovms/export_models.sh
+
+deploy: ## On Domino: publish every App of RAG_DEPLOY_TOPOLOGY (settings in deploy.env)
+	rag-deploy deploy all
+
+deploy-embedder: ## On Domino: publish (or redeploy) the rag-embedder App only
+	rag-deploy deploy embedder
+
+deploy-reranker: ## On Domino: publish (or redeploy) the rag-reranker App only
+	rag-deploy deploy reranker
+
+deploy-workflow: ## On Domino: publish (or redeploy) the rag-workflow App only
+	rag-deploy deploy workflow
+
+status: ## On Domino: each App's status and URL, then the workflow App's /readyz
+	rag-deploy status
+
+loadtest-domino: ## On Domino: loadtest against rag-workflow: make loadtest-domino RUN_NAME=split-all
+	host=$$(rag-deploy url workflow) && \
+		RAG_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
+		$(MAKE) loadtest HOST="$$host"
 
 infra-up: ## Start Elasticsearch (9200) + OVMS reranker (8001) + embedder (8002)
 	docker compose --env-file ovms/versions.env up -d

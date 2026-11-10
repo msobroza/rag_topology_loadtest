@@ -53,6 +53,7 @@ src/rag_load_test/
   loadtest.py       locust-free helpers (auth headers, stage events, questions) + rag-compare
   model_server.py   FastAPI model server with the OVMS /v3 contract (rag-model-server)
   served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
+  domino_deploy.py  rag-deploy: publishes a topology's Apps through Domino's beta Apps API, status, URLs
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
@@ -465,6 +466,63 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `app.sh[...]: RAG_TOPOLOGY='...' is not served by this role` | the role and the topology disagree: `monolith` serves `monolith`, `workflow` serves `split-reranker` and `split-all` |
 | `app.sh[ovms-*]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `RAG_OVMS_MODELS_DIR` |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `RAG_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
+
+### Deploy on Domino in a few commands
+
+From a Workspace of the one project that hosts all the Apps:
+
+```bash
+cp deploy.env.example deploy.env      # set RAG_DEPLOY_ENVIRONMENT_ID, topology, model server
+make deploy                           # model server Apps first, then rag-workflow with their URLs
+make status                           # each App's status and URL, then the workflow App's /readyz
+make loadtest-domino RUN_NAME=split-all
+make compare
+```
+
+`rag-deploy` (behind these targets) calls Domino's beta Apps API through
+`DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
+as the topology needs; running it again posts a new version to each existing App.
+`RAG_DEPLOY_ENVIRONMENT_ID` is required: the id of the compute environment every
+App runs in, in the URL of that environment's page in Domino. The Apps install
+their own dependencies when they start (`domino/app.sh` with `RAG_BOOTSTRAP=1`),
+so any environment with `uv` works, but the first start is slower and needs
+access to the package index and the Hugging Face Hub. For `ovms`,
+`RAG_DEPLOY_OVMS_BUNDLE` points at the OVMS bundle (a folder with `bin/ovms` and
+`lib/`, or the release `.tar.gz`) at a path the Apps can read (project files or a
+Dataset), and the environment needs root or `sudo` for `apt-get`.
+
+Any other `RAG_*` line in `deploy.env` is passed to every App as is, for example
+`RAG_ES_URL`, `RAG_EMBEDDER_MODEL` / `RAG_RERANKER_MODEL` (a local folder works as
+well as a Hugging Face id) and `RAG_OVMS_MODELS_DIR`. `rag-deploy` sets
+`RAG_ROLE`, `RAG_TOPOLOGY`, `RAG_OVMS_RERANK_URL`, `RAG_OVMS_EMBEDDINGS_URL`,
+`RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself, and `RAG_RUN_LABEL`
+(`<topology>-<model server>`) unless `deploy.env` sets it. Secrets
+(`OPENAI_API_KEY`, `RAG_ES_API_KEY`, a bearer token in `RAG_OVMS_AUTH`) stay in
+Domino's project or user environment variables, because `deploy.env` values are
+written into the Apps' launch scripts; `rag-deploy` refuses them in that file.
+
+The workflow App reaches the model server Apps at the public `url` Domino returns
+for each, through Domino's proxy. Domino documents no internal (in-cluster) address
+for an App, so every model server call in a split topology includes that proxy
+hop: it is part of what the split topologies measure on Domino.
+
+One-time prerequisites that stay manual: install the package in the Workspace
+(`make install-dev`, or `uv pip install -e ".[loadtest]"`), `make ingest`, and for
+`ovms` the exported models.
+
+Implemented from the Domino 6.2 API reference but **not verified on a live
+Domino**:
+
+1. Creating an App or a new version starts it (6.2 has no start call; if an App
+   comes up without an instance, `rag-deploy` says to start it once from the Apps
+   page).
+2. The inline `entryScript` runs, from the project root.
+3. The run token is accepted for calls between Apps. Domino's own guidance for 6.3
+   says a script calling an App needs a Personal Access Token; if the run token is
+   rejected (`503 reranker_unavailable` with HTTP 401 or a redirect in the detail),
+   set `RAG_OVMS_AUTH=<personal access token>` as a project environment variable.
+
+If one of these fails, the step-by-step section below is the fallback.
 
 ### Step by step: first test run on Domino
 

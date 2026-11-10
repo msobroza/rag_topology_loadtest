@@ -10,6 +10,13 @@
 #                     (same /v3 contract as OVMS) for the FastAPI-vs-OVMS experiment
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
 #
+# RAG_BOOTSTRAP=1 (set by rag-deploy) first installs what the role needs, for a
+# generic environment with only uv: the OVMS roles apt-get libxml2 and curl (plus
+# nginx with RAG_OVMS_PREFIX_PROXY=1, via sudo unless root) and run ovms from
+# RAG_OVMS_BUNDLE (a folder with bin/ovms and lib/, or its .tar.gz); every other
+# role uv-installs this project into a virtualenv under $HOME. Unset, nothing is
+# installed: the prebuilt `rag` / `ovms` images already have it all.
+#
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedder and
 # reranker backends from RAG_TOPOLOGY (src/rag_load_test/topology.py), requires
 # RAG_OVMS_*_URL for every port on a model server and defaults RAG_OVMS_AUTH=domino.
@@ -86,6 +93,41 @@ serve_ovms() {
   done
   die "ovms or nginx exited"
 }
+
+# rag-deploy publishes into a generic environment with no image of our own, so
+# the role's dependencies are installed when the App starts.
+bootstrap() {
+  case "$ROLE" in
+    ovms-*) bootstrap_ovms ;;
+    *)
+      local venv="$HOME/rag-venv"
+      uv venv "$venv"
+      uv pip install --python "$venv/bin/python" .
+      export PATH="$venv/bin:$PATH"
+      ;;
+  esac
+}
+
+bootstrap_ovms() {
+  local bundle=${RAG_OVMS_BUNDLE:-} packages="libxml2 curl" sudo=""
+  [ -n "$bundle" ] && [ -e "$bundle" ] \
+    || die "RAG_OVMS_BUNDLE='$bundle' not found; set it to the OVMS bundle (a folder with bin/ovms and lib/, or its .tar.gz)"
+  if [ "${RAG_OVMS_PREFIX_PROXY:-}" = 1 ]; then packages="$packages nginx"; fi
+  [ "$(id -u)" = 0 ] || sudo=sudo
+  $sudo apt-get update
+  # shellcheck disable=SC2086  # one word per package
+  $sudo apt-get install -y --no-install-recommends $packages
+  if [ -f "$bundle" ]; then
+    local unpacked
+    unpacked=$(mktemp -d)
+    tar -xzf "$bundle" -C "$unpacked"
+    bundle="$unpacked/ovms"
+  fi
+  export PATH="$bundle/bin:$PATH"
+  export LD_LIBRARY_PATH="$bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+}
+
+if [ "${RAG_BOOTSTRAP:-}" = 1 ]; then bootstrap; fi
 
 case "$ROLE" in
   monolith) serve_workflow_app monolith monolith ;;
