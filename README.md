@@ -24,15 +24,18 @@ To run it on Domino, follow [Step by step: first test run on Domino](#step-by-st
 flowchart LR
     L[Locust] -->|POST /query, /retrieve| API[FastAPI · rag-serve]
     API --> E["embed<br/>(EmbedderPort: in-process or OVMS /v3/embeddings)"]
-    E --> R["retrieve<br/>(VectorStorePort: Elasticsearch kNN, top 20)"]
-    R --> K["rerank<br/>(RerankerPort: in-process or OVMS /v3/rerank, top 5)"]
+    E --> R["retrieve<br/>(VectorStorePort: Elasticsearch kNN, RAG_TOP_K_RETRIEVE=20)"]
+    R --> K["rerank<br/>(RerankerPort: in-process or OVMS /v3/rerank, RAG_TOP_K_RERANK=5)"]
     K -->|mode = query| G["generate<br/>(ChatModelPort: OpenAI)"]
     K -->|mode = retrieve| Z([response + timings_ms])
     G --> Z
 ```
 
 Each node is timed; responses carry `timings_ms{embed,retrieve,rerank,generate,total}`
-and Locust turns those into per-stage statistics.
+and Locust turns those into per-stage statistics. `RagWorkflow(deps, parameters)`
+takes the four ports and one `WorkflowParameters` (both top-k sizes and the
+prompts), built by `RagSettings.workflow_parameters()`. The prompts live in
+`src/rag_load_test/config/prompts.yaml`.
 
 ## Code layout
 
@@ -40,40 +43,50 @@ and Locust turns those into per-stage statistics.
 src/rag_load_test/
   __init__.py       package docstring, __version__
   domain/           no I/O, no framework; imports no other layer
-    passages.py     Passage, ScoredPassage, RagResult, STAGES, TOP_K_RETRIEVE/TOP_K_RERANK, top_by_score
-    ports.py        the four async ports and RagDependencies
+    passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
+    ports.py        the four async ports (abstract base classes) and RagDependencies
     errors.py       RagDependencyError, describe_error
-    prompts.py      SYSTEM_PROMPT, rag_messages
+    prompts.py      RagPrompts: system prompt + user template -> chat messages
+    workflow_parameters.py  WorkflowParameters: top-k sizes and prompts for one workflow
+    thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     topology.py     the topology rule: backends per topology, contradictions, default run label
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain only
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
     ingest.py       embed passages in batches and upsert them
   config/           imports domain only
-    settings.py     RagSettings: the 17 RAG_* variables (pydantic-settings, .env aware)
+    settings.py     RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
+    prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
   adapters/         one module per outside system
     local_models.py SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, the model thread pool
+                    (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
+    native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
+    cpu_count.py    where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
+    http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
+    json_log.py     log_json: the one log format
     elasticsearch_store.py  ElasticsearchVectorStore
     openai_chat.py  OpenAIChatModel
     v3_contract.py  the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
     ovms.py         BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
     fakes.py        FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
-    rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread pool, HTTP client, bearer token and their shutdown
+    rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
   entrypoints/      processes: FastAPI apps and CLIs
     workflow_api.py FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
     model_server.py FastAPI model server with the OVMS /v3 contract (rag-model-server)
     served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     ingest_cli.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
   loadtest/
-    request_plans.py  locust-free helpers (config, auth headers, request plans, verdicts, target record)
+    request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
     run_comparison.py rag-compare: Locust *_stats.csv files to markdown tables
   deploy/           rag-deploy on Domino 6.2
-    settings.py     DeploySettings (RAG_DEPLOY_*) and the Apps' RAG_* from deploy.env
-    publish.py      which Apps a topology needs, their entry scripts, and publishing them in order
+    settings.py     DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
+    publish.py      which Apps a topology needs, their entry scripts, App or Agent, and publishing them in order
+    endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
+    app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
     cli.py          rag-deploy: the parser, url, --dry-run
-    apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get) and the wait until Running
+    apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
     apps_reference.py  the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
     fake_domino.py  a fake Domino 6.2 Apps API (FastAPI, Swagger at /docs) for rag-fake-domino and rag-deploy --dry-run
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
@@ -272,23 +285,54 @@ usage error, not a traceback.
 | `RAG_OVMS_EMBEDDINGS_MODEL` | `bge-small-en-v1.5` | servable name in the OVMS config |
 | `RAG_OVMS_RERANK_URL` | `http://localhost:8001` | base URL; the adapter appends `/v3/rerank` |
 | `RAG_OVMS_RERANK_MODEL` | `bge-reranker-base` | servable name in the OVMS config |
-| `RAG_OVMS_AUTH` | `` | empty = no auth; `domino` = the run's token from `http://localhost:8899/access-token`; anything else = a static bearer token |
+| `RAG_OVMS_AUTH` | `` | empty = no auth; `domino` = the run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a static bearer token |
 | `RAG_LLM_BACKEND` | `openai` | `openai` \| `fake` (echoes the question, no network) |
 | `RAG_OPENAI_MODEL` | `gpt-4o-mini` | chat model id |
 | `RAG_VECTOR_STORE_BACKEND` | `elasticsearch` | `elasticsearch` \| `fake` (in-memory, seeded with the synthetic corpus at start-up) |
 | `RAG_ES_URL` | `http://localhost:9200` | `http://user:password@host:9200` for basic auth |
 | `RAG_ES_API_KEY` | `` | Elasticsearch API key (alternative to basic auth) |
+| `RAG_ES_INDEX` | `rag_passages` | Elasticsearch index holding the passages |
 | `RAG_DOMINO_TRACING` | `false` | wrap the workflow run with Domino `add_tracing` |
+| `RAG_TOP_K_RETRIEVE` | `20` | candidates from the vector store (>= 1) |
+| `RAG_TOP_K_RERANK` | `5` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
+| `RAG_SYSTEM_PROMPT` / `RAG_USER_PROMPT` | from `prompts.yaml` | override one prompt; the user template must hold `{context}` and `{question}` |
+| `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
+| `RAG_EMBEDDER_BATCH_SIZE` | `64` | texts per batch for the in-process embedder and per OVMS `/v3/embeddings` request |
+| `RAG_RERANKER_BATCH_SIZE` | `32` | pairs per batch for the in-process cross-encoder |
+| `RAG_MODEL_WORKERS` | `4` | at most this many in-process inference calls at once (fewer on a small CPU budget) |
+| `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
+| `RAG_EMBEDDER_THREADS` / `RAG_RERANKER_THREADS` | `0` | native (OpenMP/BLAS) threads one embed / rerank call may use; `0` = the budget's share |
+| `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
+| `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every model-server and Domino-token request |
+| `RAG_HTTP_RETRIES` | `2` | model-server retries on transport errors, 5xx and 401; hardware-tier lookup retries on transport errors |
+| `RAG_HTTP_BACKOFF_S` | `0.2` | wait before the first retry, doubled for each next one |
+| `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token (`RAG_OVMS_AUTH=domino`) |
+| `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
+| `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | | read by the OpenAI SDK; point `OPENAI_BASE_URL` at a Domino AI Gateway to swap providers |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
+| `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 
-Those 17 `RAG_*` fields are the whole of `config/settings.py`. Retrieval sizes
-(`TOP_K_RETRIEVE=20`, `TOP_K_RERANK=5`), the model thread pool (`4`), the OVMS
-timeout (`30 s`) and retries (`2`, backoff 0.2 s then 0.4 s), the Domino token
-cache (`240 s`) and the index name are constants, so experiments only vary the
-topology. An invalid backend or topology name, a backend that contradicts the
-topology, or a bad run label fails at start-up with the accepted values listed.
+Every tunable is a field of `RagSettings` in `config/settings.py`; adapters get
+the values as constructor arguments from `adapters/rag_ports.py`. Locust's rerank
+users send `RAG_TOP_K_RETRIEVE` documents with `top_n=RAG_TOP_K_RERANK`, like the
+workflow. Sources win in this order: constructor arguments, environment, `.env`,
+then the prompts YAML. An invalid backend or topology name, a backend that
+contradicts the topology, a bad run label, `RAG_TOP_K_RERANK` above
+`RAG_TOP_K_RETRIEVE`, a user prompt missing a placeholder, or a missing prompts
+file fails at start-up with the offending value.
+
+**Thread budget.** When the first in-process model loads, the process counts its
+virtual CPUs: `RAG_MODEL_CPUS` if positive; on Domino, the `cores` of the run's
+hardware tier from `GET $DOMINO_API_PROXY/api/hardwaretiers/v1/hardwaretiers/$DOMINO_HARDWARE_TIER_ID`
+(a 403 without `ViewHardwareTiers` only logs a warning); otherwise the
+container's CPUs (`joblib.cpu_count()`, which honours the cgroup quota). Whole
+CPUs are split as `workers = min(RAG_MODEL_WORKERS, cpus)` and
+`threads = cpus // workers` per call (8 CPUs: 4 workers x 2 threads), each model
+call running inside a threadpoolctl scope of that size. Autoscaled Apps start
+more pods of the same tier, so every new process works its budget out again; the
+result is one `thread_budget` JSON log line.
 
 ## Elasticsearch
 
@@ -463,9 +507,11 @@ image). With `RAG_DOMINO_TRACING=true` the workflow run behind both endpoints is
 wrapped with `add_tracing(name="rag_query", autolog_frameworks=["langchain"])`
 (`domino.aisystems.tracing`, falling back to `domino.agents.tracing`), so the
 LangGraph run and the OpenAI call appear as traces; without the SDK the app logs
-a warning and runs untraced. Deploy from Experiment Manager → **Deploy Agent**
-with the same entry point, environment and tier as an App, and keep the flag
-identical across compared runs (tracing adds a small per-request overhead).
+a warning and runs untraced. `make deploy` publishes the workflow as an Agent
+with tracing on (see "App or Agent" below); by hand, deploy from Experiment
+Manager → **Deploy Agent** with the same entry point, environment and tier as an
+App. Keep the flag identical across compared runs (tracing adds a small
+per-request overhead).
 
 **Running Locust.** From a Workspace in the same project (`rag` environment):
 
@@ -499,7 +545,7 @@ From the repository root (for example `/repos/<project>`) in a Workspace of the 
 project that hosts all the Apps:
 
 ```bash
-cp deploy.env.example deploy.env      # set RAG_DEPLOY_ENVIRONMENT_ID, topology, model server
+cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, model server
 make deploy                           # model server Apps first, then rag-workflow with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
@@ -508,35 +554,87 @@ make compare
 
 `rag-deploy` (behind these targets) calls Domino's beta Apps API through
 `DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
-as the topology needs; running it again posts a new version to each existing App.
-`RAG_DEPLOY_ENVIRONMENT_ID` is required: the id of the compute environment every
-App runs in, in the URL of that environment's page in Domino. The Apps install
-their own dependencies when they start (`domino/app.sh` with `RAG_BOOTSTRAP=1`),
-so any environment with `uv` works, but the first start is slower and needs
-access to the package index and the Hugging Face Hub. For `ovms`,
-`RAG_DEPLOY_OVMS_BUNDLE` points at the OVMS bundle (a folder with `bin/ovms` and
-`lib/`, or the release `.tar.gz`) at a path the Apps can read, for example
-`/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs root or
-`sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in the
-directory `rag-deploy` runs from, so run it from the repository root (the Apps
+as the topology needs. The Apps install their own dependencies when they start
+(`domino/app.sh` with `RAG_BOOTSTRAP=1`), so any environment with `uv` works, but
+the first start is slower and needs access to the package index and the Hugging
+Face Hub. For `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
+`bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
+example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
+root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
+the directory `rag-deploy` runs from, so run it from the repository root (the Apps
 mount the repository at the same path); elsewhere it refuses to publish.
 
-Any other `RAG_*` line in `deploy.env` is passed to every App as is, for example
+**`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
+every setting in one place. Top-level keys say what to deploy (`topology`,
+`model_server`, `project_id`, `ovms_bundle`, `domino_host`) and how to talk to
+Domino (`wait_timeout_s`, `poll_interval_s`, `no_instance_grace_s`,
+`http_timeout_s`, `http_retries`, `run_token_url`); a `RAG_DEPLOY_<KEY>` variable
+overrides one, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
+`RAG_DEPLOY_FILE` names another file. `defaults` applies to every App and
+`apps.<embedder|reranker|workflow>` to one, each App taking its own value, else the
+default:
+
+```yaml
+defaults:
+  environment_id: env-123          # required: the compute environment's id (in its page's URL)
+  hardware_tier_id: small          # "" = the project's default tier
+  settings: {RAG_ES_URL: https://es.example:9200}
+apps:
+  workflow:
+    kind: agent                    # the default for the workflow; model servers are apps
+    autoscaling: {min_replicas: 1, max_replicas: 4, target_cpu_pct: 70}
+  reranker:
+    hardware_tier_id: cpu-16
+    settings: {RAG_RERANKER_MODEL: /domino/datasets/local/<dataset>/models/bge-reranker-base}
+```
+
+`settings` are each App's environment variables (merged with the defaults', the
+App's winning; YAML numbers and booleans are exported as strings), for example
 `RAG_ES_URL`, `RAG_EMBEDDER_MODEL` / `RAG_RERANKER_MODEL` (a local folder such as
 `/domino/datasets/local/<dataset>/models/bge-small-en-v1.5` works as well as a
 Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
-`/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets
-`RAG_ROLE`, `RAG_TOPOLOGY`, `RAG_OVMS_RERANK_URL`, `RAG_OVMS_EMBEDDINGS_URL`,
-`RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself, and `RAG_RUN_LABEL`
-(`<topology>-<model server>`) unless `deploy.env` sets it. Secrets
+`/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
+`RAG_TOPOLOGY`, `RAG_OVMS_RERANK_URL`, `RAG_OVMS_EMBEDDINGS_URL`,
+`RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself (they win), and `RAG_RUN_LABEL`
+(`<topology>-<model server>`) unless the settings set it. Secrets
 (`OPENAI_API_KEY`, `RAG_ES_API_KEY`, a bearer token in `RAG_OVMS_AUTH`) stay in
-Domino's project or user environment variables, because `deploy.env` values are
-written into the Apps' launch scripts; `rag-deploy` refuses them in that file.
+Domino's project or user environment variables, because `settings` are written
+into the Apps' launch scripts; `rag-deploy` refuses them in any block. A misspelt
+key is refused with its name.
 
-The workflow App reaches the model server Apps at the public `url` Domino returns
-for each, through Domino's proxy. Domino documents no internal (in-cluster) address
-for an App, so every model server call in a split topology includes that proxy
-hop: it is part of what the split topologies measure on Domino.
+**App or Agent.** `kind: agent` publishes the App with `configurationType:
+AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
+that field is the only API-level difference), `kind: app` with `STANDARD`. The
+workflow is an Agent unless told otherwise: its launch script also exports
+`RAG_DOMINO_TRACING=1` and `RAG_BOOTSTRAP_EXTRAS=domino` (unless its settings set
+them), and `app.sh` then installs `.[domino]`, the extra that brings the tracing
+library. An existing App of the other kind is not converted: `rag-deploy` stops
+and says to delete it in Domino or change `kind`.
+
+**Autoscaling.** `autoscaling` becomes the version's `autoscalingSpecification`
+(`enabled`, `minReplicas`, `maxReplicas`, `targetCpuAvgUtilizationPct`). Replicas
+are pods behind one instance, so scaling does not change the instance URL below.
+
+**Redeploying, never a second App.** `rag-deploy` remembers each App's id in
+`.rag-deploy-cache.json` (git-ignored, per project; a dry run keeps it in memory).
+It looks an App up by that id first, then by exact name, and remembers it either
+way; only when both miss does it create the App. An App that exists gets a new
+version with whatever `deploy.yaml` says now (the 6.2 API has no restart call).
+Delete the cache file and the Apps are found by name again.
+
+**Where an App answers.** Apps are called on their running instance:
+`{domino_host}/{owner}/{project}/r/notebookSession/{instance id}`, where owner and
+project are the App's `project.ownerUsername` and `project.name` and the instance
+is the `Running` one of its current version (`domino_host` "" = the scheme and host
+of the App's own `url`). That URL is what the workflow App gets as
+`RAG_OVMS_*_URL`, what `rag-deploy url <part>` prints, what `make status` shows and
+checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
+own `url` stays in the messages that point at its page or logs. The instance id
+changes at every redeploy, so after `make deploy-embedder` or `make
+deploy-reranker` alone, `rag-deploy` reminds you that `rag-workflow` still calls
+the previous instance: run `make deploy-workflow`. Every model server call in a
+split topology goes through Domino's proxy: it is part of what the split
+topologies measure on Domino.
 
 One-time prerequisites that stay manual: install the package in the Workspace
 (`make install-dev`, or `uv pip install -e ".[loadtest]"`), `make ingest`, and for
@@ -548,8 +646,18 @@ One-time prerequisites that stay manual: install the package in the Workspace
 make deploy-dry-run      # rag-deploy --dry-run deploy all: nothing is sent to Domino
 ```
 
-prints each App `rag-deploy` would publish (environment, hardware tier, entry
-script), with every check of a real deploy. To click through the API or watch a
+prints each App `rag-deploy` would publish (kind, environment, hardware tier,
+autoscaling, entry script), with every check of a real deploy. One of them: no
+value may still hold an `<angle-bracket>` placeholder from the example (in the
+`settings` of the Apps being deployed, their `environment_id` and
+`hardware_tier_id`, and `ovms_bundle`). The example copied unchanged stops on the
+first one:
+
+```
+rag-deploy: error: environment_id in defaults of deploy.yaml still holds the example placeholder '<environment id>': replace it with a real value
+```
+
+To click through the API or watch a
 deploy wait, serve the fake Domino and point `rag-deploy` at it:
 
 ```bash
@@ -571,7 +679,11 @@ Domino Workspace, where that port is taken.
 | `forbidden` | every Apps API call answers 403 with a `FailureEnvelopeV1` |
 
 The fake is transcribed from the Domino 6.2 API reference, so it shows what
-`rag-deploy` expects of Domino, not what a live Domino does.
+`rag-deploy` expects of Domino, not what a live Domino does. Besides the Apps
+calls it lists a version's instances, answers `/readyz` at each instance's
+`/fake-owner/fake-project/r/notebookSession/<instance id>` URL, and describes any
+hardware tier (`GET /api/hardwaretiers/v1/hardwaretiers/<id>`) with a fixed
+number of cores.
 
 Implemented from the Domino 6.2 API reference but **not verified on a live
 Domino**:
@@ -585,6 +697,14 @@ Domino**:
    says a script calling an App needs a Personal Access Token; if the run token is
    rejected (`503 reranker_unavailable` with HTTP 401 or a redirect in the detail),
    set `RAG_OVMS_AUTH=<personal access token>` as a project environment variable.
+4. An App answers on `/{owner}/{project}/r/notebookSession/{instance id}` of the
+   Domino host. This path is not in the API reference: it comes from using
+   Domino. If it is wrong, every URL `rag-deploy` hands out is wrong; the App's
+   page (its `url`) still works.
+5. `configurationType: AISYSTEM` is what makes an App an Agent (the reference
+   lists the value; that the UI's **Deploy Agent** sends it is an assumption).
+6. The `[domino]` extra (`dominodatalab[agents]`) installs in the generic
+   environment when an Agent starts.
 
 If one of these fails, the step-by-step section below is the fallback.
 
