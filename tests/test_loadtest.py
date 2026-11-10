@@ -13,13 +13,12 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.domain.corpus import chunk, synthetic_corpus
-from rag_load_test.domain.passages import TOP_K_RERANK, TOP_K_RETRIEVE
 from rag_load_test.loadtest.request_plans import (
-    QUESTIONS,
     LoadTestConfig,
     RequestPlan,
+    RequestPool,
     ResponseVerdict,
+    build_request_pool,
     judge_response,
     plan_embeddings_request,
     plan_rag_request,
@@ -54,6 +53,7 @@ def test_loadtest_config_defaults() -> None:
         retrieve_weight=3,
         step_shape=False,
         auth_headers={},
+        question_count=50,
     )
 
 
@@ -63,6 +63,7 @@ def test_loadtest_config_reads_every_variable() -> None:
         "RAG_LOADTEST_QUERY_WEIGHT": "2",
         "RAG_LOADTEST_RETRIEVE_WEIGHT": "7",
         "RAG_LOADTEST_SHAPE": "step",
+        "RAG_LOADTEST_QUESTIONS": "12",
         API_KEY: "key",
     }
     config = read_loadtest_config(env)
@@ -73,6 +74,7 @@ def test_loadtest_config_reads_every_variable() -> None:
     )
     assert config.step_shape is True
     assert config.auth_headers == {"X-Domino-Api-Key": "key"}
+    assert config.question_count == 12
 
 
 @pytest.mark.parametrize(
@@ -96,6 +98,8 @@ def test_loadtest_config_auth_headers_bearer_wins(
         ({"RAG_LOADTEST_TARGET": "ovms"}, r"'ovms'.*rag, rerank, embeddings"),
         ({"RAG_LOADTEST_QUERY_WEIGHT": "many"}, r"RAG_LOADTEST_QUERY_WEIGHT.*'many'"),
         ({"RAG_LOADTEST_RETRIEVE_WEIGHT": "1.5"}, r"RETRIEVE_WEIGHT.*'1\.5'"),
+        ({"RAG_LOADTEST_QUESTIONS": "lots"}, r"RAG_LOADTEST_QUESTIONS.*'lots'"),
+        ({"RAG_LOADTEST_QUESTIONS": "0"}, r"RAG_LOADTEST_QUESTIONS.*'0'.*at least 1"),
     ],
 )
 def test_loadtest_config_rejects_bad_values(env: dict[str, str], message: str) -> None:
@@ -106,32 +110,45 @@ def test_loadtest_config_rejects_bad_values(env: dict[str, str], message: str) -
 # --- what to send ---
 
 
+POOL = RequestPool(
+    questions=("q-one", "q-two", "q-three"),
+    rerank_documents=("doc a", "doc b", "doc c", "doc d"),
+    top_n=2,
+)
+
+
+def test_build_request_pool_sizes_questions_and_candidates() -> None:
+    pool = build_request_pool(question_count=9, candidates=7, top_n=3)
+
+    assert len(pool.questions) == 9 and all(pool.questions)
+    assert len(pool.rerank_documents) == 7 and all(pool.rerank_documents)
+    assert pool.top_n == 3
+
+
 @pytest.mark.parametrize("endpoint", ["/query", "/retrieve"])
 def test_plan_rag_request_asks_one_seeded_question(endpoint: str) -> None:
-    plan = plan_rag_request(endpoint, random.Random(7))
-    question = random.Random(7).choice(QUESTIONS)
+    plan = plan_rag_request(endpoint, POOL, random.Random(7))
+    question = random.Random(7).choice(POOL.questions)
     assert plan == RequestPlan(endpoint, {"question": question}, endpoint)
 
 
 def test_plan_rerank_request_matches_the_workflow_rerank_stage() -> None:
-    plan = plan_rerank_request("bge-reranker-base", random.Random(7))
-    documents = [p.text for d in synthetic_corpus(TOP_K_RETRIEVE) for p in chunk(d)]
+    plan = plan_rerank_request("bge-reranker-base", POOL, random.Random(7))
     assert (plan.path, plan.stats_name) == ("/v3/rerank", "/v3/rerank")
     assert plan.payload == {
         "model": "bge-reranker-base",
-        "query": random.Random(7).choice(QUESTIONS),
-        "documents": documents[:TOP_K_RETRIEVE],
-        "top_n": TOP_K_RERANK,
+        "query": random.Random(7).choice(POOL.questions),
+        "documents": ["doc a", "doc b", "doc c", "doc d"],
+        "top_n": 2,
     }
-    assert len(plan.payload["documents"]) == TOP_K_RETRIEVE  # type: ignore[arg-type]
 
 
 def test_plan_embeddings_request_sends_one_question_in_a_list() -> None:
-    plan = plan_embeddings_request("bge-small-en-v1.5", random.Random(7))
+    plan = plan_embeddings_request("bge-small-en-v1.5", POOL, random.Random(7))
     assert (plan.path, plan.stats_name) == ("/v3/embeddings", "/v3/embeddings")
     assert plan.payload == {
         "model": "bge-small-en-v1.5",
-        "input": [random.Random(7).choice(QUESTIONS)],
+        "input": [random.Random(7).choice(POOL.questions)],
     }
 
 
@@ -200,8 +217,9 @@ def test_judge_response_failure(status: int, body: str, failure: str) -> None:
     assert body[:200] in verdict.failure
 
 
-def test_questions_has_fifty_entries() -> None:
-    assert len(QUESTIONS) == 50 and all(q for q in QUESTIONS)
+def test_default_pool_has_fifty_questions() -> None:
+    pool = build_request_pool(read_loadtest_config({}).question_count, 20, 5)
+    assert len(pool.questions) == 50
 
 
 # --- target record ---
@@ -399,9 +417,21 @@ def _import_locustfile(name: str) -> ModuleType:
 
 @pytest.fixture
 def locustfile(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    for var in ("TARGET", "SHAPE", "QUERY_WEIGHT", "RETRIEVE_WEIGHT"):
+    for var in ("TARGET", "SHAPE", "QUERY_WEIGHT", "RETRIEVE_WEIGHT", "QUESTIONS"):
         monkeypatch.delenv(f"RAG_LOADTEST_{var}", raising=False)
     return _import_locustfile("locustfile_under_test")
+
+
+def test_locustfile_pool_follows_the_settings_and_the_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAG_TOP_K_RETRIEVE", "7")
+    monkeypatch.setenv("RAG_TOP_K_RERANK", "3")
+    monkeypatch.setenv("RAG_LOADTEST_QUESTIONS", "9")
+
+    pool = _import_locustfile("locustfile_sized_pool").POOL
+
+    assert (len(pool.questions), len(pool.rerank_documents), pool.top_n) == (9, 7, 3)
 
 
 def test_rag_user_has_both_tasks_with_default_weights(locustfile: ModuleType) -> None:

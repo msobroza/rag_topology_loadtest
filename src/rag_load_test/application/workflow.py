@@ -1,14 +1,16 @@
 """The LangGraph workflow (``embed -> retrieve -> rerank -> generate``).
 
 ``RagWorkflow`` sees only ports, so the same graph runs in every topology; which
-adapters sit behind them is ``RagPorts``' business. Each node records its wall
-time in ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
+adapters sit behind them is ``RagPorts``' business. Retrieval sizes and prompts
+come in as one ``WorkflowParameters``. Each node records its wall time in
+``timings_ms`` (a LangGraph reducer merges the per-stage keys).
 
 Example::
 
     async with RagPorts(settings) as ports:
         deps = await ports.workflow_dependencies()
-        result = await RagWorkflow(deps).run("How many vacation days?", mode="retrieve")
+        workflow = RagWorkflow(deps, settings.workflow_parameters())
+        result = await workflow.run("How many vacation days?", mode="retrieve")
 """
 
 from __future__ import annotations
@@ -19,16 +21,9 @@ from typing import Annotated, Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from ..domain.passages import (
-    STAGES,
-    TOP_K_RERANK,
-    TOP_K_RETRIEVE,
-    RagMode,
-    RagResult,
-    ScoredPassage,
-)
+from ..domain.passages import STAGES, RagMode, RagResult, ScoredPassage
 from ..domain.ports import RagDependencies
-from ..domain.prompts import rag_messages
+from ..domain.workflow_parameters import WorkflowParameters
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:
@@ -70,8 +65,8 @@ def timed(stage: str, node: Node) -> Node:
 class RagWorkflow:
     """A compiled graph over ``RagDependencies``; build once, ``run`` per request."""
 
-    def __init__(self, deps: RagDependencies) -> None:
-        self.deps = deps
+    def __init__(self, deps: RagDependencies, parameters: WorkflowParameters) -> None:
+        self.deps, self.parameters = deps, parameters
         builder = StateGraph(RagState)
         builder.add_node("embed", timed("embed", self._embed))
         builder.add_node("retrieve", timed("retrieve", self._retrieve))
@@ -109,16 +104,17 @@ class RagWorkflow:
 
     async def _retrieve(self, state: RagState) -> dict[str, Any]:
         hits = await self.deps.vector_store.query(
-            state["query_embedding"], TOP_K_RETRIEVE
+            state["query_embedding"], self.parameters.top_k_retrieve
         )
         return {"candidates": hits}
 
     async def _rerank(self, state: RagState) -> dict[str, Any]:
         reranked = await self.deps.reranker.rerank(
-            state["question"], state["candidates"], TOP_K_RERANK
+            state["question"], state["candidates"], self.parameters.top_k_rerank
         )
         return {"reranked": reranked}
 
     async def _generate(self, state: RagState) -> dict[str, Any]:
-        messages = rag_messages(state["question"], state["reranked"])
+        prompts = self.parameters.prompts
+        messages = prompts.messages(state["question"], state["reranked"])
         return {"answer": await self.deps.chat_model.generate(messages)}

@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from ..domain.errors import RagDependencyError
+from ..domain.ports import ChatModelPort
 
 
-class OpenAIChatModel:
+class OpenAIChatModel(ChatModelPort):
     """ChatModelPort on the OpenAI Chat Completions API (``AsyncOpenAI``).
 
     The SDK reads ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` itself, so a Domino AI

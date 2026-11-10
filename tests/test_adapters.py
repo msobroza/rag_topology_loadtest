@@ -19,7 +19,7 @@ import openai
 import pytest
 
 from rag_load_test.adapters import local_models
-from rag_load_test.adapters.elasticsearch_store import INDEX, ElasticsearchVectorStore
+from rag_load_test.adapters.elasticsearch_store import ElasticsearchVectorStore
 from rag_load_test.adapters.local_models import (
     CrossEncoderReranker,
     NoReranker,
@@ -30,13 +30,22 @@ from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage, ScoredPassage
 
 HEAVY_MODULES = ("sentence_transformers", "torch", "elasticsearch", "openai")
+INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
 
 
 @pytest.fixture
 def executor() -> Iterator[ThreadPoolExecutor]:
-    pool = local_models.model_executor()
+    pool = local_models.model_executor(workers=2)
     yield pool
     pool.shutdown(wait=True)
+
+
+def test_model_executor_runs_the_given_number_of_workers() -> None:
+    pool = local_models.model_executor(workers=3)
+    try:
+        assert pool._max_workers == 3
+    finally:
+        pool.shutdown(wait=True)
 
 
 def scored_passages(*ids: str) -> list[ScoredPassage]:
@@ -132,7 +141,9 @@ async def test_cross_encoder_empty_input_skips_model(
     executor: ThreadPoolExecutor,
 ) -> None:
     model = FakeCrossEncoder([])
-    reranker = CrossEncoderReranker(model, executor, model_name="fake-ce")
+    reranker = CrossEncoderReranker(
+        model, executor, model_name="fake-ce", batch_size=32
+    )
     assert await reranker.rerank("q", [], top_n=3) == []
     assert model.calls == []
     assert await reranker.ready() == (True, "fake-ce")
@@ -216,7 +227,7 @@ async def test_es_upsert_passes_text_vector_pairs_metadatas_and_ids() -> None:
         Passage(id="p1", text="alpha", metadata={"topic": "hr"}),
         Passage(id="p2", text="beta"),
     ]
-    store = ElasticsearchVectorStore(fake)
+    store = ElasticsearchVectorStore(fake, INDEX)
     await store.upsert(passages, [(0.1, 0.2), [0.3, 0.4]])
     await store.upsert([], [])  # nothing to write: no call at all
     assert fake.add_calls == [
@@ -235,7 +246,7 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
             (es_hit("p4", "four", {}), 0.25),
         ]
     )
-    hits = await ElasticsearchVectorStore(fake).query((0.5, 0.5), top_k=2)
+    hits = await ElasticsearchVectorStore(fake, INDEX).query((0.5, 0.5), top_k=2)
     assert [(h.id, h.text, h.metadata) for h in hits] == [
         ("p9", "nine", {"topic": "it"}),
         ("p4", "four", {}),
@@ -250,7 +261,7 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
 @pytest.mark.parametrize(("exists", "expected"), [(False, 0), (True, 17)])
 async def test_es_count_is_zero_without_index(exists: bool, expected: int) -> None:
     fake = FakeLangChainStore(exists=exists, count=17)
-    assert await ElasticsearchVectorStore(fake).count() == expected
+    assert await ElasticsearchVectorStore(fake, INDEX).count() == expected
     assert fake.count_calls == ([INDEX] if exists else [])
 
 
@@ -265,12 +276,12 @@ async def test_es_ready_reports_the_passage_count_and_index(
     exists: bool, expected: tuple[bool, str]
 ) -> None:
     fake = FakeLangChainStore(exists=exists, count=17)
-    assert await ElasticsearchVectorStore(fake).ready() == expected
+    assert await ElasticsearchVectorStore(fake, INDEX).ready() == expected
 
 
 async def test_es_aclose_closes_the_underlying_store() -> None:
     fake = FakeLangChainStore()
-    await ElasticsearchVectorStore(fake).aclose()
+    await ElasticsearchVectorStore(fake, INDEX).aclose()
     assert fake.closed
 
 
@@ -291,7 +302,7 @@ async def test_es_failures_surface_as_vector_store_errors(
     operation: StoreOperation,
 ) -> None:
     boom = ConnectionError("es refused")
-    store = ElasticsearchVectorStore(FakeLangChainStore(failure=boom))
+    store = ElasticsearchVectorStore(FakeLangChainStore(failure=boom), INDEX)
     with pytest.raises(RagDependencyError) as info:
         await operation(store)
     assert info.value.component == "vector_store"

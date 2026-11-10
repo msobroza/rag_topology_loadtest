@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -19,6 +20,29 @@ from rag_load_test.entrypoints.model_server import create_model_server, main
 
 EMBED_ALIAS = "bge-small-en-v1.5"  # RagSettings().ovms_embeddings_model
 RERANK_ALIAS = "bge-reranker-base"  # RagSettings().ovms_rerank_model
+
+
+def ovms_reranker(client: httpx.AsyncClient, alias: str) -> OvmsReranker:
+    """An ``OvmsReranker`` at ``http://models`` without auth, retries not sleeping."""
+    reranker = OvmsReranker(client, "http://models", alias, **_no_auth(client))
+    reranker.backoff_s = 0
+    return reranker
+
+
+def ovms_embedder(client: httpx.AsyncClient, alias: str) -> OvmsEmbedder:
+    """An ``OvmsEmbedder`` at ``http://models`` without auth, retries not sleeping."""
+    embedder = OvmsEmbedder(
+        client, "http://models", alias, batch_size=64, **_no_auth(client)
+    )
+    embedder.backoff_s = 0
+    return embedder
+
+
+def _no_auth(client: httpx.AsyncClient) -> dict[str, Any]:
+    token = BearerToken(
+        client, "", token_url="http://unused.test", ttl_s=240.0, timeout_s=30.0
+    )
+    return {"token": token, "timeout_s": 30.0, "retries": 2}
 
 
 @pytest.fixture
@@ -115,18 +139,8 @@ async def test_ovms_adapters_work_against_the_fastapi_server(
         embed_client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=embedder_app), base_url="http://models"
         )
-        reranker = OvmsReranker(
-            rerank_client,
-            "http://models",
-            "bge-reranker-base",
-            token=BearerToken(rerank_client, ""),
-        )
-        embedder = OvmsEmbedder(
-            embed_client,
-            "http://models",
-            "bge-small-en-v1.5",
-            token=BearerToken(embed_client, ""),
-        )
+        reranker = ovms_reranker(rerank_client, "bge-reranker-base")
+        embedder = ovms_embedder(embed_client, "bge-small-en-v1.5")
         passages = [
             ScoredPassage(id="x", text="cafeteria lunch", retrieval_score=0.9),
             ScoredPassage(id="y", text="vacation days policy", retrieval_score=0.8),
@@ -136,9 +150,7 @@ async def test_ovms_adapters_work_against_the_fastapi_server(
         vectors = await embedder.embed(["a", "b"])
         assert len(vectors) == 2 and len(vectors[0]) == 4
         assert (await reranker.ready())[0] and (await embedder.ready())[0]
-        wrong_alias = OvmsReranker(
-            rerank_client, "http://models", "nope", token=BearerToken(rerank_client, "")
-        )
+        wrong_alias = ovms_reranker(rerank_client, "nope")
         assert not (await wrong_alias.ready())[0]
 
 
@@ -175,19 +187,13 @@ async def test_ovms_adapters_with_a_wrong_alias_fail_fast_on_404(
 
 
 async def _rerank_with_alias(client: httpx.AsyncClient, alias: str) -> None:
-    reranker = OvmsReranker(
-        client, "http://models", alias, token=BearerToken(client, "")
-    )
-    reranker.backoff_s = 0  # a retry, if any, must not sleep
+    reranker = ovms_reranker(client, alias)
     passages = [ScoredPassage(id="x", text="a", retrieval_score=0.9)]
     await reranker.rerank("q", passages, 1)
 
 
 async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
-    embedder = OvmsEmbedder(
-        client, "http://models", alias, token=BearerToken(client, "")
-    )
-    embedder.backoff_s = 0
+    embedder = ovms_embedder(client, alias)
     await embedder.embed(["a"])
 
 

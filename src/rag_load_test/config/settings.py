@@ -9,15 +9,30 @@ Example::
 
     settings = RagSettings()                                          # from the env
     settings = RagSettings(_env_file=None, reranker_backend="fake")   # in tests
+
+Every tunable (retrieval sizes, index, batch sizes, timeouts, ...) is a field here,
+so one ``RAG_*`` variable changes it; adapters receive the values from
+``adapters/rag_ports.py`` and never read this module. The prompts have no Python
+default: they come from ``prompts.yaml`` (or the file ``RAG_PROMPTS_FILE`` names),
+the lowest-priority source, so ``RAG_SYSTEM_PROMPT`` / ``RAG_USER_PROMPT`` and
+constructor arguments still override them.
 """
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import cast
 
 from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
+from ..domain.prompts import RagPrompts
 from ..domain.topology import (
     DEFAULT_LLM_BACKEND,
     DEFAULT_VECTOR_STORE_BACKEND,
@@ -31,6 +46,9 @@ from ..domain.topology import (
     resolve_reranker_backend,
     validate_run_label,
 )
+from ..domain.workflow_parameters import WorkflowParameters
+
+PACKAGED_PROMPTS = Path(__file__).with_name("prompts.yaml")
 
 
 class RagSettings(BaseSettings):
@@ -69,7 +87,47 @@ class RagSettings(BaseSettings):
     vector_store_backend: VectorStoreBackend = DEFAULT_VECTOR_STORE_BACKEND
     es_url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     es_api_key: str = ""
+    es_index: str = "rag_passages"
     domino_tracing: bool = False
+
+    # --- workflow: retrieval sizes and prompts (no default: see prompts.yaml) -----
+    top_k_retrieve: int = Field(default=20, ge=1)  # candidates from the store
+    top_k_rerank: int = Field(default=5, ge=1)  # passages kept and sent to the LLM
+    system_prompt: str
+    user_prompt: str  # holds {context} and {question}
+
+    # --- in-process models -------------------------------------------------------
+    embedder_batch_size: int = Field(default=64, ge=1)
+    reranker_batch_size: int = Field(default=32, ge=1)
+    model_workers: int = Field(default=4, ge=1)  # inference calls running at once
+
+    # --- HTTP to model servers and Domino ------------------------------------------
+    http_timeout_s: float = Field(default=30.0, gt=0)
+    http_retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 401
+    domino_token_url: str = "http://localhost:8899/access-token"
+    domino_token_ttl_s: float = Field(default=240.0, gt=0)  # tokens live ~5 min
+
+    # Same size as ``make ingest`` so a fake-store app answers like an ingested one.
+    fake_store_seed_documents: int = Field(default=200, ge=1)
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """init kwargs > environment > .env > secrets > the prompts YAML."""
+        prompts = _prompts_source(settings_cls, _prompts_path())
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+            prompts,
+        )
 
     @model_validator(mode="after")
     def resolve_topology(self) -> RagSettings:
@@ -83,6 +141,31 @@ class RagSettings(BaseSettings):
         self.run_label = validate_run_label(self.run_label or self._default_label())
         return self
 
+    @model_validator(mode="after")
+    def check_workflow_parameters(self) -> RagSettings:
+        """Fail at start-up, not on the first query, on bad sizes or prompts."""
+        if self.top_k_rerank > self.top_k_retrieve:
+            raise ValueError(
+                f"RAG_TOP_K_RERANK={self.top_k_rerank} exceeds "
+                f"RAG_TOP_K_RETRIEVE={self.top_k_retrieve}: the reranker can keep "
+                "at most the candidates retrieval returns"
+            )
+        self.workflow_parameters()  # RagPrompts checks the user template
+        return self
+
+    def workflow_parameters(self) -> WorkflowParameters:
+        """The retrieval sizes and prompts ``RagWorkflow`` runs with.
+
+        Example::
+
+            RagWorkflow(deps, RagSettings().workflow_parameters())
+        """
+        return WorkflowParameters(
+            top_k_retrieve=self.top_k_retrieve,
+            top_k_rerank=self.top_k_rerank,
+            prompts=RagPrompts(system=self.system_prompt, user=self.user_prompt),
+        )
+
     def _default_label(self) -> str:
         return default_run_label(
             self.topology,
@@ -91,3 +174,23 @@ class RagSettings(BaseSettings):
             store=self.vector_store_backend,
             llm=self.llm_backend,
         )
+
+
+def _prompts_path() -> Path:
+    """``RAG_PROMPTS_FILE`` when set, else the ``prompts.yaml`` shipped with us."""
+    override = os.environ.get("RAG_PROMPTS_FILE")
+    return Path(override) if override else PACKAGED_PROMPTS
+
+
+def _prompts_source(
+    settings_cls: type[BaseSettings], path: Path
+) -> YamlConfigSettingsSource:
+    """The YAML source over ``path``; a missing or unreadable file is an error
+    (pydantic-settings would silently skip a missing one, leaving the prompts
+    "Field required" without saying which file was meant)."""
+    if not path.is_file():
+        raise FileNotFoundError(f"prompts file {str(path)!r} does not exist")
+    try:
+        return YamlConfigSettingsSource(settings_cls, yaml_file=path)
+    except OSError as exc:
+        raise OSError(f"cannot read prompts file {str(path)!r}: {exc}") from exc

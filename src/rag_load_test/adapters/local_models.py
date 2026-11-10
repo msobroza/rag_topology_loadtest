@@ -15,14 +15,20 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from typing import Any, TypeVar
 
 from ..domain.passages import ScoredPassage, top_by_score
+from ..domain.ports import EmbedderPort, RerankerPort
 
 T = TypeVar("T")
-MODEL_THREADS = 4  # thread pool for local model inference
 
 
-def model_executor() -> ThreadPoolExecutor:
-    """The shared pool for sentence-transformers inference."""
-    return ThreadPoolExecutor(MODEL_THREADS, thread_name_prefix="rag-model")
+def model_executor(workers: int) -> ThreadPoolExecutor:
+    """The shared pool for sentence-transformers inference: ``workers`` calls run
+    at once (``RAG_MODEL_WORKERS``), the rest queue.
+
+    Example::
+
+        pool = model_executor(workers=4)
+    """
+    return ThreadPoolExecutor(workers, thread_name_prefix="rag-model")
 
 
 async def run_blocking(executor: Executor, fn: Callable[..., T], *args: Any) -> T:
@@ -30,29 +36,31 @@ async def run_blocking(executor: Executor, fn: Callable[..., T], *args: Any) -> 
     return await asyncio.get_running_loop().run_in_executor(executor, fn, *args)
 
 
-class SentenceTransformerEmbedder:
+class SentenceTransformerEmbedder(EmbedderPort):
     """EmbedderPort on a ``SentenceTransformer``; inject a fake ``model`` in tests.
 
     Example::
 
-        embedder = SentenceTransformerEmbedder.from_pretrained("BAAI/bge-small", pool)
+        embedder = SentenceTransformerEmbedder.from_pretrained(
+            "BAAI/bge-small", pool, batch_size=64
+        )
         [vector] = await embedder.embed(["vacation policy"])
     """
 
     def __init__(
-        self, model: Any, executor: Executor, *, model_name: str, batch_size: int = 64
+        self, model: Any, executor: Executor, *, model_name: str, batch_size: int
     ) -> None:
         self._model, self._executor, self._batch_size = model, executor, batch_size
         self.model_name = model_name
 
     @classmethod
     def from_pretrained(
-        cls, model_name: str, executor: Executor
+        cls, model_name: str, executor: Executor, *, batch_size: int
     ) -> SentenceTransformerEmbedder:
         from sentence_transformers import SentenceTransformer  # pulls in torch
 
         model = SentenceTransformer(model_name, device="cpu")
-        return cls(model, executor, model_name=model_name)
+        return cls(model, executor, model_name=model_name, batch_size=batch_size)
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
@@ -70,29 +78,31 @@ class SentenceTransformerEmbedder:
         return matrix.tolist()
 
 
-class CrossEncoderReranker:
+class CrossEncoderReranker(RerankerPort):
     """RerankerPort on a sentence-transformers ``CrossEncoder`` (scores in 0..1).
 
     Example::
 
-        reranker = CrossEncoderReranker.from_pretrained("BAAI/bge-reranker-base", pool)
+        reranker = CrossEncoderReranker.from_pretrained(
+            "BAAI/bge-reranker-base", pool, batch_size=32
+        )
         best = await reranker.rerank("vacation policy", candidates, top_n=5)
     """
 
     def __init__(
-        self, model: Any, executor: Executor, *, model_name: str, batch_size: int = 32
+        self, model: Any, executor: Executor, *, model_name: str, batch_size: int
     ) -> None:
         self._model, self._executor, self._batch_size = model, executor, batch_size
         self.model_name = model_name
 
     @classmethod
     def from_pretrained(
-        cls, model_name: str, executor: Executor
+        cls, model_name: str, executor: Executor, *, batch_size: int
     ) -> CrossEncoderReranker:
         from sentence_transformers import CrossEncoder  # pulls in torch
 
         model = CrossEncoder(model_name, device="cpu")
-        return cls(model, executor, model_name=model_name)
+        return cls(model, executor, model_name=model_name, batch_size=batch_size)
 
     async def rerank(
         self, query: str, passages: Sequence[ScoredPassage], top_n: int
@@ -110,7 +120,7 @@ class CrossEncoderReranker:
         return True, self.model_name
 
 
-class NoReranker:
+class NoReranker(RerankerPort):
     """RerankerPort that keeps retrieval order (``RAG_RERANKER_BACKEND=none``)."""
 
     async def rerank(

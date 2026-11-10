@@ -10,11 +10,15 @@ ends. A port handed to the constructor is used as given and never closed here.
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently.
 
+This is the only adapter module that reads ``RagSettings``: every other adapter
+takes its sizes, timeouts and names as constructor arguments from here.
+
 Example::
 
     async with RagPorts(RagSettings()) as ports:
         deps = await ports.workflow_dependencies()
-        result = await RagWorkflow(deps).run("How many vacation days?")
+        workflow = RagWorkflow(deps, ports.settings.workflow_parameters())
+        result = await workflow.run("How many vacation days?")
 """
 
 from __future__ import annotations
@@ -48,11 +52,9 @@ from .local_models import (
     model_executor,
 )
 from .openai_chat import OpenAIChatModel
-from .ovms import TIMEOUT_S, BearerToken, OvmsEmbedder, OvmsReranker
+from .ovms import BearerToken, OvmsEmbedder, OvmsReranker
 
 T = TypeVar("T")
-# Same size as ``make ingest`` so a fake-store app answers like an ingested one.
-FAKE_STORE_SEED_DOCUMENTS = 200
 OWNED = "in-process"  # "backend" of the resources RagPorts creates for itself
 
 
@@ -162,6 +164,9 @@ class RagPorts:
                 settings.ovms_embeddings_url,
                 settings.ovms_embeddings_model,
                 token=await self._bearer_token(),
+                timeout_s=settings.http_timeout_s,
+                retries=settings.http_retries,
+                batch_size=settings.embedder_batch_size,
             )
         return await self._local_embedder()
 
@@ -183,6 +188,8 @@ class RagPorts:
                 settings.ovms_rerank_url,
                 settings.ovms_rerank_model,
                 token=await self._bearer_token(),
+                timeout_s=settings.http_timeout_s,
+                retries=settings.http_retries,
             )
         return await self._local_reranker()
 
@@ -195,15 +202,16 @@ class RagPorts:
     async def _open_vector_store(self) -> VectorStorePort:
         if self.settings.vector_store_backend == "fake":
             return await self._seeded_in_memory_store()
+        settings = self.settings
         store = ElasticsearchVectorStore.open(
-            self.settings.es_url, api_key=self.settings.es_api_key
+            settings.es_url, index=settings.es_index, api_key=settings.es_api_key
         )
         self._stack("vector_store").push_async_callback(store.aclose)
         return store
 
     async def _seeded_in_memory_store(self) -> VectorStorePort:
         store = InMemoryVectorStore()
-        documents = synthetic_corpus(FAKE_STORE_SEED_DOCUMENTS)
+        documents = synthetic_corpus(self.settings.fake_store_seed_documents)
         passages = [passage for document in documents for passage in chunk(document)]
         await ingest(passages, await self._embedder(), store)
         return store
@@ -229,7 +237,9 @@ class RagPorts:
     async def _load_embedder(self) -> EmbedderPort:
         pool = await self._model_pool()
         return SentenceTransformerEmbedder.from_pretrained(
-            self.settings.embedder_model, pool
+            self.settings.embedder_model,
+            pool,
+            batch_size=self.settings.embedder_batch_size,
         )
 
     async def _local_reranker(self) -> RerankerPort:
@@ -237,13 +247,17 @@ class RagPorts:
 
     async def _load_reranker(self) -> RerankerPort:
         pool = await self._model_pool()
-        return CrossEncoderReranker.from_pretrained(self.settings.reranker_model, pool)
+        return CrossEncoderReranker.from_pretrained(
+            self.settings.reranker_model,
+            pool,
+            batch_size=self.settings.reranker_batch_size,
+        )
 
     async def _model_pool(self) -> ThreadPoolExecutor:
         return await self._once("model_pool", OWNED, self._start_model_pool)
 
     async def _start_model_pool(self) -> ThreadPoolExecutor:
-        pool = model_executor()
+        pool = model_executor(self.settings.model_workers)
         self._stack("model_pool").callback(pool.shutdown, wait=False)
         return pool
 
@@ -251,7 +265,8 @@ class RagPorts:
         return await self._once("http_client", OWNED, self._start_http_client)
 
     async def _start_http_client(self) -> httpx.AsyncClient:
-        client = httpx.AsyncClient(timeout=TIMEOUT_S, transport=self._transport)
+        timeout = self.settings.http_timeout_s
+        client = httpx.AsyncClient(timeout=timeout, transport=self._transport)
         self._stack("http_client").push_async_callback(client.aclose)
         return client
 
@@ -260,7 +275,14 @@ class RagPorts:
         return await self._once("bearer_token", OWNED, self._start_bearer_token)
 
     async def _start_bearer_token(self) -> BearerToken:
-        return BearerToken(await self._http_client(), self.settings.ovms_auth)
+        settings = self.settings
+        return BearerToken(
+            await self._http_client(),
+            settings.ovms_auth,
+            token_url=settings.domino_token_url,
+            ttl_s=settings.domino_token_ttl_s,
+            timeout_s=settings.http_timeout_s,
+        )
 
     # --- bookkeeping ----------------------------------------------------------------
 

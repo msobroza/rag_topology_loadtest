@@ -7,7 +7,9 @@ with plain calls and without gevent monkey-patching the interpreter.
 
 Example::
 
-    plan = plan_rag_request("/query", rng)
+    pool = build_request_pool(config.question_count, settings.top_k_retrieve,
+                              settings.top_k_rerank)
+    plan = plan_rag_request("/query", pool, rng)
     verdict = judge_response(plan.path, resp.status_code, resp.text or "")
 """
 
@@ -15,7 +17,7 @@ from __future__ import annotations
 
 import json
 import random
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,9 +29,7 @@ from ..adapters.v3_contract import (
     RerankRequest,
 )
 from ..domain.corpus import chunk, synthetic_corpus, synthetic_questions
-from ..domain.passages import STAGES, TOP_K_RERANK, TOP_K_RETRIEVE
-
-QUESTIONS: list[str] = synthetic_questions(50)
+from ..domain.passages import STAGES
 
 # --- configuration: the environment, read once ---------------------------------
 
@@ -45,6 +45,7 @@ class LoadTestConfig:
     retrieve_weight: int
     step_shape: bool
     auth_headers: Mapping[str, str]
+    question_count: int  # distinct synthetic questions the users pick from
 
 
 def read_loadtest_config(env: Mapping[str, str]) -> LoadTestConfig:
@@ -64,6 +65,7 @@ def read_loadtest_config(env: Mapping[str, str]) -> LoadTestConfig:
         retrieve_weight=_task_weight(env, "RAG_LOADTEST_RETRIEVE_WEIGHT", 3),
         step_shape=env.get("RAG_LOADTEST_SHAPE") == "step",
         auth_headers=_auth_headers(env),
+        question_count=_question_count(env),
     )
 
 
@@ -77,6 +79,14 @@ def _task_weight(env: Mapping[str, str], variable: str, default: int) -> int:
         raise ValueError(f"{variable}={raw!r}; expected an integer") from None
 
 
+def _question_count(env: Mapping[str, str]) -> int:
+    count = _task_weight(env, "RAG_LOADTEST_QUESTIONS", 50)
+    if count < 1:
+        raw = env["RAG_LOADTEST_QUESTIONS"]
+        raise ValueError(f"RAG_LOADTEST_QUESTIONS={raw!r}; expected at least 1")
+    return count
+
+
 def _auth_headers(env: Mapping[str, str]) -> dict[str, str]:
     """Domino auth for callers outside a run: a bearer token wins over an API key."""
     if env.get("RAG_LOADTEST_BEARER_TOKEN"):
@@ -88,10 +98,30 @@ def _auth_headers(env: Mapping[str, str]) -> dict[str, str]:
 
 # --- what to send ---------------------------------------------------------------
 
-# The same candidate count the workflow sends to its reranker.
-_RERANK_DOCUMENTS: list[str] = [
-    p.text for d in synthetic_corpus(TOP_K_RETRIEVE) for p in chunk(d)
-][:TOP_K_RETRIEVE]
+
+@dataclass(frozen=True)
+class RequestPool:
+    """What requests draw from: the questions, and the candidates and ``top_n``
+    the workflow's rerank stage would send (``RAG_TOP_K_RETRIEVE`` / ``_RERANK``)."""
+
+    questions: Sequence[str]
+    rerank_documents: Sequence[str]
+    top_n: int
+
+
+def build_request_pool(question_count: int, candidates: int, top_n: int) -> RequestPool:
+    """Synthetic questions, and the first ``candidates`` synthetic passages.
+
+    Example::
+
+        build_request_pool(50, settings.top_k_retrieve, settings.top_k_rerank)
+    """
+    passages = [p.text for d in synthetic_corpus(candidates) for p in chunk(d)]
+    return RequestPool(
+        questions=tuple(synthetic_questions(question_count)),
+        rerank_documents=tuple(passages[:candidates]),
+        top_n=top_n,
+    )
 
 
 @dataclass(frozen=True)
@@ -103,40 +133,46 @@ class RequestPlan:
     stats_name: str
 
 
-def plan_rag_request(endpoint: str, rng: random.Random) -> RequestPlan:
+def plan_rag_request(
+    endpoint: str, pool: RequestPool, rng: random.Random
+) -> RequestPlan:
     """A workflow-app request: one random question to ``/query`` or ``/retrieve``.
 
     Example::
 
-        plan_rag_request("/query", random.Random(7)).payload  # {"question": "..."}
+        plan_rag_request("/query", pool, random.Random(7)).payload  # {"question": ..}
     """
-    return RequestPlan(endpoint, {"question": rng.choice(QUESTIONS)}, endpoint)
+    return RequestPlan(endpoint, {"question": rng.choice(pool.questions)}, endpoint)
 
 
-def plan_rerank_request(alias: str, rng: random.Random) -> RequestPlan:
+def plan_rerank_request(
+    alias: str, pool: RequestPool, rng: random.Random
+) -> RequestPlan:
     """A model-server rerank request shaped like the workflow's rerank stage.
 
     Example::
 
-        plan_rerank_request("bge-reranker-base", random.Random(7)).path  # /v3/rerank
+        plan_rerank_request("bge-reranker-base", pool, random.Random(7)).path
     """
     request = RerankRequest(
         model=alias,
-        query=rng.choice(QUESTIONS),
-        documents=list(_RERANK_DOCUMENTS),
-        top_n=TOP_K_RERANK,
+        query=rng.choice(pool.questions),
+        documents=list(pool.rerank_documents),
+        top_n=pool.top_n,
     )
     return RequestPlan(RERANK_PATH, request.to_wire(), RERANK_PATH)
 
 
-def plan_embeddings_request(alias: str, rng: random.Random) -> RequestPlan:
+def plan_embeddings_request(
+    alias: str, pool: RequestPool, rng: random.Random
+) -> RequestPlan:
     """A model-server embeddings request shaped like the workflow's embed stage.
 
     Example::
 
-        plan_embeddings_request("bge-small-en-v1.5", random.Random(7)).path
+        plan_embeddings_request("bge-small-en-v1.5", pool, random.Random(7)).path
     """
-    request = EmbeddingsRequest(model=alias, input=[rng.choice(QUESTIONS)])
+    request = EmbeddingsRequest(model=alias, input=[rng.choice(pool.questions)])
     return RequestPlan(EMBEDDINGS_PATH, request.to_wire(), EMBEDDINGS_PATH)
 
 

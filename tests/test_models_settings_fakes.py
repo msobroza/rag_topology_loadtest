@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import pytest
 from pydantic import ValidationError
@@ -59,12 +59,38 @@ def test_describe_error_names_the_type_and_the_message_when_there_is_one() -> No
     assert describe_error(TimeoutError()) == "TimeoutError"
 
 
-def test_ports_are_runtime_checkable_and_fakes_satisfy_them() -> None:
+def test_fakes_subclass_their_ports() -> None:
     assert isinstance(FakeEmbedder(), EmbedderPort)
     assert isinstance(FakeReranker(), RerankerPort)
     assert isinstance(InMemoryVectorStore(), VectorStorePort)
     assert isinstance(FakeChatModel(), ChatModelPort)
     assert not isinstance(FakeChatModel(), VectorStorePort)
+
+
+def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
+    class HalfReranker(RerankerPort):
+        """Implements ``rerank`` but forgets ``ready``."""
+
+        async def rerank(
+            self, query: str, passages: Sequence[ScoredPassage], top_n: int
+        ) -> list[ScoredPassage]:
+            return []
+
+    with pytest.raises(TypeError, match="HalfReranker.*ready"):
+        HalfReranker()  # type: ignore[abstract]
+
+
+def test_a_class_with_the_right_methods_but_no_port_base_is_not_a_port() -> None:
+    class DuckEmbedder:
+        model_name = "duck"
+
+        async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+            return []
+
+        async def ready(self) -> tuple[bool, str]:
+            return True, "duck"
+
+    assert not isinstance(DuckEmbedder(), EmbedderPort)
 
 
 # --- settings ----------------------------------------------------------------
@@ -161,14 +187,24 @@ def test_settings_reject_unknown_topology(
 
 
 def test_settings_field_set_is_pinned() -> None:
-    # Experiments should vary the topology, not grow knobs: adding a field is a decision.
+    # Experiments should vary the topology, not grow knobs: adding a field is a
+    # decision. The tunables (top-k, index, batch sizes, workers, HTTP, Domino token,
+    # seed size) and the prompts were moved here from module constants on purpose.
     assert sorted(RagSettings.model_fields) == [
+        "domino_token_ttl_s",
+        "domino_token_url",
         "domino_tracing",
         "embedder_backend",
+        "embedder_batch_size",
         "embedder_model",
         "es_api_key",
+        "es_index",
         "es_url",
+        "fake_store_seed_documents",
+        "http_retries",
+        "http_timeout_s",
         "llm_backend",
+        "model_workers",
         "openai_model",
         "ovms_auth",
         "ovms_embeddings_model",
@@ -176,9 +212,14 @@ def test_settings_field_set_is_pinned() -> None:
         "ovms_rerank_model",
         "ovms_rerank_url",
         "reranker_backend",
+        "reranker_batch_size",
         "reranker_model",
         "run_label",
+        "system_prompt",
+        "top_k_rerank",
+        "top_k_retrieve",
         "topology",
+        "user_prompt",
         "vector_store_backend",
     ]
 

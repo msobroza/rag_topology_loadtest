@@ -1,4 +1,4 @@
-"""Value objects of a RAG run: passages, results and the retrieval sizes.
+"""Value objects of a RAG run: passages and results.
 
 Nothing heavy is imported here, so the OVMS-only and fake topologies never pay
 for torch, elasticsearch or openai.
@@ -15,9 +15,6 @@ MetadataValue = str | int | float | bool
 RagMode = Literal["query", "retrieve"]
 # Workflow stages, in execution order; also the keys of ``RagResult.timings_ms``.
 STAGES: tuple[str, ...] = ("embed", "retrieve", "rerank", "generate")
-# Retrieval sizes are constants so experiments only vary the topology.
-TOP_K_RETRIEVE = 20  # candidates from the vector store
-TOP_K_RERANK = 5  # passages kept after reranking and sent to the LLM
 
 
 class Passage(BaseModel):

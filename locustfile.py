@@ -5,8 +5,10 @@ target record are decided in ``rag_load_test.loadtest.request_plans``; this file
 does the I/O.
 ``RAG_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
-model server directly. ``RAG_LOADTEST_SHAPE=step`` enables the 5 -> 10 -> 20 -> 40
-user ramp.
+model server directly. Rerank requests carry ``RAG_TOP_K_RETRIEVE`` documents and
+``RAG_TOP_K_RERANK`` as ``top_n``, like the workflow; ``RAG_LOADTEST_QUESTIONS``
+sets how many distinct questions the users ask. ``RAG_LOADTEST_SHAPE=step``
+enables the 5 -> 10 -> 20 -> 40 user ramp.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from rag_load_test.config.settings import RagSettings
 from rag_load_test.loadtest.request_plans import (
     STAGE_REQUEST_TYPE,
     RequestPlan,
+    build_request_pool,
     judge_response,
     plan_embeddings_request,
     plan_rag_request,
@@ -33,6 +36,9 @@ from rag_load_test.loadtest.request_plans import (
 
 CONFIG = read_loadtest_config(os.environ)
 SETTINGS = RagSettings()
+POOL = build_request_pool(
+    CONFIG.question_count, SETTINGS.top_k_retrieve, SETTINGS.top_k_rerank
+)
 RNG = random.Random()
 # Responses per (topology, run label) for the target record; one process, one run.
 RESPONSES_SEEN: Counter[tuple[str, str]] = Counter()
@@ -72,11 +78,11 @@ class RagUser(FastHttpUser):
 
     @task(CONFIG.query_weight)
     def query(self) -> None:
-        send(self, plan_rag_request("/query", RNG))
+        send(self, plan_rag_request("/query", POOL, RNG))
 
     @task(CONFIG.retrieve_weight)
     def retrieve(self) -> None:
-        send(self, plan_rag_request("/retrieve", RNG))
+        send(self, plan_rag_request("/retrieve", POOL, RNG))
 
 
 class RerankUser(FastHttpUser):
@@ -87,7 +93,7 @@ class RerankUser(FastHttpUser):
 
     @task
     def rerank(self) -> None:
-        send(self, plan_rerank_request(SETTINGS.ovms_rerank_model, RNG))
+        send(self, plan_rerank_request(SETTINGS.ovms_rerank_model, POOL, RNG))
 
 
 class EmbeddingsUser(FastHttpUser):
@@ -98,7 +104,7 @@ class EmbeddingsUser(FastHttpUser):
 
     @task
     def embed(self) -> None:
-        send(self, plan_embeddings_request(SETTINGS.ovms_embeddings_model, RNG))
+        send(self, plan_embeddings_request(SETTINGS.ovms_embeddings_model, POOL, RNG))
 
 
 if CONFIG.step_shape:

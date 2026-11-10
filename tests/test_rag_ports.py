@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Callable
 from types import ModuleType
@@ -22,8 +23,7 @@ from rag_load_test.adapters.local_models import (
     NoReranker,
     SentenceTransformerEmbedder,
 )
-from rag_load_test.adapters.ovms import DOMINO_TOKEN_URL
-from rag_load_test.adapters.rag_ports import FAKE_STORE_SEED_DOCUMENTS, RagPorts
+from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
@@ -31,6 +31,7 @@ from rag_load_test.domain.passages import ScoredPassage
 SettingsFactory = Callable[..., RagSettings]
 EMBEDDER_WEIGHTS = "embedder:BAAI/bge-small-en-v1.5"
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
+TOKEN_URL = "http://token.test/access-token"
 
 
 class FakeSentenceTransformersModule(ModuleType):
@@ -39,7 +40,8 @@ class FakeSentenceTransformersModule(ModuleType):
     def __init__(self) -> None:
         super().__init__("sentence_transformers")
         self.loaded: list[str] = []
-        loaded = self.loaded
+        self.batch_sizes: list[tuple[str, int]] = []
+        loaded, batch_sizes = self.loaded, self.batch_sizes
 
         class SentenceTransformer:
             def __init__(self, name: str, device: str) -> None:
@@ -48,6 +50,7 @@ class FakeSentenceTransformersModule(ModuleType):
             def encode(
                 self, texts: list[str], *, batch_size: int, normalize_embeddings: bool
             ) -> np.ndarray:
+                batch_sizes.append(("encode", batch_size))
                 return np.array([[1.0, 0.0] for _ in texts])
 
         class CrossEncoder:
@@ -57,6 +60,7 @@ class FakeSentenceTransformersModule(ModuleType):
             def predict(
                 self, pairs: list[tuple[str, str]], batch_size: int
             ) -> list[float]:
+                batch_sizes.append(("predict", batch_size))
                 return [0.5 for _ in pairs]
 
         self.SentenceTransformer = SentenceTransformer
@@ -95,7 +99,6 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.reranker, FakeReranker)
         assert isinstance(deps.chat_model, FakeChatModel)
         # Every synthetic document fits one chunk, so passages == documents.
-        assert FAKE_STORE_SEED_DOCUMENTS == 200
         assert await deps.vector_store.ready() == (True, "200 passages in memory")
 
 
@@ -124,10 +127,12 @@ async def test_both_model_server_adapters_share_one_domino_token(
     settings_factory: SettingsFactory,
 ) -> None:
     requested: list[str] = []
+    read_timeouts: set[float] = set()
 
     def model_servers(request: httpx.Request) -> httpx.Response:
         requested.append(str(request.url))
-        if str(request.url) == DOMINO_TOKEN_URL:
+        read_timeouts.add(request.extensions["timeout"]["read"])
+        if str(request.url) == TOKEN_URL:
             return httpx.Response(200, text="run-token")
         assert request.headers["Authorization"] == "Bearer run-token"
         if request.url.path == "/v3/embeddings":
@@ -140,6 +145,8 @@ async def test_both_model_server_adapters_share_one_domino_token(
         topology="split-all",  # both ports on a model server
         llm_backend="fake",
         ovms_auth="domino",
+        domino_token_url=TOKEN_URL,
+        http_timeout_s=7.5,
         ovms_embeddings_url="http://embedder",
         ovms_rerank_url="http://reranker",
     )
@@ -156,10 +163,78 @@ async def test_both_model_server_adapters_share_one_domino_token(
         assert ranked.rerank_score == 0.9
 
     assert requested == [
-        DOMINO_TOKEN_URL,
+        TOKEN_URL,
         "http://embedder/v3/embeddings",
         "http://reranker/v3/rerank",
     ]
+    assert read_timeouts == {7.5}
+
+
+async def test_ovms_embedder_batches_and_retries_as_configured(
+    settings_factory: SettingsFactory,
+) -> None:
+    sent: list[list[str]] = []
+
+    def busy_then_ok(request: httpx.Request) -> httpx.Response:
+        inputs = json.loads(request.content)["input"]
+        sent.append(inputs)
+        if inputs == ["c"]:
+            return httpx.Response(503, text="busy")
+        rows = [{"index": i, "embedding": [1.0]} for i in range(len(inputs))]
+        return httpx.Response(200, json={"data": rows})
+
+    settings = settings_factory(
+        embedder_backend="ovms",
+        topology="split-all",
+        embedder_batch_size=2,
+        http_retries=0,
+        ovms_embeddings_url="http://embedder",
+    )
+    ports = RagPorts(
+        settings,
+        vector_store=InMemoryVectorStore(),
+        transport=httpx.MockTransport(busy_then_ok),
+    )
+    async with ports:
+        embedder, _ = await ports.ingest_ports()
+        assert await embedder.embed(["a", "b"]) == [[1.0], [1.0]]
+        with pytest.raises(RagDependencyError, match="HTTP 503"):
+            await embedder.embed(["c"])
+
+    assert sent == [["a", "b"], ["c"]]  # batches of 2; the 503 is not retried
+
+
+async def test_local_models_use_the_configured_batch_sizes(
+    settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
+) -> None:
+    settings = settings_factory(embedder_batch_size=16, reranker_batch_size=8)
+    candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
+    async with RagPorts(settings) as ports:
+        await (await ports.local_embedder()).embed(["hello"])
+        await (await ports.local_reranker()).rerank("q", [candidate], 1)
+
+    assert fake_weights.batch_sizes == [("encode", 16), ("predict", 8)]
+
+
+async def test_elasticsearch_store_uses_the_configured_index(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(
+        embedder_backend="fake", es_url=UNREACHABLE_ES, es_index="passages_v2"
+    )
+    async with RagPorts(settings) as ports:
+        store = (await ports.ingest_ports()).vector_store
+        assert isinstance(store, ElasticsearchVectorStore)
+        assert store.index == "passages_v2"
+
+
+async def test_fake_store_is_seeded_with_the_configured_document_count(
+    fake_settings: RagSettings,
+) -> None:
+    settings = fake_settings.model_copy(update={"fake_store_seed_documents": 12})
+    async with RagPorts(settings) as ports:
+        store = (await ports.ingest_ports()).vector_store
+        assert await store.count() == 12
 
 
 async def test_elasticsearch_store_opens_without_the_network(
@@ -195,7 +270,7 @@ async def test_ingest_ports_leave_the_chat_model_shut(
     settings = fake_settings.model_copy(update={"llm_backend": "openai"})
     async with RagPorts(settings) as ports:
         _, store = await ports.ingest_ports()  # no OpenAI client: no key needed
-        assert await store.count() == FAKE_STORE_SEED_DOCUMENTS
+        assert await store.count() == 200  # the default seed size
 
         expected = "chat_model unavailable: could not open backend 'openai'"
         with pytest.raises(RagDependencyError, match=expected):

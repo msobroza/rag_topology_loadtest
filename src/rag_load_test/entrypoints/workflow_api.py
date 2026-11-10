@@ -126,7 +126,8 @@ def create_app(ports: RagPorts) -> FastAPI:
             deps = await ports.workflow_dependencies()
             app.state.deps = deps
             app.state.run = traced(
-                RagWorkflow(deps).run, enabled=settings.domino_tracing
+                RagWorkflow(deps, settings.workflow_parameters()).run,
+                enabled=settings.domino_tracing,
             )
             log_json(
                 event="rag_startup",

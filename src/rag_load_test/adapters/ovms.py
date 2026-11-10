@@ -3,13 +3,15 @@
 OVMS exposes OpenAI-compatible ``/v3/embeddings`` and Cohere-compatible
 ``/v3/rerank``; their paths and JSON shapes come from :mod:`.v3_contract`.
 On Domino each OVMS app sits behind a proxy that expects the run's bearer
-token, hence :class:`BearerToken`. Calls time out after
-``TIMEOUT_S`` and are retried ``RETRIES`` times on transport errors and 5xx.
+token, hence :class:`BearerToken`. Calls time out after ``timeout_s`` and are
+retried ``retries`` times on transport errors, 5xx and 401; ``RagPorts`` passes
+both from ``RagSettings`` (``RAG_HTTP_TIMEOUT_S``, ``RAG_HTTP_RETRIES``).
 
 Example::
 
+    token = BearerToken(client, "", token_url=url, ttl_s=240.0, timeout_s=30.0)
     reranker = OvmsReranker(client, "http://localhost:8001", "bge-reranker-base",
-                            token=BearerToken(client, ""))
+                            token=token, timeout_s=30.0, retries=2)
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from pydantic import ValidationError
 
 from ..domain.errors import RagDependencyError, describe_error
 from ..domain.passages import ScoredPassage
+from ..domain.ports import EmbedderPort, RerankerPort
 from .v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,
@@ -36,24 +39,29 @@ from .v3_contract import (
     vectors_from_embeddings,
 )
 
-TIMEOUT_S = 30.0
-RETRIES = 2
-DOMINO_TOKEN_URL = "http://localhost:8899/access-token"
-DOMINO_TOKEN_TTL_S = 240.0  # Domino run tokens expire after ~5 minutes
-
 
 class BearerToken:
-    """``Authorization`` header: nothing, a static token, or Domino's cached run token.
+    """``Authorization`` header: nothing, a static token, or Domino's run token,
+    fetched from ``token_url`` and reused for ``ttl_s`` seconds.
 
     Example::
 
-        await BearerToken(client, "abc").headers()      # Authorization: Bearer abc
-        await BearerToken(client, "domino").headers()   # fetched from DOMINO_TOKEN_URL
-        await BearerToken(client, "").headers()         # {}
+        token = BearerToken(client, "domino", token_url=url, ttl_s=240, timeout_s=30)
+        await token.headers()   # {"Authorization": "Bearer <run token>"}
+        # auth "abc" -> "Bearer abc"; auth "" -> {}
     """
 
-    def __init__(self, client: httpx.AsyncClient, auth: str) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        auth: str,
+        *,
+        token_url: str,
+        ttl_s: float,
+        timeout_s: float,
+    ) -> None:
         self._client, self._auth = client, auth
+        self._token_url, self._ttl_s, self._timeout_s = token_url, ttl_s, timeout_s
         self._cached: str | None = None
         self._fetched_at = 0.0
 
@@ -67,20 +75,19 @@ class BearerToken:
         self._cached = None
 
     async def _domino_token(self) -> str:
-        if self._cached and time.monotonic() - self._fetched_at < DOMINO_TOKEN_TTL_S:
+        if self._cached and time.monotonic() - self._fetched_at < self._ttl_s:
             return self._cached
+        url = self._token_url
         try:
-            response = await self._client.get(DOMINO_TOKEN_URL, timeout=TIMEOUT_S)
+            response = await self._client.get(url, timeout=self._timeout_s)
         except httpx.TransportError as exc:
             raise RagDependencyError(
-                "domino_access_token", describe_error(exc), target=DOMINO_TOKEN_URL
+                "domino_access_token", describe_error(exc), target=url
             ) from exc
         token = response.text.strip()
         if response.status_code != 200 or not token:
             detail = f"HTTP {response.status_code}: {response.text[:200]!r}"
-            raise RagDependencyError(
-                "domino_access_token", detail, target=DOMINO_TOKEN_URL
-            )
+            raise RagDependencyError("domino_access_token", detail, target=url)
         self._cached, self._fetched_at = token, time.monotonic()
         return token
 
@@ -98,8 +105,11 @@ class OvmsEndpoint:
         model: str,
         *,
         token: BearerToken,
+        timeout_s: float,
+        retries: int,
     ) -> None:
         self._client, self._token = client, token
+        self._timeout_s, self._retries = timeout_s, retries
         self._base_url, self.model = base_url.rstrip("/"), model
         self.model_name = f"ovms:{model}"
 
@@ -107,7 +117,9 @@ class OvmsEndpoint:
         url = self._base_url + model_probe_path(self.model)
         try:
             headers = await self._token.headers()
-            response = await self._client.get(url, headers=headers, timeout=TIMEOUT_S)
+            response = await self._client.get(
+                url, headers=headers, timeout=self._timeout_s
+            )
         except (httpx.TransportError, RagDependencyError) as exc:
             return False, describe_error(exc)
         return response.status_code == 200, f"{url} -> {response.status_code}"
@@ -116,13 +128,13 @@ class OvmsEndpoint:
         """POST JSON; retry on transport errors, 5xx and 401 (token dropped first)."""
         url, payload = self._base_url + path, request.to_wire()
         detail, kind = "no attempt made", "unavailable"
-        for attempt in range(RETRIES + 1):
+        for attempt in range(self._retries + 1):
             if attempt:
                 await asyncio.sleep(self.backoff_s * 2 ** (attempt - 1))
             try:
                 headers = await self._token.headers()
                 response = await self._client.post(
-                    url, json=payload, headers=headers, timeout=TIMEOUT_S
+                    url, json=payload, headers=headers, timeout=self._timeout_s
                 )
             except httpx.TransportError as exc:
                 detail = describe_error(exc)
@@ -153,11 +165,27 @@ class OvmsEndpoint:
         )
 
 
-class OvmsEmbedder(OvmsEndpoint):
-    """EmbedderPort over ``POST /v3/embeddings`` (rows re-ordered by ``index``)."""
+class OvmsEmbedder(OvmsEndpoint, EmbedderPort):
+    """EmbedderPort over ``POST /v3/embeddings`` (rows re-ordered by ``index``),
+    ``batch_size`` texts per request."""
 
     component = "embedder"
-    batch_size = 64
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        model: str,
+        *,
+        token: BearerToken,
+        timeout_s: float,
+        retries: int,
+        batch_size: int,
+    ) -> None:
+        super().__init__(
+            client, base_url, model, token=token, timeout_s=timeout_s, retries=retries
+        )
+        self.batch_size = batch_size
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
@@ -174,7 +202,7 @@ class OvmsEmbedder(OvmsEndpoint):
         return vectors
 
 
-class OvmsReranker(OvmsEndpoint):
+class OvmsReranker(OvmsEndpoint, RerankerPort):
     """RerankerPort over ``POST /v3/rerank`` (``results[].index`` -> input order)."""
 
     component = "reranker"

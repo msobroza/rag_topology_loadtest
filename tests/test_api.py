@@ -13,6 +13,7 @@ from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
+from rag_load_test.domain.ports import RerankerPort
 from rag_load_test.entrypoints import workflow_api as api
 from rag_load_test.entrypoints.workflow_api import create_app, main, traced
 
@@ -32,7 +33,7 @@ RESPONSE_FIELDS = {
 }
 
 
-class FailingReranker:
+class FailingReranker(RerankerPort):
     """RerankerPort whose ``rerank`` raises a ``RagDependencyError`` of ``kind``."""
 
     def __init__(self, kind: str) -> None:
@@ -47,7 +48,7 @@ class FailingReranker:
         return True, "failing-reranker"
 
 
-class ExplodingProbeReranker:
+class ExplodingProbeReranker(RerankerPort):
     """RerankerPort whose readiness probe itself raises."""
 
     async def rerank(

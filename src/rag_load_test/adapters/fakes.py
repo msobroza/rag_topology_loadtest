@@ -14,6 +14,7 @@ import re
 from collections.abc import Sequence
 
 from ..domain.passages import Passage, ScoredPassage, top_by_score
+from ..domain.ports import ChatModelPort, EmbedderPort, RerankerPort, VectorStorePort
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
@@ -36,7 +37,7 @@ def _token_vector(token: str, dim: int) -> list[float]:
     return _normalise([digest[i % len(digest)] / 127.5 - 1.0 for i in range(dim)])
 
 
-class FakeEmbedder:
+class FakeEmbedder(EmbedderPort):
     def __init__(self, dim: int = 16, model_name: str = "fake-embedder") -> None:
         self.dim, self.model_name = dim, model_name
 
@@ -54,7 +55,7 @@ class FakeEmbedder:
         return True, self.model_name
 
 
-class FakeReranker:
+class FakeReranker(RerankerPort):
     """Scores by Jaccard overlap between query and passage tokens (0..1)."""
 
     async def rerank(
@@ -72,7 +73,7 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b) if a | b else 0.0
 
 
-class InMemoryVectorStore:
+class InMemoryVectorStore(VectorStorePort):
     def __init__(self) -> None:
         self._rows: dict[str, tuple[Passage, list[float]]] = {}
 
@@ -102,7 +103,7 @@ class InMemoryVectorStore:
         return bool(self._rows), f"{len(self._rows)} passages in memory"
 
 
-class FakeChatModel:
+class FakeChatModel(ChatModelPort):
     """Echoes the last user message; ``latency_ms`` imitates generation time."""
 
     model_name = "fake-llm"

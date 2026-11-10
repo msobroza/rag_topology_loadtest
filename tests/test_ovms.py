@@ -16,8 +16,6 @@ import httpx
 import pytest
 
 from rag_load_test.adapters.ovms import (
-    DOMINO_TOKEN_URL,
-    RETRIES,
     BearerToken,
     OvmsEmbedder,
     OvmsEndpoint,
@@ -29,6 +27,8 @@ from rag_load_test.domain.passages import ScoredPassage
 BASE_URL = "http://ovms.test:8001"
 RERANK_MODEL = "bge-reranker-base"
 EMBED_MODEL = "bge-small-en-v1.5"
+TOKEN_URL = "http://token.test/access-token"
+RETRIES, TIMEOUT_S = 2, 30.0
 
 
 @dataclass
@@ -37,6 +37,7 @@ class RecordedRequest:
     url: str
     json: Any
     authorization: str | None
+    read_timeout: float | None
 
 
 class ScriptedTransport:
@@ -61,7 +62,10 @@ class ScriptedTransport:
 def _record(request: httpx.Request) -> RecordedRequest:
     body = json.loads(request.content) if request.content else None
     authorization = request.headers.get("Authorization")
-    return RecordedRequest(request.method, str(request.url), body, authorization)
+    read_timeout = request.extensions.get("timeout", {}).get("read")
+    return RecordedRequest(
+        request.method, str(request.url), body, authorization, read_timeout
+    )
 
 
 ClientFactory = Callable[[ScriptedTransport], httpx.AsyncClient]
@@ -82,6 +86,14 @@ async def client_factory() -> AsyncIterator[ClientFactory]:
         await client.aclose()
 
 
+def bearer(
+    client: httpx.AsyncClient, auth: str, *, ttl_s: float = 240.0
+) -> BearerToken:
+    return BearerToken(
+        client, auth, token_url=TOKEN_URL, ttl_s=ttl_s, timeout_s=TIMEOUT_S
+    )
+
+
 def endpoint(
     client: httpx.AsyncClient,
     kind: type[OvmsEndpoint] = OvmsReranker,
@@ -89,8 +101,20 @@ def endpoint(
     auth: str = "",
     model: str = RERANK_MODEL,
     base_url: str = BASE_URL,
+    timeout_s: float = TIMEOUT_S,
+    retries: int = RETRIES,
+    batch_size: int = 64,
 ) -> Any:
-    built = kind(client, base_url, model, token=BearerToken(client, auth))
+    sizing = {"batch_size": batch_size} if kind is OvmsEmbedder else {}
+    built = kind(
+        client,
+        base_url,
+        model,
+        token=bearer(client, auth),
+        timeout_s=timeout_s,
+        retries=retries,
+        **sizing,
+    )
     built.backoff_s = 0  # retries must not sleep in tests
     return built
 
@@ -127,7 +151,7 @@ async def test_bearer_token_static_values_need_no_request(
     client_factory: ClientFactory, auth: str, expected: dict[str, str]
 ) -> None:
     script = ScriptedTransport(token_text("unused"))
-    assert await BearerToken(client_factory(script), auth).headers() == expected
+    assert await bearer(client_factory(script), auth).headers() == expected
     assert script.requests == []
 
 
@@ -135,19 +159,29 @@ async def test_bearer_token_domino_fetches_once_and_caches(
     client_factory: ClientFactory,
 ) -> None:
     script = ScriptedTransport(token_text("tok-1\n"))
-    token = BearerToken(client_factory(script), "domino")
+    token = bearer(client_factory(script), "domino")
     first, second = await token.headers(), await token.headers()
     assert first == second == {"Authorization": "Bearer tok-1"}
     assert script.methods == ["GET"]
-    assert script.requests[0].url == DOMINO_TOKEN_URL
+    assert script.requests[0].url == TOKEN_URL
     assert script.requests[0].authorization is None
+    assert script.requests[0].read_timeout == TIMEOUT_S
+
+
+async def test_bearer_token_refetches_once_the_ttl_has_passed(
+    client_factory: ClientFactory,
+) -> None:
+    script = ScriptedTransport(token_text("tok-1"), token_text("tok-2"))
+    token = bearer(client_factory(script), "domino", ttl_s=0.0)  # always stale
+    assert await token.headers() == {"Authorization": "Bearer tok-1"}
+    assert await token.headers() == {"Authorization": "Bearer tok-2"}
 
 
 async def test_bearer_token_invalidate_forces_refetch(
     client_factory: ClientFactory,
 ) -> None:
     script = ScriptedTransport(token_text("tok-1"), token_text("tok-2"))
-    token = BearerToken(client_factory(script), "domino")
+    token = bearer(client_factory(script), "domino")
     assert await token.headers() == {"Authorization": "Bearer tok-1"}
     token.invalidate()
     assert await token.headers() == {"Authorization": "Bearer tok-2"}
@@ -166,11 +200,11 @@ async def test_bearer_token_invalidate_forces_refetch(
 async def test_bearer_token_domino_failures_raise(
     client_factory: ClientFactory, outcome: httpx.Response | Exception
 ) -> None:
-    token = BearerToken(client_factory(ScriptedTransport(outcome)), "domino")
+    token = bearer(client_factory(ScriptedTransport(outcome)), "domino")
     with pytest.raises(RagDependencyError) as info:
         await token.headers()
     assert info.value.component == "domino_access_token"
-    assert info.value.target == DOMINO_TOKEN_URL
+    assert info.value.target == TOKEN_URL
 
 
 # --- OvmsEmbedder ----------------------------------------------------------
@@ -201,8 +235,9 @@ async def test_embedder_batches_requests(client_factory: ClientFactory) -> None:
         embeddings_body([[3.0], [4.0]]),
         embeddings_body([[5.0]]),
     )
-    embedder = endpoint(client_factory(script), OvmsEmbedder, model=EMBED_MODEL)
-    embedder.batch_size = 2
+    embedder = endpoint(
+        client_factory(script), OvmsEmbedder, model=EMBED_MODEL, batch_size=2
+    )
     vectors = await embedder.embed([f"t{i}" for i in range(5)])
     assert vectors == [[1.0], [2.0], [3.0], [4.0], [5.0]]
     assert script.methods == ["POST"] * 3
@@ -332,7 +367,7 @@ async def test_post_transport_errors_exhaust_retries(
     script = ScriptedTransport(error)
     with pytest.raises(RagDependencyError) as info:
         await endpoint(client_factory(script)).rerank("q", passages(1), top_n=1)
-    assert len(script.requests) == RETRIES + 1
+    assert len(script.requests) == 3  # the first attempt and RETRIES=2 retries
     assert info.value.component == "reranker"
     assert info.value.kind == kind
     assert info.value.detail == f"{type(error).__name__}: {error}"
@@ -355,3 +390,26 @@ async def test_ready_reports_connect_error(client_factory: ClientFactory) -> Non
     script = ScriptedTransport(httpx.ConnectError("refused"))
     ok, detail = await endpoint(client_factory(script)).ready()
     assert (ok, detail) == (False, "ConnectError: refused")
+
+
+async def test_post_with_zero_retries_makes_one_attempt(
+    client_factory: ClientFactory,
+) -> None:
+    script = ScriptedTransport(httpx.Response(503, text="busy"))
+    reranker = endpoint(client_factory(script), retries=0)
+    with pytest.raises(RagDependencyError):
+        await reranker.rerank("q", passages(1), top_n=1)
+    assert script.methods == ["POST"]
+
+
+async def test_calls_carry_the_configured_timeout(
+    client_factory: ClientFactory,
+) -> None:
+    script = ScriptedTransport(rerank_body((0, 0.9)))
+    reranker = endpoint(client_factory(script), timeout_s=4.5)
+    await reranker.rerank("q", passages(1), top_n=1)
+    assert await reranker.ready() == (
+        True,
+        f"{BASE_URL}/v3/models/{RERANK_MODEL} -> 200",
+    )
+    assert [r.read_timeout for r in script.requests] == [4.5, 4.5]
