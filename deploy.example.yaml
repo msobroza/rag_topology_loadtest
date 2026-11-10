@@ -38,7 +38,8 @@ domino_host: ""
 defaults:
   # Required: the Domino compute environment (its id is in the URL of the
   # environment's page in Domino). Any environment with `uv` works: the Apps
-  # install their own dependencies when they start.
+  # install their own dependencies when they start, on Python 3.11 (uv downloads
+  # it when the environment has none).
   environment_id: "<environment id>"
   # The hardware tier id; "" = the project's default.
   hardware_tier_id: ""

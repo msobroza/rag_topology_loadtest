@@ -104,7 +104,10 @@ bootstrap() {
       local venv="$HOME/rag-venv" project=.
       # An Agent's launch script sets RAG_BOOTSTRAP_EXTRAS=domino (Domino tracing).
       if [ -n "${RAG_BOOTSTRAP_EXTRAS:-}" ]; then project=".[$RAG_BOOTSTRAP_EXTRAS]"; fi
-      uv venv "$venv"
+      # Its own virtualenv, on the project's Python (.python-version), which uv
+      # fetches when the environment lacks it: the environment's own packages
+      # (an old urllib3 in Domino's standard image) break ours.
+      uv venv "$venv" --python "$(cat .python-version)"
       uv pip install --python "$venv/bin/python" "$project"
       export PATH="$venv/bin:$PATH"
       ;;

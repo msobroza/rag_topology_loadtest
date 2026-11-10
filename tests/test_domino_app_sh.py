@@ -298,7 +298,7 @@ def test_bootstrap_installs_the_project_in_a_venv_before_serving(
     assert result.returncode == 0, result.stderr
     venv = tmp_path / "home" / "rag-venv"
     assert log(tmp_path, "uv").splitlines() == [
-        f"venv {venv}",
+        f"venv {venv} --python 3.11",  # the project's Python, from .python-version
         f"pip install --python {venv}/bin/python .",
     ]
     assert log(tmp_path, f"venv-{server}").strip() == argv

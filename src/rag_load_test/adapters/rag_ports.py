@@ -26,10 +26,9 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import NamedTuple, TypedDict, TypeVar, cast
+from typing import NamedTuple, TypedDict, TypeVar, Unpack, cast
 
 import httpx
-from typing_extensions import Unpack  # typing.Unpack needs Python 3.11
 
 from ..application.ingest import ingest
 from ..config.settings import RagSettings

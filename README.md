@@ -112,9 +112,10 @@ make ingest                   # rag-ingest --synthetic 200 -> index rag_passages
 make serve                    # rag-serve on http://0.0.0.0:8888
 ```
 
-The `make` targets use a `.venv` in this directory when there is one, without
-activating it (`python -m venv .venv` before `make install-dev`); otherwise they use
-the commands on your `PATH`.
+The project runs on Python 3.11, named once in `.python-version`. The `make`
+targets use a `.venv` in this directory when there is one, without activating it
+(`uv venv`, which reads `.python-version`, or `python3.11 -m venv .venv`, before
+`make install-dev`); otherwise they use the commands on your `PATH`.
 
 ```bash
 curl -s -X POST localhost:8888/query -H 'Content-Type: application/json' \
@@ -445,9 +446,11 @@ through untouched. The run label ends up in every response, so set a distinct
 `RAG_RUN_LABEL` when testing several hardware tiers or model servers.
 
 **Environments.** `domino/Dockerfile` has two targets built from the project
-root (commands in its header): `rag` installs this package with the
-`[loadtest,domino]` extras on `quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard`,
-pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
+root (commands in its header): `rag` starts from
+`quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard`,
+installs this package with the `[loadtest,domino]` extras into a virtualenv of
+its own on Python 3.11 (the image's Python is 3.10 and its packages clash with
+ours), pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
 pinned binary tarball under `/opt/ovms`. Push both images and create two Domino
 Environments from them (custom base image), or paste one stage's instructions
 into the Dockerfile Instructions field. Workspaces that ingest or run Locust use
@@ -561,9 +564,10 @@ make compare
 `rag-deploy` (behind these targets) calls Domino's beta Apps API through
 `DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
 as the topology needs. The Apps install their own dependencies when they start
-(`domino/app.sh` with `RAG_BOOTSTRAP=1`), so any environment with `uv` works, but
-the first start is slower and needs access to the package index and the Hugging
-Face Hub. For `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
+(`domino/app.sh` with `RAG_BOOTSTRAP=1`), into a virtualenv on Python 3.11, so any
+environment with `uv` works, but the first start is slower and needs access to
+the package index and the Hugging Face Hub. An environment without Python 3.11
+also needs access to GitHub, where `uv` downloads it from. For `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
 `bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
 example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
 root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
@@ -863,10 +867,11 @@ every push to `main`. The verdict is deterministic: every gate tool is pinned to
 exact version in the `dev` extra, and every threshold is written in
 `pyproject.toml`. Two platforms are supported and no other is targeted: Domino's
 Ubuntu, and macOS for local work. CI runs the gates inside the image
-`domino/Dockerfile` builds from (Domino's 6.2 standard environment: Ubuntu 22.04,
-Python 3.10), as the `ubuntu` user Domino runs Apps as; the workflow reads the
-image from the Dockerfile's `BASE_IMAGE` line, so the two cannot drift. Each gate
-is also a `make` target of its own:
+`domino/Dockerfile` builds from (Domino's 6.2 standard environment, Ubuntu
+22.04), as the `ubuntu` user Domino runs Apps as, and in a virtualenv on the
+Python of `.python-version`, which is how the Apps start too. The workflow reads
+the image from the Dockerfile's `BASE_IMAGE` line, so the two cannot drift. Each
+gate is also a `make` target of its own:
 
 | target | runs | passes when |
 |---|---|---|
