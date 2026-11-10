@@ -85,14 +85,13 @@ class DominoAppsClient:
         # Exact matching is not documented for ``name``, so match it here.
         return next((app for app in apps if app.name == name), None)
 
-    def create(
-        self, name: str, entry_point: str, version: Mapping[str, str]
-    ) -> DominoApp:
+    def create(self, name: str, version: Mapping[str, str]) -> DominoApp:
+        # No ``entryPoint``: the version's inline ``entryScript`` takes precedence,
+        # and where Domino resolves a launch file for a repo under /repos is unknown.
         body = {
             "name": name,
             "projectId": self.project_id,
             "visibility": "AUTHENTICATED",
-            "entryPoint": entry_point,
             "version": dict(version),
         }
         return _app_from_json(self._call("POST", APPS_API_PATH, json=body))

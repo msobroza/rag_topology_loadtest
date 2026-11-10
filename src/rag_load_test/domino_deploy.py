@@ -8,6 +8,7 @@ Example::
 
     rag-deploy deploy all      # every App the topology needs, in order
     rag-deploy status          # one line per App, then the workflow App's /readyz
+    rag-deploy --dry-run deploy all   # the same, against an in-process fake Domino
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import httpx
 from dotenv import dotenv_values
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.types import ASGIApp
 
 from .domino_apps import (
     DominoApp,
@@ -32,13 +34,16 @@ from .domino_apps import (
     json_mapping,
     wait_until_running,
 )
+from .domino_apps_reference import AppCreationRequest
+from .fake_domino import FakeDominoApps, create_fake_domino, fake_domino_http
 from .models import describe_error
 from .ovms import DOMINO_TOKEN_URL
 from .topology import Topology
 
 AppPart = Literal["embedder", "reranker", "workflow"]
 ModelServer = Literal["fastapi", "ovms"]
-LAUNCH_SCRIPT = "domino/app.sh"
+LAUNCH_SCRIPT = "domino/app.sh"  # relative to the repository root
+DRY_RUN_PROJECT_ID = "dry-run-project"
 DEPLOY_ENV_FILE = "deploy.env"
 HTTP_TIMEOUT_S = 30.0
 HTTP_RETRIES = 2
@@ -109,13 +114,33 @@ def _secrets_in(values: Mapping[str, str | None]) -> list[str]:
     return secrets
 
 
+def launch_script_in(directory: str) -> str:
+    """The absolute path of ``domino/app.sh`` under ``directory``, or raise.
+
+    The Apps mount this repository at the same path as the Workspace (for example
+    /repos/<project>) but do not start in it, so the path must be absolute.
+
+    Example::
+
+        launch_script_in(os.getcwd())   # "/repos/rag/domino/app.sh"
+    """
+    path = os.path.join(directory, LAUNCH_SCRIPT)
+    if not os.path.isfile(path):
+        raise DominoDeployError(
+            f"{directory} has no {LAUNCH_SCRIPT}: run rag-deploy from the repository "
+            "root (for example /repos/<project>), the directory the Apps run it from"
+        )
+    return path
+
+
 def entry_script(
     part: AppPart,
     settings: DeploySettings,
     urls: Mapping[AppPart, str],
     app_settings: Mapping[str, str],
+    launch_script: str,
 ) -> str:
-    """Shell that exports one App's settings, then runs the launch script.
+    """Shell that exports one App's settings, then runs ``launch_script``.
 
     Domino has no per-App environment variables, so each App carries its own:
     ``app_settings`` (from ``deploy.env``) first, then the computed ones, which
@@ -123,8 +148,8 @@ def entry_script(
 
     Example::
 
-        entry_script("reranker", DeploySettings(), {}, {"RAG_ES_URL": "http://es"})
-        # "export RAG_ES_URL=http://es\nexport RAG_ROLE=fastapi-reranker\n..."
+        entry_script("reranker", DeploySettings(), {}, {}, "/repos/rag/domino/app.sh")
+        # "export RAG_ROLE=fastapi-reranker\n...\nexec bash /repos/rag/domino/app.sh"
     """
     if part == "workflow":
         computed = _workflow_exports(settings, urls, app_settings)
@@ -133,7 +158,7 @@ def entry_script(
     # The generic environment has nothing installed: app.sh installs it first.
     exports = [*app_settings.items(), *computed.items(), ("RAG_BOOTSTRAP", "1")]
     lines = [f"export {name}={shlex.quote(value)}" for name, value in exports]
-    return "\n".join([*lines, f"exec bash {LAUNCH_SCRIPT}"])
+    return "\n".join([*lines, f"exec bash {shlex.quote(launch_script)}"])
 
 
 def _model_server_exports(part: AppPart, settings: DeploySettings) -> dict[str, str]:
@@ -181,20 +206,21 @@ def publish_app(
     urls: Mapping[AppPart, str],
     app_settings: Mapping[str, str],
     *,
+    launch_script: str,
     sleep: Callable[[float], None] = time.sleep,
 ) -> DominoApp:
     """Create ``rag-<part>`` or post a new version to it, then wait until Running.
 
     Example::
 
-        publish_app(client, DeploySettings(), "reranker", {}, {})   # DominoApp(...)
+        publish_app(client, DeploySettings(), "reranker", {}, {}, launch_script=path)
     """
     name = f"rag-{part}"
-    script = entry_script(part, settings, urls, app_settings)
+    script = entry_script(part, settings, urls, app_settings, launch_script)
     version = version_body(settings, script)
     app = client.find(name)
     if app is None:
-        app = client.create(name, LAUNCH_SCRIPT, version)
+        app = client.create(name, version)
         version_id = app.version_id
     else:
         version_id = client.add_version(app.id, version)
@@ -207,13 +233,14 @@ def deploy(
     target: AppPart | Literal["all"],
     app_settings: Mapping[str, str],
     *,
+    launch_script: str,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """Publish ``target`` (or every App the topology needs, in order).
 
     Example::
 
-        deploy(client, DeploySettings(), "all", load_app_settings())
+        deploy(client, DeploySettings(), "all", {}, launch_script=path)
     """
     needed = apps_for_topology(settings.topology)
     if target != "all" and target not in needed:
@@ -226,7 +253,15 @@ def deploy(
     _check_deploy_settings(settings, parts)
     for part in parts:
         urls = model_server_urls(client, settings) if part == "workflow" else {}
-        publish_app(client, settings, part, urls, app_settings, sleep=sleep)
+        publish_app(
+            client,
+            settings,
+            part,
+            urls,
+            app_settings,
+            launch_script=launch_script,
+            sleep=sleep,
+        )
 
 
 def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> None:
@@ -333,31 +368,44 @@ def _run_token(http: httpx.Client) -> str:
     return token
 
 
-def main(
-    argv: list[str] | None = None,
-    *,
-    transport: httpx.BaseTransport | None = None,
-    sleep: Callable[[float], None] = time.sleep,
-) -> None:
+def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -> None:
     """``rag-deploy``: expected failures end through ``parser.error`` (exit 2).
+
+    ``fake_domino`` (or ``--dry-run``, which brings its own) replaces Domino with
+    an in-process fake: no ``DOMINO_API_PROXY`` needed, and waiting never sleeps.
 
     Example::
 
-        main(["deploy", "all"])
+        main(["--dry-run", "deploy", "all"])
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    dry_run_apps = FakeDominoApps()  # only used with --dry-run
+    if args.dry_run:
+        fake_domino = create_fake_domino(dry_run_apps)
+    sleep = time.sleep if fake_domino is None else _no_sleep
     try:
         settings = DeploySettings()
-        with _apps_client(settings, transport) as client:
+        with _apps_client(settings, fake_domino) as client:
             _run_command(args, client, settings, sleep)
     except (DominoDeployError, ValidationError) as exc:
         parser.error(str(exc))
+    if args.dry_run and args.command == "deploy":
+        print(dry_run_report(dry_run_apps.creates))
+
+
+def _no_sleep(seconds: float) -> None:
+    pass
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rag-deploy", description="Publish this project's Apps on Domino 6.2."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run against an in-process fake Domino: nothing is sent to Domino",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     parts = ["embedder", "reranker", "workflow"]
@@ -374,16 +422,46 @@ def _run_command(
     sleep: Callable[[float], None],
 ) -> None:
     if args.command == "deploy":
-        deploy(client, settings, args.target, load_app_settings(), sleep=sleep)
+        launch_script = launch_script_in(os.getcwd())
+        app_settings = load_app_settings()
+        deploy(
+            client,
+            settings,
+            args.target,
+            app_settings,
+            launch_script=launch_script,
+            sleep=sleep,
+        )
     if args.command == "status":
         print_status(client, settings)
     if args.command == "url":
         print(require_app(client, args.part).url)
 
 
+def dry_run_report(creates: list[AppCreationRequest]) -> str:
+    """What a dry run would have published: each App's settings and entry script.
+
+    Example::
+
+        print(dry_run_report(fake_apps.creates))   # "Dry run: nothing was sent ..."
+    """
+    lines = ["", "Dry run: nothing was sent to Domino. rag-deploy would publish:"]
+    for create in creates:
+        version = create.version
+        lines += ["", create.name, f"  environmentId: {version.environmentId}"]
+        if version.hardwareTierId:
+            lines.append(f"  hardwareTierId: {version.hardwareTierId}")
+        lines.append("  entryScript:")
+        lines += [f"    {line}" for line in (version.entryScript or "").splitlines()]
+    return "\n".join(lines)
+
+
 def _apps_client(
-    settings: DeploySettings, transport: httpx.BaseTransport | None
+    settings: DeploySettings, fake_domino: ASGIApp | None
 ) -> DominoAppsClient:
+    if fake_domino is not None:
+        project_id = settings.project_id or DRY_RUN_PROJECT_ID
+        return DominoAppsClient(fake_domino_http(fake_domino), project_id)
     proxy = os.environ.get("DOMINO_API_PROXY", "")
     if not proxy:
         raise DominoDeployError(_outside_workspace("DOMINO_API_PROXY"))
@@ -396,7 +474,7 @@ def _apps_client(
     http = httpx.Client(
         base_url=proxy,
         timeout=HTTP_TIMEOUT_S,
-        transport=transport or httpx.HTTPTransport(retries=HTTP_RETRIES),
+        transport=httpx.HTTPTransport(retries=HTTP_RETRIES),
     )
     return DominoAppsClient(http, settings.project_id)
 

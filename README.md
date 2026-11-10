@@ -53,7 +53,10 @@ src/rag_load_test/
   loadtest.py       locust-free helpers (auth headers, stage events, questions) + rag-compare
   model_server.py   FastAPI model server with the OVMS /v3 contract (rag-model-server)
   served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
-  domino_deploy.py  rag-deploy: publishes a topology's Apps through Domino's beta Apps API, status, URLs
+  domino_deploy.py  rag-deploy: which Apps a topology needs and their settings, status, URLs, --dry-run
+  domino_apps.py    the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get) and the wait until Running
+  domino_apps_reference.py  the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
+  fake_domino.py    a fake Domino 6.2 Apps API (FastAPI, Swagger at /docs) for rag-fake-domino and rag-deploy --dry-run
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
@@ -469,7 +472,8 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 
 ### Deploy on Domino in a few commands
 
-From a Workspace of the one project that hosts all the Apps:
+From the repository root (for example `/repos/<project>`) in a Workspace of the one
+project that hosts all the Apps:
 
 ```bash
 cp deploy.env.example deploy.env      # set RAG_DEPLOY_ENVIRONMENT_ID, topology, model server
@@ -488,12 +492,17 @@ their own dependencies when they start (`domino/app.sh` with `RAG_BOOTSTRAP=1`),
 so any environment with `uv` works, but the first start is slower and needs
 access to the package index and the Hugging Face Hub. For `ovms`,
 `RAG_DEPLOY_OVMS_BUNDLE` points at the OVMS bundle (a folder with `bin/ovms` and
-`lib/`, or the release `.tar.gz`) at a path the Apps can read (project files or a
-Dataset), and the environment needs root or `sudo` for `apt-get`.
+`lib/`, or the release `.tar.gz`) at a path the Apps can read, for example
+`/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs root or
+`sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in the
+directory `rag-deploy` runs from, so run it from the repository root (the Apps
+mount the repository at the same path); elsewhere it refuses to publish.
 
 Any other `RAG_*` line in `deploy.env` is passed to every App as is, for example
-`RAG_ES_URL`, `RAG_EMBEDDER_MODEL` / `RAG_RERANKER_MODEL` (a local folder works as
-well as a Hugging Face id) and `RAG_OVMS_MODELS_DIR`. `rag-deploy` sets
+`RAG_ES_URL`, `RAG_EMBEDDER_MODEL` / `RAG_RERANKER_MODEL` (a local folder such as
+`/domino/datasets/local/<dataset>/models/bge-small-en-v1.5` works as well as a
+Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
+`/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets
 `RAG_ROLE`, `RAG_TOPOLOGY`, `RAG_OVMS_RERANK_URL`, `RAG_OVMS_EMBEDDINGS_URL`,
 `RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself, and `RAG_RUN_LABEL`
 (`<topology>-<model server>`) unless `deploy.env` sets it. Secrets
@@ -510,13 +519,45 @@ One-time prerequisites that stay manual: install the package in the Workspace
 (`make install-dev`, or `uv pip install -e ".[loadtest]"`), `make ingest`, and for
 `ovms` the exported models.
 
+#### Try the deploy without Domino
+
+```bash
+make deploy-dry-run      # rag-deploy --dry-run deploy all: nothing is sent to Domino
+```
+
+prints each App `rag-deploy` would publish (environment, hardware tier, entry
+script), with every check of a real deploy. To click through the API or watch a
+deploy wait, serve the fake Domino and point `rag-deploy` at it:
+
+```bash
+make fake-domino BEHAVIOUR=slow     # Swagger at http://localhost:8899/docs
+DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make deploy
+DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make status
+```
+
+The fake listens on 8899, the port a Domino run's token service uses, so `make
+status` gets its token from the fake too. Run it on your own machine, not in a
+Domino Workspace, where that port is taken.
+
+| Behaviour | What the fake Domino does |
+|---|---|
+| `starts` (default) | a new version's instance is `Pending` on the first GET, then `Running` |
+| `slow` | `Queued`, `Pending`, `Preparing`, `Pulling`, then `Running` |
+| `fails` | `Pending`, then `Failed` |
+| `never-starts` | creates the App or version but no instance (6.2 has no start call) |
+| `forbidden` | every Apps API call answers 403 with a `FailureEnvelopeV1` |
+
+The fake is transcribed from the Domino 6.2 API reference, so it shows what
+`rag-deploy` expects of Domino, not what a live Domino does.
+
 Implemented from the Domino 6.2 API reference but **not verified on a live
 Domino**:
 
 1. Creating an App or a new version starts it (6.2 has no start call; if an App
    comes up without an instance, `rag-deploy` says to start it once from the Apps
    page).
-2. The inline `entryScript` runs, from the project root.
+2. The inline `entryScript` runs (it starts `domino/app.sh` by absolute path, so
+   whatever directory the App starts in does not matter).
 3. The run token is accepted for calls between Apps. Domino's own guidance for 6.3
    says a script calling an App needs a Personal Access Token; if the run token is
    rejected (`503 reranker_unavailable` with HTTP 401 or a redirect in the detail),

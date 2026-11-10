@@ -1,6 +1,6 @@
 # rag_load_test — developer tasks (run from this directory)
 .DEFAULT_GOAL := help
-.PHONY: help install install-dev lint format typecheck test ingest serve model-server loadtest loadtest-models compare ovms-export infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino
+.PHONY: help install install-dev lint format typecheck test ingest serve model-server loadtest loadtest-models compare ovms-export infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run
 
 PYTHON ?= python
 RUN_NAME ?= monolith
@@ -11,6 +11,7 @@ RUN_TIME ?= 2m
 TARGET ?= rerank
 SERVE ?= reranker
 PORT ?= 8011
+BEHAVIOUR ?= starts
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -75,6 +76,12 @@ deploy-workflow: ## On Domino: publish (or redeploy) the rag-workflow App only
 
 status: ## On Domino: each App's status and URL, then the workflow App's /readyz
 	rag-deploy status
+
+deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's entry script
+	rag-deploy --dry-run deploy all
+
+fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow
+	rag-fake-domino --behaviour $(BEHAVIOUR)
 
 loadtest-domino: ## On Domino: loadtest against rag-workflow: make loadtest-domino RUN_NAME=split-all
 	host=$$(rag-deploy url workflow) && \
