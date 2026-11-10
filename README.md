@@ -851,11 +851,42 @@ Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
 ## Development
 
 ```bash
+make check         # every gate below, in order, stopping at the first failure
 make test          # pytest: fakes + httpx.MockTransport only; no weights, no network, no Elasticsearch
-make lint          # ruff check + black --check over src tests locustfile.py
 make format        # ruff --fix + black
-make typecheck     # mypy src
 ```
+
+`make check` is the project's quality gate, and the GitHub Actions workflow
+`.github/workflows/checks.yml` runs the same command on every pull request and on
+every push to `main`. The verdict is deterministic: every gate tool is pinned to an
+exact version in the `dev` extra, and every threshold is written in
+`pyproject.toml`. Each gate is also a `make` target of its own:
+
+| target | runs | passes when |
+|---|---|---|
+| `lint` | `ruff check`, `black --check`, `pydoclint` | no ruff finding, no file black would change, and every docstring in Google format with its Args, Returns and Raises |
+| `typecheck` | `mypy src`, `ty check src` | neither reports a diagnostic |
+| `complexity` | `complexipy` on `src` | no function has a cognitive complexity above 10 |
+| `deadcode` | `vulture` on `src`, `tests`, `locustfile.py` | nothing is unused at confidence 60 or more, outside `vulture_whitelist.py` |
+| `deps` | `deptry .` | no dependency is missing, unused or only transitive |
+| `test` | `pytest` | every test passes, the layering and code-shape tests included |
+
+The ruff rules go beyond style. A function has a cyclomatic complexity of at most
+8, at most 8 branches, 6 return statements, 30 statements and 6 arguments
+(arguments that travel together are bundled). A compared number has a name, or
+is an `http.HTTPStatus`. Every signature has type hints. Tests are exempt from the
+docstring, annotation, unused-argument, magic-number, argument-count and
+line-length rules.
+
+`tests/test_code_shape.py` reads the source with `ast` and checks three more
+limits: no file in `src`, `tests` or `locustfile.py` has more than 500 lines; no
+function in `src` or `locustfile.py` has a body longer than 25 lines, its docstring
+not counted; and no function in `src` nests `if`, `for`, `while`, `try`, `with`
+or `match` more than 2 deep, a nested function or class being measured on its
+own.
+
+A suppression (`noqa`, `type: ignore`, `ty: ignore`, a per-file ignore, a
+whitelist entry) always says why on the same line or the line above.
 
 `tests/conftest.py` sets `LOCUST_SKIP_MONKEY_PATCH=1` before any `import locust`
 so the asyncio-based service tests are never gevent-patched.

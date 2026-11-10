@@ -26,11 +26,30 @@ from rag_load_test.loadtest.request_plans import (
 )
 
 LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
-STATS_HEADER = (
-    "Type,Name,Request Count,Failure Count,Median Response Time,"
-    "Average Response Time,Min Response Time,Max Response Time,Average Content Size,"
-    "Requests/s,Failures/s,50%,66%,75%,80%,90%,95%,98%,99%,99.9%,99.99%,100%"
-).split(",")
+STATS_HEADER = [
+    "Type",
+    "Name",
+    "Request Count",
+    "Failure Count",
+    "Median Response Time",
+    "Average Response Time",
+    "Min Response Time",
+    "Max Response Time",
+    "Average Content Size",
+    "Requests/s",
+    "Failures/s",
+    "50%",
+    "66%",
+    "75%",
+    "80%",
+    "90%",
+    "95%",
+    "98%",
+    "99%",
+    "99.9%",
+    "99.99%",
+    "100%",
+]
 BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
 
 
@@ -111,8 +130,10 @@ POOL = RequestPool(
 def test_build_request_pool_sizes_questions_and_candidates() -> None:
     pool = build_request_pool(question_count=9, candidates=7, top_n=3)
 
-    assert len(pool.questions) == 9 and all(pool.questions)
-    assert len(pool.rerank_documents) == 7 and all(pool.rerank_documents)
+    assert len(pool.questions) == 9
+    assert all(pool.questions)
+    assert len(pool.rerank_documents) == 7
+    assert all(pool.rerank_documents)
     assert pool.top_n == 3
 
 
@@ -203,7 +224,8 @@ def test_judge_response_success(
 )
 def test_judge_response_failure(status: int, body: str, failure: str) -> None:
     verdict = judge_response("/query", status, body)
-    assert verdict.failure is not None and verdict.failure.startswith(failure)
+    assert verdict.failure is not None
+    assert verdict.failure.startswith(failure)
     assert verdict.stage_rows == ()
     assert body[:200] in verdict.failure
 

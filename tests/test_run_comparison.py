@@ -21,11 +21,30 @@ from rag_load_test.loadtest.run_comparison import (
 )
 
 LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
-STATS_HEADER = (
-    "Type,Name,Request Count,Failure Count,Median Response Time,"
-    "Average Response Time,Min Response Time,Max Response Time,Average Content Size,"
-    "Requests/s,Failures/s,50%,66%,75%,80%,90%,95%,98%,99%,99.9%,99.99%,100%"
-).split(",")
+STATS_HEADER = [
+    "Type",
+    "Name",
+    "Request Count",
+    "Failure Count",
+    "Median Response Time",
+    "Average Response Time",
+    "Min Response Time",
+    "Max Response Time",
+    "Average Content Size",
+    "Requests/s",
+    "Failures/s",
+    "50%",
+    "66%",
+    "75%",
+    "80%",
+    "90%",
+    "95%",
+    "98%",
+    "99%",
+    "99.9%",
+    "99.99%",
+    "100%",
+]
 BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
 
 
@@ -93,10 +112,12 @@ def test_compare_main_writes_out_file(
     out = tmp_path / "comparison.md"
     assert compare_main([str(monolith), str(split), "--out", str(out)]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "" and f"wrote {out}" in captured.err
+    assert captured.out == ""
+    assert f"wrote {out}" in captured.err
     text = out.read_text(encoding="utf-8")
     assert text.startswith("# Locust run comparison")
-    assert "Runs: monolith, split-all." in text and "+15.0 ms (+50.0%)" in text
+    assert "Runs: monolith, split-all." in text
+    assert "+15.0 ms (+50.0%)" in text
 
 
 def _target_json(prefix: Path, target: str, *seen: tuple[str, str, int]) -> None:

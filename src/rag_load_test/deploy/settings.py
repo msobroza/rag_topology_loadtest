@@ -57,6 +57,9 @@ class _Block(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+_PERCENTS = range(1, 101)  # what a CPU utilisation target can be
+
+
 class Autoscaling(_Block):
     """Replicas of one App instance (pods behind the same instance id)."""
 
@@ -71,7 +74,7 @@ class Autoscaling(_Block):
                 f"max_replicas {self.max_replicas} is below "
                 f"min_replicas {self.min_replicas}"
             )
-        if self.target_cpu_pct is not None and not 1 <= self.target_cpu_pct <= 100:
+        if self.target_cpu_pct is not None and self.target_cpu_pct not in _PERCENTS:
             raise ValueError(f"target_cpu_pct {self.target_cpu_pct} is outside 1..100")
         return self
 
@@ -147,6 +150,20 @@ class DeploySettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Order the sources: init kwargs > environment > deploy.yaml.
+
+        Args:
+            settings_cls: The settings class being built.
+            init_settings: Constructor arguments.
+            env_settings: ``RAG_DEPLOY_*`` environment variables.
+            dotenv_settings: Not read: deploy settings take no ``.env`` file.
+            file_secret_settings: Not read: nor a secrets directory.
+
+        Returns:
+            The sources, highest priority first.
+        """
+        # Pydantic passes every source by keyword, so the names stay.
+        del dotenv_settings, file_secret_settings
         yaml_file = YamlConfigSettingsSource(settings_cls, yaml_file=deploy_file())
         return init_settings, env_settings, yaml_file
 

@@ -98,7 +98,9 @@ class RagWorkflow:
 
     def __init__(self, deps: RagDependencies, parameters: WorkflowParameters) -> None:
         self.deps, self.parameters = deps, parameters
-        builder = StateGraph(RagState)
+        # ty 0.0.100 does not match a TypedDict class against LangGraph's
+        # TypedDictLike protocol (its __required_keys__); mypy accepts it.
+        builder = StateGraph(RagState)  # ty: ignore[invalid-argument-type]
         builder.add_node("embed", timed("embed", self._embed))
         builder.add_node("retrieve", timed("retrieve", self._retrieve))
         builder.add_node("rerank", timed("rerank", self._rerank))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Sequence
 
 import pytest
@@ -38,7 +39,8 @@ async def test_query_mode_answers_from_reranked_passages(
 
     assert result.question == VACATION_QUESTION
     assert result.mode == "query"
-    assert result.answer is not None and result.answer.startswith("[fake-llm]")
+    assert result.answer is not None
+    assert result.answer.startswith("[fake-llm]")
     assert len(result.passages) == DEFAULT_TOP_K_RERANK
     scores = [p.rerank_score for p in result.passages]
     assert all(score is not None for score in scores)
@@ -166,7 +168,7 @@ def test_rag_prompts_number_the_passages_into_the_user_template() -> None:
 def test_rag_prompts_reject_a_user_template_missing_a_placeholder(
     user: str, missing: str
 ) -> None:
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match=re.escape(missing)) as caught:
         RagPrompts(system="s", user=user)
 
     assert missing in str(caught.value)
@@ -183,7 +185,7 @@ def test_rag_prompts_reject_a_user_template_missing_a_placeholder(
 )
 def test_rag_prompts_reject_a_brace_they_cannot_fill_when_built(user: str) -> None:
     # Built at start-up from the settings, so this never waits for the first query.
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match=r"\{\{") as caught:
         RagPrompts(system="s", user=user)
 
     assert "{{" in str(caught.value)  # says how to write a literal brace

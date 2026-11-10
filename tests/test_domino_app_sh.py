@@ -134,7 +134,8 @@ def test_prefix_proxy_puts_nginx_in_front_of_ovms(
         DOMINO_RUN_HOST_PATH="/apps/abc123/",
     )
     # The fakes exit at once, so app.sh reports the death and exits non-zero.
-    assert result.returncode == 1 and "exited" in result.stderr
+    assert result.returncode == 1
+    assert "exited" in result.stderr
     assert log(tmp_path, "ovms").strip() == (
         f"--rest_bind_address 127.0.0.1 --rest_port 9000 --config_path {models}/config_embedder.json"
     )
@@ -160,7 +161,8 @@ def test_prefix_proxy_without_a_prefix_only_forwards_root(
         DOMINO_RUN_HOST_PATH="",
     )
     conf = (tmp_path / "nginx.conf").read_text()
-    assert conf.count("location ") == 1 and "location / {" in conf
+    assert conf.count("location ") == 1
+    assert "location / {" in conf
 
 
 def test_missing_ovms_config_fails_with_a_clear_message(
@@ -169,7 +171,8 @@ def test_missing_ovms_config_fails_with_a_clear_message(
     result = run_app(
         tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(tmp_path)
     )
-    assert result.returncode == 1 and "OVMS config not found" in result.stderr
+    assert result.returncode == 1
+    assert "OVMS config not found" in result.stderr
 
 
 def test_monolith_role_is_the_default_and_serves_the_monolith(
@@ -253,7 +256,8 @@ def test_fastapi_roles_run_the_model_server(tmp_path: Path, bin_dir: Path) -> No
 
 def test_unknown_role_is_rejected(tmp_path: Path, bin_dir: Path) -> None:
     result = run_app(tmp_path, bin_dir, RAG_ROLE="bogus")
-    assert result.returncode == 1 and "unknown RAG_ROLE" in result.stderr
+    assert result.returncode == 1
+    assert "unknown RAG_ROLE" in result.stderr
 
 
 def ovms_bundle(tmp_path: Path) -> Path:
@@ -272,7 +276,8 @@ def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -
         tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(models)
     )
     assert (log(tmp_path, "uv"), log(tmp_path, "apt-get")) == ("", "")
-    assert log(tmp_path, "rag-serve") != "" and log(tmp_path, "ovms") != ""
+    assert log(tmp_path, "rag-serve") != ""
+    assert log(tmp_path, "ovms") != ""
 
 
 @pytest.mark.parametrize(
@@ -413,4 +418,5 @@ def test_bootstrap_without_a_bundle_names_the_variable(
     )
     assert result.returncode == 1
     assert "RAG_OVMS_BUNDLE" in result.stderr
-    assert log(tmp_path, "apt-get") == "" and log(tmp_path, "ovms") == ""
+    assert log(tmp_path, "apt-get") == ""
+    assert log(tmp_path, "ovms") == ""

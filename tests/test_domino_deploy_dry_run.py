@@ -95,7 +95,8 @@ def test_dry_run_still_requires_the_repository_root(
     (tmp_path / "elsewhere").mkdir()
     monkeypatch.chdir(tmp_path / "elsewhere")
     code, _, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert code == 2 and "has no domino/app.sh" in err
+    assert code == 2
+    assert "has no domino/app.sh" in err
 
 
 def test_dry_run_still_checks_the_ovms_bundle(
@@ -104,7 +105,8 @@ def test_dry_run_still_checks_the_ovms_bundle(
     monkeypatch.setenv("RAG_DEPLOY_MODEL_SERVER", "ovms")
     monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", "/no/such/bundle")
     code, _, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert code == 2 and "ovms_bundle=/no/such/bundle does not exist" in err
+    assert code == 2
+    assert "ovms_bundle=/no/such/bundle does not exist" in err
 
 
 def test_dry_run_status_lists_nothing_deployed(

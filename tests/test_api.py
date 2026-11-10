@@ -187,7 +187,8 @@ def test_readyz_empty_store_is_not_ready(
     assert body["status"] == "not_ready"
     checks = _checks_by_name(body)
     assert checks["vector_store"]["ok"] is False
-    assert checks["embedder"]["ok"] and checks["reranker"]["ok"]
+    assert checks["embedder"]["ok"]
+    assert checks["reranker"]["ok"]
 
 
 def test_readyz_reports_probe_exception(

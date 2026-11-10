@@ -71,7 +71,8 @@ def test_question_shares_most_words_with_its_own_topic(slug: str) -> None:
         for s, t in TOPICS.items()
     }
     own = overlap.pop(slug)
-    assert own > 0 and max(overlap.values()) < own
+    assert own > 0
+    assert max(overlap.values()) < own
 
 
 # --- chunk ---
@@ -83,7 +84,8 @@ def test_chunk_word_windows_overlap_and_ids() -> None:
     words = [p.text.split() for p in passages]
     assert [len(w) for w in words] == [100, 100, 90]
     assert words[1][:20] == words[0][-20:]
-    assert words[0][0] == "w0" and words[-1][-1] == "w249"
+    assert words[0][0] == "w0"
+    assert words[-1][-1] == "w249"
 
 
 def test_chunk_metadata_carries_document_fields() -> None:

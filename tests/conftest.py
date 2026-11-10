@@ -8,13 +8,13 @@ import os
 # before any ``import locust`` (the locustfile tests import it).
 os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
 
-from collections.abc import AsyncIterator, Callable  # noqa: E402
+from collections.abc import AsyncIterator, Callable
 
-import pytest  # noqa: E402
+import pytest
 
-from rag_load_test.adapters.rag_ports import RagPorts  # noqa: E402
-from rag_load_test.config.settings import RagSettings  # noqa: E402
-from rag_load_test.domain.ports import RagDependencies  # noqa: E402
+from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.ports import RagDependencies
 
 
 @pytest.fixture

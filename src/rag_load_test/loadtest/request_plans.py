@@ -19,6 +19,7 @@ import json
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -199,7 +200,7 @@ def judge_response(endpoint: str, status: int, body_text: str) -> ResponseVerdic
         judge_response("/query", 200, '{"timings_ms": {"embed": 4}}').stage_rows
         # (("/query:embed", 4.0),)
     """
-    if status != 200:
+    if status != HTTPStatus.OK:
         return ResponseVerdict(failure=f"HTTP {status}: {body_text[:200]}")
     try:
         body = json.loads(body_text)

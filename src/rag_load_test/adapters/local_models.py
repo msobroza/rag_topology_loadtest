@@ -156,6 +156,17 @@ class NoReranker(RerankerPort):
     async def rerank(
         self, query: str, passages: Sequence[ScoredPassage], top_n: int
     ) -> list[ScoredPassage]:
+        """Keep the first passages, in retrieval order.
+
+        Args:
+            query: Unused: retrieval order does not depend on it.
+            passages: The candidates, best retrieval score first.
+            top_n: How many to keep.
+
+        Returns:
+            The first ``top_n`` passages, as given.
+        """
+        del query  # the port's signature; retrieval order needs no query
         return list(passages[:top_n])
 
     async def ready(self) -> tuple[bool, str]:

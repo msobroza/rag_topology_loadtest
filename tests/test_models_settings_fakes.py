@@ -76,7 +76,7 @@ def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
         ) -> list[ScoredPassage]:
             return []
 
-    with pytest.raises(TypeError, match="HalfReranker.*ready"):
+    with pytest.raises(TypeError, match=r"HalfReranker.*ready"):
         HalfReranker()  # type: ignore[abstract]
 
 
@@ -254,7 +254,8 @@ async def test_fake_reranker_scores_by_overlap_and_truncates() -> None:
     kept = await FakeReranker().rerank("elasticsearch cluster", passages, top_n=2)
 
     assert [p.id for p in kept] == ["hit", "near"]
-    assert kept[0].rerank_score is not None and kept[0].rerank_score > 0
+    assert kept[0].rerank_score is not None
+    assert kept[0].rerank_score > 0
     assert kept[0].rerank_score > (kept[1].rerank_score or 0)
 
 
@@ -283,7 +284,7 @@ async def test_in_memory_store_is_ready_once_it_holds_a_passage() -> None:
 
 
 async def test_in_memory_store_rejects_mismatched_lengths() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="shorter"):  # zip(strict=True)
         await InMemoryVectorStore().upsert(
             [Passage(id="a", text="a"), Passage(id="b", text="b")], [[1.0]]
         )

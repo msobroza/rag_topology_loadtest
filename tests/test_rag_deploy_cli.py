@@ -47,7 +47,8 @@ def answering(
 
     async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope["path"] not in responses:
-            return await app(scope, receive, send)
+            await app(scope, receive, send)
+            return
         seen.append(Request(scope))
         await responses[scope["path"]](scope, receive, send)
 
@@ -144,7 +145,8 @@ def test_status_asks_for_the_run_token_where_the_settings_say(
     canned = {"/t": PlainTextResponse("no token", status_code=500)}
     fake, seen = answering(create_fake_domino(apps), canned)
     code, out, _ = run_main(["status"], fake)
-    assert code == 0 and "run token from http://tokens.test/t: HTTP 500" in out
+    assert code == 0
+    assert "run token from http://tokens.test/t: HTTP 500" in out
     assert [str(request.url) for request in seen] == ["http://tokens.test/t"]
 
 
@@ -348,14 +350,16 @@ def test_deploy_refuses_an_es_api_key_in_deploy_yaml(run_main: RunMain) -> None:
     Path("deploy.yaml").write_text(ENV_1 + "  settings: {RAG_ES_API_KEY: secret}\n")
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
-    assert code == 2 and "RAG_ES_API_KEY is set in deploy.yaml" in err
+    assert code == 2
+    assert "RAG_ES_API_KEY is set in deploy.yaml" in err
     assert apps.creates == []
 
 
 def test_a_misspelt_key_in_deploy_yaml_is_named(run_main: RunMain) -> None:
     Path("deploy.yaml").write_text(ENV_1 + "apps: {embedder: {hardware_tier: x}}\n")
     code, _, err = run_main(["status"], create_fake_domino())
-    assert code == 2 and "apps.embedder.hardware_tier" in err
+    assert code == 2
+    assert "apps.embedder.hardware_tier" in err
 
 
 # --- the App id cache ---
@@ -369,7 +373,11 @@ def test_a_second_deploy_redeploys_the_same_apps(run_main: RunMain) -> None:
     assert len(apps.creates) == 3
     assert [app_id for app_id, _ in apps.new_versions] == ["app-1", "app-2", "app-3"]
     assert json.loads(Path(CACHE_FILE).read_text()) == {
-        "proj-1": {"rag-embedder": "app-1", "rag-reranker": "app-2", "rag-workflow": "app-3"}  # fmt: skip
+        "proj-1": {
+            "rag-embedder": "app-1",
+            "rag-reranker": "app-2",
+            "rag-workflow": "app-3",
+        }
     }
 
 

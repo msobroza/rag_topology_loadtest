@@ -126,7 +126,9 @@ async def test_fixed_cpus_answer_only_when_positive() -> None:
 
 async def test_container_cpus_are_a_positive_whole_number() -> None:
     cpus = await ContainerCpus().cpus()
-    assert cpus is not None and cpus >= 1 and cpus == int(cpus)
+    assert cpus is not None
+    assert cpus >= 1
+    assert cpus == int(cpus)
 
 
 async def test_the_first_counter_that_answers_wins() -> None:

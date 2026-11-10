@@ -77,4 +77,5 @@ def test_without_settling_torch_undoes_the_scope_on_the_first_call() -> None:
         first = pool.submit(scope.run, torch.get_num_threads).result()
         second = pool.submit(scope.run, torch.get_num_threads).result()
 
-    assert first > 1 and second == 1
+    assert first > 1
+    assert second == 1

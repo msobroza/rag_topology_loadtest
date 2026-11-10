@@ -5,6 +5,8 @@ A Running App shows where its instance answers; any other, its page in Domino.
 
 from __future__ import annotations
 
+from http import HTTPStatus
+
 import httpx
 
 from ..domain.errors import describe_error
@@ -76,7 +78,7 @@ def readiness_lines(http: httpx.Client, url: str, token_url: str) -> list[str]:
 def _run_token(http: httpx.Client, token_url: str) -> str:
     response = http.get(token_url)
     token = response.text.strip()
-    if response.status_code != 200 or not token:
+    if response.status_code != HTTPStatus.OK or not token:
         raise DominoDeployError(
             f"run token from {token_url}: HTTP {response.status_code}"
         )

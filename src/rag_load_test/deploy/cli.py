@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -
         print(dry_run_report(dry_run_apps.creates))
 
 
-def _no_sleep(seconds: float) -> None:
+def _no_sleep(_seconds: float) -> None:
     pass
 
 

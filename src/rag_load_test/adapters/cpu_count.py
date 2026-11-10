@@ -17,9 +17,11 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from http import HTTPStatus
 from typing import Any
 
 import httpx
@@ -101,23 +103,24 @@ class DominoHardwareTierCpus(CpuCounter):
             response = await self._get()
         except httpx.TransportError as exc:
             return None, {"error": describe_error(exc)}
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             return None, {"status": response.status_code}
         cores = _cores(response)
         if cores is None:
             return None, {"status": 200, "error": "no positive resources.cores"}
         return cores, {}
 
+    # GET the tier, retrying transport errors as the policy says.
     async def _get(self) -> httpx.Response:
-        """GET the tier, retrying transport errors as the policy says."""
-        for attempt in range(self._policy.retries + 1):
-            await asyncio.sleep(self._policy.backoff_before(attempt))
-            try:
-                return await self._http.get(self._url, timeout=self._policy.timeout_s)
-            except httpx.TransportError:
-                if attempt == self._policy.retries:
-                    raise
-        raise AssertionError("unreachable: the loop returns or raises")
+        last = self._policy.retries
+        for attempt in range(last):
+            with contextlib.suppress(httpx.TransportError):
+                return await self._get_after_backoff(attempt)
+        return await self._get_after_backoff(last)  # its transport error propagates
+
+    async def _get_after_backoff(self, attempt: int) -> httpx.Response:
+        await asyncio.sleep(self._policy.backoff_before(attempt))
+        return await self._http.get(self._url, timeout=self._policy.timeout_s)
 
 
 def _cores(response: httpx.Response) -> float | None:

@@ -15,11 +15,30 @@ from rag_load_test.loadtest.request_plans import (
 )
 
 LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
-STATS_HEADER = (
-    "Type,Name,Request Count,Failure Count,Median Response Time,"
-    "Average Response Time,Min Response Time,Max Response Time,Average Content Size,"
-    "Requests/s,Failures/s,50%,66%,75%,80%,90%,95%,98%,99%,99.9%,99.99%,100%"
-).split(",")
+STATS_HEADER = [
+    "Type",
+    "Name",
+    "Request Count",
+    "Failure Count",
+    "Median Response Time",
+    "Average Response Time",
+    "Min Response Time",
+    "Max Response Time",
+    "Average Content Size",
+    "Requests/s",
+    "Failures/s",
+    "50%",
+    "66%",
+    "75%",
+    "80%",
+    "90%",
+    "95%",
+    "98%",
+    "99%",
+    "99.9%",
+    "99.99%",
+    "100%",
+]
 BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
 
 
@@ -29,7 +48,8 @@ BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
 def _import_locustfile(name: str) -> ModuleType:
     """Execute ``locustfile.py`` under ``name``; its shape class depends on the env."""
     spec = importlib.util.spec_from_file_location(name, LOCUSTFILE)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

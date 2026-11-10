@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import TypeGuard
 
 from .apps_client import DominoDeployError
 
@@ -56,10 +57,10 @@ def _read(path: str) -> dict[str, dict[str, str]]:
             f"{path} is not an App id cache ({{project id: {{App name: App id}}}}): "
             "delete it and rag-deploy finds the Apps by name again"
         )
-    return ids  # type: ignore[no-any-return]
+    return ids
 
 
-def _is_id_table(value: object) -> bool:
+def _is_id_table(value: object) -> TypeGuard[dict[str, dict[str, str]]]:
     if not isinstance(value, dict):
         return False
     return all(

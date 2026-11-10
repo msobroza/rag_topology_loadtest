@@ -47,6 +47,7 @@ def run_main(
     capsys: pytest.CaptureFixture[str], domino_env: None, no_real_http: None
 ) -> RunMain:
     """Runs ``main`` against ``fake_domino``; returns (exit code, stdout, stderr)."""
+    del domino_env, no_real_http  # requested for what they set up, not their value
 
     def run(argv: list[str], fake_domino: ASGIApp | None) -> tuple[int, str, str]:
         code = 0

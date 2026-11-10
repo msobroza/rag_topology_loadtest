@@ -59,7 +59,7 @@ def make_client(
     return DominoAppsClient(http, project_id, cache or AppIdCache(None))
 
 
-def no_sleep(seconds: float) -> None:
+def no_sleep(_seconds: float) -> None:
     pass
 
 

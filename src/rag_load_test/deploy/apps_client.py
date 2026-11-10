@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import httpx
@@ -23,6 +24,8 @@ from ..domain.errors import describe_error
 
 if TYPE_CHECKING:  # app_id_cache imports DominoDeployError from here
     from .app_id_cache import AppIdCache
+
+_Query = Mapping[str, str] | None  # query parameters of one Apps API call
 
 APPS_API_PATH = "/api/apps/beta/apps"
 FAILED_STATUSES = ("Failed", "Error", "Stopped")
@@ -106,7 +109,7 @@ class DominoAppsClient:
     def __enter__(self) -> DominoAppsClient:
         return self
 
-    def __exit__(self, *exc_info: object) -> None:
+    def __exit__(self, *_exc_info: object) -> None:
         self.http.close()
 
     def find(self, name: str) -> DominoApp | None:
@@ -121,7 +124,7 @@ class DominoAppsClient:
         if app_id is None:
             return None
         response = self._send("GET", f"{APPS_API_PATH}/{app_id}")
-        if response.status_code == 404:  # deleted in Domino since
+        if response.status_code == HTTPStatus.NOT_FOUND:  # deleted in Domino since
             self.cache.forget(self.project_id, name)
             return None
         return _app_from_json(self._json(response))
@@ -163,12 +166,16 @@ class DominoAppsClient:
         items = map(json_mapping, json_list(self._call("GET", path).get("items")))
         return [AppInstance(str(i.get("id", "")), str(i.get("status"))) for i in items]
 
-    def _call(self, method: str, path: str, **kwargs: object) -> Mapping[str, object]:
-        return self._json(self._send(method, path, **kwargs))
+    def _call(
+        self, method: str, path: str, *, json: object = None, params: _Query = None
+    ) -> Mapping[str, object]:
+        return self._json(self._send(method, path, json=json, params=params))
 
-    def _send(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+    def _send(
+        self, method: str, path: str, *, json: object = None, params: _Query = None
+    ) -> httpx.Response:
         try:
-            response = self.http.request(method, path, **kwargs)  # type: ignore[arg-type]
+            response = self.http.request(method, path, json=json, params=params)
         except httpx.HTTPError as exc:  # refused, timed out, DNS: no answer at all
             base_url = str(self.http.base_url).rstrip("/")
             raise DominoDeployError(
@@ -179,7 +186,7 @@ class DominoAppsClient:
 
     @staticmethod
     def _json(response: httpx.Response) -> Mapping[str, object]:
-        if response.status_code != 200:
+        if response.status_code != HTTPStatus.OK:
             request = response.request
             raise DominoDeployError(
                 _describe_failure(request.method, request.url.path, response)

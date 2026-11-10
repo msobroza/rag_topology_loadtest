@@ -155,7 +155,7 @@ def test_a_missing_prompts_file_fails_naming_the_path(
     missing = tmp_path / "nowhere" / "prompts.yaml"
     monkeypatch.setenv("RAG_PROMPTS_FILE", str(missing))
 
-    with pytest.raises(OSError, match="nowhere/prompts.yaml"):
+    with pytest.raises(OSError, match=r"nowhere/prompts\.yaml"):
         settings_factory()
 
 

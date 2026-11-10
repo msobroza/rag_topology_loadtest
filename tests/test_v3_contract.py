@@ -57,7 +57,7 @@ def test_model_probe_path_names_the_alias(alias: str, path: str) -> None:
 
 def test_unknown_model_error_is_the_ovms_text() -> None:
     expected = "Mediapipe graph definition with requested name is not found"
-    assert UNKNOWN_MODEL_ERROR == expected
+    assert expected == UNKNOWN_MODEL_ERROR
 
 
 # --- request shapes --------------------------------------------------------

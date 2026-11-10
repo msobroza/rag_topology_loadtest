@@ -20,12 +20,13 @@ import importlib
 import logging
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from typing import Any, Literal
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -105,108 +106,162 @@ async def readiness(deps: RagDependencies) -> list[ReadyCheck]:
     return checks
 
 
+# The handlers read what the factory left on ``app.state``: ``ports`` from the
+# start, ``deps`` and ``run`` once the lifespan has opened the ports.
+routes = APIRouter()
+
+
 def create_app(ports: RagPorts) -> FastAPI:
-    """Build the workflow app over ``ports``; they open and close with its lifespan.
+    """Build the workflow app over the ports; they open and close with its lifespan.
 
-    Example::
+    Args:
+        ports: The ports the app serves with; their settings also name the
+            topology and run label stamped on every response.
 
-        with TestClient(create_app(RagPorts(fake_settings))) as client:
-            client.post("/query", json={"question": "vacation days?"})
+    Returns:
+        The app, its routes answering under ``DOMINO_RUN_HOST_PATH`` and at the root.
+
+    Example:
+        >>> with TestClient(create_app(RagPorts(fake_settings))) as client:
+        ...     client.post("/query", json={"question": "vacation days?"})
     """
-    settings = ports.settings
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with ports:
-            deps = await ports.workflow_dependencies()
-            app.state.deps = deps
-            app.state.run = traced(
-                RagWorkflow(deps, settings.workflow_parameters()).run,
-                enabled=settings.domino_tracing,
-            )
-            log_json(
-                event="rag_startup",
-                topology=settings.topology,
-                run_label=settings.run_label,
-                embedder=deps.embedder.model_name,
-                llm=deps.chat_model.model_name,
-            )
-            yield
-
     app = FastAPI(
         title="rag-load-test",
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),
-        lifespan=lifespan,
+        lifespan=_lifespan,
+    )
+    app.state.ports = ports
+    app.middleware("http")(_stamp_headers)
+    app.exception_handler(RagDependencyError)(_dependency_error)
+    app.include_router(routes)
+    return app
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    ports: RagPorts = app.state.ports
+    settings = ports.settings
+    async with ports:
+        deps = await ports.workflow_dependencies()
+        app.state.deps = deps
+        app.state.run = traced(
+            RagWorkflow(deps, settings.workflow_parameters()).run,
+            enabled=settings.domino_tracing,
+        )
+        log_json(
+            event="rag_startup",
+            topology=settings.topology,
+            run_label=settings.run_label,
+            embedder=deps.embedder.model_name,
+            llm=deps.chat_model.model_name,
+        )
+        yield
+
+
+def _settings(request: Request) -> RagSettings:
+    return request.app.state.ports.settings
+
+
+async def _stamp_headers(request: Request, call_next: Callable[..., Any]) -> Any:
+    request.state.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    response = await call_next(request)
+    settings = _settings(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    response.headers["X-RAG-Topology"] = settings.topology
+    response.headers["X-RAG-Run-Label"] = settings.run_label
+    return response
+
+
+async def _dependency_error(request: Request, exc: RagDependencyError) -> JSONResponse:
+    status = (
+        HTTPStatus.GATEWAY_TIMEOUT
+        if exc.kind == "timeout"
+        else HTTPStatus.SERVICE_UNAVAILABLE
+    )
+    error = f"{exc.component}_{exc.kind}"
+    log_json(
+        event="rag_request",
+        request_id=request.state.request_id,
+        status=status.value,
+        error=error,
+    )
+    body = {"error": error, "detail": str(exc), "target": exc.target}
+    return JSONResponse(status_code=status, content=body)
+
+
+async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryResponse:
+    settings = _settings(request)
+    result = await request.app.state.run(body.question, mode=mode)
+    log_json(
+        event="rag_request",
+        request_id=request.state.request_id,
+        topology=settings.topology,
+        run_label=settings.run_label,
+        mode=mode,
+        timings_ms=result.timings_ms,
+        status=HTTPStatus.OK.value,
+    )
+    return QueryResponse(
+        request_id=request.state.request_id,
+        topology=settings.topology,
+        run_label=settings.run_label,
+        **result.model_dump(),
     )
 
-    @app.middleware("http")
-    async def stamp_headers(request: Request, call_next: Callable[..., Any]) -> Any:
-        request.state.request_id = (
-            request.headers.get("X-Request-ID") or uuid.uuid4().hex
-        )
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        response.headers["X-RAG-Topology"] = settings.topology
-        response.headers["X-RAG-Run-Label"] = settings.run_label
-        return response
 
-    @app.exception_handler(RagDependencyError)
-    async def dependency_error(
-        request: Request, exc: RagDependencyError
-    ) -> JSONResponse:
-        status = 504 if exc.kind == "timeout" else 503
-        error = f"{exc.component}_{exc.kind}"
-        log_json(
-            event="rag_request",
-            request_id=request.state.request_id,
-            status=status,
-            error=error,
-        )
-        body = {"error": error, "detail": str(exc), "target": exc.target}
-        return JSONResponse(status_code=status, content=body)
+@routes.post("/query", response_model=QueryResponse)
+async def query(body: QueryRequest, request: Request) -> QueryResponse:
+    """Answer the question with the full workflow, LLM call included.
 
-    async def answer(
-        request: Request, body: QueryRequest, mode: RagMode
-    ) -> QueryResponse:
-        result = await request.app.state.run(body.question, mode=mode)
-        log_json(
-            event="rag_request",
-            request_id=request.state.request_id,
-            topology=settings.topology,
-            run_label=settings.run_label,
-            mode=mode,
-            timings_ms=result.timings_ms,
-            status=200,
-        )
-        return QueryResponse(
-            request_id=request.state.request_id,
-            topology=settings.topology,
-            run_label=settings.run_label,
-            **result.model_dump(),
-        )
+    Args:
+        body: The question.
+        request: The HTTP request, for its request id and the app's state.
 
-    @app.post("/query", response_model=QueryResponse)
-    async def query(body: QueryRequest, request: Request) -> QueryResponse:
-        return await answer(request, body, "query")
+    Returns:
+        The answer, the passages it used and the time each stage took.
+    """
+    return await _answer(request, body, "query")
 
-    @app.post("/retrieve", response_model=QueryResponse)
-    async def retrieve(body: QueryRequest, request: Request) -> QueryResponse:
-        return await answer(request, body, "retrieve")
 
-    @app.get("/healthz")
-    async def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+@routes.post("/retrieve", response_model=QueryResponse)
+async def retrieve(body: QueryRequest, request: Request) -> QueryResponse:
+    """Retrieve and rerank the passages for the question, without the LLM call.
 
-    @app.get("/readyz", response_model=ReadyResponse)
-    async def readyz(request: Request) -> JSONResponse:
-        checks = await readiness(request.app.state.deps)
-        ready = all(check.ok for check in checks)
-        body = ReadyResponse(status="ready" if ready else "not_ready", checks=checks)
-        return JSONResponse(
-            status_code=200 if ready else 503, content=body.model_dump()
-        )
+    Args:
+        body: The question.
+        request: The HTTP request, for its request id and the app's state.
 
-    return app
+    Returns:
+        The passages, no answer, and the time each stage took.
+    """
+    return await _answer(request, body, "retrieve")
+
+
+@routes.get("/healthz")
+async def healthz() -> dict[str, str]:
+    """Answer while the process is up, whatever its dependencies.
+
+    Returns:
+        ``{"status": "ok"}``.
+    """
+    return {"status": "ok"}
+
+
+@routes.get("/readyz", response_model=ReadyResponse)
+async def readyz(request: Request) -> JSONResponse:
+    """Probe the store and the model ports.
+
+    Args:
+        request: The HTTP request, for the app's opened dependencies.
+
+    Returns:
+        200 with every check when all pass, else 503 with the same body.
+    """
+    checks = await readiness(request.app.state.deps)
+    ready = all(check.ok for check in checks)
+    body = ReadyResponse(status="ready" if ready else "not_ready", checks=checks)
+    status = HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status, content=body.model_dump())
 
 
 def main(argv: Sequence[str] | None = None) -> int:

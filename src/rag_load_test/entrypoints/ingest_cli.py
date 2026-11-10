@@ -26,19 +26,30 @@ if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_por
 
 
 def load_jsonl(path: Path) -> list[SourceDocument]:
-    """One ``{"id", "title", "text", "metadata"?}`` object per non-blank line."""
-    docs = []
+    """Read a corpus: one ``{"id", "title", "text", "metadata"?}`` object per line.
+
+    Blank lines are skipped; a line that is not such an object raises ValueError
+    naming the file and the line number.
+
+    Args:
+        path: The JSONL file.
+
+    Returns:
+        The documents, in file order.
+    """
     with Path(path).open(encoding="utf-8") as handle:
-        for lineno, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                docs.append(SourceDocument.model_validate(json.loads(line)))
-            except ValueError as exc:  # json.JSONDecodeError and pydantic errors
-                raise ValueError(
-                    f"{path}: line {lineno}: {exc}: {line[:80]!r}"
-                ) from exc
-    return docs
+        return [
+            _document(path, lineno, line)
+            for lineno, line in enumerate(handle, start=1)
+            if line.strip()
+        ]
+
+
+def _document(path: Path, lineno: int, line: str) -> SourceDocument:
+    try:
+        return SourceDocument.model_validate(json.loads(line))
+    except ValueError as exc:  # json.JSONDecodeError and pydantic errors
+        raise ValueError(f"{path}: line {lineno}: {exc}: {line[:80]!r}") from exc
 
 
 def _parser() -> argparse.ArgumentParser:

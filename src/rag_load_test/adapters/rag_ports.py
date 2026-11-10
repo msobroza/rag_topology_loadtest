@@ -26,11 +26,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
 from types import TracebackType
-from typing import NamedTuple, TypeVar, cast
+from typing import NamedTuple, TypedDict, TypeVar, cast
 
 import httpx
+from typing_extensions import Unpack  # typing.Unpack needs Python 3.11
 
 from ..application.ingest import ingest
 from ..config.settings import RagSettings
@@ -75,8 +75,9 @@ class IngestPorts(NamedTuple):
     vector_store: VectorStorePort
 
 
-@dataclass(frozen=True)
-class _SuppliedPorts:
+class SuppliedPorts(TypedDict, total=False):
+    """Ports handed to ``RagPorts`` ready-made (test doubles, mostly), used as given."""
+
     embedder: EmbedderPort | None
     vector_store: VectorStorePort | None
     reranker: RerankerPort | None
@@ -86,27 +87,32 @@ class _SuppliedPorts:
 class RagPorts:
     """Ready ports for ``settings``; see the module docstring for the rules.
 
-    Example::
+    Args:
+        settings: The backends, URLs and sizes the ports are built from.
+        transport: The HTTP transport of the shared client; None for the real
+            network (tests pass an ``httpx.MockTransport``).
+        container_cpus: Counts the container's CPUs when nothing earlier in the
+            chain answers; None for ``ContainerCpus()``.
+        **supplied: Ready-made ports by name (``embedder``, ``vector_store``,
+            ``reranker``, ``chat_model``), used as given and never closed here.
 
-        ports = RagPorts(settings, reranker=FailingReranker("timeout"))  # a test double
-        async with ports:
-            embedder, store = await ports.ingest_ports()
+    Example:
+        >>> ports = RagPorts(settings, reranker=FailingReranker("timeout"))
+        >>> async with ports:
+        ...     embedder, store = await ports.ingest_ports()
     """
 
     def __init__(
         self,
         settings: RagSettings,
         *,
-        embedder: EmbedderPort | None = None,
-        vector_store: VectorStorePort | None = None,
-        reranker: RerankerPort | None = None,
-        chat_model: ChatModelPort | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         container_cpus: CpuCounter | None = None,
+        **supplied: Unpack[SuppliedPorts],
     ) -> None:
         self.settings = settings
         self._container_cpus = container_cpus or ContainerCpus()
-        self._supplied = _SuppliedPorts(embedder, vector_store, reranker, chat_model)
+        self._supplied = supplied
         self._http_policy = HttpPolicy(
             settings.http_timeout_s, settings.http_retries, settings.http_backoff_s
         )
@@ -122,9 +128,9 @@ class RagPorts:
 
     async def __aexit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
+        _exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _traceback: TracebackType | None,
     ) -> None:
         stack, self._exit_stack = self._stack("__aexit__"), None
         self._opened.clear()
@@ -151,21 +157,21 @@ class RagPorts:
     async def local_embedder(self) -> EmbedderPort:
         """The in-process embedder whatever ``embedder_backend`` says: a model server
         is what the ``ovms`` backend calls, so it must never resolve to ``ovms``."""
-        if self._supplied.embedder is not None:
-            return self._supplied.embedder
+        if (supplied := self._supplied.get("embedder")) is not None:
+            return supplied
         return await self._local_embedder()
 
     async def local_reranker(self) -> RerankerPort:
         """The in-process reranker whatever ``reranker_backend`` says."""
-        if self._supplied.reranker is not None:
-            return self._supplied.reranker
+        if (supplied := self._supplied.get("reranker")) is not None:
+            return supplied
         return await self._local_reranker()
 
     # --- ports, by backend ----------------------------------------------------------
 
     async def _embedder(self) -> EmbedderPort:
-        if self._supplied.embedder is not None:
-            return self._supplied.embedder
+        if (supplied := self._supplied.get("embedder")) is not None:
+            return supplied
         backend = self.settings.embedder_backend
         return await self._once("embedder", backend, self._open_embedder)
 
@@ -185,8 +191,8 @@ class RagPorts:
         return await self._local_embedder()
 
     async def _reranker(self) -> RerankerPort:
-        if self._supplied.reranker is not None:
-            return self._supplied.reranker
+        if (supplied := self._supplied.get("reranker")) is not None:
+            return supplied
         backend = self.settings.reranker_backend
         return await self._once("reranker", backend, self._open_reranker)
 
@@ -207,8 +213,8 @@ class RagPorts:
         return await self._local_reranker()
 
     async def _vector_store(self) -> VectorStorePort:
-        if self._supplied.vector_store is not None:
-            return self._supplied.vector_store
+        if (supplied := self._supplied.get("vector_store")) is not None:
+            return supplied
         backend = self.settings.vector_store_backend
         return await self._once("vector_store", backend, self._open_vector_store)
 
@@ -230,8 +236,8 @@ class RagPorts:
         return store
 
     async def _chat_model(self) -> ChatModelPort:
-        if self._supplied.chat_model is not None:
-            return self._supplied.chat_model
+        if (supplied := self._supplied.get("chat_model")) is not None:
+            return supplied
         backend = self.settings.llm_backend
         return await self._once("chat_model", backend, self._open_chat_model)
 

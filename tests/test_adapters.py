@@ -61,7 +61,8 @@ def test_model_executor_runs_on_thread_start_in_each_new_worker() -> None:
         worker = pool.submit(lambda: threading.current_thread().name).result()
     finally:
         pool.shutdown(wait=True)
-    assert started == [worker] and worker.startswith("rag-model")
+    assert started == [worker]
+    assert worker.startswith("rag-model")
 
 
 class RecordingScope(NativeThreadScope):
@@ -138,7 +139,8 @@ async def test_st_embedder_returns_plain_lists_and_normalizes(
 ) -> None:
     vectors = await st_embedder.embed(("ab", "abcd"))
     assert vectors == [[2.0, 1.0], [4.0, 1.0]]
-    assert type(vectors) is list and all(type(v) is list for v in vectors)
+    assert type(vectors) is list
+    assert all(type(v) is list for v in vectors)
     assert all(type(x) is float for v in vectors for x in v)
     assert st_model.calls == [
         {"texts": ["ab", "abcd"], "batch_size": 8, "normalize_embeddings": True}
@@ -301,7 +303,8 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
         ("p4", "four", {}),
     ]
     scores = [h.retrieval_score for h in hits]
-    assert scores == [0.75, 0.25] and scores == sorted(scores, reverse=True)
+    assert scores == [0.75, 0.25]
+    assert scores == sorted(scores, reverse=True)
     assert all(type(h.retrieval_score) is float for h in hits)
     assert all(h.rerank_score is None for h in hits)
     assert fake.search_calls == [{"embedding": [0.5, 0.5], "k": 2}]

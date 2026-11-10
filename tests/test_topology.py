@@ -52,7 +52,7 @@ def test_fake_and_none_are_allowed_in_every_topology(topology: str) -> None:
 
 
 def test_an_ovms_embedder_contradicts_the_monolith() -> None:
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="RAG_EMBEDDER_BACKEND='ovms'") as caught:
         resolve_embedder_backend("monolith", "ovms")
 
     message = str(caught.value)
@@ -63,7 +63,7 @@ def test_an_ovms_embedder_contradicts_the_monolith() -> None:
 
 
 def test_an_ovms_reranker_contradicts_the_monolith_and_names_both_fixes() -> None:
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="RAG_RERANKER_BACKEND='ovms'") as caught:
         resolve_reranker_backend("monolith", "ovms")
 
     message = str(caught.value)
@@ -160,7 +160,7 @@ def test_valid_run_labels_pass_unchanged(label: str) -> None:
 
 @pytest.mark.parametrize("label", ["", "x" * 65, "has space", "new\nline", "é"])
 def test_invalid_run_labels_name_the_value_and_the_shape(label: str) -> None:
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="RAG_RUN_LABEL=") as caught:
         validate_run_label(label)
 
     message = str(caught.value)
@@ -177,7 +177,7 @@ def test_domino_rules_require_each_model_server_url(
 ) -> None:
     settings = settings_factory(topology="split-all")
 
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="RAG_OVMS_EMBEDDINGS_URL") as caught:
         apply_domino_rules(settings)
 
     message = str(caught.value)
@@ -191,7 +191,7 @@ def test_domino_rules_name_only_the_missing_url(
 ) -> None:
     settings = settings_factory(topology="split-all", ovms_rerank_url="http://a")
 
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="RAG_OVMS_EMBEDDINGS_URL") as caught:
         apply_domino_rules(settings)
 
     assert "RAG_OVMS_EMBEDDINGS_URL" in str(caught.value)

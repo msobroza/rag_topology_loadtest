@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Sequence
+from http import HTTPStatus
+from typing import NamedTuple
 
 import httpx
 from pydantic import ValidationError
@@ -89,11 +91,17 @@ class BearerToken:
                 "domino_access_token", describe_error(exc), target=url
             ) from exc
         token = response.text.strip()
-        if response.status_code != 200 or not token:
+        if response.status_code != HTTPStatus.OK or not token:
             detail = f"HTTP {response.status_code}: {response.text[:200]!r}"
             raise RagDependencyError("domino_access_token", detail, target=url)
         self._cached, self._fetched_at = token, time.monotonic()
         return token
+
+
+class _RetryableFailure(NamedTuple):
+    # An attempt that failed in a way a retry may fix, and how to report it.
+    detail: str
+    kind: str
 
 
 class OvmsEndpoint:
@@ -123,40 +131,71 @@ class OvmsEndpoint:
             )
         except (httpx.TransportError, RagDependencyError) as exc:
             return False, describe_error(exc)
-        return response.status_code == 200, f"{url} -> {response.status_code}"
+        ok = response.status_code == HTTPStatus.OK
+        return ok, f"{url} -> {response.status_code}"
 
     async def _post(self, path: str, request: V3Request) -> object:
-        """POST JSON; retry on transport errors, 5xx and 401 (token dropped first)."""
+        """POST JSON; retry on transport errors, 5xx and 401 (token dropped first).
+
+        Args:
+            path: The route under the servable's base URL.
+            request: The body, sent in its wire format.
+
+        Returns:
+            The decoded JSON body of the first successful answer.
+
+        Raises:
+            RagDependencyError: When every attempt failed in a way a retry may
+                fix; the error carries the last attempt's detail and kind.
+        """
         url, payload = self._base_url + path, request.to_wire()
-        detail, kind = "no attempt made", "unavailable"
+        failure = _RetryableFailure("no attempt made", "unavailable")
         for attempt in range(self._policy.retries + 1):
             if attempt:
                 await asyncio.sleep(self._policy.backoff_before(attempt))
-            try:
-                headers = await self._token.headers()
-                response = await self._client.post(
-                    url, json=payload, headers=headers, timeout=self._policy.timeout_s
-                )
-            except httpx.TransportError as exc:
-                detail = describe_error(exc)
-                kind = (
-                    "timeout"
-                    if isinstance(exc, httpx.TimeoutException)
-                    else "unavailable"
-                )
-                continue
-            status = response.status_code
-            if status == 401:
-                self._token.invalidate()  # stale Domino token: refetch on retry
-            if status == 401 or status >= 500:
-                detail, kind = f"HTTP {status}: {response.text[:200]}", "unavailable"
-                continue
-            if status >= 400:  # retrying cannot fix a bad request
-                raise RagDependencyError(
-                    self.component, f"HTTP {status}: {response.text[:200]}", target=url
-                )
+            outcome = await self._attempt(url, payload)
+            if not isinstance(outcome, _RetryableFailure):
+                return outcome
+            failure = outcome
+        raise RagDependencyError(
+            self.component, failure.detail, target=url, kind=failure.kind
+        )
+
+    async def _attempt(self, url: str, payload: object) -> object:
+        """POST once and sort the answer into a body, a retry or an error.
+
+        Args:
+            url: Where to post.
+            payload: The JSON body.
+
+        Returns:
+            The decoded JSON body on success, or a ``_RetryableFailure`` when a
+            retry may fix what went wrong.
+
+        Raises:
+            RagDependencyError: On a 4xx other than 401: retrying cannot fix a
+                bad request.
+        """
+        try:
+            headers = await self._token.headers()
+            response = await self._client.post(
+                url, json=payload, headers=headers, timeout=self._policy.timeout_s
+            )
+        except httpx.TransportError as exc:
+            timed_out = isinstance(exc, httpx.TimeoutException)
+            kind = "timeout" if timed_out else "unavailable"
+            return _RetryableFailure(describe_error(exc), kind)
+        status = response.status_code
+        if status < HTTPStatus.BAD_REQUEST:
             return response.json()
-        raise RagDependencyError(self.component, detail, target=url, kind=kind)
+        detail = f"HTTP {status}: {response.text[:200]}"
+        if status == HTTPStatus.UNAUTHORIZED:
+            self._token.invalidate()  # stale Domino token: refetch on retry
+            return _RetryableFailure(detail, "unavailable")
+        if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            return _RetryableFailure(detail, "unavailable")
+        # Any other 4xx: retrying cannot fix a bad request.
+        raise RagDependencyError(self.component, detail, target=url)
 
     def _malformed(self, exc: Exception, path: str) -> RagDependencyError:
         return RagDependencyError(

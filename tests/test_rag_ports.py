@@ -46,6 +46,7 @@ class FakeSentenceTransformersModule(ModuleType):
 
         class SentenceTransformer:
             def __init__(self, name: str, device: str) -> None:
+                del device  # passed by keyword, as to the real class
                 loaded.append(f"embedder:{name}")
 
             def encode(
@@ -56,6 +57,7 @@ class FakeSentenceTransformersModule(ModuleType):
 
         class CrossEncoder:
             def __init__(self, name: str, device: str) -> None:
+                del device  # passed by keyword, as to the real class
                 loaded.append(f"reranker:{name}")
 
             def predict(
@@ -310,7 +312,8 @@ async def test_a_supplied_port_is_used_as_given(fake_settings: RagSettings) -> N
     async with ports:
         deps = await ports.workflow_dependencies()
 
-        assert deps.embedder is embedder and deps.vector_store is empty_store
+        assert deps.embedder is embedder
+        assert deps.vector_store is empty_store
         assert await empty_store.count() == 0  # a supplied store is never seeded
         assert await ports.local_embedder() is embedder
 
@@ -452,7 +455,8 @@ async def test_on_domino_the_hardware_tier_is_asked(
         6.0,
         4,
     )
-    assert embedder.scope.threads == 1 and container.asked == 0
+    assert embedder.scope.threads == 1
+    assert container.asked == 0
 
 
 async def test_when_the_tier_cannot_say_the_container_answers(
@@ -469,7 +473,8 @@ async def test_when_the_tier_cannot_say_the_container_answers(
     ports = RagPorts(settings, container_cpus=container, transport=transport)
     embedder, _ = await open_local_models(ports)
 
-    assert container.asked == 1 and embedder.scope.threads == 1
+    assert container.asked == 1
+    assert embedder.scope.threads == 1
 
 
 async def test_fake_models_never_work_out_a_budget(

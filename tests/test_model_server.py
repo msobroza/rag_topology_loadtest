@@ -63,7 +63,8 @@ def test_embeddings_endpoint_matches_ovms_shape(embedder_app: TestClient) -> Non
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["object"] == "list" and body["model"] == EMBED_ALIAS
+    assert body["object"] == "list"
+    assert body["model"] == EMBED_ALIAS
     assert [row["index"] for row in body["data"]] == [0, 1]
     assert [row["object"] for row in body["data"]] == ["embedding", "embedding"]
     assert all(len(row["embedding"]) == 4 for row in body["data"])
@@ -144,10 +145,13 @@ async def test_ovms_adapters_work_against_the_fastapi_server(
             ScoredPassage(id="y", text="vacation days policy", retrieval_score=0.8),
         ]
         ranked = await reranker.rerank("vacation days", passages, 1)
-        assert [p.id for p in ranked] == ["y"] and ranked[0].rerank_score is not None
+        assert [p.id for p in ranked] == ["y"]
+        assert ranked[0].rerank_score is not None
         vectors = await embedder.embed(["a", "b"])
-        assert len(vectors) == 2 and len(vectors[0]) == 4
-        assert (await reranker.ready())[0] and (await embedder.ready())[0]
+        assert len(vectors) == 2
+        assert len(vectors[0]) == 4
+        assert (await reranker.ready())[0]
+        assert (await embedder.ready())[0]
         wrong_alias = ovms_reranker(rerank_client, "nope")
         assert not (await wrong_alias.ready())[0]
 

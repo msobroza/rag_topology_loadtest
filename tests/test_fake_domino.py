@@ -149,7 +149,9 @@ def test_forbidden_answers_every_apps_call_with_the_failure_envelope(
 
 
 def test_an_unknown_behaviour_names_the_allowed_ones() -> None:
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(
+        ValueError, match="unknown fake Domino behaviour 'flaky'"
+    ) as caught:
         FakeDominoApps.from_behaviour("flaky")
     assert str(caught.value) == (
         "unknown fake Domino behaviour 'flaky'; expected one of: "

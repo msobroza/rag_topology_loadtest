@@ -93,8 +93,10 @@ def test_without_rag_served_models_the_export_fails_before_any_download(
     result = run_export(tmp_path, bin_dir)
 
     assert result.returncode != 0
-    assert "rag-served-models" in result.stderr and "make install" in result.stderr
-    assert calls(tmp_path, "curl") == [] and calls(tmp_path, "python") == []
+    assert "rag-served-models" in result.stderr
+    assert "make install" in result.stderr
+    assert calls(tmp_path, "curl") == []
+    assert calls(tmp_path, "python") == []
 
 
 def test_path_hides_any_installed_rag_served_models() -> None:
