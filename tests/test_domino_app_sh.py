@@ -12,6 +12,7 @@ import pytest
 
 APP_SH = Path(__file__).resolve().parents[1] / "domino" / "app.sh"
 FAKES = ("ovms", "nginx", "rag-serve", "rag-model-server", "apt-get")
+PROXY_PAIR = {"ovms": "nginx", "nginx": "ovms"}  # run together behind the prefix proxy
 
 
 def write_fake(path: Path, log_file: Path, extra: str = "") -> None:
@@ -19,6 +20,25 @@ def write_fake(path: Path, log_file: Path, extra: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f'#!/usr/bin/env bash\necho "$@" >> "{log_file}"\n{extra}exit 0\n')
     path.chmod(0o755)
+
+
+def stay_until_the_other_is_done(tmp_path: Path, name: str) -> str:
+    """Shell lines ending the fake ``ovms`` and ``nginx``; "" for any other fake.
+
+    Behind the prefix proxy app.sh runs the two together and stops both as soon as
+    one exits. A fake that left first got the other killed before it had logged
+    anything, which failed these tests on a loaded machine. Each one marks itself
+    done, then stays until the other is done too (at most 10 s).
+    """
+    if name not in PROXY_PAIR:
+        return ""
+    other_done = tmp_path / f"{PROXY_PAIR[name]}.done"
+    return (
+        f'touch "{tmp_path}/{name}.done"\n'
+        'if [ "${RAG_OVMS_PREFIX_PROXY:-}" = 1 ]; then\n'
+        f'  for _ in $(seq 100); do [ -e "{other_done}" ] && break; sleep 0.1; done\n'
+        "fi\n"
+    )
 
 
 @pytest.fixture
@@ -37,6 +57,7 @@ def bin_dir(tmp_path: Path) -> Path:
                 if name == "nginx"
                 else ""
             )
+            + stay_until_the_other_is_done(tmp_path, name)
             + "exit 0\n"
         )
         script.chmod(0o755)
