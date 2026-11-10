@@ -57,11 +57,13 @@ class NativeThreadScope:
 def settle_torch_thread() -> None:
     """Let torch finish its per-thread setup; used as an executor initializer.
 
-    torch sets its own per-thread thread count on a thread's FIRST torch call,
-    which undoes a scope entered before it (measured with torch 2.15: the first
-    scoped call on a fresh worker ran with 4 threads instead of 1). Making that
-    first call here, before any scope, closes the gap. torch is only touched when
-    it is already loaded, so processes with fake models never import it.
+    On some builds torch sets its own per-thread thread count on a thread's
+    FIRST torch call, which undoes a scope entered before it. Measured with torch
+    2.15 on macOS arm64: the first scoped call on a fresh worker ran with 4
+    threads instead of 1. On Linux x86 the scope already holds and this call
+    changes nothing. Making that first call here, before any scope, closes the
+    gap wherever it exists. torch is only touched when it is already loaded, so
+    processes with fake models never import it.
     """
     torch = sys.modules.get("torch")
     if torch is not None:

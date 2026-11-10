@@ -1,14 +1,15 @@
 """``NativeThreadScope`` against real torch (no weights): limits hold per worker thread.
 
-torch sets its own per-thread OpenMP default on a thread's FIRST torch call, which
-undoes a scope entered before it; ``settle_torch_thread`` as the executor
-initializer makes that first call happen before any scope. These tests run each
-check on a worker's first call, the case the trap breaks.
+On some builds torch sets its own per-thread OpenMP default on a thread's FIRST
+torch call, which undoes a scope entered before it; ``settle_torch_thread`` as the
+executor initializer makes that first call happen before any scope. These tests
+run each check on a worker's first call, the case that reset breaks. The reset
+itself is not asserted: it is torch's behaviour, seen on macOS arm64 and absent on
+Linux x86, so a test of it would fail on one platform or the other.
 """
 
 from __future__ import annotations
 
-import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -66,16 +67,3 @@ def test_a_scope_leaves_the_process_wide_blas_pools_alone() -> None:
         pytest.skip("no multi-threaded BLAS pool is loaded here (numpy on Accelerate)")
 
     assert NativeThreadScope(1).run(blas_threads) == before
-
-
-@pytest.mark.skipif((os.cpu_count() or 1) < 2, reason="torch defaults to 1 thread")
-def test_without_settling_torch_undoes_the_scope_on_the_first_call() -> None:
-    """The trap itself: if this starts failing, torch no longer resets a thread's
-    limit on its first call and ``settle_torch_thread`` may be dropped."""
-    scope = NativeThreadScope(1)
-    with ThreadPoolExecutor(1) as pool:
-        first = pool.submit(scope.run, torch.get_num_threads).result()
-        second = pool.submit(scope.run, torch.get_num_threads).result()
-
-    assert first > 1
-    assert second == 1
