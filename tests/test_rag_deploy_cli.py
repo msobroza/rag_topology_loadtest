@@ -26,7 +26,8 @@ from domino_deploy_helpers import (
     deployed_lines,
     launched,
 )
-from rag_load_test.deploy.fake_domino import FakeDominoApps, create_fake_domino
+from fake_domino.server import create_fake_domino
+from fake_domino.state import FakeDominoApps
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 READYZ = "/fake-owner/fake-project/r/notebookSession/app-1-v1-i/readyz"

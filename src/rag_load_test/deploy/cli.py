@@ -23,11 +23,13 @@ import httpx
 from pydantic import ValidationError
 from starlette.types import ASGIApp
 
+from fake_domino.api_shapes import AppAutoscalingSpecification, AppCreationRequest
+from fake_domino.server import create_fake_domino, fake_domino_http
+from fake_domino.state import FakeDominoApps
+
 from .app_id_cache import APP_ID_CACHE_FILE, AppIdCache
 from .apps_client import DominoAppsClient, DominoDeployError
-from .apps_reference import AppAutoscalingSpecification, AppCreationRequest
 from .endpoint_url import endpoint_url
-from .fake_domino import FakeDominoApps, create_fake_domino, fake_domino_http
 from .publish import CONFIGURATION_TYPES, deploy, launch_script_in, require_app
 from .settings import DeploySettings, deploy_file
 from .status import print_status

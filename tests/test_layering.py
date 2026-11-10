@@ -1,5 +1,7 @@
 """The layer rule, read from the source with ``ast``: domain imports no other layer;
-application and config import only domain (and themselves)."""
+application and config import only domain (and themselves). And the mock rule:
+``fake_domino`` imports nothing from ``rag_load_test``, and only ``deploy/cli.py``
+(``--dry-run``) imports ``fake_domino``."""
 
 from __future__ import annotations
 
@@ -9,6 +11,8 @@ from pathlib import Path
 import pytest
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "rag_load_test"
+FAKE_DOMINO = PACKAGE.parent / "fake_domino"
+FAKE_DOMINO_IMPORTERS = {Path("deploy") / "cli.py"}  # relative to PACKAGE
 ALLOWED_LAYERS: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
@@ -55,3 +59,44 @@ def test_layer_imports_only_the_layers_it_may(layer: str) -> None:
     ]
     allowed = ", ".join(sorted(ALLOWED_LAYERS[layer]))
     assert not offending, f"{layer} may import only {allowed}: {offending}"
+
+
+def absolute_imports(path: Path, package: str) -> list[tuple[int, str]]:
+    """``(line, module)`` for every absolute import of ``package`` in ``path``.
+
+    A relative import cannot name another top-level package, so these are all.
+
+    Example::
+
+        absolute_imports(PACKAGE / "deploy" / "cli.py", "fake_domino")
+        # [(26, "fake_domino.api_shapes"), ...]
+    """
+    found = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            modules = [node.module or ""]
+        else:
+            continue
+        found += [(node.lineno, m) for m in modules if m.split(".")[0] == package]
+    return found
+
+
+def test_fake_domino_imports_nothing_from_the_product() -> None:
+    offending = [
+        f"{path.relative_to(FAKE_DOMINO.parent)}:{line} imports {module}"
+        for path in sorted(FAKE_DOMINO.rglob("*.py"))
+        for line, module in absolute_imports(path, "rag_load_test")
+    ]
+    assert not offending, f"fake_domino may not import rag_load_test: {offending}"
+
+
+def test_only_the_deploy_cli_imports_fake_domino() -> None:
+    offending = [
+        f"{path.relative_to(PACKAGE)}:{line} imports {module}"
+        for path in sorted(PACKAGE.rglob("*.py"))
+        if path.relative_to(PACKAGE) not in FAKE_DOMINO_IMPORTERS
+        for line, module in absolute_imports(path, "fake_domino")
+    ]
+    assert not offending, f"only deploy/cli.py may import fake_domino: {offending}"

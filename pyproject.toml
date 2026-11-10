@@ -47,13 +47,14 @@ rag-compare = "rag_load_test.loadtest.run_comparison:compare_main"
 rag-model-server = "rag_load_test.entrypoints.model_server:main"
 rag-served-models = "rag_load_test.entrypoints.served_models:main"
 rag-deploy = "rag_load_test.deploy.cli:main"
-rag-fake-domino = "rag_load_test.deploy.fake_domino:main"
+rag-fake-domino = "fake_domino.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 "rag_load_test" = ["py.typed", "config/prompts.yaml"]
+"fake_domino" = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

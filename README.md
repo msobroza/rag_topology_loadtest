@@ -87,8 +87,13 @@ src/rag_load_test/
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
     cli.py          rag-deploy: the parser, url, --dry-run
     apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
-    apps_reference.py  the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
-    fake_domino.py  a fake Domino 6.2 Apps API (FastAPI, Swagger at /docs) for rag-fake-domino and rag-deploy --dry-run
+src/fake_domino/    a stand-in for Domino 6.2's Apps API, nothing else: imports nothing from rag_load_test,
+                    and only deploy/cli.py (--dry-run) imports it (both checked by tests/test_layering.py)
+  api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
+  state.py          FakeDominoApps: the fake's Apps, versions and instances; the --behaviour scripts
+  apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
+  stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
+  server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)

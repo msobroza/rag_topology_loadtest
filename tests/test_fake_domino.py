@@ -5,14 +5,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.deploy.fake_domino import (
-    FAKE_DOMINO_URL,
-    FAKE_RUN_TOKEN,
-    FAKE_TIER_CORES,
-    FakeDominoApps,
-    create_fake_domino,
-    main,
-)
+from fake_domino.server import FAKE_DOMINO_URL, create_fake_domino, main
+from fake_domino.stand_ins import FAKE_RUN_TOKEN, FAKE_TIER_CORES
+from fake_domino.state import FakeDominoApps
 
 APPS_PATH = "/api/apps/beta/apps"
 INSTANCE_PATH = "/fake-owner/fake-project/r/notebookSession"  # + /{instance id}

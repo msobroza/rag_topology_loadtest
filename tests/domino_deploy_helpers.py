@@ -10,19 +10,15 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
-from rag_load_test.deploy.app_id_cache import AppIdCache
-from rag_load_test.deploy.apps_client import DominoAppsClient
-from rag_load_test.deploy.apps_reference import (
+from fake_domino.api_shapes import (
     AppCreationRequest,
     AppVersionCreationRequest,
     ConfigurationType,
 )
-from rag_load_test.deploy.fake_domino import (
-    FAKE_DOMINO_URL,
-    FakeDominoApps,
-    create_fake_domino,
-    fake_domino_http,
-)
+from fake_domino.server import FAKE_DOMINO_URL, create_fake_domino, fake_domino_http
+from fake_domino.state import FakeDominoApps
+from rag_load_test.deploy.app_id_cache import AppIdCache
+from rag_load_test.deploy.apps_client import DominoAppsClient
 from rag_load_test.deploy.settings import DeploySettings
 
 APPS_PATH = "/api/apps/beta/apps"

@@ -10,9 +10,9 @@ from domino_deploy_helpers import (
     add_app,
     make_client,
 )
+from fake_domino.state import FakeDominoApps
 from rag_load_test.deploy.apps_client import DominoApp, DominoDeployError
 from rag_load_test.deploy.endpoint_url import endpoint_url
-from rag_load_test.deploy.fake_domino import FakeDominoApps
 
 
 def found(apps: FakeDominoApps, name: str = "rag-reranker") -> DominoApp:

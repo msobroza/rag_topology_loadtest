@@ -3,7 +3,8 @@
 Names, fields and required flags are as documented there. The fake Domino serves
 them, so its Swagger page shows the contract ``rag-deploy`` is written against.
 They are a transcription, not a recording of a live Domino: the client in
-``apps_client.py`` reads responses leniently and does not validate against them.
+``rag_load_test/deploy/apps_client.py`` reads responses leniently and does not
+validate against them.
 
 Example::
 
