@@ -6,15 +6,25 @@ from .settings import RagSettings
 
 
 def apply_domino_rules(settings: RagSettings) -> RagSettings:
-    """``settings`` made fit for a Domino app, or ``ValueError`` naming what is missing.
+    """Make settings fit for a Domino app.
 
     Every port on a model server needs its URL set explicitly (the localhost
     defaults cannot be right on Domino), and app-to-app calls need the run's token,
     so an unset ``ovms_auth`` becomes ``domino``. The input is not mutated.
 
-    Example::
+    Args:
+        settings: The settings to check.
 
-        settings = apply_domino_rules(RagSettings())   # rag-serve --domino
+    Returns:
+        ``settings`` itself when ``ovms_auth`` was set explicitly, else a copy
+        with ``ovms_auth="domino"``.
+
+    Raises:
+        ValueError: If a backend on a model server has no explicit URL; the
+            message names each missing variable.
+
+    Example:
+        >>> settings = apply_domino_rules(RagSettings())  # rag-serve --domino
     """
     missing = _missing_model_server_urls(settings)
     if missing:

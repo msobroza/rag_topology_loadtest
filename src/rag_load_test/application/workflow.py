@@ -5,12 +5,11 @@ adapters sit behind them is ``RagPorts``' business. Retrieval sizes and prompts
 come in as one ``WorkflowParameters``. Each node records its wall time in
 ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
 
-Example::
-
-    async with RagPorts(settings) as ports:
-        deps = await ports.workflow_dependencies()
-        workflow = RagWorkflow(deps, settings.workflow_parameters())
-        result = await workflow.run("How many vacation days?", mode="retrieve")
+Example:
+    >>> async with RagPorts(settings) as ports:
+    ...     deps = await ports.workflow_dependencies()
+    ...     workflow = RagWorkflow(deps, settings.workflow_parameters())
+    ...     result = await workflow.run("How many vacation days?", mode="retrieve")
 """
 
 from __future__ import annotations
@@ -27,10 +26,21 @@ from ..domain.workflow_parameters import WorkflowParameters
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:
+    """Merge two stage-timing dicts; the LangGraph reducer of ``timings_ms``.
+
+    Args:
+        left: Timings recorded so far.
+        right: Timings from the latest update; they win on a shared key.
+
+    Returns:
+        A new dict with the keys of both.
+    """
     return {**left, **right}
 
 
 class RagState(TypedDict, total=False):
+    """The graph state one run carries from node to node."""
+
     question: str
     mode: str
     query_embedding: list[float]
@@ -48,11 +58,27 @@ class Node(Protocol):
     name and mypy then rejects ``StateGraph.add_node``.
     """
 
-    def __call__(self, state: RagState) -> Awaitable[dict[str, Any]]: ...
+    def __call__(self, state: RagState) -> Awaitable[dict[str, Any]]:
+        """Run the node.
+
+        Args:
+            state: The graph state so far.
+
+        Returns:
+            An awaitable of the partial state update.
+        """
 
 
 def timed(stage: str, node: Node) -> Node:
-    """Wrap a node so its update also carries ``{"timings_ms": {stage: ms}}``."""
+    """Wrap a node so its update also carries ``{"timings_ms": {stage: ms}}``.
+
+    Args:
+        stage: The key the node's wall time is recorded under.
+        node: The node to time.
+
+    Returns:
+        The timed node.
+    """
 
     async def run(state: RagState) -> dict[str, Any]:
         started = time.perf_counter()
@@ -63,7 +89,12 @@ def timed(stage: str, node: Node) -> Node:
 
 
 class RagWorkflow:
-    """A compiled graph over ``RagDependencies``; build once, ``run`` per request."""
+    """A compiled graph over ``RagDependencies``; build once, ``run`` per request.
+
+    Args:
+        deps: The ports the nodes call.
+        parameters: Retrieval sizes and prompts.
+    """
 
     def __init__(self, deps: RagDependencies, parameters: WorkflowParameters) -> None:
         self.deps, self.parameters = deps, parameters
@@ -84,7 +115,17 @@ class RagWorkflow:
         self.graph = builder.compile()
 
     async def run(self, question: str, *, mode: RagMode = "query") -> RagResult:
-        """Invoke the graph once; ``timings_ms["total"]`` is wall time around it."""
+        """Invoke the graph once.
+
+        Args:
+            question: The question to answer.
+            mode: ``query`` runs every stage; ``retrieve`` stops after reranking
+                and leaves ``answer`` None.
+
+        Returns:
+            The result; ``timings_ms`` has one key per stage (0.0 for a skipped
+            one) and ``total``, the wall time around the whole graph.
+        """
         state: RagState = {"question": question, "mode": mode, "timings_ms": {}}
         started = time.perf_counter()
         final = await self.graph.ainvoke(state)

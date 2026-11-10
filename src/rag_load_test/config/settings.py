@@ -5,10 +5,9 @@
 repeat that choice or pick ``fake`` (or ``none`` for the reranker). A
 contradiction or a bad ``RAG_RUN_LABEL`` fails construction, so at start-up.
 
-Example::
-
-    settings = RagSettings()                                          # from the env
-    settings = RagSettings(_env_file=None, reranker_backend="fake")   # in tests
+Example:
+    >>> settings = RagSettings()  # from the env
+    >>> settings = RagSettings(_env_file=None, reranker_backend="fake")  # in tests
 
 Every tunable (retrieval sizes, index, batch sizes, timeouts, ...) is a field here,
 so one ``RAG_*`` variable changes it; adapters receive the values from
@@ -52,6 +51,13 @@ PACKAGED_PROMPTS = Path(__file__).with_name("prompts.yaml")
 
 
 class RagSettings(BaseSettings):
+    """The whole runtime configuration, one field per ``RAG_*`` variable.
+
+    Construction resolves the backends from the topology, fills the default run
+    label and checks the retrieval sizes and prompts, so a bad configuration
+    fails at start-up.
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="RAG_",
         env_file=".env",
@@ -140,7 +146,18 @@ class RagSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """init kwargs > environment > .env > secrets > the prompts YAML."""
+        """Order the sources: init kwargs > environment > .env > secrets > prompts YAML.
+
+        Args:
+            settings_cls: The settings class being built.
+            init_settings: Constructor arguments.
+            env_settings: ``RAG_*`` environment variables.
+            dotenv_settings: The ``.env`` file.
+            file_secret_settings: The secrets directory.
+
+        Returns:
+            The sources, highest priority first.
+        """
         prompts = _prompts_source(settings_cls, _prompts_path())
         return (
             init_settings,
@@ -152,7 +169,12 @@ class RagSettings(BaseSettings):
 
     @model_validator(mode="after")
     def resolve_topology(self) -> RagSettings:
-        """Fill the model backends from the topology and the default run label."""
+        """Fill the model backends from the topology and the default run label.
+
+        Returns:
+            The settings, with ``embedder_backend``, ``reranker_backend`` and
+            ``run_label`` resolved.
+        """
         self.embedder_backend = resolve_embedder_backend(
             self.topology, self.embedder_backend
         )
@@ -164,7 +186,17 @@ class RagSettings(BaseSettings):
 
     @model_validator(mode="after")
     def check_workflow_parameters(self) -> RagSettings:
-        """Fail at start-up, not on the first query, on bad sizes or prompts."""
+        """Fail at start-up, not on the first query, on bad sizes or prompts.
+
+        ``RagPrompts`` checks the user template and raises its own ``ValueError``.
+
+        Returns:
+            The settings, unchanged.
+
+        Raises:
+            ValueError: If ``top_k_rerank`` exceeds ``top_k_retrieve``: the
+                reranker can keep at most the candidates retrieval returns.
+        """
         if self.top_k_rerank > self.top_k_retrieve:
             raise ValueError(
                 f"RAG_TOP_K_RERANK={self.top_k_rerank} exceeds "
@@ -175,11 +207,14 @@ class RagSettings(BaseSettings):
         return self
 
     def workflow_parameters(self) -> WorkflowParameters:
-        """The retrieval sizes and prompts ``RagWorkflow`` runs with.
+        """Build the retrieval sizes and prompts ``RagWorkflow`` runs with.
 
-        Example::
+        Returns:
+            The workflow parameters from ``top_k_retrieve``, ``top_k_rerank`` and
+            the two prompts.
 
-            RagWorkflow(deps, RagSettings().workflow_parameters())
+        Example:
+            >>> RagWorkflow(deps, RagSettings().workflow_parameters())
         """
         return WorkflowParameters(
             top_k_retrieve=self.top_k_retrieve,
@@ -197,8 +232,8 @@ class RagSettings(BaseSettings):
         )
 
 
+# ``RAG_PROMPTS_FILE`` when set, else the ``prompts.yaml`` shipped with us.
 def _prompts_path() -> Path:
-    """``RAG_PROMPTS_FILE`` when set, else the ``prompts.yaml`` shipped with us."""
     override = os.environ.get("RAG_PROMPTS_FILE")
     return Path(override) if override else PACKAGED_PROMPTS
 
@@ -206,9 +241,23 @@ def _prompts_path() -> Path:
 def _prompts_source(
     settings_cls: type[BaseSettings], path: Path
 ) -> YamlConfigSettingsSource:
-    """The YAML source over ``path``; a missing or unreadable file is an error
-    (pydantic-settings would silently skip a missing one, leaving the prompts
-    "Field required" without saying which file was meant)."""
+    """Build the YAML settings source over the prompts file.
+
+    A missing or unreadable file is an error: pydantic-settings would silently skip
+    a missing one, leaving the prompts "Field required" without saying which file
+    was meant.
+
+    Args:
+        settings_cls: The settings class the source feeds.
+        path: The prompts YAML file.
+
+    Returns:
+        The YAML source over ``path``.
+
+    Raises:
+        FileNotFoundError: If ``path`` is not a file.
+        OSError: If ``path`` cannot be read.
+    """
     if not path.is_file():
         raise FileNotFoundError(f"prompts file {str(path)!r} does not exist")
     try:

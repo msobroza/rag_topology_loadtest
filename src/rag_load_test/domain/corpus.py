@@ -16,6 +16,8 @@ from .passages import MetadataValue, Passage
 
 
 class SourceDocument(BaseModel):
+    """One handbook document before chunking: id, title, text and metadata."""
+
     id: str
     title: str
     text: str
@@ -23,6 +25,8 @@ class SourceDocument(BaseModel):
 
 
 class Topic(NamedTuple):
+    """A handbook topic: title template, its question, and its sentence templates."""
+
     title: str
     question: str
     sentences: tuple[str, ...]
@@ -134,11 +138,20 @@ def _slots(rng: random.Random) -> dict[str, int]:
 
 
 def synthetic_corpus(n: int, seed: int = 1234) -> list[SourceDocument]:
-    """``n`` deterministic handbook documents cycling through ``TOPICS``.
+    """Build ``n`` deterministic handbook documents cycling through ``TOPICS``.
 
-    Example::
+    Args:
+        n: Number of documents to build.
+        seed: Seed of the RNG that fills the numeric slots; the same seed gives
+            the same corpus.
 
-        synthetic_corpus(3)[0].metadata   # {"topic": "vacation-policy", "seq": 0}
+    Returns:
+        The documents, ids ``doc-0000`` upwards, each with ``topic`` and ``seq``
+        metadata.
+
+    Example:
+        >>> synthetic_corpus(3)[0].metadata
+        {'topic': 'vacation-policy', 'seq': 0}
     """
     rng = random.Random(seed)
     slugs = list(TOPICS)
@@ -158,7 +171,15 @@ def synthetic_corpus(n: int, seed: int = 1234) -> list[SourceDocument]:
 
 
 def synthetic_questions(n: int = 50, seed: int = 1234) -> list[str]:
-    """``n`` questions cycling through the topics, matching ``synthetic_corpus``."""
+    """Build ``n`` questions cycling through the topics, matching ``synthetic_corpus``.
+
+    Args:
+        n: Number of questions to build.
+        seed: Seed of the RNG that fills the numeric slots.
+
+    Returns:
+        The questions, in topic order, repeating once every topic is used.
+    """
     rng = random.Random(seed)
     topics = list(TOPICS.values())
     return [topics[i % len(topics)].question.format_map(_slots(rng)) for i in range(n)]
@@ -167,11 +188,24 @@ def synthetic_questions(n: int = 50, seed: int = 1234) -> list[str]:
 def chunk(
     doc: SourceDocument, *, chunk_words: int = 120, overlap_words: int = 20
 ) -> list[Passage]:
-    """Sliding word windows; ids are ``<doc id>:<chunk index>``.
+    """Split a document into sliding word windows.
 
-    Example::
+    Args:
+        doc: The document to split.
+        chunk_words: Words per window.
+        overlap_words: Words each window shares with the previous one; at least 0
+            and below ``chunk_words``.
 
-        chunk(doc, chunk_words=100, overlap_words=20)[1].id   # "doc-0001:1"
+    Returns:
+        The passages, ids ``<doc id>:<chunk index>``, carrying the document's
+        metadata plus ``doc_id``, ``title`` and ``chunk``; empty for an empty text.
+
+    Raises:
+        ValueError: If ``overlap_words`` is negative or not below ``chunk_words``.
+
+    Example:
+        >>> chunk(doc, chunk_words=100, overlap_words=20)[1].id
+        'doc-0001:1'
     """
     if not 0 <= overlap_words < chunk_words:
         raise ValueError(

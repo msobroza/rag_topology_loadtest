@@ -2,9 +2,8 @@
 
 ``RagSettings.workflow_parameters()`` builds it from the configuration.
 
-Example::
-
-    RagWorkflow(deps, settings.workflow_parameters())
+Example:
+    >>> RagWorkflow(deps, settings.workflow_parameters())
 """
 
 from __future__ import annotations
@@ -16,8 +15,11 @@ from .prompts import RagPrompts
 
 @dataclass(frozen=True)
 class WorkflowParameters:
-    """``top_k_retrieve`` candidates from the store, ``top_k_rerank`` kept for the
-    LLM, and the prompts that frame them."""
+    """Retrieval sizes and prompts of one workflow.
+
+    ``top_k_retrieve`` candidates come from the store, ``top_k_rerank`` are kept for
+    the LLM, and ``prompts`` frame them.
+    """
 
     top_k_retrieve: int
     top_k_rerank: int

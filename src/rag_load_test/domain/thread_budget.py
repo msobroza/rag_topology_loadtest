@@ -3,9 +3,9 @@
 On Domino an App autoscales by starting more pods of the same hardware tier, each
 a fresh process, so every process works its own budget out when it starts.
 
-Example::
-
-    plan_thread_budget(8, max_workers=4)   # ThreadBudget(4, 2, 2)
+Example:
+    >>> plan_thread_budget(8, max_workers=4)
+    ThreadBudget(workers=4, embedder_threads=2, reranker_threads=2)
 """
 
 from __future__ import annotations
@@ -34,9 +34,19 @@ def plan_thread_budget(
     Fractional CPUs round down (half a CPU still gets one thread); a non-zero
     ``embedder_threads`` / ``reranker_threads`` replaces the computed share.
 
-    Example::
+    Args:
+        cpus: Virtual CPUs the process may use.
+        max_workers: Upper bound on model calls running at once.
+        embedder_threads: Native threads per embed call; 0 takes the computed share.
+        reranker_threads: Native threads per rerank call; 0 takes the computed
+            share.
 
-        plan_thread_budget(8, max_workers=4, embedder_threads=1)  # (4, 1, 2)
+    Returns:
+        The workers and per-call threads.
+
+    Example:
+        >>> plan_thread_budget(8, max_workers=4, embedder_threads=1)
+        ThreadBudget(workers=4, embedder_threads=1, reranker_threads=2)
     """
     whole = max(1, int(cpus))
     workers = min(max_workers, whole)

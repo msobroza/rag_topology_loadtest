@@ -4,11 +4,10 @@ Each port is an abstract base class: an adapter states which port it implements
 by subclassing it, and one that forgets a method fails when it is instantiated,
 not on the first request that needs the method.
 
-Example::
-
-    class MyReranker(RerankerPort):
-        async def rerank(self, query, passages, top_n): ...
-        async def ready(self): return True, "mine"
+Example:
+    >>> class MyReranker(RerankerPort):
+    ...     async def rerank(self, query, passages, top_n): ...
+    ...     async def ready(self): return True, "mine"
 """
 
 from __future__ import annotations
@@ -30,10 +29,24 @@ class EmbedderPort(ABC):
     model_name: str
 
     @abstractmethod
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed texts.
+
+        Args:
+            texts: The texts to embed.
+
+        Returns:
+            One vector per text, in the same order.
+        """
 
     @abstractmethod
-    async def ready(self) -> tuple[bool, str]: ...
+    async def ready(self) -> tuple[bool, str]:
+        """Report whether the embedder can serve requests.
+
+        Returns:
+            Whether it is ready, and a short human-readable status such as the
+            model name.
+        """
 
 
 class RerankerPort(ABC):
@@ -42,10 +55,25 @@ class RerankerPort(ABC):
     @abstractmethod
     async def rerank(
         self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]: ...
+    ) -> list[ScoredPassage]:
+        """Re-score retrieval candidates against the query and keep the best.
+
+        Args:
+            query: The question the passages are scored against.
+            passages: The retrieval candidates.
+            top_n: How many passages to keep.
+
+        Returns:
+            At most ``top_n`` passages, best first.
+        """
 
     @abstractmethod
-    async def ready(self) -> tuple[bool, str]: ...
+    async def ready(self) -> tuple[bool, str]:
+        """Report whether the reranker can serve requests.
+
+        Returns:
+            Whether it is ready, and a short human-readable status.
+        """
 
 
 class VectorStorePort(ABC):
@@ -54,18 +82,44 @@ class VectorStorePort(ABC):
     @abstractmethod
     async def upsert(
         self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
-    ) -> None: ...
+    ) -> None:
+        """Store passages with their vectors.
+
+        Args:
+            passages: The passages to store.
+            embeddings: One vector per passage, in the same order.
+        """
 
     @abstractmethod
     async def query(
         self, embedding: Sequence[float], top_k: int
-    ) -> list[ScoredPassage]: ...
+    ) -> list[ScoredPassage]:
+        """Find the passages nearest to a vector.
+
+        Args:
+            embedding: The query vector.
+            top_k: How many passages to return at most.
+
+        Returns:
+            The nearest passages, nearest first, with their ``retrieval_score``.
+        """
 
     @abstractmethod
-    async def count(self) -> int: ...
+    async def count(self) -> int:
+        """Count the stored passages.
+
+        Returns:
+            The number of passages in the store.
+        """
 
     @abstractmethod
-    async def ready(self) -> tuple[bool, str]: ...
+    async def ready(self) -> tuple[bool, str]:
+        """Report whether the store can serve requests.
+
+        Returns:
+            Whether it is ready, and a short human-readable status such as how many
+            passages it holds.
+        """
 
 
 class ChatModelPort(ABC):
@@ -74,7 +128,15 @@ class ChatModelPort(ABC):
     model_name: str
 
     @abstractmethod
-    async def generate(self, messages: list[dict[str, str]]) -> str: ...
+    async def generate(self, messages: list[dict[str, str]]) -> str:
+        """Answer a conversation.
+
+        Args:
+            messages: OpenAI-style messages, each with ``role`` and ``content``.
+
+        Returns:
+            The model's answer text.
+        """
 
 
 @dataclass

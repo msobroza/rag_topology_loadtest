@@ -7,11 +7,12 @@ configuration and defaults to the topology plus every backend that differs from
 its default. Pure functions only: settings call them at construction; the Domino
 rule that ``rag-serve --domino`` applies lives in ``config/domino_rules.py``.
 
-Example::
-
-    resolve_reranker_backend("split-reranker", None)   # "ovms"
-    default_run_label("monolith", embedder="local", reranker="none",
-                      store="elasticsearch", llm="openai")  # "monolith+reranker=none"
+Example:
+    >>> resolve_reranker_backend("split-reranker", None)
+    'ovms'
+    >>> default_run_label("monolith", embedder="local", reranker="none",
+    ...                   store="elasticsearch", llm="openai")
+    'monolith+reranker=none'
 """
 
 from __future__ import annotations
@@ -50,12 +51,24 @@ TOPOLOGY_BACKENDS: dict[Topology, TopologyBackends] = {
 def resolve_embedder_backend(
     topology: Topology, explicit: EmbedderBackend | None
 ) -> EmbedderBackend:
-    """The embedder backend for ``topology``; ``explicit`` may only be its own or fake.
+    """Return the embedder backend for ``topology``.
 
-    Example::
+    A contradicting ``explicit`` backend fails with ``ValueError``, naming the
+    topologies that would allow it.
 
-        resolve_embedder_backend("split-all", None)    # "ovms"
-        resolve_embedder_backend("monolith", "ovms")   # ValueError: contradiction
+    Args:
+        topology: The topology that implies the backend.
+        explicit: The backend asked for, or None for the implied one; it may only
+            be the implied backend or ``fake``.
+
+    Returns:
+        ``explicit`` when set, else the backend the topology implies.
+
+    Example:
+        >>> resolve_embedder_backend("split-all", None)
+        'ovms'
+        >>> resolve_embedder_backend("monolith", "ovms")
+        ValueError: ... contradicts RAG_TOPOLOGY='monolith' ...
     """
     implied = TOPOLOGY_BACKENDS[topology].embedder
     if explicit is None:
@@ -67,11 +80,22 @@ def resolve_embedder_backend(
 def resolve_reranker_backend(
     topology: Topology, explicit: RerankerBackend | None
 ) -> RerankerBackend:
-    """The reranker backend for ``topology``; ``explicit`` may be its own, fake or none.
+    """Return the reranker backend for ``topology``.
 
-    Example::
+    A contradicting ``explicit`` backend fails with ``ValueError``, naming the
+    topologies that would allow it.
 
-        resolve_reranker_backend("monolith", "none")   # "none" (skip reranking)
+    Args:
+        topology: The topology that implies the backend.
+        explicit: The backend asked for, or None for the implied one; it may only
+            be the implied backend, ``fake`` or ``none`` (skip reranking).
+
+    Returns:
+        ``explicit`` when set, else the backend the topology implies.
+
+    Example:
+        >>> resolve_reranker_backend("monolith", "none")
+        'none'
     """
     implied = TOPOLOGY_BACKENDS[topology].reranker
     if explicit is None:
@@ -122,15 +146,25 @@ def default_run_label(
     store: str,
     llm: str,
 ) -> str:
-    """The topology plus ``+<port>=<backend>`` for each backend off its default.
+    """Name a configuration after its topology and the backends off their default.
 
     Ports are listed in a fixed order (embedder, reranker, store, llm) so the same
     configuration always gets the same label.
 
-    Example::
+    Args:
+        topology: The topology; it sets the default embedder and reranker.
+        embedder: The embedder backend in use.
+        reranker: The reranker backend in use.
+        store: The vector store backend in use.
+        llm: The LLM backend in use.
 
-        default_run_label("split-all", embedder="ovms", reranker="ovms",
-                          store="elasticsearch", llm="fake")   # "split-all+llm=fake"
+    Returns:
+        The topology plus ``+<port>=<backend>`` for each backend off its default.
+
+    Example:
+        >>> default_run_label("split-all", embedder="ovms", reranker="ovms",
+        ...                   store="elasticsearch", llm="fake")
+        'split-all+llm=fake'
     """
     implied = TOPOLOGY_BACKENDS[topology]
     ports = (
@@ -146,11 +180,21 @@ def default_run_label(
 
 
 def validate_run_label(label: str) -> str:
-    """``label`` unchanged when it is header-safe, else ``ValueError``.
+    """Check that a run label is safe to send as a header.
 
-    Example::
+    Args:
+        label: The run label, sent as the ``X-RAG-Run-Label`` header.
 
-        validate_run_label("split-reranker-fastapi")   # "split-reranker-fastapi"
+    Returns:
+        ``label`` unchanged.
+
+    Raises:
+        ValueError: If ``label`` is not header-safe (letters, digits and
+            ``._+=:-`` only, 1 to 64 characters).
+
+    Example:
+        >>> validate_run_label("split-reranker-fastapi")
+        'split-reranker-fastapi'
     """
     if RUN_LABEL_PATTERN.fullmatch(label):
         return label

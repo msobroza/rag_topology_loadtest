@@ -1,12 +1,11 @@
-"""The prompts the workflow sends to the chat model, as a value object.
+r"""The prompts the workflow sends to the chat model, as a value object.
 
 The texts live in ``config/prompts.yaml`` and reach the workflow through
 ``RagSettings``; this module only knows how to turn them into messages.
 
-Example::
-
-    prompts = RagPrompts(system="Cite [n].", user="{context}\\n\\nQ: {question}")
-    prompts.messages("How many vacation days?", passages)
+Example:
+    >>> prompts = RagPrompts(system="Cite [n].", user="{context}\n\nQ: {question}")
+    >>> prompts.messages("How many vacation days?", passages)
 """
 
 from __future__ import annotations
@@ -21,8 +20,17 @@ _PLACEHOLDERS = ("{context}", "{question}")
 
 @dataclass(frozen=True)
 class RagPrompts:
-    """The system prompt and the user template (holding ``{context}`` and
-    ``{question}``; any other literal brace must be doubled, as in ``str.format``)."""
+    """The system prompt and the user template.
+
+    Construction fails with ``ValueError`` when the user template lacks a
+    placeholder or holds a brace ``str.format`` cannot fill, so a bad template
+    fails at start-up rather than on the first query.
+
+    Args:
+        system: The system prompt, sent as is.
+        user: The user template, holding ``{context}`` and ``{question}``; any
+            other literal brace must be doubled, as in ``str.format``.
+    """
 
     system: str
     user: str
@@ -44,13 +52,19 @@ class RagPrompts:
     def messages(
         self, question: str, passages: Sequence[ScoredPassage]
     ) -> list[dict[str, str]]:
-        """OpenAI-style messages: the system prompt, then the filled user template
-        with the passages numbered ``[1] text`` one per line.
+        r"""Build the chat messages for one question.
 
-        Example::
+        Args:
+            question: Fills ``{question}`` in the user template.
+            passages: Fill ``{context}``, numbered ``[1] text`` one per line.
 
-            prompts.messages("What is alpha?", [alpha])[1]["content"]
-            # "Context:\\n[1] Alpha text.\\n\\nQuestion: What is alpha?"
+        Returns:
+            OpenAI-style messages: the system prompt, then the filled user
+            template.
+
+        Example:
+            >>> prompts.messages("What is alpha?", [alpha])[1]["content"]
+            'Context:\n[1] Alpha text.\n\nQuestion: What is alpha?'
         """
         context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
         user = self.user.format(context=context, question=question)
