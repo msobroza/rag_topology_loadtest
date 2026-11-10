@@ -19,15 +19,17 @@ import numpy as np
 import openai
 import pytest
 
-from rag_load_test.adapters import local_models
-from rag_load_test.adapters.elasticsearch_store import ElasticsearchVectorStore
-from rag_load_test.adapters.local_models import (
+from rag_load_test.adapters.chat_model.openai_chat import OpenAIChatModel
+from rag_load_test.adapters.local_models import sentence_transformer_models
+from rag_load_test.adapters.local_models.native_threads import NativeThreadScope
+from rag_load_test.adapters.local_models.sentence_transformer_models import (
     CrossEncoderReranker,
     NoReranker,
     SentenceTransformerEmbedder,
 )
-from rag_load_test.adapters.native_threads import NativeThreadScope
-from rag_load_test.adapters.openai_chat import OpenAIChatModel
+from rag_load_test.adapters.vector_store.elasticsearch_store import (
+    ElasticsearchVectorStore,
+)
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage, ScoredPassage
 
@@ -37,13 +39,13 @@ INDEX = "passages_under_test"  # any name: the adapter must use the one it is gi
 
 @pytest.fixture
 def executor() -> Iterator[ThreadPoolExecutor]:
-    pool = local_models.model_executor(workers=2)
+    pool = sentence_transformer_models.model_executor(workers=2)
     yield pool
     pool.shutdown(wait=True)
 
 
 def test_model_executor_runs_the_given_number_of_workers() -> None:
-    pool = local_models.model_executor(workers=3)
+    pool = sentence_transformer_models.model_executor(workers=3)
     try:
         assert pool._max_workers == 3
     finally:
@@ -56,7 +58,7 @@ def test_model_executor_runs_on_thread_start_in_each_new_worker() -> None:
     def record() -> None:
         started.append(threading.current_thread().name)
 
-    pool = local_models.model_executor(workers=1, on_thread_start=record)
+    pool = sentence_transformer_models.model_executor(workers=1, on_thread_start=record)
     try:
         worker = pool.submit(lambda: threading.current_thread().name).result()
     finally:
@@ -450,9 +452,12 @@ async def test_openai_chat_aclose_closes_the_sdk_client() -> None:
 def test_importing_adapters_leaves_heavy_libraries_unimported() -> None:
     # Fresh interpreter: this process may already have torch/openai loaded.
     code = (
-        "import sys; import rag_load_test.adapters.local_models, "
-        "rag_load_test.adapters.elasticsearch_store, rag_load_test.adapters.openai_chat, "
-        "rag_load_test.adapters.native_threads, rag_load_test.adapters.cpu_count; "
+        "import sys; "
+        "import rag_load_test.adapters.local_models.sentence_transformer_models, "
+        "rag_load_test.adapters.vector_store.elasticsearch_store, "
+        "rag_load_test.adapters.chat_model.openai_chat, "
+        "rag_load_test.adapters.local_models.native_threads, "
+        "rag_load_test.adapters.local_models.cpu_count; "
         f"print(sorted(m for m in {HEAVY_MODULES!r} if m in sys.modules))"
     )
     command = [sys.executable, "-c", code]

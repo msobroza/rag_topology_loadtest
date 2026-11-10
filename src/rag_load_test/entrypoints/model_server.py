@@ -27,8 +27,7 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..adapters.rag_ports import RagPorts
-from ..adapters.v3_contract import (
+from ..adapters.ovms.v3_contract import (
     EMBEDDINGS_PATH,
     MODEL_PROBE_ROUTE,
     RERANK_PATH,
@@ -40,6 +39,7 @@ from ..adapters.v3_contract import (
     embeddings_texts,
     rerank_response_for,
 )
+from ..adapters.rag_ports import RagPorts
 from ..config.settings import RagSettings
 
 Role = Literal["embedder", "reranker"]

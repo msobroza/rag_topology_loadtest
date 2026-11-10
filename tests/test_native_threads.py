@@ -17,7 +17,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from rag_load_test.adapters.native_threads import (  # noqa: E402
+from rag_load_test.adapters.local_models.native_threads import (  # noqa: E402
     NativeThreadScope,
     settle_torch_thread,
 )

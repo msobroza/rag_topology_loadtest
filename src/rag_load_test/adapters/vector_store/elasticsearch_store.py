@@ -9,9 +9,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from ..domain.errors import RagDependencyError
-from ..domain.passages import Passage, ScoredPassage
-from ..domain.ports import VectorStorePort
+from ...domain.errors import RagDependencyError
+from ...domain.passages import Passage, ScoredPassage
+from ...domain.ports import VectorStorePort
 
 
 class ElasticsearchVectorStore(VectorStorePort):

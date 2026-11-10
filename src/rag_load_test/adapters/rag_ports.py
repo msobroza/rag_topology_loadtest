@@ -6,8 +6,9 @@ in-process model; nothing else is built, so no unused weights load and no unused
 client is created. The model thread pool, the HTTP client and the bearer token
 are created on first need, shared, and released when the ``async with`` block
 ends; so is the thread budget, from the first CPU counter that answers
-(``RAG_MODEL_CPUS``, the Domino tier, the container; see ``cpu_count.py``). A
-port handed to the constructor is used as given and never closed here.
+(``RAG_MODEL_CPUS``, the Domino tier, the container; see
+``local_models/cpu_count.py``). A port handed to the constructor is used as
+given and never closed here.
 
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently. This is the only adapter module that
@@ -42,25 +43,26 @@ from ..domain.ports import (
     VectorStorePort,
 )
 from ..domain.thread_budget import ThreadBudget
-from .cpu_count import (
+from .chat_model.openai_chat import OpenAIChatModel
+from .fakes.fake_models import FakeChatModel, FakeEmbedder, FakeReranker
+from .fakes.in_memory_vector_store import InMemoryVectorStore
+from .local_models.cpu_count import (
     ContainerCpus,
     CpuCounter,
     DominoHardwareTierCpus,
     FixedCpus,
     work_out_thread_budget,
 )
-from .elasticsearch_store import ElasticsearchVectorStore
-from .fakes import FakeChatModel, FakeEmbedder, FakeReranker, InMemoryVectorStore
-from .http_policy import HttpPolicy
-from .local_models import (
+from .local_models.native_threads import settle_torch_thread
+from .local_models.sentence_transformer_models import (
     CrossEncoderReranker,
     NoReranker,
     SentenceTransformerEmbedder,
     model_executor,
 )
-from .native_threads import settle_torch_thread
-from .openai_chat import OpenAIChatModel
-from .ovms import BearerToken, OvmsEmbedder, OvmsReranker
+from .ovms.ovms_adapters import BearerToken, OvmsEmbedder, OvmsReranker
+from .shared.http_policy import HttpPolicy
+from .vector_store.elasticsearch_store import ElasticsearchVectorStore
 
 T = TypeVar("T")
 OWNED = "in-process"  # "backend" of the resources RagPorts creates for itself

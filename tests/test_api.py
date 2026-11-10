@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.adapters.fakes import InMemoryVectorStore
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError

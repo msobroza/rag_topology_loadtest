@@ -9,13 +9,13 @@ from collections.abc import Callable, Sequence
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.adapters import fakes
-from rag_load_test.adapters.fakes import (
+from rag_load_test.adapters.fakes import fake_models
+from rag_load_test.adapters.fakes.fake_models import (
     FakeChatModel,
     FakeEmbedder,
     FakeReranker,
-    InMemoryVectorStore,
 )
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError, describe_error
 from rag_load_test.domain.passages import Passage, ScoredPassage, top_by_score
@@ -242,7 +242,7 @@ async def test_fake_embedder_is_deterministic_unit_norm_and_topical() -> None:
 
     assert pie == pie_again
     assert math.isclose(math.sqrt(sum(x * x for x in pie)), 1.0, rel_tol=1e-9)
-    assert fakes.cosine(pie, tart) > fakes.cosine(pie, physics)
+    assert fake_models.cosine(pie, tart) > fake_models.cosine(pie, physics)
 
 
 async def test_fake_reranker_scores_by_overlap_and_truncates() -> None:

@@ -58,19 +58,26 @@ src/rag_load_test/
     settings.py     RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
-  adapters/         one module per outside system
-    local_models.py SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, the model thread pool
-                    (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
-    native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
-    cpu_count.py    where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
-    http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
-    json_log.py     log_json: the one log format
-    elasticsearch_store.py  ElasticsearchVectorStore
-    openai_chat.py  OpenAIChatModel
-    v3_contract.py  the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
-    ovms.py         BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
-    fakes.py        FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
+  adapters/         one subfolder per kind of outside system
     rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
+                    (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
+    local_models/   models loaded in this process
+      sentence_transformer_models.py  SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, the model thread pool
+      native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
+      cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
+    ovms/           models behind a model server
+      ovms_adapters.py  BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
+      v3_contract.py  the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
+    vector_store/
+      elasticsearch_store.py  ElasticsearchVectorStore
+    chat_model/
+      openai_chat.py  OpenAIChatModel
+    fakes/          the `fake` backends
+      fake_models.py  FakeEmbedder, FakeReranker, FakeChatModel
+      in_memory_vector_store.py  InMemoryVectorStore
+    shared/
+      http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
+      json_log.py   log_json: the one log format
   entrypoints/      processes: FastAPI apps and CLIs
     workflow_api.py FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
     model_server.py FastAPI model server with the OVMS /v3 contract (rag-model-server)
@@ -398,7 +405,7 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
   -d '{"model":"bge-small-en-v1.5","input":["vacation policy"]}'
 ```
 
-**Contracts** used by `ovms.py`, defined once in `v3_contract.py` (which the
+**Contracts** used by `adapters/ovms/ovms_adapters.py`, defined once in `adapters/ovms/v3_contract.py` (which the
 FastAPI model server reads too):
 
 | Adapter | Request | Response |

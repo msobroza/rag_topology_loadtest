@@ -1,4 +1,4 @@
-"""Unit tests for ``rag_load_test.adapters.ovms`` over ``httpx.MockTransport``.
+"""Unit tests for ``rag_load_test.adapters.ovms.ovms_adapters`` over ``httpx.MockTransport``.
 
 Every request is recorded (method, URL, JSON body, Authorization header) and
 answered from a script, so auth, batching, ordering and the retry policy are
@@ -16,13 +16,13 @@ from typing import Any
 import httpx
 import pytest
 
-from rag_load_test.adapters.http_policy import HttpPolicy
-from rag_load_test.adapters.ovms import (
+from rag_load_test.adapters.ovms.ovms_adapters import (
     BearerToken,
     OvmsEmbedder,
     OvmsEndpoint,
     OvmsReranker,
 )
+from rag_load_test.adapters.shared.http_policy import HttpPolicy
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
 

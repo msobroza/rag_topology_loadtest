@@ -25,10 +25,10 @@ from typing import NamedTuple
 import httpx
 from pydantic import ValidationError
 
-from ..domain.errors import RagDependencyError, describe_error
-from ..domain.passages import ScoredPassage
-from ..domain.ports import EmbedderPort, RerankerPort
-from .http_policy import HttpPolicy
+from ...domain.errors import RagDependencyError, describe_error
+from ...domain.passages import ScoredPassage
+from ...domain.ports import EmbedderPort, RerankerPort
+from ..shared.http_policy import HttpPolicy
 from .v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,

@@ -16,8 +16,8 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import Executor, ThreadPoolExecutor
 from typing import Any, TypeVar
 
-from ..domain.passages import ScoredPassage, top_by_score
-from ..domain.ports import EmbedderPort, RerankerPort
+from ...domain.passages import ScoredPassage, top_by_score
+from ...domain.ports import EmbedderPort, RerankerPort
 from .native_threads import NativeThreadScope
 
 T = TypeVar("T")

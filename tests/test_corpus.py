@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.fakes import FakeEmbedder, InMemoryVectorStore, tokenize
+from rag_load_test.adapters.fakes.fake_models import FakeEmbedder, tokenize
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.application.ingest import ingest
 from rag_load_test.config.settings import RagSettings

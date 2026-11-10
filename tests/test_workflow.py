@@ -8,8 +8,8 @@ from collections.abc import Sequence
 
 import pytest
 
-from rag_load_test.adapters.fakes import FakeChatModel
-from rag_load_test.adapters.local_models import NoReranker
+from rag_load_test.adapters.fakes.fake_models import FakeChatModel
+from rag_load_test.adapters.local_models.sentence_transformer_models import NoReranker
 from rag_load_test.application.workflow import RagWorkflow, merge_timings
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions

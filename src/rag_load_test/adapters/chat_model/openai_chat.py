@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain.errors import RagDependencyError
-from ..domain.ports import ChatModelPort
+from ...domain.errors import RagDependencyError
+from ...domain.ports import ChatModelPort
 
 
 class OpenAIChatModel(ChatModelPort):

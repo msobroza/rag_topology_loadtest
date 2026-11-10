@@ -22,7 +22,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
-from ..adapters.v3_contract import (
+from ..adapters.ovms.v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,
     EmbeddingsRequest,

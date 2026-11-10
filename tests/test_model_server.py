@@ -9,11 +9,15 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.adapters.fakes import FakeEmbedder, FakeReranker
-from rag_load_test.adapters.http_policy import HttpPolicy
-from rag_load_test.adapters.ovms import BearerToken, OvmsEmbedder, OvmsReranker
+from rag_load_test.adapters.fakes.fake_models import FakeEmbedder, FakeReranker
+from rag_load_test.adapters.ovms.ovms_adapters import (
+    BearerToken,
+    OvmsEmbedder,
+    OvmsReranker,
+)
+from rag_load_test.adapters.ovms.v3_contract import UNKNOWN_MODEL_ERROR
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.adapters.v3_contract import UNKNOWN_MODEL_ERROR
+from rag_load_test.adapters.shared.http_policy import HttpPolicy
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage

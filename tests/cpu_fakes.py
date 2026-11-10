@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rag_load_test.adapters.cpu_count import CpuCounter
+from rag_load_test.adapters.local_models.cpu_count import CpuCounter
 
 
 class FakeCpuCounter(CpuCounter):

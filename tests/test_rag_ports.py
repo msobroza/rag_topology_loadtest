@@ -12,19 +12,21 @@ import numpy as np
 import pytest
 
 from cpu_fakes import FakeCpuCounter
-from rag_load_test.adapters.elasticsearch_store import ElasticsearchVectorStore
-from rag_load_test.adapters.fakes import (
+from rag_load_test.adapters.fakes.fake_models import (
     FakeChatModel,
     FakeEmbedder,
     FakeReranker,
-    InMemoryVectorStore,
 )
-from rag_load_test.adapters.local_models import (
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
+from rag_load_test.adapters.local_models.sentence_transformer_models import (
     CrossEncoderReranker,
     NoReranker,
     SentenceTransformerEmbedder,
 )
 from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.adapters.vector_store.elasticsearch_store import (
+    ElasticsearchVectorStore,
+)
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage

@@ -25,10 +25,10 @@ from typing import Any
 
 import httpx
 
-from ..domain.errors import describe_error
-from ..domain.thread_budget import ThreadBudget, plan_thread_budget
-from .http_policy import HttpPolicy
-from .json_log import log_json
+from ...domain.errors import describe_error
+from ...domain.thread_budget import ThreadBudget, plan_thread_budget
+from ..shared.http_policy import HttpPolicy
+from ..shared.json_log import log_json
 
 TIER_PATH = "/api/hardwaretiers/v1/hardwaretiers/{tier_id}"
 
