@@ -173,6 +173,31 @@ def test_rag_prompts_reject_a_user_template_missing_a_placeholder(
     assert repr(user) in str(caught.value)
 
 
+@pytest.mark.parametrize(
+    "user",
+    [
+        "{context} {question} {history}",  # a placeholder nobody fills
+        '{context} {question} answer as {"answer": ...}',  # JSON braces not doubled
+        "{context} {question} }",  # a lone brace
+    ],
+)
+def test_rag_prompts_reject_a_brace_they_cannot_fill_when_built(user: str) -> None:
+    # Built at start-up from the settings, so this never waits for the first query.
+    with pytest.raises(ValueError) as caught:
+        RagPrompts(system="s", user=user)
+
+    assert "{{" in str(caught.value)  # says how to write a literal brace
+    assert repr(user) in str(caught.value)
+
+
+def test_rag_prompts_keep_braces_of_the_question_and_passages_as_they_are() -> None:
+    prompts = RagPrompts(system="s", user='{context}|{question}|{{"k": 1}}')
+
+    messages = prompts.messages("what is {x}?", [_passage("a", "set {y} to 1")])
+
+    assert messages[1]["content"] == '[1] set {y} to 1|what is {x}?|{"k": 1}'
+
+
 def test_merge_timings_merges_dicts_right_wins() -> None:
     assert merge_timings({"embed": 1.0}, {"retrieve": 2.0}) == {
         "embed": 1.0,

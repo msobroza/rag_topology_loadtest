@@ -33,6 +33,13 @@ class RagPrompts:
                 raise ValueError(
                     f"user prompt lacks the {placeholder} placeholder: {self.user!r}"
                 )
+        try:  # a brace str.format cannot fill would only fail on the first query
+            self.user.format(context="", question="")
+        except (KeyError, IndexError, ValueError, AttributeError) as exc:
+            raise ValueError(
+                "user prompt has a brace that is neither {context} nor {question}; "
+                f"write a literal brace as {{{{ or }}}}: {self.user!r}"
+            ) from exc
 
     def messages(
         self, question: str, passages: Sequence[ScoredPassage]
