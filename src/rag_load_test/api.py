@@ -211,19 +211,6 @@ def create_app(ports: RagPorts) -> FastAPI:
     return app
 
 
-def serving_settings(*, domino: bool) -> RagSettings:
-    """Settings from the environment, with the Domino rules applied when asked.
-
-    Raises ``ValueError`` (pydantic's ``ValidationError`` is one) on a contradiction.
-
-    Example::
-
-        settings = serving_settings(domino=True)   # what `rag-serve --domino` serves
-    """
-    settings = RagSettings()
-    return apply_domino_rules(settings) if domino else settings
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888."""
     parser = argparse.ArgumentParser(
@@ -238,7 +225,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        settings = serving_settings(domino=args.domino)
+        settings = RagSettings()
+        if args.domino:
+            settings = apply_domino_rules(settings)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")

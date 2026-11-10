@@ -11,7 +11,7 @@ point at either and the same load test compares FastAPI with OVMS.
 Example::
 
     rag-model-server --serve reranker --port 8011
-    RAG_OVMS_RERANK_URL=http://localhost:8011 RAG_RERANKER_BACKEND=ovms rag-serve
+    RAG_TOPOLOGY=split-reranker RAG_OVMS_RERANK_URL=http://localhost:8011 rag-serve
 """
 
 from __future__ import annotations

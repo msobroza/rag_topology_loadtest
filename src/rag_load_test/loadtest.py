@@ -190,19 +190,20 @@ def _stage_rows(
 # --- the target record: what the target said about itself during a run -------
 
 
-def target_pair(
-    status: int, headers: Mapping[str, str] | None
-) -> tuple[str, str] | None:
-    """``(topology, run label)`` a response reported; ``None`` when none came back.
+def target_pair(headers: Mapping[str, str] | None) -> tuple[str, str] | None:
+    """``(topology, run label)`` a response reported, or ``None`` when it reported
+    neither: a proxy's error page or a connection error is not the target speaking,
+    and counting it would make one configuration look like two.
 
     Example::
 
-        target_pair(200, {"X-RAG-Topology": "monolith"})  # ("monolith", "")
+        target_pair({"X-RAG-Topology": "monolith"})  # ("monolith", "")
     """
-    if status == 0:  # Locust's status for a connection error: no response at all
-        return None
     headers = headers or {}
-    return headers.get("X-RAG-Topology", ""), headers.get("X-RAG-Run-Label", "")
+    topology, run_label = headers.get("X-RAG-Topology"), headers.get("X-RAG-Run-Label")
+    if topology is None and run_label is None:
+        return None
+    return topology or "", run_label or ""
 
 
 def write_target_record(

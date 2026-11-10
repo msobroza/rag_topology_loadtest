@@ -24,6 +24,7 @@ from rag_load_test.models import (
     RerankerPort,
     ScoredPassage,
     VectorStorePort,
+    describe_error,
     top_by_score,
 )
 from rag_load_test.settings import RagSettings
@@ -53,6 +54,12 @@ def test_rag_dependency_error_message_carries_component_kind_and_target() -> Non
     assert err.kind == "unavailable"
     assert str(err) == "reranker unavailable: HTTP 503 (target=http://ovms:8001)"
     assert "timeout" in str(RagDependencyError("llm", "slow", kind="timeout"))
+
+
+def test_describe_error_names_the_type_and_the_message_when_there_is_one() -> None:
+    described = describe_error(TimeoutError("read timed out"))
+    assert described == "TimeoutError: read timed out"
+    assert describe_error(TimeoutError()) == "TimeoutError"
 
 
 def test_ports_are_runtime_checkable_and_fakes_satisfy_them() -> None:

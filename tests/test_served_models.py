@@ -9,17 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.served_models import (
-    ServedModel,
-    main,
-    served_models_from_settings,
-)
+from rag_load_test.served_models import main, served_model_assignments
 from rag_load_test.settings import RagSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_served_models_pair_each_source_id_with_its_alias(
+def test_assignments_pair_each_source_id_with_its_alias(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     settings = settings_factory(
@@ -29,10 +25,12 @@ def test_served_models_pair_each_source_id_with_its_alias(
         ovms_rerank_model="rerank",
     )
 
-    embedder, reranker = served_models_from_settings(settings)
-
-    assert embedder == ServedModel(source_id="org/embed", alias="embed")
-    assert reranker == ServedModel(source_id="org/rerank", alias="rerank")
+    assert served_model_assignments(settings) == [
+        "RERANKER_SOURCE_MODEL=org/rerank",
+        "RERANKER_MODEL_NAME=rerank",
+        "EMBEDDER_SOURCE_MODEL=org/embed",
+        "EMBEDDER_MODEL_NAME=embed",
+    ]
 
 
 @pytest.fixture

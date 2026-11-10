@@ -21,7 +21,7 @@ from collections.abc import Sequence
 import httpx
 from pydantic import ValidationError
 
-from .models import RagDependencyError, ScoredPassage
+from .models import RagDependencyError, ScoredPassage, describe_error
 from .v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,
@@ -72,7 +72,7 @@ class BearerToken:
             response = await self._client.get(DOMINO_TOKEN_URL, timeout=TIMEOUT_S)
         except httpx.TransportError as exc:
             raise RagDependencyError(
-                "domino_access_token", _describe(exc), target=DOMINO_TOKEN_URL
+                "domino_access_token", describe_error(exc), target=DOMINO_TOKEN_URL
             ) from exc
         token = response.text.strip()
         if response.status_code != 200 or not token:
@@ -108,7 +108,7 @@ class OvmsEndpoint:
             headers = await self._token.headers()
             response = await self._client.get(url, headers=headers, timeout=TIMEOUT_S)
         except (httpx.TransportError, RagDependencyError) as exc:
-            return False, _describe(exc)
+            return False, describe_error(exc)
         return response.status_code == 200, f"{url} -> {response.status_code}"
 
     async def _post(self, path: str, request: V3Request) -> object:
@@ -124,7 +124,7 @@ class OvmsEndpoint:
                     url, json=payload, headers=headers, timeout=TIMEOUT_S
                 )
             except httpx.TransportError as exc:
-                detail = _describe(exc)
+                detail = describe_error(exc)
                 kind = (
                     "timeout"
                     if isinstance(exc, httpx.TimeoutException)
@@ -200,14 +200,9 @@ def _describe_malformed(exc: Exception) -> str:
         _describe_malformed(exc)  # "ValidationError for RerankResponse: results: ..."
     """
     if not isinstance(exc, ValidationError):
-        return _describe(exc)
+        return describe_error(exc)
     problems = "; ".join(
         f"{'.'.join(str(part) for part in error['loc']) or '<body>'}: {error['msg']}"
         for error in exc.errors()
     )
     return f"ValidationError for {exc.title}: {problems}"
-
-
-def _describe(exc: BaseException) -> str:
-    message = str(exc)
-    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__

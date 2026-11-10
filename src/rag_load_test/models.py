@@ -120,6 +120,17 @@ class RagDependencies:
 # --- errors ----------------------------------------------------------------
 
 
+def describe_error(exc: BaseException) -> str:
+    """The exception's type, plus its message when it has one.
+
+    Example::
+
+        describe_error(TimeoutError("read timed out"))  # "TimeoutError: read timed out"
+    """
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
 class RagDependencyError(RuntimeError):
     """A dependency failed; ``kind`` is ``unavailable`` (HTTP 503) or ``timeout`` (504).
 

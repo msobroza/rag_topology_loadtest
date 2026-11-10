@@ -52,7 +52,7 @@ src/rag_load_test/
   corpus.py         synthetic handbook corpus, JSONL loader, chunking, rag-ingest
   loadtest.py       locust-free helpers (auth headers, stage events, questions) + rag-compare
   model_server.py   FastAPI model server with the OVMS /v3 contract (rag-model-server)
-  served_models.py  ServedModel (source id + alias) from the settings defaults, rag-served-models
+  served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)

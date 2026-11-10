@@ -46,7 +46,7 @@ def send(user: FastHttpUser, plan: RequestPlan) -> None:
         name=plan.stats_name,
         catch_response=True,
     ) as resp:
-        pair = target_pair(resp.status_code, resp.headers)
+        pair = target_pair(resp.headers)
         if pair is not None:
             RESPONSES_SEEN[pair] += 1
         verdict = judge_response(plan.path, resp.status_code, resp.text or "")

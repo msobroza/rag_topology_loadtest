@@ -208,22 +208,22 @@ TOPOLOGY, RUN_LABEL = "X-RAG-Topology", "X-RAG-Run-Label"
 
 
 @pytest.mark.parametrize(
-    ("status", "headers", "expected"),
+    ("headers", "expected"),
     [
-        (200, {TOPOLOGY: "monolith", RUN_LABEL: "mono-a"}, ("monolith", "mono-a")),
-        (503, {TOPOLOGY: "split-all", RUN_LABEL: "s"}, ("split-all", "s")),
-        (200, {TOPOLOGY: "monolith"}, ("monolith", "")),
-        (404, {}, ("", "")),
-        (200, None, ("", "")),
-        # status 0: no response came back (connection error), nothing to count
-        (0, None, None),
-        (0, {}, None),
+        ({TOPOLOGY: "monolith", RUN_LABEL: "mono-a"}, ("monolith", "mono-a")),
+        ({TOPOLOGY: "monolith"}, ("monolith", "")),
+        ({RUN_LABEL: "mono-a"}, ("", "mono-a")),
+        # Neither header: not the workflow app answering (a proxy's error page, a
+        # model server, a connection error), so there is nothing to count.
+        ({"Content-Type": "text/html"}, None),
+        ({}, None),
+        (None, None),
     ],
 )
 def test_target_pair(
-    status: int, headers: dict[str, str] | None, expected: tuple[str, str] | None
+    headers: dict[str, str] | None, expected: tuple[str, str] | None
 ) -> None:
-    assert target_pair(status, headers) == expected
+    assert target_pair(headers) == expected
 
 
 def _read_json(path: Path) -> Any:

@@ -45,6 +45,7 @@ from .models import (
     RagDependencyError,
     RerankerPort,
     VectorStorePort,
+    describe_error,
 )
 from .ovms import TIMEOUT_S, BearerToken, OvmsEmbedder, OvmsReranker
 from .settings import RagSettings
@@ -274,7 +275,7 @@ class RagPorts:
             except RagDependencyError:
                 raise  # a port this one depends on already says what failed
             except Exception as exc:
-                detail = f"could not open backend {backend!r}: {_describe(exc)}"
+                detail = f"could not open backend {backend!r}: {describe_error(exc)}"
                 raise RagDependencyError(name, detail) from exc
         return cast(T, self._opened[name])
 
@@ -284,8 +285,3 @@ class RagPorts:
                 f"RagPorts: {requested!r} requested outside 'async with RagPorts(...)'"
             )
         return self._exit_stack
-
-
-def _describe(exc: BaseException) -> str:
-    message = str(exc)
-    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__

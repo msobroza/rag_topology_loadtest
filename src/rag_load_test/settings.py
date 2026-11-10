@@ -19,6 +19,8 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .topology import (
+    DEFAULT_LLM_BACKEND,
+    DEFAULT_VECTOR_STORE_BACKEND,
     EmbedderBackend,
     LlmBackend,
     RerankerBackend,
@@ -60,11 +62,11 @@ class RagSettings(BaseSettings):
     # "" = no auth, "domino" = the run's token from localhost:8899, else a bearer token
     ovms_auth: str = ""
 
-    llm_backend: LlmBackend = "openai"
+    llm_backend: LlmBackend = DEFAULT_LLM_BACKEND
     openai_model: str = "gpt-4o-mini"  # OPENAI_API_KEY / OPENAI_BASE_URL via the SDK
 
     # "fake" = in-memory store seeded with the synthetic corpus when the app starts
-    vector_store_backend: VectorStoreBackend = "elasticsearch"
+    vector_store_backend: VectorStoreBackend = DEFAULT_VECTOR_STORE_BACKEND
     es_url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     es_api_key: str = ""
     domino_tracing: bool = False
