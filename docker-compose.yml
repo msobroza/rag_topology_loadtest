@@ -1,0 +1,29 @@
+# Local infrastructure for the split topologies and for ingestion.
+#   docker compose --env-file ovms/versions.env up -d
+# Elasticsearch: single node, security off (dev only). OVMS: model repository
+# produced by ovms/export_models.sh, mounted read-only.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+
+  ovms-reranker:
+    image: ${OVMS_IMAGE}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ovms/models:/workspace:ro
+    command: ["--rest_port", "8001", "--config_path", "/workspace/config_reranker.json"]
+
+  ovms-embedder:
+    image: ${OVMS_IMAGE}
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./ovms/models:/workspace:ro
+    command: ["--rest_port", "8002", "--config_path", "/workspace/config_embedder.json"]
