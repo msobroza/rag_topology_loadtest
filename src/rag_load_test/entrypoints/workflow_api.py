@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import json
 import logging
 import os
 import uuid
@@ -30,6 +29,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ..adapters.json_log import log_json
 from ..adapters.rag_ports import RagPorts
 from ..application.workflow import RagWorkflow
 from ..config.domino_rules import apply_domino_rules
@@ -65,11 +65,6 @@ class ReadyCheck(BaseModel):
 class ReadyResponse(BaseModel):
     status: Literal["ready", "not_ready"]
     checks: list[ReadyCheck]
-
-
-def log_json(**fields: Any) -> None:
-    """One JSON object per log line (the app's only log format)."""
-    logger.info(json.dumps(fields, default=str))
 
 
 def find_add_tracing() -> Callable[..., Any] | None:

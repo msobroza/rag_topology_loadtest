@@ -8,6 +8,7 @@ checked without a model server or a Domino token endpoint.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +16,7 @@ from typing import Any
 import httpx
 import pytest
 
+from rag_load_test.adapters.http_policy import HttpPolicy
 from rag_load_test.adapters.ovms import (
     BearerToken,
     OvmsEmbedder,
@@ -29,6 +31,7 @@ RERANK_MODEL = "bge-reranker-base"
 EMBED_MODEL = "bge-small-en-v1.5"
 TOKEN_URL = "http://token.test/access-token"
 RETRIES, TIMEOUT_S = 2, 30.0
+NO_WAIT = HttpPolicy(timeout_s=TIMEOUT_S, retries=RETRIES, backoff_s=0.0)
 
 
 @dataclass
@@ -89,9 +92,7 @@ async def client_factory() -> AsyncIterator[ClientFactory]:
 def bearer(
     client: httpx.AsyncClient, auth: str, *, ttl_s: float = 240.0
 ) -> BearerToken:
-    return BearerToken(
-        client, auth, token_url=TOKEN_URL, ttl_s=ttl_s, timeout_s=TIMEOUT_S
-    )
+    return BearerToken(client, auth, token_url=TOKEN_URL, ttl_s=ttl_s, policy=NO_WAIT)
 
 
 def endpoint(
@@ -101,22 +102,12 @@ def endpoint(
     auth: str = "",
     model: str = RERANK_MODEL,
     base_url: str = BASE_URL,
-    timeout_s: float = TIMEOUT_S,
-    retries: int = RETRIES,
+    policy: HttpPolicy = NO_WAIT,  # retries must not sleep in tests
     batch_size: int = 64,
 ) -> Any:
     sizing = {"batch_size": batch_size} if kind is OvmsEmbedder else {}
-    built = kind(
-        client,
-        base_url,
-        model,
-        token=bearer(client, auth),
-        timeout_s=timeout_s,
-        retries=retries,
-        **sizing,
-    )
-    built.backoff_s = 0  # retries must not sleep in tests
-    return built
+    token = bearer(client, auth)
+    return kind(client, base_url, model, token=token, policy=policy, **sizing)
 
 
 def token_text(token: str) -> httpx.Response:
@@ -396,7 +387,7 @@ async def test_post_with_zero_retries_makes_one_attempt(
     client_factory: ClientFactory,
 ) -> None:
     script = ScriptedTransport(httpx.Response(503, text="busy"))
-    reranker = endpoint(client_factory(script), retries=0)
+    reranker = endpoint(client_factory(script), policy=HttpPolicy(4.5, 0, 0.0))
     with pytest.raises(RagDependencyError):
         await reranker.rerank("q", passages(1), top_n=1)
     assert script.methods == ["POST"]
@@ -406,10 +397,22 @@ async def test_calls_carry_the_configured_timeout(
     client_factory: ClientFactory,
 ) -> None:
     script = ScriptedTransport(rerank_body((0, 0.9)))
-    reranker = endpoint(client_factory(script), timeout_s=4.5)
+    reranker = endpoint(client_factory(script), policy=HttpPolicy(4.5, 2, 0.0))
     await reranker.rerank("q", passages(1), top_n=1)
     assert await reranker.ready() == (
         True,
         f"{BASE_URL}/v3/models/{RERANK_MODEL} -> 200",
     )
     assert [r.read_timeout for r in script.requests] == [4.5, 4.5]
+
+
+async def test_retries_wait_the_policy_backoff_doubling_each_time(
+    client_factory: ClientFactory,
+) -> None:
+    script = ScriptedTransport(httpx.Response(503, text="busy"))
+    reranker = endpoint(client_factory(script), policy=HttpPolicy(30.0, 2, 0.05))
+    started = time.perf_counter()
+    with pytest.raises(RagDependencyError):
+        await reranker.rerank("q", passages(1), top_n=1)
+    assert time.perf_counter() - started >= 0.15  # 0.05 s, then 0.1 s
+    assert script.methods == ["POST"] * 3

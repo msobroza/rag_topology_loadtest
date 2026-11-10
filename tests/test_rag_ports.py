@@ -11,6 +11,7 @@ import httpx
 import numpy as np
 import pytest
 
+from cpu_fakes import FakeCpuCounter
 from rag_load_test.adapters.elasticsearch_store import ElasticsearchVectorStore
 from rag_load_test.adapters.fakes import (
     FakeChatModel,
@@ -350,3 +351,132 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
     assert transport.closed
     with pytest.raises(RuntimeError, match="after shutdown"):
         await deps.embedder.embed(["the model pool is gone"])
+
+
+# --- thread budget ----------------------------------------------------------------------
+
+
+def thread_budget_line(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
+    """The one ``thread_budget`` JSON line RagPorts logged."""
+    lines = [
+        json.loads(r.message) for r in caplog.records if "thread_budget" in r.message
+    ]
+    [line] = lines
+    return line
+
+
+async def open_local_models(
+    ports: RagPorts,
+) -> tuple[SentenceTransformerEmbedder, CrossEncoderReranker]:
+    async with ports:
+        embedder, reranker = await ports.local_embedder(), await ports.local_reranker()
+    assert isinstance(embedder, SentenceTransformerEmbedder)
+    assert isinstance(reranker, CrossEncoderReranker)
+    return embedder, reranker
+
+
+async def test_local_model_scopes_carry_the_thread_budget(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    container = FakeCpuCounter(8, "container")
+    ports = RagPorts(settings_factory(), container_cpus=container)
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        embedder, reranker = await open_local_models(ports)
+
+    assert (embedder.scope.threads, reranker.scope.threads) == (2, 2)
+    assert thread_budget_line(caplog) == {
+        "event": "thread_budget",
+        "cpus": 8,
+        "source": "container",
+        "workers": 4,
+        "embedder_threads": 2,
+        "reranker_threads": 2,
+    }
+
+
+async def test_a_thread_override_replaces_one_share(
+    settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
+) -> None:
+    settings = settings_factory(embedder_threads=1)
+    ports = RagPorts(settings, container_cpus=FakeCpuCounter(8, "container"))
+    embedder, reranker = await open_local_models(ports)
+
+    assert (embedder.scope.threads, reranker.scope.threads) == (1, 2)
+
+
+async def test_model_cpus_win_over_every_counter(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    container = FakeCpuCounter(8, "container")
+    settings = settings_factory(
+        model_cpus=3, domino_api_proxy="http://proxy", domino_hardware_tier_id="t"
+    )
+    ports = RagPorts(settings, container_cpus=container)  # no transport: no HTTP
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        await open_local_models(ports)
+
+    line = thread_budget_line(caplog)
+    assert (line["source"], line["cpus"], line["workers"]) == ("RAG_MODEL_CPUS", 3, 3)
+    assert container.asked == 0
+
+
+async def test_on_domino_the_hardware_tier_is_asked(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    asked: list[str] = []
+
+    def domino(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        resources = {"cores": 6.0}
+        return httpx.Response(200, json={"hardwareTier": {"resources": resources}})
+
+    container = FakeCpuCounter(8, "container")
+    settings = settings_factory(
+        domino_api_proxy="http://proxy", domino_hardware_tier_id="tier-9"
+    )
+    transport = httpx.MockTransport(domino)
+    ports = RagPorts(settings, container_cpus=container, transport=transport)
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        embedder, _ = await open_local_models(ports)
+
+    assert asked == ["/api/hardwaretiers/v1/hardwaretiers/tier-9"]
+    line = thread_budget_line(caplog)
+    assert (line["source"], line["cpus"], line["workers"]) == (
+        "domino_hardware_tier",
+        6.0,
+        4,
+    )
+    assert embedder.scope.threads == 1 and container.asked == 0
+
+
+async def test_when_the_tier_cannot_say_the_container_answers(
+    settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
+) -> None:
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text="no ViewHardwareTiers")
+
+    container = FakeCpuCounter(2, "container")
+    settings = settings_factory(
+        domino_api_proxy="http://proxy", domino_hardware_tier_id="tier-9"
+    )
+    transport = httpx.MockTransport(forbidden)
+    ports = RagPorts(settings, container_cpus=container, transport=transport)
+    embedder, _ = await open_local_models(ports)
+
+    assert container.asked == 1 and embedder.scope.threads == 1
+
+
+async def test_fake_models_never_work_out_a_budget(
+    fake_settings: RagSettings,
+) -> None:
+    container = FakeCpuCounter(8, "container")
+    async with RagPorts(fake_settings, container_cpus=container) as ports:
+        await ports.workflow_dependencies()
+
+    assert container.asked == 0

@@ -3,15 +3,16 @@
 OVMS exposes OpenAI-compatible ``/v3/embeddings`` and Cohere-compatible
 ``/v3/rerank``; their paths and JSON shapes come from :mod:`.v3_contract`.
 On Domino each OVMS app sits behind a proxy that expects the run's bearer
-token, hence :class:`BearerToken`. Calls time out after ``timeout_s`` and are
-retried ``retries`` times on transport errors, 5xx and 401; ``RagPorts`` passes
-both from ``RagSettings`` (``RAG_HTTP_TIMEOUT_S``, ``RAG_HTTP_RETRIES``).
+token, hence :class:`BearerToken`. Calls follow one :class:`HttpPolicy`: they
+time out after ``timeout_s`` and are retried ``retries`` times on transport
+errors, 5xx and 401, waiting ``backoff_s`` (doubled each time) in between.
 
 Example::
 
-    token = BearerToken(client, "", token_url=url, ttl_s=240.0, timeout_s=30.0)
+    policy = HttpPolicy(timeout_s=30.0, retries=2, backoff_s=0.2)
+    token = BearerToken(client, "", token_url=url, ttl_s=240.0, policy=policy)
     reranker = OvmsReranker(client, "http://localhost:8001", "bge-reranker-base",
-                            token=token, timeout_s=30.0, retries=2)
+                            token=token, policy=policy)
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from pydantic import ValidationError
 from ..domain.errors import RagDependencyError, describe_error
 from ..domain.passages import ScoredPassage
 from ..domain.ports import EmbedderPort, RerankerPort
+from .http_policy import HttpPolicy
 from .v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,
@@ -46,7 +48,7 @@ class BearerToken:
 
     Example::
 
-        token = BearerToken(client, "domino", token_url=url, ttl_s=240, timeout_s=30)
+        token = BearerToken(client, "domino", token_url=url, ttl_s=240, policy=policy)
         await token.headers()   # {"Authorization": "Bearer <run token>"}
         # auth "abc" -> "Bearer abc"; auth "" -> {}
     """
@@ -58,10 +60,12 @@ class BearerToken:
         *,
         token_url: str,
         ttl_s: float,
-        timeout_s: float,
+        policy: HttpPolicy,
     ) -> None:
         self._client, self._auth = client, auth
-        self._token_url, self._ttl_s, self._timeout_s = token_url, ttl_s, timeout_s
+        # One attempt only: a failed fetch fails the model call, which retries.
+        self._token_url, self._ttl_s = token_url, ttl_s
+        self._timeout_s = policy.timeout_s
         self._cached: str | None = None
         self._fetched_at = 0.0
 
@@ -96,7 +100,6 @@ class OvmsEndpoint:
     """Shared plumbing for one OVMS servable: URLs, auth, retries, readiness."""
 
     component = "ovms"
-    backoff_s = 0.2  # doubled per attempt; tests set it to 0
 
     def __init__(
         self,
@@ -105,11 +108,9 @@ class OvmsEndpoint:
         model: str,
         *,
         token: BearerToken,
-        timeout_s: float,
-        retries: int,
+        policy: HttpPolicy,
     ) -> None:
-        self._client, self._token = client, token
-        self._timeout_s, self._retries = timeout_s, retries
+        self._client, self._token, self._policy = client, token, policy
         self._base_url, self.model = base_url.rstrip("/"), model
         self.model_name = f"ovms:{model}"
 
@@ -118,7 +119,7 @@ class OvmsEndpoint:
         try:
             headers = await self._token.headers()
             response = await self._client.get(
-                url, headers=headers, timeout=self._timeout_s
+                url, headers=headers, timeout=self._policy.timeout_s
             )
         except (httpx.TransportError, RagDependencyError) as exc:
             return False, describe_error(exc)
@@ -128,13 +129,13 @@ class OvmsEndpoint:
         """POST JSON; retry on transport errors, 5xx and 401 (token dropped first)."""
         url, payload = self._base_url + path, request.to_wire()
         detail, kind = "no attempt made", "unavailable"
-        for attempt in range(self._retries + 1):
+        for attempt in range(self._policy.retries + 1):
             if attempt:
-                await asyncio.sleep(self.backoff_s * 2 ** (attempt - 1))
+                await asyncio.sleep(self._policy.backoff_before(attempt))
             try:
                 headers = await self._token.headers()
                 response = await self._client.post(
-                    url, json=payload, headers=headers, timeout=self._timeout_s
+                    url, json=payload, headers=headers, timeout=self._policy.timeout_s
                 )
             except httpx.TransportError as exc:
                 detail = describe_error(exc)
@@ -178,13 +179,10 @@ class OvmsEmbedder(OvmsEndpoint, EmbedderPort):
         model: str,
         *,
         token: BearerToken,
-        timeout_s: float,
-        retries: int,
+        policy: HttpPolicy,
         batch_size: int,
     ) -> None:
-        super().__init__(
-            client, base_url, model, token=token, timeout_s=timeout_s, retries=retries
-        )
+        super().__init__(client, base_url, model, token=token, policy=policy)
         self.batch_size = batch_size
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:

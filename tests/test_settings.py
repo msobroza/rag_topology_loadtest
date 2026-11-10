@@ -36,7 +36,7 @@ def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     assert s.es_index == "rag_passages"
     assert (s.embedder_batch_size, s.reranker_batch_size) == (64, 32)
     assert s.model_workers == 4
-    assert (s.http_timeout_s, s.http_retries) == (30.0, 2)
+    assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (30.0, 2, 0.2)
     assert s.domino_token_url == "http://localhost:8899/access-token"
     assert s.domino_token_ttl_s == 240.0
     assert s.fake_store_seed_documents == 200
@@ -54,6 +54,7 @@ def test_tunables_read_rag_prefixed_env(
         "RAG_MODEL_WORKERS": "2",
         "RAG_HTTP_TIMEOUT_S": "5.5",
         "RAG_HTTP_RETRIES": "0",
+        "RAG_HTTP_BACKOFF_S": "0.5",
         "RAG_DOMINO_TOKEN_URL": "http://token.test/t",
         "RAG_DOMINO_TOKEN_TTL_S": "60",
         "RAG_FAKE_STORE_SEED_DOCUMENTS": "30",
@@ -64,7 +65,7 @@ def test_tunables_read_rag_prefixed_env(
     s = settings_factory()
     assert (s.top_k_retrieve, s.top_k_rerank, s.es_index) == (50, 10, "passages_v2")
     assert (s.embedder_batch_size, s.reranker_batch_size, s.model_workers) == (16, 8, 2)
-    assert (s.http_timeout_s, s.http_retries) == (5.5, 0)
+    assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (5.5, 0, 0.5)
     assert (s.domino_token_url, s.domino_token_ttl_s) == ("http://token.test/t", 60.0)
     assert s.fake_store_seed_documents == 30
 
@@ -163,3 +164,58 @@ def test_a_user_prompt_without_a_placeholder_fails_at_construction(
 ) -> None:
     with pytest.raises(ValidationError, match=r"\{context\}"):
         settings_factory(user_prompt="Question: {question}")
+
+
+# --- thread budget inputs ---------------------------------------------------------
+
+
+def test_thread_budget_inputs_default_to_find_out(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOMINO_API_PROXY", raising=False)
+    monkeypatch.delenv("DOMINO_HARDWARE_TIER_ID", raising=False)
+
+    s = settings_factory()
+    assert (s.model_cpus, s.embedder_threads, s.reranker_threads) == (0, 0, 0)
+    assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("", "")
+
+
+def test_thread_budget_inputs_read_rag_env_and_domino_variables(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_MODEL_CPUS", "2.5")
+    monkeypatch.setenv("RAG_EMBEDDER_THREADS", "3")
+    monkeypatch.setenv("RAG_RERANKER_THREADS", "1")
+    monkeypatch.setenv("DOMINO_API_PROXY", "http://localhost:8899")
+    monkeypatch.setenv("DOMINO_HARDWARE_TIER_ID", "small-k8s")
+
+    s = settings_factory()
+    assert (s.model_cpus, s.embedder_threads, s.reranker_threads) == (2.5, 3, 1)
+    assert s.domino_api_proxy == "http://localhost:8899"
+    assert s.domino_hardware_tier_id == "small-k8s"
+
+
+def test_domino_variables_are_not_read_with_the_rag_prefix(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOMINO_API_PROXY", raising=False)
+    monkeypatch.setenv("RAG_DOMINO_API_PROXY", "http://wrong")
+
+    assert settings_factory().domino_api_proxy == ""
+
+
+def test_domino_variables_can_be_passed_by_field_name(
+    settings_factory: SettingsFactory,
+) -> None:
+    s = settings_factory(domino_api_proxy="http://p", domino_hardware_tier_id="t")
+    assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("http://p", "t")
+
+
+@pytest.mark.parametrize(
+    "field", ["model_cpus", "embedder_threads", "reranker_threads"]
+)
+def test_negative_thread_budget_inputs_are_rejected(
+    settings_factory: SettingsFactory, field: str
+) -> None:
+    with pytest.raises(ValidationError, match=field):
+        settings_factory(**{field: -1})

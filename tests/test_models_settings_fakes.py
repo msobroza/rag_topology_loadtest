@@ -189,21 +189,27 @@ def test_settings_reject_unknown_topology(
 def test_settings_field_set_is_pinned() -> None:
     # Experiments should vary the topology, not grow knobs: adding a field is a
     # decision. The tunables (top-k, index, batch sizes, workers, HTTP, Domino token,
-    # seed size) and the prompts were moved here from module constants on purpose.
+    # seed size, HTTP backoff), the prompts and the thread-budget inputs were
+    # moved or added here on purpose.
     assert sorted(RagSettings.model_fields) == [
+        "domino_api_proxy",
+        "domino_hardware_tier_id",
         "domino_token_ttl_s",
         "domino_token_url",
         "domino_tracing",
         "embedder_backend",
         "embedder_batch_size",
         "embedder_model",
+        "embedder_threads",
         "es_api_key",
         "es_index",
         "es_url",
         "fake_store_seed_documents",
+        "http_backoff_s",
         "http_retries",
         "http_timeout_s",
         "llm_backend",
+        "model_cpus",
         "model_workers",
         "openai_model",
         "ovms_auth",
@@ -214,6 +220,7 @@ def test_settings_field_set_is_pinned() -> None:
         "reranker_backend",
         "reranker_batch_size",
         "reranker_model",
+        "reranker_threads",
         "run_label",
         "system_prompt",
         "top_k_rerank",

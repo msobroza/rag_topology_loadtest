@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rag_load_test.adapters.fakes import FakeEmbedder, FakeReranker
+from rag_load_test.adapters.http_policy import HttpPolicy
 from rag_load_test.adapters.ovms import BearerToken, OvmsEmbedder, OvmsReranker
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.v3_contract import UNKNOWN_MODEL_ERROR
@@ -24,25 +25,22 @@ RERANK_ALIAS = "bge-reranker-base"  # RagSettings().ovms_rerank_model
 
 def ovms_reranker(client: httpx.AsyncClient, alias: str) -> OvmsReranker:
     """An ``OvmsReranker`` at ``http://models`` without auth, retries not sleeping."""
-    reranker = OvmsReranker(client, "http://models", alias, **_no_auth(client))
-    reranker.backoff_s = 0
-    return reranker
+    return OvmsReranker(client, "http://models", alias, **_no_auth(client))
 
 
 def ovms_embedder(client: httpx.AsyncClient, alias: str) -> OvmsEmbedder:
     """An ``OvmsEmbedder`` at ``http://models`` without auth, retries not sleeping."""
-    embedder = OvmsEmbedder(
+    return OvmsEmbedder(
         client, "http://models", alias, batch_size=64, **_no_auth(client)
     )
-    embedder.backoff_s = 0
-    return embedder
 
 
 def _no_auth(client: httpx.AsyncClient) -> dict[str, Any]:
+    policy = HttpPolicy(timeout_s=30.0, retries=2, backoff_s=0.0)
     token = BearerToken(
-        client, "", token_url="http://unused.test", ttl_s=240.0, timeout_s=30.0
+        client, "", token_url="http://unused.test", ttl_s=240.0, policy=policy
     )
-    return {"token": token, "timeout_s": 30.0, "retries": 2}
+    return {"token": token, "policy": policy}
 
 
 @pytest.fixture

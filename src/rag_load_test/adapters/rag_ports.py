@@ -5,13 +5,13 @@ One instance serves one process. The workflow app asks for all four ports,
 in-process model; nothing else is built, so no unused weights load and no unused
 client is created. The model thread pool, the HTTP client and the bearer token
 are created on first need, shared, and released when the ``async with`` block
-ends. A port handed to the constructor is used as given and never closed here.
+ends; so is the thread budget, from the first CPU counter that answers
+(``RAG_MODEL_CPUS``, the Domino tier, the container; see ``cpu_count.py``). A
+port handed to the constructor is used as given and never closed here.
 
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
-not guarded against running concurrently.
-
-This is the only adapter module that reads ``RagSettings``: every other adapter
-takes its sizes, timeouts and names as constructor arguments from here.
+not guarded against running concurrently. This is the only adapter module that
+reads ``RagSettings``; the others take their values as constructor arguments.
 
 Example::
 
@@ -43,14 +43,24 @@ from ..domain.ports import (
     RerankerPort,
     VectorStorePort,
 )
+from ..domain.thread_budget import ThreadBudget
+from .cpu_count import (
+    ContainerCpus,
+    CpuCounter,
+    DominoHardwareTierCpus,
+    FixedCpus,
+    work_out_thread_budget,
+)
 from .elasticsearch_store import ElasticsearchVectorStore
 from .fakes import FakeChatModel, FakeEmbedder, FakeReranker, InMemoryVectorStore
+from .http_policy import HttpPolicy
 from .local_models import (
     CrossEncoderReranker,
     NoReranker,
     SentenceTransformerEmbedder,
     model_executor,
 )
+from .native_threads import settle_torch_thread
 from .openai_chat import OpenAIChatModel
 from .ovms import BearerToken, OvmsEmbedder, OvmsReranker
 
@@ -92,9 +102,14 @@ class RagPorts:
         reranker: RerankerPort | None = None,
         chat_model: ChatModelPort | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        container_cpus: CpuCounter | None = None,
     ) -> None:
         self.settings = settings
+        self._container_cpus = container_cpus or ContainerCpus()
         self._supplied = _SuppliedPorts(embedder, vector_store, reranker, chat_model)
+        self._http_policy = HttpPolicy(
+            settings.http_timeout_s, settings.http_retries, settings.http_backoff_s
+        )
         self._transport = transport
         self._opened: dict[str, object] = {}
         self._exit_stack: AsyncExitStack | None = None
@@ -164,8 +179,7 @@ class RagPorts:
                 settings.ovms_embeddings_url,
                 settings.ovms_embeddings_model,
                 token=await self._bearer_token(),
-                timeout_s=settings.http_timeout_s,
-                retries=settings.http_retries,
+                policy=self._http_policy,
                 batch_size=settings.embedder_batch_size,
             )
         return await self._local_embedder()
@@ -188,8 +202,7 @@ class RagPorts:
                 settings.ovms_rerank_url,
                 settings.ovms_rerank_model,
                 token=await self._bearer_token(),
-                timeout_s=settings.http_timeout_s,
-                retries=settings.http_retries,
+                policy=self._http_policy,
             )
         return await self._local_reranker()
 
@@ -235,37 +248,63 @@ class RagPorts:
         return await self._once("local_embedder", "local", self._load_embedder)
 
     async def _load_embedder(self) -> EmbedderPort:
-        pool = await self._model_pool()
+        budget, pool = await self._thread_budget(), await self._model_pool()
         return SentenceTransformerEmbedder.from_pretrained(
             self.settings.embedder_model,
             pool,
             batch_size=self.settings.embedder_batch_size,
+            threads=budget.embedder_threads,
         )
 
     async def _local_reranker(self) -> RerankerPort:
         return await self._once("local_reranker", "local", self._load_reranker)
 
     async def _load_reranker(self) -> RerankerPort:
-        pool = await self._model_pool()
+        budget, pool = await self._thread_budget(), await self._model_pool()
         return CrossEncoderReranker.from_pretrained(
             self.settings.reranker_model,
             pool,
             batch_size=self.settings.reranker_batch_size,
+            threads=budget.reranker_threads,
         )
 
     async def _model_pool(self) -> ThreadPoolExecutor:
         return await self._once("model_pool", OWNED, self._start_model_pool)
 
     async def _start_model_pool(self) -> ThreadPoolExecutor:
-        pool = model_executor(self.settings.model_workers)
+        workers = (await self._thread_budget()).workers
+        # Only real local models reach here; see settle_torch_thread for why.
+        pool = model_executor(workers, on_thread_start=settle_torch_thread)
         self._stack("model_pool").callback(pool.shutdown, wait=False)
         return pool
+
+    async def _thread_budget(self) -> ThreadBudget:
+        return await self._once("thread_budget", OWNED, self._work_out_budget)
+
+    async def _work_out_budget(self) -> ThreadBudget:
+        settings = self.settings
+        counters: list[CpuCounter] = [FixedCpus(settings.model_cpus)]
+        if settings.domino_api_proxy and settings.domino_hardware_tier_id:
+            counters.append(
+                DominoHardwareTierCpus(
+                    await self._http_client(),
+                    settings.domino_api_proxy,
+                    settings.domino_hardware_tier_id,
+                    self._http_policy,
+                )
+            )
+        return await work_out_thread_budget(
+            [*counters, self._container_cpus],
+            max_workers=settings.model_workers,
+            embedder_threads=settings.embedder_threads,
+            reranker_threads=settings.reranker_threads,
+        )
 
     async def _http_client(self) -> httpx.AsyncClient:
         return await self._once("http_client", OWNED, self._start_http_client)
 
     async def _start_http_client(self) -> httpx.AsyncClient:
-        timeout = self.settings.http_timeout_s
+        timeout = self._http_policy.timeout_s
         client = httpx.AsyncClient(timeout=timeout, transport=self._transport)
         self._stack("http_client").push_async_callback(client.aclose)
         return client
@@ -281,7 +320,7 @@ class RagPorts:
             settings.ovms_auth,
             token_url=settings.domino_token_url,
             ttl_s=settings.domino_token_ttl_s,
-            timeout_s=settings.http_timeout_s,
+            policy=self._http_policy,
         )
 
     # --- bookkeeping ----------------------------------------------------------------

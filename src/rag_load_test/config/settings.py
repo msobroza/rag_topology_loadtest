@@ -24,7 +24,7 @@ import os
 from pathlib import Path
 from typing import cast
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -53,7 +53,10 @@ PACKAGED_PROMPTS = Path(__file__).with_name("prompts.yaml")
 
 class RagSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="RAG_", env_file=".env", extra="ignore", protected_namespaces=()
+        env_prefix="RAG_",
+        env_file=".env",
+        extra="ignore",
+        protected_namespaces=(),
     )
 
     topology: Topology = "monolith"
@@ -99,11 +102,29 @@ class RagSettings(BaseSettings):
     # --- in-process models -------------------------------------------------------
     embedder_batch_size: int = Field(default=64, ge=1)
     reranker_batch_size: int = Field(default=32, ge=1)
-    model_workers: int = Field(default=4, ge=1)  # inference calls running at once
+    model_workers: int = Field(default=4, ge=1)  # inference calls running at once, max
+
+    # --- thread budget: virtual CPUs split between workers (domain/thread_budget.py)
+    model_cpus: float = Field(default=0, ge=0)  # 0 = find out; > 0 wins over all
+    embedder_threads: int = Field(default=0, ge=0)  # 0 = from the budget
+    reranker_threads: int = Field(default=0, ge=0)  # 0 = from the budget
+    # Domino's own run variables, read here and nowhere else. Aliases never get
+    # the RAG_ prefix; the lower-case choice keeps the field name usable as a kwarg.
+    domino_api_proxy: str = Field(
+        default="",
+        validation_alias=AliasChoices("DOMINO_API_PROXY", "domino_api_proxy"),
+    )
+    domino_hardware_tier_id: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "DOMINO_HARDWARE_TIER_ID", "domino_hardware_tier_id"
+        ),
+    )
 
     # --- HTTP to model servers and Domino ------------------------------------------
     http_timeout_s: float = Field(default=30.0, gt=0)
     http_retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 401
+    http_backoff_s: float = Field(default=0.2, ge=0)  # before the 1st retry; doubles
     domino_token_url: str = "http://localhost:8899/access-token"
     domino_token_ttl_s: float = Field(default=240.0, gt=0)  # tokens live ~5 min
 

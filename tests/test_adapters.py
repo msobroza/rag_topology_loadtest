@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -25,11 +26,12 @@ from rag_load_test.adapters.local_models import (
     NoReranker,
     SentenceTransformerEmbedder,
 )
+from rag_load_test.adapters.native_threads import NativeThreadScope
 from rag_load_test.adapters.openai_chat import OpenAIChatModel
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage, ScoredPassage
 
-HEAVY_MODULES = ("sentence_transformers", "torch", "elasticsearch", "openai")
+HEAVY_MODULES = ("sentence_transformers", "torch", "elasticsearch", "openai", "joblib")
 INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
 
 
@@ -46,6 +48,32 @@ def test_model_executor_runs_the_given_number_of_workers() -> None:
         assert pool._max_workers == 3
     finally:
         pool.shutdown(wait=True)
+
+
+def test_model_executor_runs_on_thread_start_in_each_new_worker() -> None:
+    started: list[str] = []
+
+    def record() -> None:
+        started.append(threading.current_thread().name)
+
+    pool = local_models.model_executor(workers=1, on_thread_start=record)
+    try:
+        worker = pool.submit(lambda: threading.current_thread().name).result()
+    finally:
+        pool.shutdown(wait=True)
+    assert started == [worker] and worker.startswith("rag-model")
+
+
+class RecordingScope(NativeThreadScope):
+    """A real scope that also records the thread each call ran on."""
+
+    def __init__(self, threads: int) -> None:
+        super().__init__(threads)
+        self.ran_on: list[str] = []
+
+    def run(self, fn: Callable[..., Any], *args: Any) -> Any:
+        self.ran_on.append(threading.current_thread().name)
+        return super().run(fn, *args)
 
 
 def scored_passages(*ids: str) -> list[ScoredPassage]:
@@ -80,12 +108,29 @@ def st_model() -> FakeSentenceTransformer:
 
 
 @pytest.fixture
+def st_scope() -> RecordingScope:
+    return RecordingScope(2)
+
+
+@pytest.fixture
 def st_embedder(
-    st_model: FakeSentenceTransformer, executor: ThreadPoolExecutor
+    st_model: FakeSentenceTransformer,
+    executor: ThreadPoolExecutor,
+    st_scope: RecordingScope,
 ) -> SentenceTransformerEmbedder:
     return SentenceTransformerEmbedder(
-        st_model, executor, model_name="fake-st", batch_size=8
+        st_model, executor, model_name="fake-st", batch_size=8, scope=st_scope
     )
+
+
+async def test_st_embedder_encodes_inside_its_scope_on_a_worker(
+    st_embedder: SentenceTransformerEmbedder, st_scope: RecordingScope
+) -> None:
+    await st_embedder.embed(["a"])
+
+    assert st_embedder.scope is st_scope
+    [thread] = st_scope.ran_on
+    assert thread.startswith("rag-model")
 
 
 async def test_st_embedder_returns_plain_lists_and_normalizes(
@@ -127,8 +172,12 @@ async def test_cross_encoder_orders_by_score_and_truncates(
     executor: ThreadPoolExecutor,
 ) -> None:
     model = FakeCrossEncoder([0.25, 0.75, 0.5])  # exact in float32
-    reranker = CrossEncoderReranker(model, executor, model_name="fake-ce", batch_size=4)
+    scope = RecordingScope(3)
+    reranker = CrossEncoderReranker(
+        model, executor, model_name="fake-ce", batch_size=4, scope=scope
+    )
     ranked = await reranker.rerank("q", scored_passages("a", "b", "c"), top_n=2)
+    assert [t.startswith("rag-model") for t in scope.ran_on] == [True]
     assert [p.id for p in ranked] == ["b", "c"]
     assert [p.rerank_score for p in ranked] == [0.75, 0.5]
     assert all(type(p.rerank_score) is float for p in ranked)
@@ -142,7 +191,7 @@ async def test_cross_encoder_empty_input_skips_model(
 ) -> None:
     model = FakeCrossEncoder([])
     reranker = CrossEncoderReranker(
-        model, executor, model_name="fake-ce", batch_size=32
+        model, executor, model_name="fake-ce", batch_size=32, scope=RecordingScope(1)
     )
     assert await reranker.rerank("q", [], top_n=3) == []
     assert model.calls == []
@@ -399,7 +448,8 @@ def test_importing_adapters_leaves_heavy_libraries_unimported() -> None:
     # Fresh interpreter: this process may already have torch/openai loaded.
     code = (
         "import sys; import rag_load_test.adapters.local_models, "
-        "rag_load_test.adapters.elasticsearch_store, rag_load_test.adapters.openai_chat; "
+        "rag_load_test.adapters.elasticsearch_store, rag_load_test.adapters.openai_chat, "
+        "rag_load_test.adapters.native_threads, rag_load_test.adapters.cpu_count; "
         f"print(sorted(m for m in {HEAVY_MODULES!r} if m in sys.modules))"
     )
     command = [sys.executable, "-c", code]
