@@ -1,7 +1,8 @@
 """The layer rule, read from the source with ``ast``: domain imports no other layer;
 application and config import only domain (and themselves). And the mock rule:
 ``fake_domino`` imports nothing from ``rag_load_test``, and only ``deploy/cli.py``
-(``--dry-run``) imports ``fake_domino``."""
+(``--dry-run``) imports ``fake_domino``; the mock's own tests, in
+``tests/fake_domino/``, import nothing from ``rag_load_test`` either."""
 
 from __future__ import annotations
 
@@ -90,6 +91,17 @@ def test_fake_domino_imports_nothing_from_the_product() -> None:
         for line, module in absolute_imports(path, "rag_load_test")
     ]
     assert not offending, f"fake_domino may not import rag_load_test: {offending}"
+
+
+def test_the_fake_domino_tests_import_nothing_from_the_product() -> None:
+    tests = Path(__file__).parent / "fake_domino"
+    offending = [
+        f"{path.relative_to(tests.parent)}:{line} imports {module}"
+        for path in sorted(tests.rglob("*.py"))
+        for line, module in absolute_imports(path, "rag_load_test")
+    ]
+    assert tests.is_dir(), f"{tests} is where the fake Domino's own tests live"
+    assert not offending, f"tests/fake_domino may not import rag_load_test: {offending}"
 
 
 def test_only_the_deploy_cli_imports_fake_domino() -> None:

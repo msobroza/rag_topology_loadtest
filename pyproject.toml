@@ -68,6 +68,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# tests/fake_domino/ shares its name with the package it tests. With src on the
+# path the real package (it has an __init__.py) always wins over that folder.
+pythonpath = ["src"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
