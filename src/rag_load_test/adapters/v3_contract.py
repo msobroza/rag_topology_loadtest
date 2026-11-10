@@ -16,7 +16,7 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel
 
-from .models import ScoredPassage, top_by_score
+from ..domain.passages import ScoredPassage, top_by_score
 
 EMBEDDINGS_PATH = "/v3/embeddings"
 RERANK_PATH = "/v3/rerank"

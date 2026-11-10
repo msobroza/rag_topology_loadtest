@@ -13,7 +13,7 @@ import math
 import re
 from collections.abc import Sequence
 
-from .models import Passage, ScoredPassage, top_by_score
+from ..domain.passages import Passage, ScoredPassage, top_by_score
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 

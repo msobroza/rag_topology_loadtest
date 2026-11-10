@@ -1,4 +1,4 @@
-"""Unit tests for ``rag_load_test.ovms`` over ``httpx.MockTransport``.
+"""Unit tests for ``rag_load_test.adapters.ovms`` over ``httpx.MockTransport``.
 
 Every request is recorded (method, URL, JSON body, Authorization header) and
 answered from a script, so auth, batching, ordering and the retry policy are
@@ -15,8 +15,7 @@ from typing import Any
 import httpx
 import pytest
 
-from rag_load_test.models import RagDependencyError, ScoredPassage
-from rag_load_test.ovms import (
+from rag_load_test.adapters.ovms import (
     DOMINO_TOKEN_URL,
     RETRIES,
     BearerToken,
@@ -24,6 +23,8 @@ from rag_load_test.ovms import (
     OvmsEndpoint,
     OvmsReranker,
 )
+from rag_load_test.domain.errors import RagDependencyError
+from rag_load_test.domain.passages import ScoredPassage
 
 BASE_URL = "http://ovms.test:8001"
 RERANK_MODEL = "bge-reranker-base"

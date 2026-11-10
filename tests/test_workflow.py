@@ -4,22 +4,18 @@ from __future__ import annotations
 
 import dataclasses
 
-from rag_load_test.adapters import NoReranker
-from rag_load_test.fakes import FakeChatModel
-from rag_load_test.loadtest import QUESTIONS
-from rag_load_test.models import (
+from rag_load_test.adapters.fakes import FakeChatModel
+from rag_load_test.adapters.local_models import NoReranker
+from rag_load_test.application.workflow import RagWorkflow, merge_timings
+from rag_load_test.domain.passages import (
     STAGES,
     TOP_K_RERANK,
     TOP_K_RETRIEVE,
-    RagDependencies,
     ScoredPassage,
 )
-from rag_load_test.workflow import (
-    SYSTEM_PROMPT,
-    RagWorkflow,
-    merge_timings,
-    rag_messages,
-)
+from rag_load_test.domain.ports import RagDependencies
+from rag_load_test.domain.prompts import SYSTEM_PROMPT, rag_messages
+from rag_load_test.loadtest.request_plans import QUESTIONS
 
 VACATION_QUESTION = QUESTIONS[0]
 TIMING_KEYS = {*STAGES, "total"}

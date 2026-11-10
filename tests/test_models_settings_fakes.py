@@ -9,25 +9,22 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test import fakes
-from rag_load_test.fakes import (
+from rag_load_test.adapters import fakes
+from rag_load_test.adapters.fakes import (
     FakeChatModel,
     FakeEmbedder,
     FakeReranker,
     InMemoryVectorStore,
 )
-from rag_load_test.models import (
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.errors import RagDependencyError, describe_error
+from rag_load_test.domain.passages import Passage, ScoredPassage, top_by_score
+from rag_load_test.domain.ports import (
     ChatModelPort,
     EmbedderPort,
-    Passage,
-    RagDependencyError,
     RerankerPort,
-    ScoredPassage,
     VectorStorePort,
-    describe_error,
-    top_by_score,
 )
-from rag_load_test.settings import RagSettings
 
 
 def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:

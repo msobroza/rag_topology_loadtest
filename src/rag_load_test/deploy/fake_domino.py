@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.testclient import TestClient
 from starlette.types import ASGIApp
 
-from .domino_apps_reference import (
+from .apps_reference import (
     AppCreationRequest,
     AppResponse,
     AppVersionCreationRequest,

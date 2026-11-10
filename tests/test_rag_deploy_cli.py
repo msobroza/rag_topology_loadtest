@@ -14,17 +14,9 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from domino_deploy_helpers import (
-    APPS_PATH,
-    APPS_URL,
-    DEPLOY_ENV,
-    add_app,
-)
-from rag_load_test.domino_deploy import main
-from rag_load_test.fake_domino import (
-    FakeDominoApps,
-    create_fake_domino,
-)
+from domino_deploy_helpers import APPS_PATH, APPS_URL, DEPLOY_ENV, add_app
+from rag_load_test.deploy.cli import main
+from rag_load_test.deploy.fake_domino import FakeDominoApps, create_fake_domino
 
 PROXY = "http://proxy.test:8899"
 

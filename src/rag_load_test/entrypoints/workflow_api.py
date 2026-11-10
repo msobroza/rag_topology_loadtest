@@ -30,11 +30,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .models import RagDependencies, RagDependencyError, RagMode, ScoredPassage
-from .rag_ports import RagPorts
-from .settings import RagSettings
-from .topology import apply_domino_rules
-from .workflow import RagWorkflow
+from ..adapters.rag_ports import RagPorts
+from ..application.workflow import RagWorkflow
+from ..config.domino_rules import apply_domino_rules
+from ..config.settings import RagSettings
+from ..domain.errors import RagDependencyError
+from ..domain.passages import RagMode, ScoredPassage
+from ..domain.ports import RagDependencies
 
 logger = logging.getLogger("rag_load_test")
 

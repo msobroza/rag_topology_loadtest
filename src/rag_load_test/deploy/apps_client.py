@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .models import describe_error
+from ..domain.errors import describe_error
 
 APPS_API_PATH = "/api/apps/beta/apps"
 WAIT_TIMEOUT_S = 600.0

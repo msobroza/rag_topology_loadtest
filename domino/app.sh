@@ -18,7 +18,7 @@
 # installed: the prebuilt `rag` / `ovms` images already have it all.
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedder and
-# reranker backends from RAG_TOPOLOGY (src/rag_load_test/topology.py), requires
+# reranker backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
 # RAG_OVMS_*_URL for every port on a model server and defaults RAG_OVMS_AUTH=domino.
 # A role here only picks its default topology and refuses one it does not serve.
 #

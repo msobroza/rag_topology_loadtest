@@ -1,4 +1,4 @@
-"""Tests for ``rag_load_test.loadtest`` helpers, ``rag-compare`` and ``locustfile.py``."""
+"""Tests for ``rag_load_test.loadtest`` request plans, ``rag-compare`` and ``locustfile.py``."""
 
 from __future__ import annotations
 
@@ -13,25 +13,27 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.corpus import chunk, synthetic_corpus
-from rag_load_test.loadtest import (
+from rag_load_test.domain.corpus import chunk, synthetic_corpus
+from rag_load_test.domain.passages import TOP_K_RERANK, TOP_K_RETRIEVE
+from rag_load_test.loadtest.request_plans import (
     QUESTIONS,
     LoadTestConfig,
     RequestPlan,
     ResponseVerdict,
-    RowStats,
-    compare_main,
     judge_response,
-    load_stats,
     plan_embeddings_request,
     plan_rag_request,
     plan_rerank_request,
     read_loadtest_config,
-    render_markdown,
     target_pair,
     write_target_record,
 )
-from rag_load_test.models import TOP_K_RERANK, TOP_K_RETRIEVE
+from rag_load_test.loadtest.run_comparison import (
+    RowStats,
+    compare_main,
+    load_stats,
+    render_markdown,
+)
 
 LOCUSTFILE = Path(__file__).resolve().parents[1] / "locustfile.py"
 STATS_HEADER = (

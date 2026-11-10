@@ -8,13 +8,14 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.fakes import FakeEmbedder, FakeReranker
-from rag_load_test.model_server import create_model_server, main
-from rag_load_test.models import RagDependencyError, ScoredPassage
-from rag_load_test.ovms import BearerToken, OvmsEmbedder, OvmsReranker
-from rag_load_test.rag_ports import RagPorts
-from rag_load_test.settings import RagSettings
-from rag_load_test.v3_contract import UNKNOWN_MODEL_ERROR
+from rag_load_test.adapters.fakes import FakeEmbedder, FakeReranker
+from rag_load_test.adapters.ovms import BearerToken, OvmsEmbedder, OvmsReranker
+from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.adapters.v3_contract import UNKNOWN_MODEL_ERROR
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.errors import RagDependencyError
+from rag_load_test.domain.passages import ScoredPassage
+from rag_load_test.entrypoints.model_server import create_model_server, main
 
 EMBED_ALIAS = "bge-small-en-v1.5"  # RagSettings().ovms_embeddings_model
 RERANK_ALIAS = "bge-reranker-base"  # RagSettings().ovms_rerank_model
@@ -193,10 +194,11 @@ async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
 def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, object] = {}
     monkeypatch.setattr(
-        "rag_load_test.model_server.create_model_server", lambda role, ports: role
+        "rag_load_test.entrypoints.model_server.create_model_server",
+        lambda role, ports: role,
     )
     monkeypatch.setattr(
-        "rag_load_test.model_server.uvicorn.run",
+        "rag_load_test.entrypoints.model_server.uvicorn.run",
         lambda app, host, port: calls.update(app=app, host=host, port=port),
     )
     assert main(["--serve", "embedder", "--port", "8012"]) == 0

@@ -1,4 +1,4 @@
-"""Tests for ``rag_load_test.corpus``: synthetic handbook, JSONL loading, chunking, CLI."""
+"""Tests for ``domain.corpus``, ``application.ingest`` and ``entrypoints.ingest_cli``: synthetic handbook, JSONL loading, chunking, CLI."""
 
 from __future__ import annotations
 
@@ -8,19 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.corpus import (
+from rag_load_test.adapters.fakes import FakeEmbedder, InMemoryVectorStore, tokenize
+from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.application.ingest import ingest
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.corpus import (
     TOPICS,
     SourceDocument,
     chunk,
-    ingest,
-    load_jsonl,
-    main,
     synthetic_corpus,
     synthetic_questions,
 )
-from rag_load_test.fakes import FakeEmbedder, InMemoryVectorStore, tokenize
-from rag_load_test.rag_ports import RagPorts
-from rag_load_test.settings import RagSettings
+from rag_load_test.entrypoints.ingest_cli import load_jsonl, main
 
 SLUGS = list(TOPICS)
 

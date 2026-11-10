@@ -14,36 +14,21 @@ Example::
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable
 from typing import Annotated, Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from .models import (
+from ..domain.passages import (
     STAGES,
     TOP_K_RERANK,
     TOP_K_RETRIEVE,
-    RagDependencies,
     RagMode,
     RagResult,
     ScoredPassage,
 )
-
-SYSTEM_PROMPT = (
-    "You answer questions using only the numbered context passages. "
-    "Cite passages as [n]. If the context is insufficient, say so."
-)
-
-
-def rag_messages(
-    question: str, passages: Sequence[ScoredPassage]
-) -> list[dict[str, str]]:
-    """OpenAI-style messages: system prompt + numbered context + question."""
-    context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
-    ]
+from ..domain.ports import RagDependencies
+from ..domain.prompts import rag_messages
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:

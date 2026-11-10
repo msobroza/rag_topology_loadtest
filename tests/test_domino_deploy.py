@@ -1,4 +1,4 @@
-"""Tests of ``rag_load_test.domino_deploy`` below ``main``: the topology's Apps,
+"""Tests of ``rag_load_test.deploy`` below ``cli.main``: the topology's Apps,
 entry scripts, ``deploy``, the launch script and ``deploy.env`` settings.
 """
 
@@ -18,16 +18,15 @@ from domino_deploy_helpers import (
     make_settings,
     no_sleep,
 )
-from rag_load_test.domino_apps import DominoDeployError
-from rag_load_test.domino_deploy import (
-    DeploySettings,
+from rag_load_test.deploy.apps_client import DominoDeployError
+from rag_load_test.deploy.fake_domino import FakeDominoApps
+from rag_load_test.deploy.publish import (
     apps_for_topology,
     deploy,
     entry_script,
     launch_script_in,
-    load_app_settings,
 )
-from rag_load_test.fake_domino import FakeDominoApps
+from rag_load_test.deploy.settings import DeploySettings, load_app_settings
 
 
 @pytest.mark.parametrize(

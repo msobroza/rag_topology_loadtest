@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.fake_domino import (
+from rag_load_test.deploy.fake_domino import (
     FAKE_DOMINO_URL,
     FAKE_RUN_TOKEN,
     FakeDominoApps,

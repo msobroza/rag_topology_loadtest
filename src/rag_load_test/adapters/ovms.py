@@ -21,7 +21,8 @@ from collections.abc import Sequence
 import httpx
 from pydantic import ValidationError
 
-from .models import RagDependencyError, ScoredPassage, describe_error
+from ..domain.errors import RagDependencyError, describe_error
+from ..domain.passages import ScoredPassage
 from .v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,

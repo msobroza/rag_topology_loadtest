@@ -6,18 +6,18 @@ Imported by ``test_domino_apps.py``, ``test_domino_deploy.py`` and
 
 from __future__ import annotations
 
-from rag_load_test.domino_apps import DominoAppsClient
-from rag_load_test.domino_apps_reference import (
+from rag_load_test.deploy.apps_client import DominoAppsClient
+from rag_load_test.deploy.apps_reference import (
     AppCreationRequest,
     AppVersionCreationRequest,
 )
-from rag_load_test.domino_deploy import DeploySettings
-from rag_load_test.fake_domino import (
+from rag_load_test.deploy.fake_domino import (
     FAKE_DOMINO_URL,
     FakeDominoApps,
     create_fake_domino,
     fake_domino_http,
 )
+from rag_load_test.deploy.settings import DeploySettings
 
 APPS_PATH = "/api/apps/beta/apps"
 APPS_URL = f"{FAKE_DOMINO_URL}/apps"  # the fake's App URLs: {APPS_URL}/app-1, ...

@@ -1,4 +1,4 @@
-"""Unit tests for ``rag_load_test.adapters`` with injected doubles.
+"""Unit tests for ``rag_load_test.adapters`` (local models, Elasticsearch, OpenAI) with injected doubles.
 
 No model weights, no Elasticsearch, no OpenAI: every adapter takes its heavy
 collaborator through the constructor, so each test hands in a small fake.
@@ -18,23 +18,23 @@ import numpy as np
 import openai
 import pytest
 
-from rag_load_test import adapters
-from rag_load_test.adapters import (
-    INDEX,
+from rag_load_test.adapters import local_models
+from rag_load_test.adapters.elasticsearch_store import INDEX, ElasticsearchVectorStore
+from rag_load_test.adapters.local_models import (
     CrossEncoderReranker,
-    ElasticsearchVectorStore,
     NoReranker,
-    OpenAIChatModel,
     SentenceTransformerEmbedder,
 )
-from rag_load_test.models import Passage, RagDependencyError, ScoredPassage
+from rag_load_test.adapters.openai_chat import OpenAIChatModel
+from rag_load_test.domain.errors import RagDependencyError
+from rag_load_test.domain.passages import Passage, ScoredPassage
 
 HEAVY_MODULES = ("sentence_transformers", "torch", "elasticsearch", "openai")
 
 
 @pytest.fixture
 def executor() -> Iterator[ThreadPoolExecutor]:
-    pool = adapters.model_executor()
+    pool = local_models.model_executor()
     yield pool
     pool.shutdown(wait=True)
 
@@ -387,7 +387,8 @@ async def test_openai_chat_aclose_closes_the_sdk_client() -> None:
 def test_importing_adapters_leaves_heavy_libraries_unimported() -> None:
     # Fresh interpreter: this process may already have torch/openai loaded.
     code = (
-        "import sys; import rag_load_test.adapters; "
+        "import sys; import rag_load_test.adapters.local_models, "
+        "rag_load_test.adapters.elasticsearch_store, rag_load_test.adapters.openai_chat; "
         f"print(sorted(m for m in {HEAVY_MODULES!r} if m in sys.modules))"
     )
     command = [sys.executable, "-c", code]

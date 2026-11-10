@@ -8,12 +8,13 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test import api
-from rag_load_test.api import create_app, main, traced
-from rag_load_test.fakes import InMemoryVectorStore
-from rag_load_test.models import RagDependencyError, ScoredPassage
-from rag_load_test.rag_ports import RagPorts
-from rag_load_test.settings import RagSettings
+from rag_load_test.adapters.fakes import InMemoryVectorStore
+from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.errors import RagDependencyError
+from rag_load_test.domain.passages import ScoredPassage
+from rag_load_test.entrypoints import workflow_api as api
+from rag_load_test.entrypoints.workflow_api import create_app, main, traced
 
 TOPOLOGY = "split-all"  # with every backend fake: the label, not the transport
 RUN_LABEL = "split-all-test-tier"

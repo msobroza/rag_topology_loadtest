@@ -28,27 +28,27 @@ from typing import NamedTuple, TypeVar, cast
 
 import httpx
 
-from .adapters import (
-    CrossEncoderReranker,
-    ElasticsearchVectorStore,
-    NoReranker,
-    OpenAIChatModel,
-    SentenceTransformerEmbedder,
-    model_executor,
-)
-from .corpus import chunk, ingest, synthetic_corpus
-from .fakes import FakeChatModel, FakeEmbedder, FakeReranker, InMemoryVectorStore
-from .models import (
+from ..application.ingest import ingest
+from ..config.settings import RagSettings
+from ..domain.corpus import chunk, synthetic_corpus
+from ..domain.errors import RagDependencyError, describe_error
+from ..domain.ports import (
     ChatModelPort,
     EmbedderPort,
     RagDependencies,
-    RagDependencyError,
     RerankerPort,
     VectorStorePort,
-    describe_error,
 )
+from .elasticsearch_store import ElasticsearchVectorStore
+from .fakes import FakeChatModel, FakeEmbedder, FakeReranker, InMemoryVectorStore
+from .local_models import (
+    CrossEncoderReranker,
+    NoReranker,
+    SentenceTransformerEmbedder,
+    model_executor,
+)
+from .openai_chat import OpenAIChatModel
 from .ovms import TIMEOUT_S, BearerToken, OvmsEmbedder, OvmsReranker
-from .settings import RagSettings
 
 T = TypeVar("T")
 # Same size as ``make ingest`` so a fake-store app answers like an ingested one.

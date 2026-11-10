@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.served_models import main, served_model_assignments
-from rag_load_test.settings import RagSettings
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.entrypoints.served_models import main, served_model_assignments
 
 ROOT = Path(__file__).resolve().parents[1]
 

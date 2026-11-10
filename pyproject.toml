@@ -38,13 +38,13 @@ dev = [
 ]
 
 [project.scripts]
-rag-serve = "rag_load_test.api:main"
-rag-ingest = "rag_load_test.corpus:main"
-rag-compare = "rag_load_test.loadtest:compare_main"
-rag-model-server = "rag_load_test.model_server:main"
-rag-served-models = "rag_load_test.served_models:main"
-rag-deploy = "rag_load_test.domino_deploy:main"
-rag-fake-domino = "rag_load_test.fake_domino:main"
+rag-serve = "rag_load_test.entrypoints.workflow_api:main"
+rag-ingest = "rag_load_test.entrypoints.ingest_cli:main"
+rag-compare = "rag_load_test.loadtest.run_comparison:compare_main"
+rag-model-server = "rag_load_test.entrypoints.model_server:main"
+rag-served-models = "rag_load_test.entrypoints.served_models:main"
+rag-deploy = "rag_load_test.deploy.cli:main"
+rag-fake-domino = "rag_load_test.deploy.fake_domino:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -72,7 +72,7 @@ select = ["E", "F", "I", "W", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
-"src/rag_load_test/corpus.py" = ["E501"]  # prose templates
+"src/rag_load_test/domain/corpus.py" = ["E501"]  # prose templates
 
 [tool.black]
 line-length = 88

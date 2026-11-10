@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir "/opt/rag_load_test[loadtest,domino]"
 # so this step cannot drift from what the apps load. HF_HOME is world-readable
 # because the build runs as root but Domino runs apps as ubuntu.
 ENV HF_HOME=/opt/hf-cache
-RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; from rag_load_test.settings import RagSettings; s = RagSettings(_env_file=None); SentenceTransformer(s.embedder_model); CrossEncoder(s.reranker_model)" \
+RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; from rag_load_test.config.settings import RagSettings; s = RagSettings(_env_file=None); SentenceTransformer(s.embedder_model); CrossEncoder(s.reranker_model)" \
     && chmod -R a+rX /opt/hf-cache
 ENV HF_HUB_OFFLINE=1
 

@@ -6,9 +6,9 @@ from collections.abc import Callable
 
 import pytest
 
-from rag_load_test.settings import RagSettings
-from rag_load_test.topology import (
-    apply_domino_rules,
+from rag_load_test.config.domino_rules import apply_domino_rules
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.topology import (
     default_run_label,
     resolve_embedder_backend,
     resolve_reranker_backend,

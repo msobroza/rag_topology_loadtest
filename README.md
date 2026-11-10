@@ -39,24 +39,43 @@ and Locust turns those into per-stage statistics.
 ```text
 src/rag_load_test/
   __init__.py       package docstring, __version__
-  models.py         Passage, ScoredPassage, RagResult, the four async ports, RagDependencies, RagDependencyError
-  settings.py       RagSettings: the 17 RAG_* variables (pydantic-settings, .env aware)
-  topology.py       the topology rule: backends per topology, contradictions, default run label, Domino rules
-  adapters.py       SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, ElasticsearchVectorStore, OpenAIChatModel
-  v3_contract.py    the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
-  ovms.py           BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
-  fakes.py          FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
-  rag_ports.py      RagPorts: settings in, ready ports out; owns the thread pool, HTTP client, bearer token and their shutdown
-  workflow.py       RagWorkflow (LangGraph graph with timed nodes)
-  api.py            FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
-  corpus.py         synthetic handbook corpus, JSONL loader, chunking, rag-ingest
-  loadtest.py       locust-free helpers (auth headers, stage events, questions) + rag-compare
-  model_server.py   FastAPI model server with the OVMS /v3 contract (rag-model-server)
-  served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
-  domino_deploy.py  rag-deploy: which Apps a topology needs and their settings, status, URLs, --dry-run
-  domino_apps.py    the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get) and the wait until Running
-  domino_apps_reference.py  the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
-  fake_domino.py    a fake Domino 6.2 Apps API (FastAPI, Swagger at /docs) for rag-fake-domino and rag-deploy --dry-run
+  domain/           no I/O, no framework; imports no other layer
+    passages.py     Passage, ScoredPassage, RagResult, STAGES, TOP_K_RETRIEVE/TOP_K_RERANK, top_by_score
+    ports.py        the four async ports and RagDependencies
+    errors.py       RagDependencyError, describe_error
+    prompts.py      SYSTEM_PROMPT, rag_messages
+    topology.py     the topology rule: backends per topology, contradictions, default run label
+    corpus.py       synthetic handbook corpus, its questions, chunking
+  application/      use cases over the ports; imports domain only
+    workflow.py     RagWorkflow (LangGraph graph with timed nodes)
+    ingest.py       embed passages in batches and upsert them
+  config/           imports domain only
+    settings.py     RagSettings: the 17 RAG_* variables (pydantic-settings, .env aware)
+    domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
+  adapters/         one module per outside system
+    local_models.py SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, the model thread pool
+    elasticsearch_store.py  ElasticsearchVectorStore
+    openai_chat.py  OpenAIChatModel
+    v3_contract.py  the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
+    ovms.py         BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
+    fakes.py        FakeEmbedder, FakeReranker, InMemoryVectorStore, FakeChatModel (the `fake` backends)
+    rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread pool, HTTP client, bearer token and their shutdown
+  entrypoints/      processes: FastAPI apps and CLIs
+    workflow_api.py FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
+    model_server.py FastAPI model server with the OVMS /v3 contract (rag-model-server)
+    served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
+    ingest_cli.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
+  loadtest/
+    request_plans.py  locust-free helpers (config, auth headers, request plans, verdicts, target record)
+    run_comparison.py rag-compare: Locust *_stats.csv files to markdown tables
+  deploy/           rag-deploy on Domino 6.2
+    settings.py     DeploySettings (RAG_DEPLOY_*) and the Apps' RAG_* from deploy.env
+    publish.py      which Apps a topology needs, their entry scripts, and publishing them in order
+    status.py       rag-deploy status: one line per App, then the workflow App's /readyz
+    cli.py          rag-deploy: the parser, url, --dry-run
+    apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get) and the wait until Running
+    apps_reference.py  the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
+    fake_domino.py  a fake Domino 6.2 Apps API (FastAPI, Swagger at /docs) for rag-fake-domino and rag-deploy --dry-run
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
@@ -264,7 +283,7 @@ usage error, not a traceback.
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
 
-Those 17 `RAG_*` fields are the whole of `settings.py`. Retrieval sizes
+Those 17 `RAG_*` fields are the whole of `config/settings.py`. Retrieval sizes
 (`TOP_K_RETRIEVE=20`, `TOP_K_RERANK=5`), the model thread pool (`4`), the OVMS
 timeout (`30 s`) and retries (`2`, backoff 0.2 s then 0.4 s), the Domino token
 cache (`240 s`) and the index name are constants, so experiments only vary the
@@ -299,7 +318,7 @@ compose with `--env-file`:
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
 
 The served models (source id and alias) are pinned once, by the `RagSettings`
-defaults in `settings.py` (`RAG_RERANKER_MODEL` / `RAG_OVMS_RERANK_MODEL` =
+defaults in `config/settings.py` (`RAG_RERANKER_MODEL` / `RAG_OVMS_RERANK_MODEL` =
 `BAAI/bge-reranker-base` / `bge-reranker-base`, `RAG_EMBEDDER_MODEL` /
 `RAG_OVMS_EMBEDDINGS_MODEL` = `BAAI/bge-small-en-v1.5` / `bge-small-en-v1.5`).
 `rag-served-models` prints them, `RAG_*` overrides included, as shell
@@ -345,7 +364,7 @@ token is refetched first); other 4xx fail immediately, including the 404 for a
 **Bumping OVMS**: change `ovms/versions.env` only, re-run `make ovms-export`
 (the exporter is fetched from the new tag), rebuild the `ovms` Domino image and
 refill the models Dataset. **Changing a served model**: change its default in
-`settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
+`config/settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
 image (it pre-downloads the source ids) and refill the models Dataset.
 
 ## Deploying on Domino 6.2

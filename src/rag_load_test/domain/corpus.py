@@ -1,31 +1,18 @@
-"""Corpus tooling: a seeded synthetic handbook, a JSONL loader, chunking, ``rag-ingest``.
+"""The seeded synthetic handbook corpus, its questions, and chunking.
 
 The synthetic corpus describes a fictional company, Northwind Analytics. Each
 topic owns a distinctive vocabulary that its sentences repeat and its question
 reuses, so retrieval stays meaningful even with the bag-of-words ``FakeEmbedder``.
-
-Example::
-
-    rag-ingest --synthetic 200          # embed with the RAG_* configured backend
-    rag-ingest --corpus docs.jsonl
 """
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import json
 import random
-from collections.abc import Sequence
-from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
-from .models import EmbedderPort, MetadataValue, Passage, VectorStorePort
-
-if TYPE_CHECKING:  # rag_ports imports this module for the fake store's seed corpus
-    from .rag_ports import RagPorts
+from .passages import MetadataValue, Passage
 
 
 class SourceDocument(BaseModel):
@@ -177,22 +164,6 @@ def synthetic_questions(n: int = 50, seed: int = 1234) -> list[str]:
     return [topics[i % len(topics)].question.format_map(_slots(rng)) for i in range(n)]
 
 
-def load_jsonl(path: Path) -> list[SourceDocument]:
-    """One ``{"id", "title", "text", "metadata"?}`` object per non-blank line."""
-    docs = []
-    with Path(path).open(encoding="utf-8") as handle:
-        for lineno, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                docs.append(SourceDocument.model_validate(json.loads(line)))
-            except ValueError as exc:  # json.JSONDecodeError and pydantic errors
-                raise ValueError(
-                    f"{path}: line {lineno}: {exc}: {line[:80]!r}"
-                ) from exc
-    return docs
-
-
 def chunk(
     doc: SourceDocument, *, chunk_words: int = 120, overlap_words: int = 20
 ) -> list[Passage]:
@@ -217,83 +188,3 @@ def chunk(
         )
         for i, start in enumerate(starts)
     ]
-
-
-async def ingest(
-    passages: Sequence[Passage],
-    embedder: EmbedderPort,
-    store: VectorStorePort,
-    *,
-    batch_size: int = 64,
-) -> int:
-    """Embed passages in batches and upsert them; returns the number upserted."""
-    for start in range(0, len(passages), batch_size):
-        batch = passages[start : start + batch_size]
-        await store.upsert(batch, await embedder.embed([p.text for p in batch]))
-    return len(passages)
-
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="rag-ingest", description="Chunk, embed and upsert a corpus."
-    )
-    source = parser.add_mutually_exclusive_group()
-    source.add_argument(
-        "--synthetic", type=int, default=200, help="number of synthetic documents"
-    )
-    source.add_argument("--corpus", type=Path, help="JSONL corpus file")
-    parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--chunk-words", type=int, default=120)
-    parser.add_argument("--overlap-words", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=64)
-    return parser
-
-
-async def _ingest_through(
-    ports: RagPorts, passages: Sequence[Passage], batch_size: int
-) -> dict[str, object]:
-    async with ports:
-        embedder, store = await ports.ingest_ports()
-        count = await ingest(passages, embedder, store, batch_size=batch_size)
-        _, stored = await store.ready()
-    return {"passages": count, "embedder": embedder.model_name, "store": stored}
-
-
-def _configured_ports() -> RagPorts:
-    from .rag_ports import RagPorts
-    from .settings import RagSettings
-
-    settings = RagSettings()
-    if settings.vector_store_backend == "fake":
-        raise SystemExit(
-            "rag-ingest: RAG_VECTOR_STORE_BACKEND='fake' is seeded when the app starts "
-            "and keeps nothing between processes; ingest needs 'elasticsearch'"
-        )
-    return RagPorts(settings)
-
-
-def main(argv: Sequence[str] | None = None, *, ports: RagPorts | None = None) -> int:
-    """``rag-ingest``: prints one JSON summary line.
-
-    Example::
-
-        main(["--synthetic", "200"])                     # ports from RAG_* settings
-        main(["--corpus", "docs.jsonl"], ports=RagPorts(settings))
-    """
-    args = _parser().parse_args(argv)
-    ports = ports or _configured_ports()
-    docs = (
-        load_jsonl(args.corpus)
-        if args.corpus
-        else synthetic_corpus(args.synthetic, args.seed)
-    )
-    passages = [
-        p
-        for d in docs
-        for p in chunk(
-            d, chunk_words=args.chunk_words, overlap_words=args.overlap_words
-        )
-    ]
-    summary = asyncio.run(_ingest_through(ports, passages, args.batch_size))
-    print(json.dumps({"event": "ingest_done", "documents": len(docs), **summary}))
-    return 0

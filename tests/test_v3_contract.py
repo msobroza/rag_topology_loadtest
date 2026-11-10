@@ -1,4 +1,4 @@
-"""Unit tests for ``rag_load_test.v3_contract``: paths, shapes and index bookkeeping.
+"""Unit tests for ``rag_load_test.adapters.v3_contract``: paths, shapes and index bookkeeping.
 
 Everything here is pure: no HTTP, no server. The adapters (``test_ovms.py``) and
 the FastAPI model server (``test_model_server.py``) test the wire on top of it.
@@ -9,8 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.models import ScoredPassage
-from rag_load_test.v3_contract import (
+from rag_load_test.adapters.v3_contract import (
     EMBEDDINGS_PATH,
     RERANK_PATH,
     UNKNOWN_MODEL_ERROR,
@@ -27,6 +26,7 @@ from rag_load_test.v3_contract import (
     rerank_response_for,
     vectors_from_embeddings,
 )
+from rag_load_test.domain.passages import ScoredPassage
 
 
 def passages(count: int) -> list[ScoredPassage]:

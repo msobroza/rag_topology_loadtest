@@ -1,7 +1,7 @@
 """Runtime configuration from ``RAG_*`` environment variables (or a ``.env`` file).
 
 ``RAG_TOPOLOGY`` decides the embedder and reranker backends (the rule lives in
-``topology.py``); ``RAG_EMBEDDER_BACKEND`` / ``RAG_RERANKER_BACKEND`` may only
+``domain/topology.py``); ``RAG_EMBEDDER_BACKEND`` / ``RAG_RERANKER_BACKEND`` may only
 repeat that choice or pick ``fake`` (or ``none`` for the reranker). A
 contradiction or a bad ``RAG_RUN_LABEL`` fails construction, so at start-up.
 
@@ -18,7 +18,7 @@ from typing import cast
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .topology import (
+from ..domain.topology import (
     DEFAULT_LLM_BACKEND,
     DEFAULT_VECTOR_STORE_BACKEND,
     EmbedderBackend,

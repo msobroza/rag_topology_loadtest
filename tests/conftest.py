@@ -12,9 +12,9 @@ from collections.abc import AsyncIterator, Callable  # noqa: E402
 
 import pytest  # noqa: E402
 
-from rag_load_test.models import RagDependencies  # noqa: E402
-from rag_load_test.rag_ports import RagPorts  # noqa: E402
-from rag_load_test.settings import RagSettings  # noqa: E402
+from rag_load_test.adapters.rag_ports import RagPorts  # noqa: E402
+from rag_load_test.config.settings import RagSettings  # noqa: E402
+from rag_load_test.domain.ports import RagDependencies  # noqa: E402
 
 
 @pytest.fixture

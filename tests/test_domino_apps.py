@@ -20,18 +20,16 @@ from domino_deploy_helpers import (
     make_settings,
     no_sleep,
 )
-from rag_load_test.domino_apps import (
+from rag_load_test.deploy.apps_client import (
     NO_INSTANCE_GRACE_S,
     WAIT_TIMEOUT_S,
     DominoApp,
     DominoAppsClient,
     DominoDeployError,
 )
-from rag_load_test.domino_deploy import (
-    DeploySettings,
-    publish_app,
-)
-from rag_load_test.fake_domino import FakeDominoApps
+from rag_load_test.deploy.fake_domino import FakeDominoApps
+from rag_load_test.deploy.publish import publish_app
+from rag_load_test.deploy.settings import DeploySettings
 
 
 def sent(body: BaseModel) -> dict[str, object]:

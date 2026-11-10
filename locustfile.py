@@ -1,7 +1,8 @@
 """Locust users for ``make loadtest`` (RAG service) and ``make loadtest-models``.
 
 A thin adapter: what to send, what a response becomes in the statistics and the
-target record are decided in ``rag_load_test.loadtest``; this file does the I/O.
+target record are decided in ``rag_load_test.loadtest.request_plans``; this file
+does the I/O.
 ``RAG_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
 model server directly. ``RAG_LOADTEST_SHAPE=step`` enables the 5 -> 10 -> 20 -> 40
@@ -17,7 +18,8 @@ from typing import Any
 
 from locust import FastHttpUser, LoadTestShape, between, events, task
 
-from rag_load_test.loadtest import (
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.loadtest.request_plans import (
     STAGE_REQUEST_TYPE,
     RequestPlan,
     judge_response,
@@ -28,7 +30,6 @@ from rag_load_test.loadtest import (
     target_pair,
     write_target_record,
 )
-from rag_load_test.settings import RagSettings
 
 CONFIG = read_loadtest_config(os.environ)
 SETTINGS = RagSettings()
