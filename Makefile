@@ -2,7 +2,14 @@
 .DEFAULT_GOAL := help
 .PHONY: help install install-dev lint format typecheck test ingest serve model-server loadtest loadtest-models compare ovms-export infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run
 
-PYTHON ?= python
+# A .venv in this directory is used without activating it; without one, commands
+# come from the PATH as usual. Two lines because make 3.81 (macOS) looks a recipe's
+# command up on its own PATH: $(BIN) is for those commands, the export is for the
+# scripts and shells the recipes start.
+BIN := $(if $(wildcard .venv/bin/python),$(CURDIR)/.venv/bin/,)
+export PATH := $(CURDIR)/.venv/bin:$(PATH)
+
+PYTHON ?= $(BIN)python
 RUN_NAME ?= monolith
 HOST ?= http://localhost:8888
 USERS ?= 20
@@ -24,67 +31,67 @@ install-dev: ## Install with locust + test tooling
 	$(PYTHON) -m pip install -e ".[dev]"
 
 lint: ## Run ruff + black in check mode
-	ruff check src tests locustfile.py
-	black --check src tests locustfile.py
+	$(BIN)ruff check src tests locustfile.py
+	$(BIN)black --check src tests locustfile.py
 
 format: ## Auto-format with ruff --fix + black
-	ruff check --fix src tests locustfile.py
-	black src tests locustfile.py
+	$(BIN)ruff check --fix src tests locustfile.py
+	$(BIN)black src tests locustfile.py
 
 typecheck: ## Run mypy over the source tree
-	mypy src
+	$(BIN)mypy src
 
 test: ## Run the test suite (no model weights, no network)
-	pytest
+	$(BIN)pytest
 
 ingest: ## Index the synthetic corpus into Elasticsearch (RAG_ES_URL)
-	rag-ingest --synthetic 200
+	$(BIN)rag-ingest --synthetic 200
 
 serve: ## Run the FastAPI service with the current RAG_* environment
-	rag-serve
+	$(BIN)rag-serve
 
 model-server: ## Serve one model with FastAPI (OVMS contract): make model-server SERVE=reranker PORT=8011
-	rag-model-server --serve $(SERVE) --host 0.0.0.0 --port $(PORT)
+	$(BIN)rag-model-server --serve $(SERVE) --host 0.0.0.0 --port $(PORT)
 
 loadtest-models: ## Locust straight at a model server: make loadtest-models RUN_NAME=ovms-rerank HOST=http://host:8001 TARGET=rerank|embeddings
 	mkdir -p results
-	RAG_LOADTEST_TARGET=$(TARGET) locust --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME) \
+	RAG_LOADTEST_TARGET=$(TARGET) $(BIN)locust --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME) \
 		--csv results/$(RUN_NAME) --html results/$(RUN_NAME).html --only-summary
 
 loadtest: ## Headless locust run: make loadtest RUN_NAME=monolith HOST=http://host:8888
 	mkdir -p results
-	locust --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME) \
+	$(BIN)locust --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME) \
 		--csv results/$(RUN_NAME) --html results/$(RUN_NAME).html --only-summary
 
 compare: ## Compare all runs found under results/ into results/comparison.md
-	rag-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
+	$(BIN)rag-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
 
 ovms-export: ## Export reranker + embedder to ovms/models (needs HF access)
 	./ovms/export_models.sh
 
 deploy: ## On Domino: publish every App of RAG_DEPLOY_TOPOLOGY (settings in deploy.env)
-	rag-deploy deploy all
+	$(BIN)rag-deploy deploy all
 
 deploy-embedder: ## On Domino: publish (or redeploy) the rag-embedder App only
-	rag-deploy deploy embedder
+	$(BIN)rag-deploy deploy embedder
 
 deploy-reranker: ## On Domino: publish (or redeploy) the rag-reranker App only
-	rag-deploy deploy reranker
+	$(BIN)rag-deploy deploy reranker
 
 deploy-workflow: ## On Domino: publish (or redeploy) the rag-workflow App only
-	rag-deploy deploy workflow
+	$(BIN)rag-deploy deploy workflow
 
 status: ## On Domino: each App's status and URL, then the workflow App's /readyz
-	rag-deploy status
+	$(BIN)rag-deploy status
 
 deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's entry script
-	rag-deploy --dry-run deploy all
+	$(BIN)rag-deploy --dry-run deploy all
 
 fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow
-	rag-fake-domino --behaviour $(BEHAVIOUR)
+	$(BIN)rag-fake-domino --behaviour $(BEHAVIOUR)
 
 loadtest-domino: ## On Domino: loadtest against rag-workflow: make loadtest-domino RUN_NAME=split-all
-	host=$$(rag-deploy url workflow) && \
+	host=$$($(BIN)rag-deploy url workflow) && \
 		RAG_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
 		$(MAKE) loadtest HOST="$$host"
 

@@ -74,6 +74,10 @@ make ingest                   # rag-ingest --synthetic 200 -> index rag_passages
 make serve                    # rag-serve on http://0.0.0.0:8888
 ```
 
+The `make` targets use a `.venv` in this directory when there is one, without
+activating it (`python -m venv .venv` before `make install-dev`); otherwise they use
+the commands on your `PATH`.
+
 ```bash
 curl -s -X POST localhost:8888/query -H 'Content-Type: application/json' \
   -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
