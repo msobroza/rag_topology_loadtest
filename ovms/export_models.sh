@@ -3,13 +3,24 @@
 # repository, using the export_model.py helper shipped with the pinned OVMS tag.
 #
 # Usage: ovms/export_models.sh [MODELS_DIR]      (default: ovms/models)
-# Needs: HF Hub access to download the source models; a Python with pip.
+# Needs: HF Hub access to download the source models; a Python with pip; this
+# package installed (`make install`) so `rag-served-models` is on PATH.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=versions.env
 source "$HERE/versions.env"
+
+# The served models are pinned by the RagSettings defaults, not here. Asked of the
+# command, not "$PYTHON -m", because $PYTHON may be a separate exporter virtualenv.
+if ! command -v rag-served-models >/dev/null 2>&1; then
+  echo "export_models.sh: rag-served-models not found on PATH; install this package (make install) so the command is available" >&2
+  exit 1
+fi
+# Assigned first so a failing command stops the script (eval "$(...)" would hide it).
+SERVED_MODELS=$(rag-served-models)
+eval "$SERVED_MODELS"
 
 MODELS_DIR=${1:-$HERE/models}
 EXPORT_DIR="$MODELS_DIR/.export"

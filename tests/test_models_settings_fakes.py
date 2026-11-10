@@ -4,29 +4,27 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test import fakes
-from rag_load_test.fakes import (
+from rag_load_test.adapters.fakes import fake_models
+from rag_load_test.adapters.fakes.fake_models import (
     FakeChatModel,
     FakeEmbedder,
     FakeReranker,
-    InMemoryVectorStore,
 )
-from rag_load_test.models import (
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.errors import RagDependencyError, describe_error
+from rag_load_test.domain.passages import Passage, ScoredPassage, top_by_score
+from rag_load_test.domain.ports import (
     ChatModelPort,
     EmbedderPort,
-    Passage,
-    RagDependencyError,
     RerankerPort,
-    ScoredPassage,
     VectorStorePort,
-    top_by_score,
 )
-from rag_load_test.settings import RagSettings
 
 
 def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:
@@ -55,12 +53,44 @@ def test_rag_dependency_error_message_carries_component_kind_and_target() -> Non
     assert "timeout" in str(RagDependencyError("llm", "slow", kind="timeout"))
 
 
-def test_ports_are_runtime_checkable_and_fakes_satisfy_them() -> None:
+def test_describe_error_names_the_type_and_the_message_when_there_is_one() -> None:
+    described = describe_error(TimeoutError("read timed out"))
+    assert described == "TimeoutError: read timed out"
+    assert describe_error(TimeoutError()) == "TimeoutError"
+
+
+def test_fakes_subclass_their_ports() -> None:
     assert isinstance(FakeEmbedder(), EmbedderPort)
     assert isinstance(FakeReranker(), RerankerPort)
     assert isinstance(InMemoryVectorStore(), VectorStorePort)
     assert isinstance(FakeChatModel(), ChatModelPort)
     assert not isinstance(FakeChatModel(), VectorStorePort)
+
+
+def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
+    class HalfReranker(RerankerPort):
+        """Implements ``rerank`` but forgets ``ready``."""
+
+        async def rerank(
+            self, query: str, passages: Sequence[ScoredPassage], top_n: int
+        ) -> list[ScoredPassage]:
+            return []
+
+    with pytest.raises(TypeError, match=r"HalfReranker.*ready"):
+        HalfReranker()  # type: ignore[abstract]
+
+
+def test_a_class_with_the_right_methods_but_no_port_base_is_not_a_port() -> None:
+    class DuckEmbedder:
+        model_name = "duck"
+
+        async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+            return []
+
+        async def ready(self) -> tuple[bool, str]:
+            return True, "duck"
+
+    assert not isinstance(DuckEmbedder(), EmbedderPort)
 
 
 # --- settings ----------------------------------------------------------------
@@ -71,6 +101,7 @@ def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None
 
     assert s.topology == "monolith"
     assert (s.embedder_backend, s.reranker_backend) == ("local", "local")
+    assert s.run_label == "monolith"
     assert s.ovms_rerank_url == "http://localhost:8001"
     assert s.ovms_embeddings_url == "http://localhost:8002"
     assert s.es_url == "http://localhost:9200"
@@ -80,12 +111,65 @@ def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None
 def test_settings_read_rag_prefixed_env(
     settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
     monkeypatch.setenv("RAG_RERANKER_BACKEND", "ovms")
+    monkeypatch.setenv("RAG_RUN_LABEL", "split-reranker-fastapi")
     monkeypatch.setenv("RAG_DOMINO_TRACING", "true")
 
     s = settings_factory()
     assert s.reranker_backend == "ovms"
+    assert s.run_label == "split-reranker-fastapi"
     assert s.domino_tracing is True
+
+
+@pytest.mark.parametrize(
+    ("topology", "embedder", "reranker"),
+    [
+        ("monolith", "local", "local"),
+        ("split-reranker", "local", "ovms"),
+        ("split-all", "ovms", "ovms"),
+    ],
+)
+def test_settings_resolve_backends_from_the_topology(
+    settings_factory: Callable[..., RagSettings],
+    monkeypatch: pytest.MonkeyPatch,
+    topology: str,
+    embedder: str,
+    reranker: str,
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", topology)
+
+    s = settings_factory()
+    assert (s.embedder_backend, s.reranker_backend) == (embedder, reranker)
+    assert s.run_label == topology
+
+
+def test_settings_default_run_label_names_the_variant_backends(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    s = settings_factory(topology="split-all", reranker_backend="none")
+
+    assert s.run_label == "split-all+reranker=none"
+
+
+def test_settings_reject_a_backend_that_contradicts_the_topology(
+    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_EMBEDDER_BACKEND", "ovms")
+
+    with pytest.raises(ValidationError, match="RAG_EMBEDDER_BACKEND='ovms'") as caught:
+        settings_factory()
+
+    assert "set RAG_TOPOLOGY=split-all, or drop RAG_EMBEDDER_BACKEND" in str(
+        caught.value
+    )
+
+
+def test_settings_reject_a_bad_run_label(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    with pytest.raises(ValidationError, match="RAG_RUN_LABEL='two words'"):
+        settings_factory(run_label="two words")
 
 
 def test_settings_reject_unknown_backend(
@@ -95,14 +179,38 @@ def test_settings_reject_unknown_backend(
         settings_factory(embedder_backend="tpu")
 
 
-def test_settings_field_set_is_exactly_fifteen() -> None:
+def test_settings_reject_unknown_topology(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    with pytest.raises(ValidationError, match="split-reranker-fastapi"):
+        settings_factory(topology="split-reranker-fastapi")
+
+
+def test_settings_field_set_is_pinned() -> None:
+    # Experiments should vary the topology, not grow knobs: adding a field is a
+    # decision. The tunables (top-k, index, batch sizes, workers, HTTP, Domino token,
+    # seed size, HTTP backoff), the prompts and the thread-budget inputs were
+    # moved or added here on purpose.
     assert sorted(RagSettings.model_fields) == [
+        "domino_api_proxy",
+        "domino_hardware_tier_id",
+        "domino_token_ttl_s",
+        "domino_token_url",
         "domino_tracing",
         "embedder_backend",
+        "embedder_batch_size",
         "embedder_model",
+        "embedder_threads",
         "es_api_key",
+        "es_index",
         "es_url",
+        "fake_store_seed_documents",
+        "http_backoff_s",
+        "http_retries",
+        "http_timeout_s",
         "llm_backend",
+        "model_cpus",
+        "model_workers",
         "openai_model",
         "ovms_auth",
         "ovms_embeddings_model",
@@ -110,8 +218,16 @@ def test_settings_field_set_is_exactly_fifteen() -> None:
         "ovms_rerank_model",
         "ovms_rerank_url",
         "reranker_backend",
+        "reranker_batch_size",
         "reranker_model",
+        "reranker_threads",
+        "run_label",
+        "system_prompt",
+        "top_k_rerank",
+        "top_k_retrieve",
         "topology",
+        "user_prompt",
+        "vector_store_backend",
     ]
 
 
@@ -126,7 +242,7 @@ async def test_fake_embedder_is_deterministic_unit_norm_and_topical() -> None:
 
     assert pie == pie_again
     assert math.isclose(math.sqrt(sum(x * x for x in pie)), 1.0, rel_tol=1e-9)
-    assert fakes.cosine(pie, tart) > fakes.cosine(pie, physics)
+    assert fake_models.cosine(pie, tart) > fake_models.cosine(pie, physics)
 
 
 async def test_fake_reranker_scores_by_overlap_and_truncates() -> None:
@@ -138,7 +254,8 @@ async def test_fake_reranker_scores_by_overlap_and_truncates() -> None:
     kept = await FakeReranker().rerank("elasticsearch cluster", passages, top_n=2)
 
     assert [p.id for p in kept] == ["hit", "near"]
-    assert kept[0].rerank_score is not None and kept[0].rerank_score > 0
+    assert kept[0].rerank_score is not None
+    assert kept[0].rerank_score > 0
     assert kept[0].rerank_score > (kept[1].rerank_score or 0)
 
 
@@ -158,8 +275,16 @@ async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> No
     assert hits[0].metadata == {"page": 3, "src": "a.pdf"}
 
 
+async def test_in_memory_store_is_ready_once_it_holds_a_passage() -> None:
+    store = InMemoryVectorStore()
+    assert await store.ready() == (False, "0 passages in memory")
+
+    await store.upsert([Passage(id="p1", text="one")], [[1.0, 0.0]])
+    assert await store.ready() == (True, "1 passages in memory")
+
+
 async def test_in_memory_store_rejects_mismatched_lengths() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="shorter"):  # zip(strict=True)
         await InMemoryVectorStore().upsert(
             [Passage(id="a", text="a"), Passage(id="b", text="b")], [[1.0]]
         )

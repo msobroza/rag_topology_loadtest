@@ -1,4 +1,4 @@
-"""Unit tests for ``rag_load_test.adapters`` with injected doubles.
+"""Unit tests for ``rag_load_test.adapters`` (local models, Elasticsearch, OpenAI) with injected doubles.
 
 No model weights, no Elasticsearch, no OpenAI: every adapter takes its heavy
 collaborator through the constructor, so each test hands in a small fake.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -18,25 +19,64 @@ import numpy as np
 import openai
 import pytest
 
-from rag_load_test import adapters
-from rag_load_test.adapters import (
-    INDEX,
+from rag_load_test.adapters.chat_model.openai_chat import OpenAIChatModel
+from rag_load_test.adapters.local_models import sentence_transformer_models
+from rag_load_test.adapters.local_models.native_threads import NativeThreadScope
+from rag_load_test.adapters.local_models.sentence_transformer_models import (
     CrossEncoderReranker,
-    ElasticsearchVectorStore,
     NoReranker,
-    OpenAIChatModel,
     SentenceTransformerEmbedder,
 )
-from rag_load_test.models import Passage, RagDependencyError, ScoredPassage
+from rag_load_test.adapters.vector_store.elasticsearch_store import (
+    ElasticsearchVectorStore,
+)
+from rag_load_test.domain.errors import RagDependencyError
+from rag_load_test.domain.passages import Passage, ScoredPassage
 
-HEAVY_MODULES = ("sentence_transformers", "torch", "elasticsearch", "openai")
+HEAVY_MODULES = ("sentence_transformers", "torch", "elasticsearch", "openai", "joblib")
+INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
 
 
 @pytest.fixture
 def executor() -> Iterator[ThreadPoolExecutor]:
-    pool = adapters.model_executor()
+    pool = sentence_transformer_models.model_executor(workers=2)
     yield pool
     pool.shutdown(wait=True)
+
+
+def test_model_executor_runs_the_given_number_of_workers() -> None:
+    pool = sentence_transformer_models.model_executor(workers=3)
+    try:
+        assert pool._max_workers == 3
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_model_executor_runs_on_thread_start_in_each_new_worker() -> None:
+    started: list[str] = []
+
+    def record() -> None:
+        started.append(threading.current_thread().name)
+
+    pool = sentence_transformer_models.model_executor(workers=1, on_thread_start=record)
+    try:
+        worker = pool.submit(lambda: threading.current_thread().name).result()
+    finally:
+        pool.shutdown(wait=True)
+    assert started == [worker]
+    assert worker.startswith("rag-model")
+
+
+class RecordingScope(NativeThreadScope):
+    """A real scope that also records the thread each call ran on."""
+
+    def __init__(self, threads: int) -> None:
+        super().__init__(threads)
+        self.ran_on: list[str] = []
+
+    def run(self, fn: Callable[..., Any], *args: Any) -> Any:
+        self.ran_on.append(threading.current_thread().name)
+        return super().run(fn, *args)
 
 
 def scored_passages(*ids: str) -> list[ScoredPassage]:
@@ -71,12 +111,29 @@ def st_model() -> FakeSentenceTransformer:
 
 
 @pytest.fixture
+def st_scope() -> RecordingScope:
+    return RecordingScope(2)
+
+
+@pytest.fixture
 def st_embedder(
-    st_model: FakeSentenceTransformer, executor: ThreadPoolExecutor
+    st_model: FakeSentenceTransformer,
+    executor: ThreadPoolExecutor,
+    st_scope: RecordingScope,
 ) -> SentenceTransformerEmbedder:
     return SentenceTransformerEmbedder(
-        st_model, executor, model_name="fake-st", batch_size=8
+        st_model, executor, model_name="fake-st", batch_size=8, scope=st_scope
     )
+
+
+async def test_st_embedder_encodes_inside_its_scope_on_a_worker(
+    st_embedder: SentenceTransformerEmbedder, st_scope: RecordingScope
+) -> None:
+    await st_embedder.embed(["a"])
+
+    assert st_embedder.scope is st_scope
+    [thread] = st_scope.ran_on
+    assert thread.startswith("rag-model")
 
 
 async def test_st_embedder_returns_plain_lists_and_normalizes(
@@ -84,7 +141,8 @@ async def test_st_embedder_returns_plain_lists_and_normalizes(
 ) -> None:
     vectors = await st_embedder.embed(("ab", "abcd"))
     assert vectors == [[2.0, 1.0], [4.0, 1.0]]
-    assert type(vectors) is list and all(type(v) is list for v in vectors)
+    assert type(vectors) is list
+    assert all(type(v) is list for v in vectors)
     assert all(type(x) is float for v in vectors for x in v)
     assert st_model.calls == [
         {"texts": ["ab", "abcd"], "batch_size": 8, "normalize_embeddings": True}
@@ -118,8 +176,12 @@ async def test_cross_encoder_orders_by_score_and_truncates(
     executor: ThreadPoolExecutor,
 ) -> None:
     model = FakeCrossEncoder([0.25, 0.75, 0.5])  # exact in float32
-    reranker = CrossEncoderReranker(model, executor, model_name="fake-ce", batch_size=4)
+    scope = RecordingScope(3)
+    reranker = CrossEncoderReranker(
+        model, executor, model_name="fake-ce", batch_size=4, scope=scope
+    )
     ranked = await reranker.rerank("q", scored_passages("a", "b", "c"), top_n=2)
+    assert [t.startswith("rag-model") for t in scope.ran_on] == [True]
     assert [p.id for p in ranked] == ["b", "c"]
     assert [p.rerank_score for p in ranked] == [0.75, 0.5]
     assert all(type(p.rerank_score) is float for p in ranked)
@@ -132,7 +194,9 @@ async def test_cross_encoder_empty_input_skips_model(
     executor: ThreadPoolExecutor,
 ) -> None:
     model = FakeCrossEncoder([])
-    reranker = CrossEncoderReranker(model, executor, model_name="fake-ce")
+    reranker = CrossEncoderReranker(
+        model, executor, model_name="fake-ce", batch_size=32, scope=RecordingScope(1)
+    )
     assert await reranker.rerank("q", [], top_n=3) == []
     assert model.calls == []
     assert await reranker.ready() == (True, "fake-ce")
@@ -171,6 +235,7 @@ class FakeLangChainStore:
         self.add_calls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
         self.count_calls: list[str] = []
+        self.closed = False
         indices = SimpleNamespace(exists=self._indices_exist)
         self.client = SimpleNamespace(indices=indices, count=self._count_docs)
 
@@ -201,6 +266,9 @@ class FakeLangChainStore:
         self.search_calls.append({"embedding": embedding, "k": k})
         return [(doc_builder(hit), score) for hit, score in self.hits[:k]]
 
+    async def aclose(self) -> None:
+        self.closed = True
+
     def _maybe_fail(self) -> None:
         if self.failure is not None:
             raise self.failure
@@ -212,7 +280,7 @@ async def test_es_upsert_passes_text_vector_pairs_metadatas_and_ids() -> None:
         Passage(id="p1", text="alpha", metadata={"topic": "hr"}),
         Passage(id="p2", text="beta"),
     ]
-    store = ElasticsearchVectorStore(fake)
+    store = ElasticsearchVectorStore(fake, INDEX)
     await store.upsert(passages, [(0.1, 0.2), [0.3, 0.4]])
     await store.upsert([], [])  # nothing to write: no call at all
     assert fake.add_calls == [
@@ -231,13 +299,14 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
             (es_hit("p4", "four", {}), 0.25),
         ]
     )
-    hits = await ElasticsearchVectorStore(fake).query((0.5, 0.5), top_k=2)
+    hits = await ElasticsearchVectorStore(fake, INDEX).query((0.5, 0.5), top_k=2)
     assert [(h.id, h.text, h.metadata) for h in hits] == [
         ("p9", "nine", {"topic": "it"}),
         ("p4", "four", {}),
     ]
     scores = [h.retrieval_score for h in hits]
-    assert scores == [0.75, 0.25] and scores == sorted(scores, reverse=True)
+    assert scores == [0.75, 0.25]
+    assert scores == sorted(scores, reverse=True)
     assert all(type(h.retrieval_score) is float for h in hits)
     assert all(h.rerank_score is None for h in hits)
     assert fake.search_calls == [{"embedding": [0.5, 0.5], "k": 2}]
@@ -246,8 +315,28 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
 @pytest.mark.parametrize(("exists", "expected"), [(False, 0), (True, 17)])
 async def test_es_count_is_zero_without_index(exists: bool, expected: int) -> None:
     fake = FakeLangChainStore(exists=exists, count=17)
-    assert await ElasticsearchVectorStore(fake).count() == expected
+    assert await ElasticsearchVectorStore(fake, INDEX).count() == expected
     assert fake.count_calls == ([INDEX] if exists else [])
+
+
+@pytest.mark.parametrize(
+    ("exists", "expected"),
+    [
+        (False, (False, f"0 passages in {INDEX}")),
+        (True, (True, f"17 passages in {INDEX}")),
+    ],
+)
+async def test_es_ready_reports_the_passage_count_and_index(
+    exists: bool, expected: tuple[bool, str]
+) -> None:
+    fake = FakeLangChainStore(exists=exists, count=17)
+    assert await ElasticsearchVectorStore(fake, INDEX).ready() == expected
+
+
+async def test_es_aclose_closes_the_underlying_store() -> None:
+    fake = FakeLangChainStore()
+    await ElasticsearchVectorStore(fake, INDEX).aclose()
+    assert fake.closed
 
 
 StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
@@ -259,14 +348,15 @@ StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
         lambda store: store.upsert([Passage(id="p1", text="alpha")], [[0.1]]),
         lambda store: store.query([0.1], top_k=1),
         lambda store: store.count(),
+        lambda store: store.ready(),
     ],
-    ids=["upsert", "query", "count"],
+    ids=["upsert", "query", "count", "ready"],
 )
 async def test_es_failures_surface_as_vector_store_errors(
     operation: StoreOperation,
 ) -> None:
     boom = ConnectionError("es refused")
-    store = ElasticsearchVectorStore(FakeLangChainStore(failure=boom))
+    store = ElasticsearchVectorStore(FakeLangChainStore(failure=boom), INDEX)
     with pytest.raises(RagDependencyError) as info:
         await operation(store)
     assert info.value.component == "vector_store"
@@ -346,13 +436,28 @@ async def test_openai_errors_map_to_llm_dependency_errors(
     assert info.value.__cause__ is error
 
 
+async def test_openai_chat_aclose_closes_the_sdk_client() -> None:
+    closed: list[bool] = []
+
+    async def close() -> None:
+        closed.append(True)
+
+    await OpenAIChatModel(SimpleNamespace(close=close), "gpt-test").aclose()
+    assert closed == [True]
+
+
 # --- import cost -----------------------------------------------------------
 
 
 def test_importing_adapters_leaves_heavy_libraries_unimported() -> None:
     # Fresh interpreter: this process may already have torch/openai loaded.
     code = (
-        "import sys; import rag_load_test.adapters; "
+        "import sys; "
+        "import rag_load_test.adapters.local_models.sentence_transformer_models, "
+        "rag_load_test.adapters.vector_store.elasticsearch_store, "
+        "rag_load_test.adapters.chat_model.openai_chat, "
+        "rag_load_test.adapters.local_models.native_threads, "
+        "rag_load_test.adapters.local_models.cpu_count; "
         f"print(sorted(m for m in {HEAVY_MODULES!r} if m in sys.modules))"
     )
     command = [sys.executable, "-c", code]

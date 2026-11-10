@@ -1,4 +1,4 @@
-"""Tests for ``rag_load_test.corpus``: synthetic handbook, JSONL loading, chunking, CLI."""
+"""Tests for ``domain.corpus``, ``application.ingest`` and ``entrypoints.ingest_cli``: synthetic handbook, JSONL loading, chunking, CLI."""
 
 from __future__ import annotations
 
@@ -8,17 +8,19 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.corpus import (
+from rag_load_test.adapters.fakes.fake_models import FakeEmbedder, tokenize
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
+from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.application.ingest import ingest
+from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.corpus import (
     TOPICS,
     SourceDocument,
     chunk,
-    ingest,
-    load_jsonl,
-    main,
     synthetic_corpus,
     synthetic_questions,
 )
-from rag_load_test.fakes import FakeEmbedder, InMemoryVectorStore, tokenize
+from rag_load_test.entrypoints.ingest_cli import load_jsonl, main
 
 SLUGS = list(TOPICS)
 
@@ -70,7 +72,8 @@ def test_question_shares_most_words_with_its_own_topic(slug: str) -> None:
         for s, t in TOPICS.items()
     }
     own = overlap.pop(slug)
-    assert own > 0 and max(overlap.values()) < own
+    assert own > 0
+    assert max(overlap.values()) < own
 
 
 # --- chunk ---
@@ -82,7 +85,8 @@ def test_chunk_word_windows_overlap_and_ids() -> None:
     words = [p.text.split() for p in passages]
     assert [len(w) for w in words] == [100, 100, 90]
     assert words[1][:20] == words[0][-20:]
-    assert words[0][0] == "w0" and words[-1][-1] == "w249"
+    assert words[0][0] == "w0"
+    assert words[-1][-1] == "w249"
 
 
 def test_chunk_metadata_carries_document_fields() -> None:
@@ -154,24 +158,42 @@ async def test_ingest_upserts_every_passage_in_batches() -> None:
 # --- rag-ingest CLI ---
 
 
-def test_main_synthetic_fake_prints_one_summary_line(
-    capsys: pytest.CaptureFixture[str],
+def test_main_ingests_the_synthetic_corpus_and_prints_one_summary_line(
+    fake_settings: RagSettings, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["--synthetic", "3", "--fake"]) == 0
+    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
+
+    assert main(["--synthetic", "3"], ports=ports) == 0
+
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1
-    summary = json.loads(lines[0])
-    backend = {"index": "in-memory", "embedder": "fake-embedder"}
-    assert summary == {"event": "ingest_done", "documents": 3, "passages": 3, **backend}
+    assert json.loads(lines[0]) == {
+        "event": "ingest_done",
+        "documents": 3,
+        "passages": 3,
+        "embedder": "fake-embedder",
+        "store": "3 passages in memory",
+    }
 
 
-def test_main_corpus_file_fake(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_main_chunks_a_corpus_file(
+    fake_settings: RagSettings, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     short = json.dumps({"id": "b", "title": "B", "text": "short"})
     path = _jsonl(tmp_path / "docs.jsonl", _record(text=" ".join(["w"] * 30)), short)
     opts = ["--chunk-words", "20", "--overlap-words", "5"]
-    assert main(["--corpus", str(path), "--fake", *opts]) == 0
+    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
+
+    assert main(["--corpus", str(path), *opts], ports=ports) == 0
+
     summary = json.loads(capsys.readouterr().out)
     assert (summary["event"], summary["documents"]) == ("ingest_done", 2)
     assert summary["passages"] == 3  # 30 words at 20/5 -> 2 chunks, plus 1
+    assert summary["store"] == "3 passages in memory"
+
+
+def test_main_refuses_the_fake_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_VECTOR_STORE_BACKEND", "fake")
+
+    with pytest.raises(SystemExit, match="seeded when the app starts"):
+        main(["--synthetic", "1"])

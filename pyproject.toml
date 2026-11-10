@@ -7,10 +7,11 @@ name = "rag-load-test"
 version = "0.1.0"
 description = "Locust load test comparing one RAG workflow (sentence-transformers + Elasticsearch + reranker + OpenAI + LangGraph + FastAPI) across monolith and OpenVINO Model Server split topologies on Domino."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"  # the version in .python-version
 license = { text = "Apache-2.0" }
 dependencies = [
     "fastapi>=0.115",
+    "starlette>=0.40",  # imported directly (ASGI types, TestClient for --dry-run)
     "uvicorn[standard]>=0.30",
     "langgraph>=0.2",
     "langchain-core>=0.3",
@@ -21,6 +22,9 @@ dependencies = [
     "httpx>=0.27",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    "pyyaml>=6",  # config/prompts.yaml, read by pydantic-settings
+    "joblib>=1.3",  # cpu_count() honours the container's CPU quota
+    "threadpoolctl>=3.1",  # per-model caps on OpenMP/BLAS threads
 ]
 
 [project.optional-dependencies]
@@ -32,26 +36,40 @@ dev = [
     "locust>=2.29",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "ruff>=0.6",
-    "black>=24.0",
-    "mypy>=1.10",
+    # Gate tools are pinned exactly: a new release may add a rule or move a score,
+    # and `make check` must give the same verdict on the same commit everywhere.
+    "ruff==0.17.4",
+    "black==26.10.1",
+    "pydoclint==0.12.0",
+    "mypy==2.4.1",
+    "ty==0.0.100",
+    "complexipy==8.3.0",
+    "vulture==2.16",
+    "deptry==0.25.1",
 ]
 
 [project.scripts]
-rag-serve = "rag_load_test.api:main"
-rag-ingest = "rag_load_test.corpus:main"
-rag-compare = "rag_load_test.loadtest:compare_main"
-rag-model-server = "rag_load_test.model_server:main"
+rag-serve = "rag_load_test.entrypoints.workflow_api:main"
+rag-ingest = "rag_load_test.entrypoints.ingest_cli:main"
+rag-compare = "rag_load_test.loadtest.run_comparison:compare_main"
+rag-model-server = "rag_load_test.entrypoints.model_server:main"
+rag-served-models = "rag_load_test.entrypoints.served_models:main"
+rag-deploy = "rag_load_test.deploy.cli:main"
+rag-fake-domino = "fake_domino.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"rag_load_test" = ["py.typed"]
+"rag_load_test" = ["py.typed", "config/prompts.yaml"]
+"fake_domino" = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# tests/fake_domino/ shares its name with the package it tests. With src on the
+# path the real package (it has an __init__.py) always wins over that folder.
+pythonpath = ["src"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -61,21 +79,101 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP", "B"]
+# Preview is on for DOC501 alone: explicit-preview-rules keeps every other
+# preview rule off until it is named in `select`.
+preview = true
+explicit-preview-rules = true
+select = [
+    "E", "F", "I", "W", "UP", "B",
+    "D",  # docstrings, Google convention
+    "DOC501",  # an exception a function raises is in its Raises section
+    "ANN", "ARG", "C4", "SIM", "RET", "RUF", "PT", "N",
+    "C90", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",
+]
+ignore = [
+    "D105",  # magic methods need no docstring
+    "D107",  # constructor arguments are documented on the class
+    "ANN401",  # Any is allowed where a value really is anything
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-branches = 8
+max-returns = 6
+max-statements = 30
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E501"]
-"src/rag_load_test/corpus.py" = ["E501"]  # prose templates
+"tests/*" = ["D", "ANN", "ARG", "PLR2004", "PLR0913", "E501"]
+"src/rag_load_test/domain/corpus.py" = ["E501"]  # prose templates
+# The fake Domino mirrors Domino's camelCase JSON field and query/path parameter
+# names, so its models and route parameters cannot be snake_case.
+"src/fake_domino/api_shapes.py" = ["N815"]
+"src/fake_domino/apps_routes.py" = ["N803"]
+"src/fake_domino/stand_ins.py" = ["N803"]
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false
+check-class-attributes = false
+skip-checking-short-docstrings = false
+# pydoclint only accepts a Raises entry for a `raise` in the function's own body,
+# so an error raised through a helper could not be documented. ruff's DOC501
+# checks the direction that matters: what the body raises is documented.
+skip-checking-raises = true
+allow-init-docstring = false
 
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 ignore_missing_imports = true
 mypy_path = "src"
+# BaseSettings fields fill from the env and YAML, so the plugin types __init__
+# with every field optional (RagSettings() has required prompts).
+plugins = ["pydantic.mypy"]
+
+[tool.complexipy]
+paths = ["src"]
+max-complexity-allowed = 10  # cognitive complexity, per function
+failed = true  # list only the functions over the limit
+
+[tool.vulture]
+paths = ["src", "tests", "locustfile.py", "vulture_whitelist.py"]
+min_confidence = 60
+# Functions a framework calls by registration, never by name in this code.
+ignore_decorators = [
+    "@*routes.get", "@*routes.post", "@*_router.get", "@*_router.post",  # FastAPI
+    "@model_validator", "@field_validator",  # pydantic
+    "@pytest.fixture",  # pytest, by parameter name
+    "@task", "@events.*",  # Locust
+]
+ignore_names = [
+    "model_config",  # pydantic reads it off every model class
+    "pytest_plugins",  # pytest reads it off a test module
+]
+
+[tool.deptry]
+known_first_party = ["rag_load_test", "fake_domino"]
+optional_dependencies_dev_groups = ["dev"]
+package_module_name_map = { dominodatalab = "domino" }
+
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    "elasticsearch",  # its [async] extra brings aiohttp, the node AsyncElasticsearchStore uses
+    "pyyaml",  # pydantic-settings' YAML source reads config/prompts.yaml with it
+    "dominodatalab",  # imported by module name (domino.*) through importlib, see find_add_tracing
+]

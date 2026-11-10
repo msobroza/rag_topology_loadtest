@@ -39,3 +39,7 @@ results/*
 !results/.gitkeep
 ovms/models/
 .env
+deploy.env
+# rag-deploy: its settings and the App ids it has seen
+deploy.yaml
+.rag-deploy-cache.json

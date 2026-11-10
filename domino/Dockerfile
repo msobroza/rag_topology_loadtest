@@ -14,7 +14,11 @@
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's
 # instructions into the environment's "Dockerfile Instructions" field.
-ARG BASE_IMAGE=quay.io/domino/compute-environment-images:ubuntu22-py3.10-r4.4-domino6.2-standard
+# Domino's 6.2 standard environment (Ubuntu 22.04). Its own Python is 3.10 and its
+# packages clash with ours, so the project gets a virtualenv on the Python of
+# .python-version. CI runs `make check` inside this same image
+# (.github/workflows/checks.yml reads this line).
+ARG BASE_IMAGE=quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard
 
 # --- rag ---------------------------------------------------------------------
 FROM ${BASE_IMAGE} AS rag
@@ -22,15 +26,22 @@ USER root
 
 # Only what pip needs: the entry point (domino/app.sh) and locustfile.py come
 # from the project files Domino mounts into the run, and .env never enters the image.
-COPY pyproject.toml README.md /opt/rag_load_test/
+COPY pyproject.toml README.md .python-version /opt/rag_load_test/
 COPY src /opt/rag_load_test/src
 # [loadtest] adds locust; [domino] adds dominodatalab[agents] for RAG_DOMINO_TRACING=true.
-RUN pip install --no-cache-dir "/opt/rag_load_test[loadtest,domino]"
+RUN pip install --no-cache-dir uv \
+    && UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv /opt/rag-venv \
+        --python "$(cat /opt/rag_load_test/.python-version)" \
+    && uv pip install --no-cache --python /opt/rag-venv/bin/python \
+        "/opt/rag_load_test[loadtest,domino]"
+ENV PATH=/opt/rag-venv/bin:$PATH
 
-# Pre-download the two HF models so app start-up needs no network. HF_HOME is
-# world-readable because the build runs as root but Domino runs apps as ubuntu.
+# Pre-download the two HF models so app start-up needs no network. The source ids
+# come from the installed package's settings defaults (the one served-model pin),
+# so this step cannot drift from what the apps load. HF_HOME is world-readable
+# because the build runs as root but Domino runs apps as ubuntu.
 ENV HF_HOME=/opt/hf-cache
-RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; SentenceTransformer('BAAI/bge-small-en-v1.5'); CrossEncoder('BAAI/bge-reranker-base')" \
+RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; from rag_load_test.config.settings import RagSettings; s = RagSettings(_env_file=None); SentenceTransformer(s.embedder_model); CrossEncoder(s.reranker_model)" \
     && chmod -R a+rX /opt/hf-cache
 ENV HF_HUB_OFFLINE=1
 

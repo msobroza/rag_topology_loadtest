@@ -1,0 +1,10 @@
+# Prompts of the generate stage. RAG_PROMPTS_FILE points at another file;
+# RAG_SYSTEM_PROMPT / RAG_USER_PROMPT override one prompt.
+system_prompt: >-
+  You answer questions using only the numbered context passages.
+  Cite passages as [n]. If the context is insufficient, say so.
+user_prompt: |-
+  Context:
+  {context}
+
+  Question: {question}
