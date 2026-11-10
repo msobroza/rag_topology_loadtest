@@ -1,115 +1,106 @@
 """Locust users for ``make loadtest`` (RAG service) and ``make loadtest-models``.
 
+A thin adapter: what to send, what a response becomes in the statistics and the
+target record are decided in ``rag_load_test.loadtest``; this file does the I/O.
 ``RAG_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
-model server (FastAPI or OVMS, same contract) directly on ``/v3/rerank`` and
-``/v3/embeddings``. Each successful RAG response's ``timings_ms`` is re-emitted
-as ``STAGE`` request events so per-stage p50/p95 land in the same ``*_stats.csv``.
-``RAG_LOADTEST_SHAPE=step`` enables the 5 -> 10 -> 20 -> 40 user ramp.
+model server directly. ``RAG_LOADTEST_SHAPE=step`` enables the 5 -> 10 -> 20 -> 40
+user ramp.
 """
 
 from __future__ import annotations
 
 import os
 import random
+from collections import Counter
+from typing import Any
 
-from locust import FastHttpUser, LoadTestShape, between, task
+from locust import FastHttpUser, LoadTestShape, between, events, task
 
-from rag_load_test.corpus import chunk, synthetic_corpus
 from rag_load_test.loadtest import (
-    QUESTIONS,
-    auth_headers,
-    parse_timings,
-    stage_events,
-    task_weights,
+    STAGE_REQUEST_TYPE,
+    RequestPlan,
+    judge_response,
+    plan_embeddings_request,
+    plan_rag_request,
+    plan_rerank_request,
+    read_loadtest_config,
+    target_pair,
+    write_target_record,
 )
-from rag_load_test.models import TOP_K_RERANK, TOP_K_RETRIEVE
 from rag_load_test.settings import RagSettings
 
-TARGET = os.environ.get("RAG_LOADTEST_TARGET", "rag")
-QUERY_WEIGHT, RETRIEVE_WEIGHT = task_weights(os.environ)
+CONFIG = read_loadtest_config(os.environ)
 SETTINGS = RagSettings()
-# The same candidate count the workflow sends to its reranker.
-RERANK_DOCUMENTS = [p.text for d in synthetic_corpus(TOP_K_RETRIEVE) for p in chunk(d)]
+RNG = random.Random()
+# Responses per (topology, run label) for the target record; one process, one run.
+RESPONSES_SEEN: Counter[tuple[str, str]] = Counter()
+
+
+def send(user: FastHttpUser, plan: RequestPlan) -> None:
+    """POST ``plan`` and record the response as ``judge_response`` decides."""
+    with user.client.post(
+        plan.path,
+        json=plan.payload,
+        headers=dict(CONFIG.auth_headers),
+        name=plan.stats_name,
+        catch_response=True,
+    ) as resp:
+        pair = target_pair(resp.status_code, resp.headers)
+        if pair is not None:
+            RESPONSES_SEEN[pair] += 1
+        verdict = judge_response(plan.path, resp.status_code, resp.text or "")
+        if verdict.failure is not None:
+            resp.failure(verdict.failure)
+            return
+        resp.success()
+        for name, ms in verdict.stage_rows:
+            user.environment.events.request.fire(
+                request_type=STAGE_REQUEST_TYPE,
+                name=name,
+                response_time=ms,
+                response_length=0,
+                exception=None,
+                context={},
+            )
 
 
 class RagUser(FastHttpUser):
-    abstract = TARGET != "rag"
+    abstract = CONFIG.target != "rag"
     wait_time = between(0.2, 1.0)
 
-    def on_start(self) -> None:
-        self.headers = auth_headers(os.environ)
-
-    @task(QUERY_WEIGHT)
+    @task(CONFIG.query_weight)
     def query(self) -> None:
-        self._ask("/query")
+        send(self, plan_rag_request("/query", RNG))
 
-    @task(RETRIEVE_WEIGHT)
+    @task(CONFIG.retrieve_weight)
     def retrieve(self) -> None:
-        self._ask("/retrieve")
-
-    def _ask(self, path: str) -> None:
-        payload = {"question": random.choice(QUESTIONS)}
-        with self.client.post(
-            path, json=payload, headers=self.headers, name=path, catch_response=True
-        ) as resp:
-            if resp.status_code != 200:
-                resp.failure(f"HTTP {resp.status_code}: {(resp.text or '')[:200]}")
-                return
-            for name, ms in stage_events(path, parse_timings(resp.json())):
-                self.environment.events.request.fire(
-                    request_type="STAGE",
-                    name=name,
-                    response_time=ms,
-                    response_length=0,
-                    exception=None,
-                    context={},
-                )
+        send(self, plan_rag_request("/retrieve", RNG))
 
 
 class RerankUser(FastHttpUser):
     """POST /v3/rerank with the workflow's candidate count and top_n."""
 
-    abstract = TARGET != "rerank"
+    abstract = CONFIG.target != "rerank"
     wait_time = between(0.2, 1.0)
-
-    def on_start(self) -> None:
-        self.headers = auth_headers(os.environ)
 
     @task
     def rerank(self) -> None:
-        payload = {
-            "model": SETTINGS.ovms_rerank_model,
-            "query": random.choice(QUESTIONS),
-            "documents": RERANK_DOCUMENTS[:TOP_K_RETRIEVE],
-            "top_n": TOP_K_RERANK,
-        }
-        self.client.post(
-            "/v3/rerank", json=payload, headers=self.headers, name="/v3/rerank"
-        )
+        send(self, plan_rerank_request(SETTINGS.ovms_rerank_model, RNG))
 
 
 class EmbeddingsUser(FastHttpUser):
     """POST /v3/embeddings with one question, like the workflow's embed stage."""
 
-    abstract = TARGET != "embeddings"
+    abstract = CONFIG.target != "embeddings"
     wait_time = between(0.2, 1.0)
-
-    def on_start(self) -> None:
-        self.headers = auth_headers(os.environ)
 
     @task
     def embed(self) -> None:
-        payload = {
-            "model": SETTINGS.ovms_embeddings_model,
-            "input": [random.choice(QUESTIONS)],
-        }
-        self.client.post(
-            "/v3/embeddings", json=payload, headers=self.headers, name="/v3/embeddings"
-        )
+        send(self, plan_embeddings_request(SETTINGS.ovms_embeddings_model, RNG))
 
 
-if os.environ.get("RAG_LOADTEST_SHAPE") == "step":
+if CONFIG.step_shape:
     STEP_USERS, STEP_SECONDS = (5, 10, 20, 40), 60
 
     class StepLoadShape(LoadTestShape):  # locust picks up shape classes defined here
@@ -118,3 +109,10 @@ if os.environ.get("RAG_LOADTEST_SHAPE") == "step":
             if step >= len(STEP_USERS):
                 return None
             return STEP_USERS[step], float(STEP_USERS[step])
+
+
+@events.test_stop.add_listener
+def write_target_record_on_stop(environment: Any, **_kwargs: Any) -> None:
+    """Write ``<--csv prefix>_target.json`` as the run stops; nothing without --csv."""
+    csv_prefix = getattr(environment.parsed_options, "csv_prefix", None)
+    write_target_record(csv_prefix, CONFIG.target, RESPONSES_SEEN)

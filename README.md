@@ -137,14 +137,38 @@ App URL).
 | `RAG_LOADTEST_BEARER_TOKEN` | sent as `Authorization: Bearer ...` (Domino run token) |
 | `DOMINO_API_KEY` | sent as `X-Domino-Api-Key` (from outside Domino) |
 
+A request counts as a success only when the response is HTTP 200 with a JSON
+object body. Any other status fails as `HTTP <status>: <first 200 characters of
+the body>`, and a 200 whose body is not JSON, or is JSON but not an object, also
+counts as a failure (it used to vanish from the statistics altogether).
 Every successful response's `timings_ms` is re-emitted as Locust `STAGE` rows
 (`/query:embed`, `/query:retrieve`, `/query:rerank`, `/query:generate`, same for
-`/retrieve`), so p50/p95/p99 per stage land in the same CSV as the endpoint
-totals. `make compare` feeds every `results/*_stats.csv` prefix (sorted, so
+`/retrieve`; a stage timed at zero gets no row), so p50/p95/p99 per stage land
+in the same CSV as the endpoint totals.
+
+Each run also writes a target record, `results/<RUN_NAME>_target.json` (next to
+the `--csv` files; nothing is written when Locust runs without `--csv`). Against
+the workflow app it counts responses per `X-RAG-Topology` / `X-RAG-Run-Label`
+pair the app reported, most responses first:
+
+```json
+{"target": "rag", "seen": [{"topology": "monolith", "run_label": "monolith", "responses": 2400}]}
+```
+
+A run straight at a model server (`make loadtest-models`) writes
+`{"target": "rerank", "seen": []}` (or `embeddings`), since model servers send
+no such headers.
+
+`make compare` feeds every `results/*_stats.csv` prefix (sorted, so
 `monolith` is the baseline) to `rag-compare`, which writes one markdown table
 per endpoint and per stage: requests, failure %, RPS, p50, p95, p99 and Δp95
 versus the first run. Pick another baseline by calling it directly:
 `rag-compare results/split-all results/monolith --out results/comparison.md`.
+When a run has a target record, the intro line names the topology and run label
+it saw beside the run name, and a warning line
+flags any run that saw more than one pair, because its numbers mix
+configurations (for example an app redeployed mid-run). A run without the file
+is listed by its run name alone, as before.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
