@@ -299,8 +299,9 @@ async def readyz(request: Request) -> JSONResponse:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run ``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888.
 
-    ``--domino`` requires the model server URLs and defaults ``RAG_OVMS_AUTH`` to
-    ``domino``; a settings mistake exits as a usage error, not a crash.
+    ``--domino`` defaults ``RAG_EMBEDDING_API_KEY`` / ``RAG_RERANK_API_KEY`` to
+    ``domino`` for a component on the ``api`` backend; a settings mistake exits as
+    a usage error, not a crash.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -316,7 +317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--domino",
         action="store_true",
-        help="require model server URLs and default RAG_OVMS_AUTH to domino",
+        help="default the model-server API keys to the Domino run token",
     )
     args = parser.parse_args(argv)
     try:

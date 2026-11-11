@@ -22,7 +22,6 @@ dependencies = [
     # optimum-intel accepts transformers < 5.6 only, so pip keeps transformers and
     # huggingface-hub at the versions it supports.
     "sentence-transformers[openvino]>=6.2",
-    "openai>=1.40",
     "httpx>=0.27",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",

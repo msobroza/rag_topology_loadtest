@@ -2,7 +2,7 @@
 
 Emulation only, and removable as one folder: it builds on the core's
 ``create_fake_domino`` (routes served first, a lifespan, its Swagger text) and
-plugs ``AppPlacer`` into the core's ``InstanceScheduler`` seam. In front of each
+plugs ``AppPlacer`` into the core's ``BaseInstanceScheduler`` seam. In front of each
 App URL the proxy checks credentials and rewrites headers as Domino's does;
 with ``--placement FILE`` each App runs on a free machine of its hardware tier,
 started over SSH. It stays one process: its Apps live in memory.

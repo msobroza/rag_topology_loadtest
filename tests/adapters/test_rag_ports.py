@@ -11,8 +11,8 @@ import pytest
 
 from cpu_fakes import FakeCpuCounter
 from rag_load_test.adapters.fakes.fake_models import (
-    FakeChatModel,
     FakeEmbedder,
+    FakeLLM,
     FakeReranker,
 )
 from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
@@ -29,12 +29,13 @@ from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
 from sentence_transformers_fakes import FakeSentenceTransformersModule
-from store_fakes import in_memory_store
 
 SettingsFactory = Callable[..., RagSettings]
 EMBEDDER_WEIGHTS = "embedder:Snowflake/snowflake-arctic-embed-l-v2.0"
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
 TOKEN_URL = "http://token.test/access-token"
+EMBED_URL = "http://embedder/v3/embeddings"
+RERANK_URL = "http://reranker/v3/rerank"
 
 
 @pytest.fixture
@@ -71,7 +72,8 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.embedder, FakeEmbedder)
         assert isinstance(deps.vector_store, InMemoryVectorStore)
         assert isinstance(deps.reranker, FakeReranker)
-        assert isinstance(deps.chat_model, FakeChatModel)
+        assert isinstance(deps.chat_model, FakeLLM)
+        assert deps.lexical_search is deps.vector_store  # the fake store ranks text
         # Every synthetic document fits one chunk, so passages == documents.
         assert await deps.vector_store.ready() == (True, "200 passages in memory")
 
@@ -89,15 +91,15 @@ async def test_ports_open_once_and_are_reused(fake_settings: RagSettings) -> Non
 # --- backends -------------------------------------------------------------------------
 
 
-async def test_none_reranker_backend_keeps_retrieval_order(
+async def test_none_rerank_backend_keeps_retrieval_order(
     settings_factory: SettingsFactory, fake_settings: RagSettings
 ) -> None:
-    settings = fake_settings.model_copy(update={"reranker_backend": "none"})
+    settings = fake_settings.model_copy(update={"rerank_backend": "none"})
     async with RagPorts(settings) as ports:
         assert isinstance((await ports.workflow_dependencies()).reranker, NoReranker)
 
 
-async def test_both_model_server_adapters_share_one_domino_token(
+async def test_each_model_server_endpoint_fetches_its_own_domino_token(
     settings_factory: SettingsFactory,
 ) -> None:
     requested: list[str] = []
@@ -117,16 +119,17 @@ async def test_both_model_server_adapters_share_one_domino_token(
 
     settings = settings_factory(
         topology="split-all",  # both ports on a model server
-        llm_backend="fake",
-        ovms_auth="domino",
+        generation_backend="fake",
+        embedding_api_key="domino",
+        rerank_api_key="domino",
         domino_token_url=TOKEN_URL,
         http_timeout_s=7.5,
-        ovms_embeddings_url="http://embedder",
-        ovms_rerank_url="http://reranker",
+        embedding_api_url=EMBED_URL,
+        rerank_api_url=RERANK_URL,
     )
     ports = RagPorts(
         settings,
-        vector_store=in_memory_store(),
+        vector_store=InMemoryVectorStore(),
         transport=httpx.MockTransport(model_servers),
     )
     async with ports:
@@ -136,15 +139,12 @@ async def test_both_model_server_adapters_share_one_domino_token(
         [ranked] = await deps.reranker.rerank("q", [candidate], 1)
         assert ranked.rerank_score == 0.9
 
-    assert requested == [
-        TOKEN_URL,
-        "http://embedder/v3/embeddings",
-        "http://reranker/v3/rerank",
-    ]
+    # One BearerToken per endpoint: each has its own key, so its own cache.
+    assert requested == [TOKEN_URL, EMBED_URL, TOKEN_URL, RERANK_URL]
     assert read_timeouts == {7.5}
 
 
-async def test_ovms_embedder_batches_and_retries_as_configured(
+async def test_api_embedder_batches_and_retries_as_configured(
     settings_factory: SettingsFactory,
 ) -> None:
     sent: list[list[str]] = []
@@ -158,15 +158,14 @@ async def test_ovms_embedder_batches_and_retries_as_configured(
         return httpx.Response(200, json={"data": rows})
 
     settings = settings_factory(
-        embedder_backend="ovms",
-        topology="split-all",
-        embedder_batch_size=2,
+        embedding_backend="api",
+        embedding_batch_size=2,
         http_retries=0,
-        ovms_embeddings_url="http://embedder",
+        embedding_api_url=EMBED_URL,
     )
     ports = RagPorts(
         settings,
-        vector_store=in_memory_store(),
+        vector_store=InMemoryVectorStore(),
         transport=httpx.MockTransport(busy_then_ok),
     )
     async with ports:
@@ -181,7 +180,7 @@ async def test_ovms_embedder_batches_and_retries_as_configured(
 async def test_local_models_use_the_configured_batch_sizes(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(embedder_batch_size=16, reranker_batch_size=8)
+    settings = settings_factory(embedding_batch_size=16, rerank_batch_size=8)
     candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
     async with RagPorts(settings) as ports:
         await (await ports.local_embedder()).embed(["hello"])
@@ -194,7 +193,7 @@ async def test_elasticsearch_store_uses_the_configured_index(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(
-        embedder_backend="fake", es_url=UNREACHABLE_ES, es_index="passages_v2"
+        embedding_backend="fake", es_url=UNREACHABLE_ES, es_index="passages_v2"
     )
     async with RagPorts(settings) as ports:
         store = (await ports.ingest_ports()).vector_store
@@ -214,39 +213,41 @@ async def test_fake_store_is_seeded_with_the_configured_document_count(
 async def test_elasticsearch_store_opens_without_the_network(
     settings_factory: SettingsFactory,
 ) -> None:
-    settings = settings_factory(embedder_backend="fake", es_url=UNREACHABLE_ES)
+    settings = settings_factory(embedding_backend="fake", es_url=UNREACHABLE_ES)
     async with RagPorts(settings) as ports:
         store = (await ports.ingest_ports()).vector_store
         assert isinstance(store, ElasticsearchVectorStore)
 
 
+def with_an_unknown_generation_format(settings: RagSettings) -> RagSettings:
+    # model_copy skips validation: the one way to make the api LLM fail to open.
+    update = {"generation_backend": "api", "generation_api_format": "nope"}
+    return settings.model_copy(update=update)
+
+
 async def test_the_chat_model_opens_before_any_weights_load(
-    settings_factory: SettingsFactory,
-    fake_weights: FakeSentenceTransformersModule,
-    monkeypatch: pytest.MonkeyPatch,
+    settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, OpenAI chat
-    async with RagPorts(settings) as ports:
+    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api chat
+    async with RagPorts(with_an_unknown_generation_format(settings)) as ports:
         with pytest.raises(RagDependencyError, match="chat_model unavailable"):
             await ports.workflow_dependencies()
 
-    assert fake_weights.loaded == []  # a missing key fails before the slow part
+    assert fake_weights.loaded == []  # a bad chat setting fails before the slow part
 
 
 # --- each caller gets only what it asks for -------------------------------------------
 
 
 async def test_ingest_ports_leave_the_chat_model_shut(
-    fake_settings: RagSettings, monkeypatch: pytest.MonkeyPatch
+    fake_settings: RagSettings,
 ) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    settings = fake_settings.model_copy(update={"llm_backend": "openai"})
+    settings = with_an_unknown_generation_format(fake_settings)
     async with RagPorts(settings) as ports:
-        _, store = await ports.ingest_ports()  # no OpenAI client: no key needed
+        _, store = await ports.ingest_ports()  # the chat model is never opened
         assert await store.count() == 200  # the default seed size
 
-        expected = "chat_model unavailable: could not open backend 'openai'"
+        expected = "chat_model unavailable: could not open backend 'api'"
         with pytest.raises(RagDependencyError, match=expected):
             await ports.workflow_dependencies()
 
@@ -264,7 +265,9 @@ async def test_ingest_ports_load_only_the_embedder_weights(
 async def test_local_models_ignore_the_configured_backend(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(topology="split-all")  # both backends ovms
+    settings = settings_factory(  # both backends api
+        topology="split-all", embedding_api_url=EMBED_URL, rerank_api_url=RERANK_URL
+    )
     async with RagPorts(settings) as ports:
         embedder = await ports.local_embedder()
 
@@ -278,7 +281,7 @@ async def test_local_models_ignore_the_configured_backend(
 
 
 async def test_a_supplied_port_is_used_as_given(fake_settings: RagSettings) -> None:
-    embedder, empty_store = FakeEmbedder(dim=4), in_memory_store()
+    embedder, empty_store = FakeEmbedder(dim=4), InMemoryVectorStore()
     ports = RagPorts(fake_settings, embedder=embedder, vector_store=empty_store)
     async with ports:
         deps = await ports.workflow_dependencies()
@@ -316,8 +319,10 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     transport = ClosingRecorderTransport()
-    settings = settings_factory(topology="split-reranker", llm_backend="fake")
-    ports = RagPorts(settings, vector_store=in_memory_store(), transport=transport)
+    settings = settings_factory(
+        topology="split-reranker", rerank_api_url=RERANK_URL, generation_backend="fake"
+    )
+    ports = RagPorts(settings, vector_store=InMemoryVectorStore(), transport=transport)
     async with ports:
         deps = await ports.workflow_dependencies()
         assert not transport.closed
@@ -373,7 +378,7 @@ async def test_local_model_scopes_carry_the_thread_budget(
 async def test_a_thread_override_replaces_one_share(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(embedder_threads=1)
+    settings = settings_factory(embedding_threads=1)
     ports = RagPorts(settings, container_cpus=FakeCpuCounter(8, "container"))
     embedder, reranker = await open_local_models(ports)
 

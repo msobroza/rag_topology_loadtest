@@ -1,6 +1,5 @@
-"""``RagPorts`` over the backends beyond local, OVMS and fake: Chroma, the hosted
-model APIs, the in-process runtime and the chat temperature. Settings in, the
-right adapter out."""
+"""``RagPorts`` over Chroma and the in-process model runtimes. Settings in, the
+right adapter out; the ``api`` backends are in ``test_rag_ports_api.py``."""
 
 from __future__ import annotations
 
@@ -9,12 +8,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-import httpx
 import pytest
 
-from rag_load_test.adapters.chat_model.openai_chat import OpenAIChatModel
-from rag_load_test.adapters.hosted_models.openai_embedder import OpenAIEmbedder
-from rag_load_test.adapters.hosted_models.rerank_api import RerankApiReranker
 from rag_load_test.adapters.local_models.local_model import (
     exported_model_dir,
     local_model,
@@ -23,33 +18,13 @@ from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.chroma_store import ChromaVectorStore
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.passages import Passage, ScoredPassage
+from rag_load_test.domain.passages import Passage
 from sentence_transformers_fakes import (
     FakeSentenceTransformersModule,
     fake_openvino_modules,
 )
 
 SettingsFactory = Callable[..., RagSettings]
-
-
-class RecordingRerankRoute(httpx.MockTransport):
-    """A rerank route that keeps the first candidate and records each request."""
-
-    def __init__(self) -> None:
-        super().__init__(self._answer)
-        self.requests: list[httpx.Request] = []
-
-    def _answer(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        results = [{"index": 0, "relevance_score": 0.9}]
-        return httpx.Response(200, json={"results": results})
-
-
-def candidates() -> list[ScoredPassage]:
-    return [
-        ScoredPassage(id="a", text="vacation days", retrieval_score=0.5),
-        ScoredPassage(id="b", text="expense receipts", retrieval_score=0.4),
-    ]
 
 
 # --- Chroma ----------------------------------------------------------------------
@@ -59,7 +34,7 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
     settings_factory: SettingsFactory, tmp_path: Path
 ) -> None:
     settings = settings_factory(
-        embedder_backend="fake",
+        embedding_backend="fake",
         vector_store_backend="chroma",
         chroma_path=str(tmp_path / "chroma"),
         chroma_collection="passages_under_test",
@@ -72,72 +47,28 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
 
         assert isinstance(store, ChromaVectorStore)
         assert await store.ready() == (True, "1 passages in passages_under_test")
-        assert [hit.id for hit in await store.lexical_query("vacation", 5)] == ["p1"]
+        [vector] = await embedder.embed([passage.text])
+        [hit] = await store.query(vector, 5)
+        assert hit.id == "p1"
     assert (tmp_path / "chroma").is_dir()  # embedded: written where the settings say
 
 
-# --- hosted embedder -----------------------------------------------------------------
-
-
-async def test_the_openai_embedder_backend_opens_and_closes_an_sdk_client(
-    settings_factory: SettingsFactory,
+async def test_the_chroma_backend_gives_the_workflow_no_lexical_search(
+    settings_factory: SettingsFactory, tmp_path: Path
 ) -> None:
     settings = settings_factory(
-        embedder_backend="openai",
-        vector_store_backend="fake",
-        openai_api_key="sk-test",
-        openai_embedding_model="text-embedding-test",
+        embedding_backend="fake",
+        rerank_backend="fake",
+        generation_backend="fake",
+        vector_store_backend="chroma",
+        chroma_path=str(tmp_path / "chroma"),
     )
 
     async with RagPorts(settings) as ports:
-        embedder = await ports._embedder()
-        assert isinstance(embedder, OpenAIEmbedder)
-        assert embedder.model_name == "openai:text-embedding-test"
-        client = embedder._client
-        assert not client.is_closed()
-    assert client.is_closed()
+        deps = await ports.workflow_dependencies()
 
-
-# --- hosted rerankers ----------------------------------------------------------------
-
-
-async def test_the_cohere_reranker_backend_posts_to_cohere_with_its_key(
-    settings_factory: SettingsFactory,
-) -> None:
-    route = RecordingRerankRoute()
-    settings = settings_factory(reranker_backend="cohere", cohere_api_key="co-key")
-
-    async with RagPorts(settings, transport=route) as ports:
-        reranker = await ports._reranker()
-        best = await reranker.rerank("vacation", candidates(), top_n=1)
-
-    assert isinstance(reranker, RerankApiReranker)
-    assert [passage.id for passage in best] == ["a"]
-    [request] = route.requests
-    assert str(request.url) == "https://api.cohere.com/v2/rerank"
-    assert request.headers["Authorization"] == "Bearer co-key"
-    assert json.loads(request.content)["model"] == "rerank-v3.5"
-
-
-async def test_the_openai_reranker_backend_posts_to_the_gateways_rerank_route(
-    settings_factory: SettingsFactory,
-) -> None:
-    route = RecordingRerankRoute()
-    settings = settings_factory(
-        reranker_backend="openai",
-        openai_base_url="https://gateway.example/v1",
-        openai_rerank_model="rerank-model",
-        openai_api_key="sk-key",
-    )
-
-    async with RagPorts(settings, transport=route) as ports:
-        reranker = await ports._reranker()
-        await reranker.rerank("vacation", candidates(), top_n=1)
-
-    [request] = route.requests
-    assert str(request.url) == "https://gateway.example/v1/rerank"
-    assert request.headers["Authorization"] == "Bearer sk-key"
-    assert json.loads(request.content)["model"] == "rerank-model"
+        assert isinstance(deps.vector_store, ChromaVectorStore)
+        assert deps.lexical_search is None  # open-source Chroma ranks no text
 
 
 # --- in-process runtime ---------------------------------------------------------------
@@ -160,15 +91,18 @@ def local_settings(
 ) -> RagSettings:
     """In-process models on a known CPU budget; everything else fake."""
     return settings_factory(
-        vector_store_backend="fake", llm_backend="fake", model_cpus=4, **overrides
+        vector_store_backend="fake",
+        generation_backend="fake",
+        model_cpus=4,
+        **overrides,
     )
 
 
 def folders(settings: RagSettings, models_dir: Path) -> tuple[Path, Path]:
     """Where the embedder and the reranker are exported under ``models_dir``."""
     return (
-        exported_model_dir(str(models_dir), settings.embedder_model),
-        exported_model_dir(str(models_dir), settings.reranker_model),
+        exported_model_dir(str(models_dir), settings.embedding_model),
+        exported_model_dir(str(models_dir), settings.rerank_model),
     )
 
 
@@ -195,7 +129,7 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
         await ports.local_reranker()
 
     # 4 CPUs over 4 workers: one thread per call, for both models.
-    described = local_model(settings.embedder_model, runtime=runtime, models_dir="")
+    described = local_model(settings.embedding_model, runtime=runtime, models_dir="")
     assert fake_weights.load_arguments == [described.load_arguments(1)] * 2
     assert fake_weights.saved == []
 
@@ -213,24 +147,24 @@ async def test_a_first_openvino_start_exports_each_model_then_loads_its_folder(
         async with RagPorts(settings) as ports:
             embedder = await ports.local_embedder()
             await ports.local_reranker()
-            assert await embedder.ready() == (True, settings.embedder_model)
+            assert await embedder.ready() == (True, settings.embedding_model)
 
     assert fake_weights.loaded == [
-        f"embedder:{settings.embedder_model}",  # the export: download, convert
+        f"embedder:{settings.embedding_model}",  # the export: download, convert
         f"embedder:{embedder_dir}",  # then the folder it wrote
-        f"reranker:{settings.reranker_model}",
+        f"reranker:{settings.rerank_model}",
         f"reranker:{reranker_dir}",
     ]
     assert fake_weights.load_arguments[0] == EXPORT_ARGUMENTS
     assert len(fake_weights.saved) == 2  # one export per model
-    assert (embedder_dir / "openvino_model.xml").read_text() == settings.embedder_model
-    assert (reranker_dir / "openvino_model.xml").read_text() == settings.reranker_model
+    assert (embedder_dir / "openvino_model.xml").read_text() == settings.embedding_model
+    assert (reranker_dir / "openvino_model.xml").read_text() == settings.rerank_model
     # Off the event loop: on the model pool.
     assert all(name.startswith("rag-model") for name in fake_weights.save_threads)
     lines = provisioned_lines(caplog)
     assert [(line["model"], line["folder"]) for line in lines] == [
-        (settings.embedder_model, str(embedder_dir)),
-        (settings.reranker_model, str(reranker_dir)),
+        (settings.embedding_model, str(embedder_dir)),
+        (settings.rerank_model, str(reranker_dir)),
     ]
     assert all(isinstance(line["seconds"], float) for line in lines)
 
@@ -248,7 +182,7 @@ async def test_a_later_openvino_start_loads_the_folder_without_exporting(
             await ports.local_embedder()
 
     assert fake_weights.loaded == [
-        f"embedder:{settings.embedder_model}",
+        f"embedder:{settings.embedding_model}",
         f"embedder:{embedder_dir}",
         f"embedder:{embedder_dir}",  # the second start: the folder, no export
     ]
@@ -271,8 +205,8 @@ async def test_the_torch_runtime_never_exports_and_ignores_an_exported_folder(
         await ports.local_reranker()
 
     assert fake_weights.loaded == [
-        f"embedder:{settings.embedder_model}",
-        f"reranker:{settings.reranker_model}",
+        f"embedder:{settings.embedding_model}",
+        f"reranker:{settings.rerank_model}",
     ]
     assert fake_weights.saved == []
     assert list(tmp_path.iterdir()) == [embedder_dir]
@@ -294,11 +228,11 @@ async def test_a_failed_export_names_the_model_and_folder_and_leaves_no_folder(
 
     message = str(raised.value)
     assert message.startswith("local_reranker unavailable")
-    assert f"{settings.reranker_model!r}" in message
+    assert f"{settings.rerank_model!r}" in message
     assert str(reranker_dir) in message
     assert "No space left on device" in message
     assert list(models.iterdir()) == []  # neither the folder nor its partial copy
-    assert fake_weights.loaded == [f"reranker:{settings.reranker_model}"]  # no load
+    assert fake_weights.loaded == [f"reranker:{settings.rerank_model}"]  # no load
 
 
 async def test_an_export_without_the_openvino_packages_fails_before_any_download(
@@ -319,24 +253,3 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
     assert "sentence-transformers[openvino]" in str(raised.value)
     assert fake_weights.loaded == []
     assert list(tmp_path.iterdir()) == []
-
-
-# --- chat temperature ------------------------------------------------------------------
-
-
-async def test_the_chat_model_gets_the_configured_temperature(
-    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")  # the SDK refuses to start without
-    settings = settings_factory(
-        embedder_backend="fake",
-        reranker_backend="fake",
-        vector_store_backend="fake",
-        llm_temperature=0.7,
-    )
-
-    async with RagPorts(settings) as ports:
-        deps = await ports.workflow_dependencies()
-
-    assert isinstance(deps.chat_model, OpenAIChatModel)
-    assert deps.chat_model.temperature == 0.7

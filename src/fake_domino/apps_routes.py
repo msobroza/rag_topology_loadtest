@@ -1,7 +1,7 @@
 """The fake's Domino 6.2 beta Apps API routes, under ``/api/apps/beta/apps``.
 
 List, create, add a version, get (each GET moves an instance one status along,
-as the state's ``InstanceScheduler`` decides) and list a version's instances,
+as the state's ``BaseInstanceScheduler`` decides) and list a version's instances,
 over the ``FakeDominoApps`` in the app's state. Routes and shapes are Domino's.
 
 Example:

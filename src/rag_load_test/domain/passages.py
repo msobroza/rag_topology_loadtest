@@ -1,7 +1,7 @@
 """Value objects of a RAG run: passages and results.
 
 Nothing heavy is imported here, so the OVMS-only and fake topologies never pay
-for torch, elasticsearch or openai.
+for torch or elasticsearch.
 """
 
 from __future__ import annotations

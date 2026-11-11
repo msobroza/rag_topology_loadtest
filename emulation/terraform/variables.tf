@@ -225,7 +225,7 @@ variable "ovms_bundle_path" {
 variable "project_env_secret" {
   description = <<-EOT
     Optional: the id of an existing Secret Manager secret, in var.project_id, whose
-    payload is KEY=VALUE lines (OPENAI_API_KEY=..., one per line): the Project
+    payload is KEY=VALUE lines (RAG_GENERATION_API_KEY=..., one per line): the Project
     environment variables the fake Domino hands every App and the Workspace's shell.
     "" = none (an empty file).
   EOT

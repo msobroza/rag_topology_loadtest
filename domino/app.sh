@@ -8,7 +8,7 @@
 #   ovms-embedder     OpenVINO Model Server serving config_embedder.json
 #                     (both from RAG_OVMS_MODELS_DIR, /mnt/data/ovms-models by default)
 #   fastapi-reranker / fastapi-embedder   the same models behind rag-model-server
-#                     (same /v3 contract as OVMS) for the FastAPI-vs-OVMS experiment
+#                     (same /v3 routes and formats as OVMS) for the FastAPI-vs-OVMS experiment
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
 #
 # RAG_BOOTSTRAP=1 (set by rag-deploy) first installs what the role needs, for a
@@ -29,9 +29,10 @@
 # models (monolith, workflow, fastapi-*) export themselves into
 # RAG_OPENVINO_MODELS_DIR on their first start (RAG_LOCAL_MODEL_RUNTIME=openvino).
 #
-# Both workflow app roles run `rag-serve --domino`: Python resolves the embedder and
-# reranker backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
-# RAG_OVMS_*_URL for every port on a model server and defaults RAG_OVMS_AUTH=domino.
+# Both workflow app roles run `rag-serve --domino`: Python resolves the embedding and
+# rerank backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
+# RAG_EMBEDDING_API_URL / RAG_RERANK_API_URL for every component on a model server
+# (rag-deploy sets them) and defaults its RAG_*_API_KEY to domino.
 # A role here only picks its default topology and refuses one it does not serve.
 #
 # OVMS has no base-path option. When Domino forwards the app path prefix

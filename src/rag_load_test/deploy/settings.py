@@ -25,6 +25,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from ..domain.model_api import DOMINO_RUN_TOKEN
 from ..domain.topology import Topology
 from .apps_client import DominoDeployError, WaitLimits
 
@@ -221,9 +222,9 @@ def refuse_secrets(settings: DeploySettings) -> None:
         settings: The deploy settings whose ``defaults`` and ``apps`` are checked.
 
     Raises:
-        DominoDeployError: If ``RAG_ES_API_KEY``, ``OPENAI_API_KEY`` or
-            ``COHERE_API_KEY`` is set, or ``RAG_OVMS_AUTH`` holds a token rather
-            than ``domino``.
+        DominoDeployError: If a setting whose name ends with ``_API_KEY``
+            (``RAG_ES_API_KEY``, ``RAG_EMBEDDING_API_KEY``, ...) holds a value
+            other than "" or ``domino``.
 
     Example:
         >>> refuse_secrets(DeploySettings())
@@ -281,9 +282,9 @@ def _values_used(
 
 
 def _secrets_in(values: dict[str, str]) -> list[str]:
-    # RAG_OVMS_AUTH is a secret only when it holds a token ("domino" names a mode).
-    api_keys = ("RAG_ES_API_KEY", "OPENAI_API_KEY", "COHERE_API_KEY")
-    secrets: list[str] = [name for name in api_keys if name in values]
-    if values.get("RAG_OVMS_AUTH") not in (None, "", "domino"):
-        secrets.append("RAG_OVMS_AUTH")
-    return secrets
+    # An API key is a secret unless it is empty or names the Domino run token.
+    return [
+        name
+        for name, value in values.items()
+        if name.endswith("_API_KEY") and value not in ("", DOMINO_RUN_TOKEN)
+    ]

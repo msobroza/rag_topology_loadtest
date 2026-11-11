@@ -8,17 +8,22 @@ from collections.abc import Sequence
 
 import pytest
 
-from rag_load_test.adapters.fakes.fake_models import FakeChatModel
+from rag_load_test.adapters.fakes.fake_models import FakeLLM
 from rag_load_test.adapters.local_models.sentence_transformer_models import NoReranker
-from rag_load_test.application.workflow import RagWorkflow, merge_timings
+from rag_load_test.application.workflow import (
+    RagWorkflow,
+    merge_timings,
+    required_lexical_search,
+)
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
 from rag_load_test.domain.passages import STAGES, Passage, ScoredPassage
 from rag_load_test.domain.ports import (
-    EmbedderPort,
+    BaseEmbedder,
+    BaseLexicalSearch,
+    BaseReranker,
+    BaseVectorStore,
     RagDependencies,
-    RerankerPort,
-    VectorStorePort,
 )
 from rag_load_test.domain.prompts import RagPrompts
 from rag_load_test.domain.workflow_parameters import WorkflowParameters
@@ -91,7 +96,7 @@ async def test_retrieve_mode_skips_generation(
     workflow = RagWorkflow(fake_deps, parameters)
     result = await workflow.run(VACATION_QUESTION, mode="retrieve")
 
-    assert isinstance(fake_deps.chat_model, FakeChatModel)
+    assert isinstance(fake_deps.chat_model, FakeLLM)
     assert fake_deps.chat_model.calls == 0
     assert result.mode == "retrieve"
     assert result.answer is None
@@ -125,11 +130,11 @@ async def test_non_default_parameters_size_retrieval_rerank_and_prompt(
 
     assert len(result.passages) == 2
     assert result.answer is not None
-    # FakeChatModel echoes the first 200 characters of the user message.
+    # FakeLLM echoes the first 200 characters of the user message.
     assert result.answer.startswith("[fake-llm] ASK vacation days USING [1] ")
 
 
-class RecordingReranker(RerankerPort):
+class RecordingReranker(BaseReranker):
     """Keeps retrieval order and records ``(candidates, top_n)`` per call."""
 
     def __init__(self) -> None:
@@ -163,7 +168,7 @@ async def test_the_reranker_gets_top_k_retrieve_candidates_and_top_k_rerank(
 # --- retrieval modes -------------------------------------------------------------
 
 
-class RecordingEmbedder(EmbedderPort):
+class RecordingEmbedder(BaseEmbedder):
     """Answers a fixed vector and records every text it was asked to embed."""
 
     model_name = "recording-embedder"
@@ -179,7 +184,7 @@ class RecordingEmbedder(EmbedderPort):
         return True, self.model_name
 
 
-class ScriptedStore(VectorStorePort):
+class ScriptedStore(BaseVectorStore, BaseLexicalSearch):
     """Answers one fixed ranking per kind of query and records the calls."""
 
     def __init__(self, dense: Sequence[str], lexical: Sequence[str]) -> None:
@@ -212,7 +217,11 @@ def scripted_deps(
     fake_deps: RagDependencies, store: ScriptedStore, embedder: RecordingEmbedder
 ) -> RagDependencies:
     return dataclasses.replace(
-        fake_deps, vector_store=store, embedder=embedder, reranker=NoReranker()
+        fake_deps,
+        vector_store=store,
+        lexical_search=store,
+        embedder=embedder,
+        reranker=NoReranker(),
     )
 
 
@@ -363,3 +372,27 @@ def test_merge_timings_merges_dicts_right_wins() -> None:
     }
     assert merge_timings({"embed": 1.0}, {"embed": 3.0}) == {"embed": 3.0}
     assert merge_timings({}, {}) == {}
+
+
+@pytest.mark.parametrize("mode", ["lexical", "hybrid"])
+def test_a_text_ranking_mode_without_a_lexical_search_is_refused_at_construction(
+    fake_deps: RagDependencies, mode: str
+) -> None:
+    deps = dataclasses.replace(fake_deps, lexical_search=None)
+
+    with pytest.raises(ValueError, match=f"retrieval_mode='{mode}'.*ranks no text"):
+        RagWorkflow(deps, workflow_parameters(retrieval_mode=mode))
+
+
+def test_dense_mode_needs_no_lexical_search(fake_deps: RagDependencies) -> None:
+    deps = dataclasses.replace(fake_deps, lexical_search=None)
+
+    RagWorkflow(deps, workflow_parameters(retrieval_mode="dense"))  # no error
+
+
+def test_required_lexical_search_hands_back_the_search_it_is_given() -> None:
+    store = ScriptedStore([], [])
+
+    assert required_lexical_search(store, "hybrid") is store
+    with pytest.raises(ValueError, match="RAG_VECTOR_STORE_BACKEND=elasticsearch"):
+        required_lexical_search(None, "lexical")

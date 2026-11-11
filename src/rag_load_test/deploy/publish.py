@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Literal
 
+from ..domain.model_api import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.topology import Topology
 from .apps_client import (
     DominoApp,
@@ -143,12 +144,18 @@ def _workflow_exports(
     if topology == "monolith":
         return {"RAG_ROLE": "monolith", "RAG_TOPOLOGY": topology}
     exports = {"RAG_ROLE": "workflow", "RAG_TOPOLOGY": topology}
-    exports["RAG_OVMS_RERANK_URL"] = urls["reranker"]
+    # The settings take the full route; an App URL may end with a "/".
+    exports["RAG_RERANK_API_URL"] = _route(urls["reranker"], MODEL_SERVER_RERANK_PATH)
     if topology == "split-all":
-        exports["RAG_OVMS_EMBEDDINGS_URL"] = urls["embedder"]
+        embeddings = _route(urls["embedder"], MODEL_SERVER_EMBEDDINGS_PATH)
+        exports["RAG_EMBEDDING_API_URL"] = embeddings
     if "RAG_RUN_LABEL" not in app_settings:
         exports["RAG_RUN_LABEL"] = f"{topology}-{settings.model_server}"
     return exports
+
+
+def _route(app_url: str, path: str) -> str:
+    return app_url.rstrip("/") + path
 
 
 def version_body(app: AppSettings, script: str) -> dict[str, object]:

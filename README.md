@@ -7,20 +7,21 @@ topologies on Domino Data Lab 6.2 and compares them:
 
 | Topology | Domino apps | What runs where |
 | --- | --- | --- |
-| `monolith` | 1 | embedder + reranker + workflow + OpenAI client in one process |
+| `monolith` | 1 | embedder + reranker + workflow + LLM client in one process |
 | `split-reranker` | 2 | **A** OpenVINO Model Server (OVMS) serving the reranker; **B** workflow + embedder |
 | `split-all` | 3 | **A** OVMS reranker; **C** OVMS embedder; **B** workflow calling A and C over HTTP |
 
 The workflow code is identical everywhere; only the transport behind the
-`EmbedderPort` and `RerankerPort` changes (in-process model vs. HTTP call to
-OVMS), selected by `RAG_TOPOLOGY` alone, and every topology reads the same
-Elasticsearch index.
+`BaseEmbedder` and `BaseReranker` changes (in-process model vs. HTTP call to a
+model server), selected by `RAG_TOPOLOGY` alone, and every topology reads the
+same Elasticsearch index.
 
 Around that comparison every stage has alternatives, each one setting away: the
 vector store (Elasticsearch or Chroma), how it is searched (dense, lexical or
-hybrid), a hosted API in place of a model of ours (OpenAI embeddings; a Cohere or
-OpenAI-compatible rerank route) and what runs the in-process models (OpenVINO or
-PyTorch). See [Retrieval, stores and hosted models](#retrieval-stores-and-hosted-models).
+hybrid), any endpoint that speaks a known API format in place of a model of ours
+(an OpenAI-compatible gateway, Cohere's rerank route) and what runs the
+in-process models (OpenVINO or PyTorch). See
+[Retrieval, stores and model endpoints](#retrieval-stores-and-model-endpoints).
 
 To run it on Domino, follow [Step by step: first test run on Domino](#step-by-step-first-test-run-on-domino).
 
@@ -29,10 +30,10 @@ To run it on Domino, follow [Step by step: first test run on Domino](#step-by-st
 ```mermaid
 flowchart LR
     L[Locust] -->|POST /query, /retrieve| API[FastAPI · rag-serve]
-    API --> E["embed<br/>(EmbedderPort: in-process, OVMS /v3/embeddings or the OpenAI API)"]
-    E --> R["retrieve<br/>(VectorStorePort: Elasticsearch or Chroma; dense, lexical or hybrid; RAG_TOP_K_RETRIEVE=20)"]
-    R --> K["rerank<br/>(RerankerPort: in-process, OVMS /v3/rerank or a hosted rerank route; RAG_TOP_K_RERANK=5)"]
-    K -->|mode = query| G["generate<br/>(ChatModelPort: OpenAI)"]
+    API --> E["embed<br/>(BaseEmbedder: in-process, or an endpoint in the openai embeddings format)"]
+    E --> R["retrieve<br/>(BaseVectorStore: Elasticsearch or Chroma; dense, lexical or hybrid; RAG_TOP_K_RETRIEVE=20)"]
+    R --> K["rerank<br/>(BaseReranker: in-process, or an endpoint in the cohere rerank format; RAG_TOP_K_RERANK=5)"]
+    K -->|mode = query| G["generate<br/>(BaseLLM: an endpoint in the openai chat format)"]
     K -->|mode = retrieve| Z([response + timings_ms])
     G --> Z
 ```
@@ -43,7 +44,9 @@ takes the four ports and one `WorkflowParameters` (retrieval mode, both top-k
 sizes, the query prefix and the prompts), built by
 `RagSettings.workflow_parameters()`. The prompts live in
 `src/rag_load_test/config/prompts.yaml`. With `RAG_RETRIEVAL_MODE=lexical` the
-graph starts at retrieve: no vector is computed and `embed` is 0 ms.
+graph starts at retrieve: no vector is computed and `embed` is 0 ms. Lexical and
+hybrid retrieval also take a `BaseLexicalSearch`, which only a store that ranks
+text provides.
 
 ## Code layout
 
@@ -52,11 +55,11 @@ src/rag_load_test/
   __init__.py       package docstring, __version__
   domain/           no I/O, no framework; imports no other layer
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
-    ports.py        the four async ports (abstract base classes) and RagDependencies
+    ports.py        the async ports (abstract base classes: BaseEmbedder, BaseReranker, BaseVectorStore, BaseLexicalSearch, BaseLLM) and RagDependencies
+    model_api.py    ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
     errors.py       RagDependencyError, describe_error
     prompts.py      RagPrompts: system prompt + user template -> chat messages
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
-    bm25.py         Bm25Index: ranked lexical search in memory, for the stores that have none of their own
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     topology.py     the topology rule: backends per topology, contradictions, default run label
@@ -67,6 +70,7 @@ src/rag_load_test/
   config/           imports domain only
     settings.py     RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
+    prompts_source.py  the settings source that reads the prompts YAML
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
   adapters/         one subfolder per kind of outside system
     rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
@@ -77,27 +81,32 @@ src/rag_load_test/
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
       cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
-    ovms/           models behind a model server
-      ovms_adapters.py  BearerToken (static or Domino run token), OvmsEmbedder, OvmsReranker (httpx, timeout + retries)
-      v3_contract.py  the /v3 contract: paths, request/response shapes (pydantic), index bookkeeping, UNKNOWN_MODEL_ERROR
-    hosted_models/  models behind a hosted API
-      openai_embedder.py  OpenAIEmbedder (the OpenAI embeddings API, or anything compatible)
-      rerank_api.py   RerankApiReranker (the Cohere rerank shape: Cohere, or a gateway's /rerank)
+    model_api/      models behind an endpoint (the `api` backends), spoken to in an API format
+      api_format_bases.py  what an API format is: a request body builder and an answer reader, no HTTP
+      openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
+      cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
+      openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
+      api_formats.py  the registry: the one place that maps an API format name to its class
+      bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
+      api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
+      api_embedder.py  ApiEmbedder
+      api_reranker.py  ApiReranker
+      api_llm.py      ApiLLM
+      endpoint_adapters.py  builds the api embedder, reranker and LLM of one endpoint, each with its own BearerToken
+      model_server_contract.py  the FastAPI model server's side of the formats: its answers, UNKNOWN_MODEL_ERROR
     vector_store/
-      elasticsearch_store.py  ElasticsearchVectorStore (kNN, and BM25 for lexical search)
-      chroma_store.py  ChromaVectorStore (embedded or server; BM25 kept in this process)
-    chat_model/
-      openai_chat.py  OpenAIChatModel
+      elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+      chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
     fakes/          the `fake` backends
-      fake_models.py  FakeEmbedder, FakeReranker, FakeChatModel
-      in_memory_vector_store.py  InMemoryVectorStore
+      fake_models.py  FakeEmbedder, FakeReranker, FakeLLM
+      in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
     shared/
       http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
-      json_post.py    RetryingJsonPost: the POST-with-retries the model-server and rerank adapters share
+      json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
       json_log.py   log_json: the one log format
   entrypoints/      processes: FastAPI apps and CLIs
     workflow_api.py FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
-    model_server.py FastAPI model server with the OVMS /v3 contract (rag-model-server)
+    model_server.py FastAPI model server on OpenVINO Model Server's /v3 routes (rag-model-server)
     served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
     ingest_cli.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
@@ -117,7 +126,7 @@ src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test doub
                     tests/structure/test_layering.py)
   api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
   state.py          FakeDominoApps: the fake's Apps, versions and instances
-  instances.py      InstanceScheduler: what decides an instance's status; by default the --behaviour scripts
+  instances.py      BaseInstanceScheduler: what decides an instance's status; by default the --behaviour scripts
   apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
   stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
   server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
@@ -140,7 +149,7 @@ tests/              pytest: no model weights, no network, no Elasticsearch; one 
 
 ```bash
 make install-dev              # pip install -e ".[dev]" (locust, pytest, ruff, black, mypy)
-cp .env.example .env          # set OPENAI_API_KEY, or RAG_LLM_BACKEND=fake to skip the LLM
+cp .env.example .env          # set RAG_GENERATION_API_KEY, or RAG_GENERATION_BACKEND=fake to skip the LLM
 make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need `make ovms-export` first)
 make openvino-export          # once: convert both models to OpenVINO under models/openvino (2.7 GB of downloads, ~4.5 GB on disk)
 make ingest                   # rag-ingest --synthetic 200 -> index rag_passages
@@ -164,10 +173,10 @@ curl -s localhost:8888/readyz
 passage id (idempotent); `rag-ingest --corpus docs.jsonl` loads a real corpus, one
 `{"id","title","text","metadata"}` object per line. `make infra-down` stops the containers.
 
-No Elasticsearch, model weights or OpenAI key at hand? Every backend has a `fake`:
+No Elasticsearch, model weights or generation API key at hand? Every backend has a `fake`:
 
 ```bash
-RAG_EMBEDDER_BACKEND=fake RAG_RERANKER_BACKEND=fake RAG_LLM_BACKEND=fake RAG_VECTOR_STORE_BACKEND=fake make serve
+RAG_EMBEDDING_BACKEND=fake RAG_RERANK_BACKEND=fake RAG_GENERATION_BACKEND=fake RAG_VECTOR_STORE_BACKEND=fake make serve
 ```
 
 serves the same routes from an in-memory store seeded with the 200 synthetic
@@ -180,19 +189,24 @@ make ovms-export              # once, after make install: export both models (in
 make infra-up                 # the OVMS containers now serve the reranker on :8001 and the embedder on :8002
 
 # split-reranker: reranker over HTTP, embedder in-process
-RAG_TOPOLOGY=split-reranker make serve
+RAG_TOPOLOGY=split-reranker RAG_RERANK_API_URL=http://localhost:8001/v3/rerank make serve
 
 # split-all: reranker and embedder over HTTP
-RAG_TOPOLOGY=split-all make serve
+RAG_TOPOLOGY=split-all RAG_RERANK_API_URL=http://localhost:8001/v3/rerank \
+  RAG_EMBEDDING_API_URL=http://localhost:8002/v3/embeddings make serve
 ```
 
-The topology sets the backends; no `RAG_*_BACKEND` variable is needed. The
-defaults `RAG_OVMS_RERANK_URL=http://localhost:8001` and
-`RAG_OVMS_EMBEDDINGS_URL=http://localhost:8002` match the compose ports; `RAG_OVMS_AUTH`
-stays empty locally. `RAG_RERANKER_BACKEND=none` skips reranking in any topology
-(`rerank ≈ 0 ms`); a backend that contradicts the topology (say
-`RAG_EMBEDDER_BACKEND=ovms` with `RAG_TOPOLOGY=monolith`) stops `rag-serve` at
-start-up with the fix in the message.
+The topology sets the backends (`api` for a component on a model server); no
+`RAG_*_BACKEND` variable is needed. The URLs have no default: each is the full
+route of the endpoint, here the compose ports plus OVMS's `/v3/rerank` and
+`/v3/embeddings`, and `rag-serve` refuses to start without one for a component
+on the `api` backend. The API formats (`cohere` for rerank, `openai` for
+embedding) and model names default to what the model servers serve, and
+`RAG_RERANK_API_KEY` / `RAG_EMBEDDING_API_KEY` stay empty locally.
+`RAG_RERANK_BACKEND=none` skips reranking in any topology (`rerank ≈ 0 ms`); a
+backend that contradicts the topology (say `RAG_EMBEDDING_BACKEND=local` with
+`RAG_TOPOLOGY=split-all`) stops `rag-serve` at start-up with the fix in the
+message.
 
 ## Load test and comparison
 
@@ -254,11 +268,12 @@ is listed by its run name alone, as before.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
-`rag-model-server` serves one model per process behind the same `/v3` contract
-as OpenVINO Model Server (`POST /v3/embeddings`, `POST /v3/rerank`,
+`rag-model-server` serves one model per process on the same routes as OpenVINO
+Model Server (`POST /v3/embeddings`, `POST /v3/rerank`,
 `GET /v3/models/<alias>`), using the in-process sentence-transformers adapters.
-The workflow app cannot tell the two servers apart, so the comparison needs no
-code change: point `RAG_OVMS_RERANK_URL` / `RAG_OVMS_EMBEDDINGS_URL` at one or
+Both servers speak the same API formats (`openai` for embeddings, `cohere` for
+rerank), so the workflow app cannot tell them apart and the comparison needs no
+code change: point `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` at one or
 the other. Both servers answer a request for an unknown model with the same
 `404 {"error": "Mediapipe graph definition with requested name is not found"}`.
 
@@ -281,13 +296,15 @@ rag-compare results/embed-ovms results/embed-fastapi --out results/embeddings.md
 End-to-end comparison (the split topologies with either server behind them):
 
 ```bash
-RAG_TOPOLOGY=split-reranker RAG_RUN_LABEL=split-reranker-fastapi RAG_OVMS_RERANK_URL=http://localhost:8011 make serve
+RAG_TOPOLOGY=split-reranker RAG_RUN_LABEL=split-reranker-fastapi \
+  RAG_RERANK_API_URL=http://localhost:8011/v3/rerank make serve
 make loadtest RUN_NAME=split-reranker-fastapi HOST=http://localhost:8888
 ```
 
 On Domino, `RAG_ROLE=fastapi-reranker` / `fastapi-embedder` publish the FastAPI
 servers with the `rag` environment (no OVMS binary needed); the workflow app's
-`RAG_OVMS_*_URL` then points at those App URLs exactly as for the OVMS apps.
+`RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` then point at those App URLs plus
+`/v3/rerank` / `/v3/embeddings`, exactly as for the OVMS apps.
 `RAG_LOADTEST_TARGET` selects the Locust user class: `rag` (default,
 `/query` + `/retrieve`), `rerank` or `embeddings`.
 
@@ -309,42 +326,52 @@ follows `DOMINO_RUN_HOST_PATH`, so the app answers with or without Domino's
 prefix on the wire and `/docs` works behind the proxy.
 `rag-serve --host 0.0.0.0 --port 8888` are the defaults (host and port are
 flags, not settings); `rag-serve --domino` (what `domino/app.sh` runs) also
-requires `RAG_OVMS_*_URL` for every port on a model server and defaults
-`RAG_OVMS_AUTH=domino`. A settings mistake ends `rag-serve` with a one-line
-usage error, not a traceback.
+sets `RAG_EMBEDDING_API_KEY` / `RAG_RERANK_API_KEY` to `domino` for a component
+on the `api` backend whose key was not set. A settings mistake ends `rag-serve`
+with a one-line usage error, not a traceback.
 
 ## Configuration (`RAG_*` environment variables or `.env`)
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RAG_TOPOLOGY` | `monolith` | `monolith` \| `split-reranker` \| `split-all`; decides the embedder and reranker backends (`local`/`local`, `local`/`ovms`, `ovms`/`ovms`); echoed as `topology` and `X-RAG-Topology` |
-| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: the topology plus `+<port>=<backend>` for each backend off its default, then `+retrieval=<mode>` when not `dense` (e.g. `monolith+reranker=none`, `monolith+store=chroma+retrieval=hybrid`); letters, digits and `._+=:-`, 1 to 128 characters |
-| `RAG_EMBEDDER_BACKEND` | from the topology | only `openai` or `fake` (or the topology's own value) may override it |
-| `RAG_EMBEDDER_MODEL` | `Snowflake/snowflake-arctic-embed-l-v2.0` | HF id (or a folder) for `local`, and what OVMS serves |
-| `RAG_EMBEDDER_QUERY_PREFIX` | `query: ` | put in front of each question before `RAG_EMBEDDER_MODEL` embeds it (arctic-embed expects it on queries, never on passages); a `local` or `ovms` embedder gets it, an `openai` or `fake` one never does; set it empty for a model that takes none |
-| `RAG_RERANKER_BACKEND` | from the topology | only `cohere`, `openai`, `fake` or `none` (or the topology's own value) may override it |
-| `RAG_RERANKER_MODEL` | `antoinelouis/crossencoder-camembert-base-mmarcoFR` | HF id (or a folder) for `local`, and what OVMS serves |
+| `RAG_TOPOLOGY` | `monolith` | `monolith` \| `split-reranker` \| `split-all`; decides the embedding and rerank backends (`local`/`local`, `local`/`api`, `api`/`api`); echoed as `topology` and `X-RAG-Topology` |
+| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: the topology plus `+embedding=`, `+rerank=`, `+store=`, `+generation=` and `+retrieval=` for each choice off its default, in that order (e.g. `monolith+rerank=none`, `split-all+generation=fake`, `monolith+retrieval=hybrid`); letters, digits and `._+=:-`, 1 to 128 characters |
+| **Embedding** | | |
+| `RAG_EMBEDDING_BACKEND` | from the topology | `local` \| `api` \| `fake`; `api` and `fake` (or the topology's own value) may override it |
+| `RAG_EMBEDDING_MODEL` | `Snowflake/snowflake-arctic-embed-l-v2.0` | the `local` model (a Hugging Face id or a folder); also what our model servers load |
+| `RAG_EMBEDDING_QUERY_PREFIX` | `query: ` | put in front of each question before it is embedded (arctic-embed expects it on queries, never on passages); every backend but `fake` gets it; set it empty for a model that takes none |
+| `RAG_EMBEDDING_API_URL` | `` | the full route of the endpoint, e.g. `http://localhost:8002/v3/embeddings`; required with the `api` backend |
+| `RAG_EMBEDDING_API_FORMAT` | `openai` | the request and response shapes the route speaks |
+| `RAG_EMBEDDING_API_KEY` | `` | empty = no `Authorization` header; `domino` = the Domino run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a bearer token |
+| `RAG_EMBEDDING_API_MODEL` | `snowflake-arctic-embed-l-v2.0` | the model name sent to the endpoint; our model servers serve `RAG_EMBEDDING_MODEL` under this name |
+| `RAG_EMBEDDING_BATCH_SIZE` | `64` | texts per call, in process or per endpoint request (>= 1) |
+| `RAG_EMBEDDING_THREADS` | `0` | native (OpenMP/BLAS) threads one in-process embed call may use; `0` = the budget's share |
+| **Rerank** | | |
+| `RAG_RERANK_BACKEND` | from the topology | `local` \| `api` \| `fake` \| `none`; `api`, `fake` and `none` (or the topology's own value) may override it |
+| `RAG_RERANK_MODEL` | `antoinelouis/crossencoder-camembert-base-mmarcoFR` | the `local` model (a Hugging Face id or a folder); also what our model servers load |
+| `RAG_RERANK_API_URL` | `` | the full route of the endpoint, e.g. `http://localhost:8001/v3/rerank`; required with the `api` backend |
+| `RAG_RERANK_API_FORMAT` | `cohere` | the request and response shapes the route speaks |
+| `RAG_RERANK_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY` |
+| `RAG_RERANK_API_MODEL` | `crossencoder-camembert-base-mmarcoFR` | the model name sent; our model servers serve `RAG_RERANK_MODEL` under this name |
+| `RAG_RERANK_BATCH_SIZE` | `32` | pairs per batch for the in-process cross-encoder (>= 1) |
+| `RAG_RERANK_THREADS` | `0` | native threads one in-process rerank call may use; `0` = the budget's share |
+| **Generation** | | |
+| `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network) |
+| `RAG_GENERATION_API_URL` | `https://api.openai.com/v1/chat/completions` | the full route of the endpoint |
+| `RAG_GENERATION_API_FORMAT` | `openai` | the request and response shapes the route speaks |
+| `RAG_GENERATION_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY`; `rag-serve --domino` never changes it |
+| `RAG_GENERATION_API_MODEL` | `gpt-4o-mini` | the model name sent |
+| `RAG_GENERATION_TEMPERATURE` | `0` | sampling temperature, 0 to 2 |
+| `RAG_GENERATION_TIMEOUT_S` | `120` | timeout of one generation request (> 0); an answer takes longer than a model-server call. Retries and backoff are `RAG_HTTP_RETRIES` / `RAG_HTTP_BACKOFF_S` |
+| **Everything else** | | |
 | `RAG_LOCAL_MODEL_RUNTIME` | `openvino` | what runs the in-process models: `openvino` \| `torch` |
 | `RAG_OPENVINO_MODELS_DIR` | `models/openvino` | where `rag-export-openvino` writes and the `openvino` runtime looks first, one folder per model |
-| `RAG_OVMS_EMBEDDINGS_URL` | `http://localhost:8002` | base URL (App URL on Domino); the adapter appends `/v3/embeddings` |
-| `RAG_OVMS_EMBEDDINGS_MODEL` | `snowflake-arctic-embed-l-v2.0` | servable name in the OVMS config |
-| `RAG_OVMS_RERANK_URL` | `http://localhost:8001` | base URL; the adapter appends `/v3/rerank` |
-| `RAG_OVMS_RERANK_MODEL` | `crossencoder-camembert-base-mmarcoFR` | servable name in the OVMS config |
-| `RAG_OVMS_AUTH` | `` | empty = no auth; `domino` = the run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a static bearer token |
-| `RAG_OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | embedding model for `RAG_EMBEDDER_BACKEND=openai` |
-| `RAG_COHERE_RERANK_URL` | `https://api.cohere.com/v2/rerank` | rerank route for `RAG_RERANKER_BACKEND=cohere`; any server with the Cohere rerank shape works |
-| `RAG_COHERE_RERANK_MODEL` | `rerank-v3.5` | model asked of that route |
-| `RAG_OPENAI_RERANK_MODEL` | `` | model asked of `{OPENAI_BASE_URL}/rerank` for `RAG_RERANKER_BACKEND=openai`; required with it |
-| `RAG_LLM_BACKEND` | `openai` | `openai` \| `fake` (echoes the question, no network) |
-| `RAG_OPENAI_MODEL` | `gpt-4o-mini` | chat model id |
-| `RAG_LLM_TEMPERATURE` | `0` | sampling temperature of the chat model, 0 to 2 |
 | `RAG_VECTOR_STORE_BACKEND` | `elasticsearch` | `elasticsearch` \| `chroma` \| `fake` (in-memory, seeded with the synthetic corpus at start-up) |
-| `RAG_RETRIEVAL_MODE` | `dense` | `dense` (by vector) \| `lexical` (BM25, no embed stage) \| `hybrid` (both, fused by reciprocal rank) |
+| `RAG_RETRIEVAL_MODE` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store; no embed stage) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` |
 | `RAG_HYBRID_RRF_K` | `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
 | `RAG_CHROMA_URL` | `` | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `RAG_CHROMA_PATH` |
 | `RAG_CHROMA_PATH` | `chroma` | folder of the embedded Chroma store |
 | `RAG_CHROMA_COLLECTION` | `rag_passages` | Chroma collection holding the passages |
-| `RAG_BM25_K1` / `RAG_BM25_B` | `1.2` / `0.75` | BM25 of the stores without ranked text search of their own (`chroma`, `fake`); Elasticsearch uses its own |
 | `RAG_ES_URL` | `http://localhost:9200` | `http://user:password@host:9200` for basic auth |
 | `RAG_ES_API_KEY` | `` | Elasticsearch API key (alternative to basic auth) |
 | `RAG_ES_INDEX` | `rag_passages` | Elasticsearch index holding the passages |
@@ -354,20 +381,15 @@ usage error, not a traceback.
 | `RAG_TOP_K_RERANK` | `5` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
 | `RAG_SYSTEM_PROMPT` / `RAG_USER_PROMPT` | from `prompts.yaml` | override one prompt; the user template must hold `{context}` and `{question}` |
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
-| `RAG_EMBEDDER_BATCH_SIZE` | `64` | texts per batch for the in-process embedder and per OVMS `/v3/embeddings` request |
-| `RAG_RERANKER_BATCH_SIZE` | `32` | pairs per batch for the in-process cross-encoder |
 | `RAG_MODEL_WORKERS` | `4` | at most this many in-process inference calls at once (fewer on a small CPU budget) |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
-| `RAG_EMBEDDER_THREADS` / `RAG_RERANKER_THREADS` | `0` | native (OpenMP/BLAS) threads one embed / rerank call may use; `0` = the budget's share |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
-| `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every model-server and Domino-token request |
-| `RAG_HTTP_RETRIES` | `2` | model-server retries on transport errors, 5xx and 401; hardware-tier lookup retries on transport errors |
+| `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
+| `RAG_HTTP_RETRIES` | `2` | endpoint retries (embedding, rerank and generation) on transport errors, 5xx, 429, and 401 when the key is `domino`; hardware-tier lookup retries on transport errors |
 | `RAG_HTTP_BACKOFF_S` | `0.2` | wait before the first retry, doubled for each next one |
-| `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token (`RAG_OVMS_AUTH=domino`) |
+| `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token (an API key set to `domino`) |
 | `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | | read by the OpenAI SDK; point `OPENAI_BASE_URL` at a Domino AI Gateway to swap providers. The `openai` embedder and reranker use the same two |
-| `COHERE_API_KEY` | | sent as a bearer token to `RAG_COHERE_RERANK_URL`; empty sends none |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
@@ -379,10 +401,30 @@ users send `RAG_TOP_K_RETRIEVE` documents with `top_n=RAG_TOP_K_RERANK`, like th
 workflow. Sources win in this order: constructor arguments, environment, `.env`,
 then the prompts YAML. An invalid backend, topology, retrieval mode or runtime
 name, a backend that contradicts the topology, a bad run label, a temperature
-outside 0 to 2, `RAG_TOP_K_RERANK` above `RAG_TOP_K_RETRIEVE`, the `openai`
-reranker without `OPENAI_BASE_URL` and `RAG_OPENAI_RERANK_MODEL`, a user prompt
-missing a placeholder, or a missing prompts file fails at start-up with the
-offending value.
+outside 0 to 2, `RAG_TOP_K_RERANK` above `RAG_TOP_K_RETRIEVE`, a component on
+the `api` backend whose `RAG_*_API_URL` does not start with `http://` or
+`https://`, an unknown API format, lexical or hybrid retrieval on a store that
+ranks no text, a user prompt missing a placeholder, or a missing prompts file
+fails at start-up with the offending value. For example:
+
+```
+RAG_RERANK_BACKEND='api' needs RAG_RERANK_API_URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''
+```
+
+Earlier versions named the model settings differently; none of the old names is
+read any more:
+
+| Old | New |
+| --- | --- |
+| `RAG_EMBEDDER_*`, `RAG_RERANKER_*` (backend, model, query prefix, batch size, threads) | `RAG_EMBEDDING_*`, `RAG_RERANK_*` |
+| `RAG_OVMS_EMBEDDINGS_URL`, `RAG_OVMS_RERANK_URL` (a base URL with a localhost default) | `RAG_EMBEDDING_API_URL`, `RAG_RERANK_API_URL` (the full route, no default) |
+| `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | `RAG_EMBEDDING_API_MODEL`, `RAG_RERANK_API_MODEL` |
+| `RAG_OVMS_AUTH` (one for both) | `RAG_EMBEDDING_API_KEY` and `RAG_RERANK_API_KEY` |
+| `RAG_LLM_BACKEND` (`openai` \| `fake`) | `RAG_GENERATION_BACKEND` (`api` \| `fake`) |
+| `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `RAG_GENERATION_API_MODEL`, `RAG_GENERATION_TEMPERATURE` |
+| `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `RAG_GENERATION_API_URL` (the full route), `RAG_GENERATION_API_KEY` |
+| backends `ovms`, `openai`, `cohere` | backend `api` with an endpoint in an API format |
+| `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `RAG_*_API_*` block instead; the BM25 tunables have no replacement |
 
 **Thread budget.** When the first in-process model loads, the process counts its
 virtual CPUs: `RAG_MODEL_CPUS` if positive; on Domino, the `cores` of the run's
@@ -395,50 +437,93 @@ call running inside a threadpoolctl scope of that size. Autoscaled Apps start
 more pods of the same tier, so every new process works its budget out again; the
 result is one `thread_budget` JSON log line.
 
-## Retrieval, stores and hosted models
+## Retrieval, stores and model endpoints
 
 **Retrieval mode** (`RAG_RETRIEVAL_MODE`). `dense` asks the store for the
 passages nearest to the question's vector. `lexical` asks for the passages whose
-words match best (BM25): no vector is needed, so the embed stage does not run
-(`embed = 0 ms`; the embedder still loads, so `RAG_EMBEDDER_BACKEND=fake` saves
-the weights). `hybrid` asks both ways at once, `RAG_TOP_K_RETRIEVE` each, and
-fuses the two rankings by reciprocal rank (`1 / (RAG_HYBRID_RRF_K + rank)`,
-summed per passage). The fusion runs in the workflow, so hybrid behaves the same
-on every store and needs no Elasticsearch licence, at the price of two store
-calls where a server-side fusion would make one. Passages are always ingested
-with their vectors, so one index serves the three modes.
+words match best, as the store ranks them: no vector is needed, so the embed
+stage does not run (`embed = 0 ms`; the embedder still loads, so
+`RAG_EMBEDDING_BACKEND=fake` saves the weights). `hybrid` asks both ways at
+once, `RAG_TOP_K_RETRIEVE` each, and fuses the two rankings by reciprocal rank
+(`1 / (RAG_HYBRID_RRF_K + rank)`, summed per passage). The fusion runs in the
+workflow, so it needs no Elasticsearch licence, at the price of two store calls
+where a server-side fusion would make one. Passages are always ingested with
+their vectors, so one index serves the three modes.
+
+Lexical and hybrid retrieval need a store that ranks text. With `chroma` they
+are refused at start-up.
 
 | Store | Dense | Lexical |
 | --- | --- | --- |
-| `elasticsearch` | kNN on the vector field | BM25 `match` on the `text` field |
-| `chroma` | cosine, HNSW | BM25 kept in the workflow app's memory |
-| `fake` | brute-force cosine | BM25 in memory |
+| `elasticsearch` | kNN on the vector field | Elasticsearch's own BM25 (`match` on the `text` field) |
+| `chroma` | cosine, HNSW | refused at start-up |
+| `fake` | brute-force cosine | a stand-in: passages ranked by how many distinct words they share with the question |
 
 **Chroma** (`RAG_VECTOR_STORE_BACKEND=chroma`, `pip install -e ".[chroma]"`).
 Embedded by default: a folder (`RAG_CHROMA_PATH`), no server to run, filled by
 `make ingest` like any store. `RAG_CHROMA_URL` points at a Chroma server instead.
-Open-source Chroma filters text by substring but does not rank it (its ranked
-Search API is Chroma Cloud only), so the workflow app builds a BM25 index from
-the collection when it starts. That costs memory and start-up time in proportion
-to the corpus, and a passage ingested after start-up is not found by `lexical`
-or `hybrid` until the app restarts.
+Chroma serves dense retrieval only. Open-source Chroma filters text by substring
+but does not rank it (its ranked Search API is Chroma Cloud only), so
+`RAG_RETRIEVAL_MODE=lexical` or `hybrid` with `chroma` stops `rag-serve` at
+start-up.
 
-**Hosted model APIs.** They are allowed in any topology, like `fake` and `none`,
-and name themselves in the default run label (`monolith+embedder=openai`):
+**Model endpoints.** A component on the `api` backend calls an endpoint, and
+each component has the same four settings for it: `RAG_<COMPONENT>_API_URL`
+(the full route, not a base URL), `RAG_<COMPONENT>_API_FORMAT` (which request
+and response shapes the route speaks), `RAG_<COMPONENT>_API_KEY` and
+`RAG_<COMPONENT>_API_MODEL` (the model name sent), where `<COMPONENT>` is
+`EMBEDDING`, `RERANK` or `GENERATION`. An API format is a wire shape, not a
+vendor. The formats today:
 
-| Setting | Calls | Needs |
-| --- | --- | --- |
-| `RAG_EMBEDDER_BACKEND=openai` | the OpenAI embeddings API with `RAG_OPENAI_EMBEDDING_MODEL` | `OPENAI_API_KEY`; `OPENAI_BASE_URL` for a gateway or another compatible server |
-| `RAG_RERANKER_BACKEND=cohere` | `POST RAG_COHERE_RERANK_URL` with `RAG_COHERE_RERANK_MODEL` | `COHERE_API_KEY` |
-| `RAG_RERANKER_BACKEND=openai` | `POST {OPENAI_BASE_URL}/rerank` with `RAG_OPENAI_RERANK_MODEL` | `OPENAI_BASE_URL` of a gateway that has that route (LiteLLM, vLLM, Infinity, Jina; api.openai.com has none) |
+| Component | API format | Request → response | Spoken by |
+| --- | --- | --- | --- |
+| embedding | `openai` | `{"model","input":[...]}` → `{"data":[{"index","embedding":[...]}]}` | OVMS and the FastAPI model server (`/v3/embeddings`), OpenAI, vLLM, LiteLLM |
+| rerank | `cohere` | `{"model","query","documents","top_n"}` → `{"results":[{"index","relevance_score"}]}` | OVMS and the FastAPI model server (`/v3/rerank`), Cohere (`/v2/rerank`), the `/rerank` routes of LiteLLM, vLLM, Jina and Infinity |
+| generation | `openai` | `{"model","messages","temperature"}` → `{"choices":[{"message":{"content"}}]}` | OpenAI, vLLM, LiteLLM, the Domino AI Gateway |
 
-Both rerankers are one adapter: they send the Cohere rerank shape
-(`{"model","query","documents","top_n"}` → `{"results":[{"index","relevance_score"}]}`),
-time out after `RAG_HTTP_TIMEOUT_S` and retry `RAG_HTTP_RETRIES` times on
-transport errors, 5xx and 429. A hosted embedder returns vectors of its own
-size, so it needs its own index: ingest with the embedder you will serve with.
-In a split topology `rag-deploy` still publishes the model server Apps the
-topology names, even when a hosted backend leaves one unused.
+The key is the same for every component: empty sends no `Authorization` header,
+`domino` sends the Domino run's token, anything else is sent as a bearer token.
+Every call times out (`RAG_HTTP_TIMEOUT_S`, `RAG_GENERATION_TIMEOUT_S` for
+generation) and is retried `RAG_HTTP_RETRIES` times on transport errors, 5xx
+and 429, and on 401 when the key is `domino` (after the token is fetched again);
+any other 4xx fails at once. An `api` embedder or reranker reports ready in
+`/readyz` after one real minimal request to its endpoint, sent once without
+retry; on a metered API that request is billed like any other.
+
+An OVMS or FastAPI model server (what the split topologies use):
+
+```bash
+RAG_TOPOLOGY=split-all \
+  RAG_EMBEDDING_API_URL=http://localhost:8002/v3/embeddings \
+  RAG_RERANK_API_URL=http://localhost:8001/v3/rerank make serve
+```
+
+An OpenAI-compatible gateway, for generation and embeddings:
+
+```bash
+RAG_GENERATION_API_URL=https://gateway.example/v1/chat/completions \
+  RAG_GENERATION_API_KEY=<key> RAG_GENERATION_API_MODEL=<chat model> \
+  RAG_EMBEDDING_BACKEND=api RAG_EMBEDDING_API_URL=https://gateway.example/v1/embeddings \
+  RAG_EMBEDDING_API_KEY=<key> RAG_EMBEDDING_API_MODEL=<embedding model> make serve
+```
+
+The `api` embedder sends `RAG_EMBEDDING_QUERY_PREFIX` in front of each question
+too: set it empty for a model that takes none.
+
+Cohere's rerank route:
+
+```bash
+RAG_RERANK_BACKEND=api RAG_RERANK_API_URL=https://api.cohere.com/v2/rerank \
+  RAG_RERANK_API_KEY=<Cohere key> RAG_RERANK_API_MODEL=rerank-v3.5 make serve
+```
+
+The `api` backend is allowed in any topology, like `fake` and `none`, and an
+`api` component in a topology whose default is `local` names itself in the
+default run label (`monolith+rerank=api`). An embedding endpoint serving another
+model returns vectors of its own size, so it needs its own index: ingest with
+the embedder you will serve with. In a split topology `rag-deploy` still
+publishes the model server Apps the topology names, even when an endpoint
+elsewhere leaves one unused.
 
 **A French corpus.** The synthetic handbook is English. For a French,
 domain-specific corpus, `rag-fetch-corpus quebec-insurance --out DIR` downloads
@@ -486,7 +571,7 @@ make openvino-export          # rag-export-openvino: both models -> models/openv
 rag-export-openvino --only reranker --models-dir /domino/datasets/local/<dataset>/openvino
 ```
 
-`rag-export-openvino` converts `RAG_EMBEDDER_MODEL` and `RAG_RERANKER_MODEL`
+`rag-export-openvino` converts `RAG_EMBEDDING_MODEL` and `RAG_RERANK_MODEL`
 (`RAG_*` overrides honoured) into one folder each under
 `RAG_OPENVINO_MODELS_DIR`, named after the last segment of the model id. A
 folder holds everything the model loads from, so it works with the network off.
@@ -526,9 +611,9 @@ compose with `--env-file`:
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
 
 The served models (source id and alias) are pinned once, by the `RagSettings`
-defaults in `config/settings.py` (`RAG_RERANKER_MODEL` / `RAG_OVMS_RERANK_MODEL` =
-`antoinelouis/crossencoder-camembert-base-mmarcoFR` / `crossencoder-camembert-base-mmarcoFR`, `RAG_EMBEDDER_MODEL` /
-`RAG_OVMS_EMBEDDINGS_MODEL` = `Snowflake/snowflake-arctic-embed-l-v2.0` / `snowflake-arctic-embed-l-v2.0`).
+defaults in `config/settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
+`antoinelouis/crossencoder-camembert-base-mmarcoFR` / `crossencoder-camembert-base-mmarcoFR`, `RAG_EMBEDDING_MODEL` /
+`RAG_EMBEDDING_API_MODEL` = `Snowflake/snowflake-arctic-embed-l-v2.0` / `snowflake-arctic-embed-l-v2.0`).
 `rag-served-models` prints them, `RAG_*` overrides included, as shell
 assignments (`RERANKER_SOURCE_MODEL=...`) for `export_models.sh`; the `rag`
 Domino image reads the source ids from the installed package.
@@ -565,19 +650,25 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
   -d '{"model":"snowflake-arctic-embed-l-v2.0","input":["vacation policy"]}'
 ```
 
-**Contracts** used by `adapters/ovms/ovms_adapters.py`, defined once in `adapters/ovms/v3_contract.py` (which the
-FastAPI model server reads too):
+**API formats.** OVMS speaks the `cohere` rerank format on `/v3/rerank` and the
+`openai` embeddings format on `/v3/embeddings`, so the workflow calls it through
+the generic endpoint adapters of `adapters/model_api/`, with the full routes as
+URLs. The routes are wire-contract constants in `domain/model_api.py`; the
+FastAPI model server answers on the same ones.
 
 | Adapter | Request | Response |
 | --- | --- | --- |
-| `OvmsReranker` → `POST {RAG_OVMS_RERANK_URL}/v3/rerank` | `RerankRequest` `{"model","query","documents":[...],"top_n"}` | `RerankResponse` `{"results":[{"index","relevance_score"}]}` |
-| `OvmsEmbedder` → `POST {RAG_OVMS_EMBEDDINGS_URL}/v3/embeddings` | `EmbeddingsRequest` `{"model","input":[...]}` (batches of 64) | `EmbeddingsResponse` `{"data":[{"index","embedding":[...]}]}` |
+| `ApiReranker` (`cohere`) → `POST RAG_RERANK_API_URL` | `{"model","query","documents":[...],"top_n"}` | `{"results":[{"index","relevance_score"}]}` |
+| `ApiEmbedder` (`openai`) → `POST RAG_EMBEDDING_API_URL` | `{"model","input":[...]}` (`RAG_EMBEDDING_BATCH_SIZE` texts per request) | `{"data":[{"index","embedding":[...]}]}` |
 
 Both map results back by `index` (an index outside the request, or a body that
 does not fit the shape, is a malformed response), never send a field as `null`,
-time out after 30 s and retry twice on transport errors, 5xx and 401 (the Domino
-token is refetched first); other 4xx fail immediately, including the 404 for a
-`model` that is not the server's alias. Readiness probes `GET /v3/models/{model}`.
+time out after `RAG_HTTP_TIMEOUT_S` (30 s) and retry `RAG_HTTP_RETRIES` (2)
+times on transport errors, 5xx and 429, and on 401 when the key is `domino`
+(the token is fetched again first); other 4xx fail immediately, including the
+404 for a `model` that is not the server's alias. Readiness is one real minimal
+request (one text embedded, one document scored), not a probe of
+`GET /v3/models/{model}`.
 
 **Bumping OVMS**: change `ovms/versions.env` only, re-run `make ovms-export`
 (the exporter is fetched from the new tag), rebuild the `ovms` Domino image and
@@ -594,22 +685,23 @@ topologies, so the Locust numbers stay comparable.
 
 | Topology | App | `RAG_ROLE` | Environment variables | Image |
 | --- | --- | --- | --- | --- |
-| `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `OPENAI_API_KEY`, `RAG_ES_URL` (+ `RAG_ES_API_KEY`) | `rag` |
+| `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_GENERATION_API_KEY`, `RAG_ES_URL` (+ `RAG_ES_API_KEY`) | `rag` |
 | `split-reranker` | **A** OVMS reranker | `ovms-reranker` | `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`; `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS | `ovms` |
-| | **B** workflow + embedder | `workflow` | `RAG_OVMS_RERANK_URL=<URL of A>`, `OPENAI_API_KEY`, `RAG_ES_URL` | `rag` |
+| | **B** workflow + embedder | `workflow` | `RAG_RERANK_API_URL=<URL of A>/v3/rerank`, `RAG_GENERATION_API_KEY`, `RAG_ES_URL` | `rag` |
 | `split-all` | **A** OVMS reranker | `ovms-reranker` | as above | `ovms` |
 | | **C** OVMS embedder | `ovms-embedder` | as above | `ovms` |
-| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_OVMS_RERANK_URL=<URL of A>`, `RAG_OVMS_EMBEDDINGS_URL=<URL of C>`, `OPENAI_API_KEY`, `RAG_ES_URL` | `rag` |
-| FastAPI variants | **A'** / **C'** the same models behind `rag-model-server` | `fastapi-reranker` / `fastapi-embedder` | none (weights from `RAG_RERANKER_MODEL` / `RAG_EMBEDDER_MODEL`); point B's `RAG_OVMS_*_URL` at these apps instead | `rag` |
+| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_RERANK_API_URL=<URL of A>/v3/rerank`, `RAG_EMBEDDING_API_URL=<URL of C>/v3/embeddings`, `RAG_GENERATION_API_KEY`, `RAG_ES_URL` | `rag` |
+| FastAPI variants | **A'** / **C'** the same models behind `rag-model-server` | `fastapi-reranker` / `fastapi-embedder` | none (weights from `RAG_RERANK_MODEL` / `RAG_EMBEDDING_MODEL`); point B's `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` at these apps instead | `rag` |
 
 Both workflow app roles run `rag-serve --domino`. A role only defaults
 `RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and
 refuses a topology it does not serve (`monolith` serves only `monolith`;
 `workflow` serves `split-reranker` and `split-all`). Python then resolves the
-backends from the topology, requires `RAG_OVMS_RERANK_URL` /
-`RAG_OVMS_EMBEDDINGS_URL` for each port on a model server and defaults
-`RAG_OVMS_AUTH=domino`. `RAG_RERANKER_BACKEND=none` and `fake` backends pass
-through untouched. The run label ends up in every response, so set a distinct
+backends from the topology, requires `RAG_RERANK_API_URL` /
+`RAG_EMBEDDING_API_URL` for each component on the `api` backend (as everywhere)
+and sets `RAG_RERANK_API_KEY` / `RAG_EMBEDDING_API_KEY` to `domino` when it was
+not set. `RAG_GENERATION_API_KEY` is never changed. `RAG_RERANK_BACKEND=none`
+and `fake` backends pass through untouched. The run label ends up in every response, so set a distinct
 `RAG_RUN_LABEL` when testing several hardware tiers or model servers.
 
 **Environments.** `domino/Dockerfile` has two targets built from the project
@@ -647,9 +739,11 @@ with an account" is simplest). Check `GET <App URL>/readyz` before every run.
 
 **App-to-app auth.** Domino apps only accept authenticated requests. Inside a
 run a short-lived bearer token is served at `http://localhost:8899/access-token`;
-with `RAG_OVMS_AUTH=domino` the workflow app fetches it, caches it for 4 minutes,
-refreshes it on `401` and sends it as `Authorization: Bearer` on every OVMS
-call. Set `RAG_OVMS_AUTH=<token>` to use a fixed token instead.
+with `RAG_RERANK_API_KEY=domino` / `RAG_EMBEDDING_API_KEY=domino` (what
+`rag-serve --domino` sets when they are unset) the workflow app fetches it,
+caches it for 4 minutes, refreshes it on `401` and sends it as
+`Authorization: Bearer` on every model server call. Set the key to a token to
+use a fixed one instead.
 
 **Proxy prefix (`DOMINO_RUN_HOST_PATH`).** Domino serves an app under a path
 prefix (`/apps/<app-id>/` in 6.2), exposed to the process as `DOMINO_RUN_HOST_PATH`,
@@ -673,8 +767,9 @@ over keep-alive HTTP/1.1. OVMS itself is unchanged (same binary,
 config and threads); the cost is one loopback hop, well under a millisecond, plus
 a little CPU on the same pod. Note it in the comparison and keep it identical
 across the OVMS runs. Callers outside prefix every route with the App URL
-(`https://<domino-host><DOMINO_RUN_HOST_PATH>/query`); `RAG_OVMS_RERANK_URL` /
-`RAG_OVMS_EMBEDDINGS_URL` are the App URLs without a trailing slash.
+(`https://<domino-host><DOMINO_RUN_HOST_PATH>/query`); `RAG_RERANK_API_URL` /
+`RAG_EMBEDDING_API_URL` are the App URLs followed by `/v3/rerank` /
+`/v3/embeddings`.
 
 **Tracing and agent deployment.** Agent deployments use the same hosting as
 Apps (same `app.sh`, same `0.0.0.0:8888` rule) plus tracing through
@@ -682,7 +777,7 @@ Apps (same `app.sh`, same `0.0.0.0:8888` rule) plus tracing through
 image). With `RAG_DOMINO_TRACING=true` the workflow run behind both endpoints is
 wrapped with `add_tracing(name="rag_query", autolog_frameworks=["langchain"])`
 (`domino.aisystems.tracing`, falling back to `domino.agents.tracing`), so the
-LangGraph run and the OpenAI call appear as traces; without the SDK the app logs
+LangGraph run and the generation call appear as traces; without the SDK the app logs
 a warning and runs untraced. `make deploy` publishes the workflow as an Agent
 with tracing on (see "App or Agent" below); by hand, deploy from Experiment
 Manager → **Deploy Agent** with the same entry point, environment and tier as an
@@ -708,9 +803,9 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | --- | --- |
 | `401`/`403` from Locust | missing or expired `RAG_LOADTEST_BEARER_TOKEN` / `DOMINO_API_KEY`, or the app is not shared with that user |
 | `404` on `/query` | `HOST` lacks the App path prefix, or has a trailing slash |
-| `503 reranker_unavailable` / `embedder_unavailable` | OVMS app not ready (Dataset missing, wrong `RAG_OVMS_*_URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
+| `503 reranker_unavailable` / `embedder_unavailable` | model server app not ready (Dataset missing, wrong `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
 | `503 vector_store_unavailable` / `/readyz` not ready | `RAG_ES_URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
-| `rag-serve: error: ...` in a workflow app's log | a settings mistake: a `RAG_OVMS_*_URL` missing for a port on a model server, or a backend that contradicts `RAG_TOPOLOGY`; the message names the variable and the fix |
+| `rag-serve: error: ...` in a workflow app's log | a settings mistake: a `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` missing for a component on the `api` backend, or a backend that contradicts `RAG_TOPOLOGY`; the message names the variable and the fix |
 | `app.sh[...]: RAG_TOPOLOGY='...' is not served by this role` | the role and the topology disagree: `monolith` serves `monolith`, `workflow` serves `split-reranker` and `split-all` |
 | `app.sh[ovms-*]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `RAG_OVMS_MODELS_DIR` |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `RAG_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
@@ -762,22 +857,24 @@ apps:
     autoscaling: {min_replicas: 1, max_replicas: 4, target_cpu_pct: 70}
   reranker:
     hardware_tier_id: cpu-16
-    settings: {RAG_RERANKER_MODEL: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR}
+    settings: {RAG_RERANK_MODEL: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR}
 ```
 
 `settings` are each App's environment variables (merged with the defaults', the
 App's winning; YAML numbers and booleans are exported as strings), for example
-`RAG_ES_URL`, `RAG_EMBEDDER_MODEL` / `RAG_RERANKER_MODEL` (a local folder such as
+`RAG_ES_URL`, `RAG_EMBEDDING_MODEL` / `RAG_RERANK_MODEL` (a local folder such as
 `/domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0` works as well as a
 Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
 `/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
-`RAG_TOPOLOGY`, `RAG_OVMS_RERANK_URL`, `RAG_OVMS_EMBEDDINGS_URL`,
-`RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself (they win), and `RAG_RUN_LABEL`
-(`<topology>-<model server>`) unless the settings set it. Secrets
-(`OPENAI_API_KEY`, `RAG_ES_API_KEY`, a bearer token in `RAG_OVMS_AUTH`) stay in
+`RAG_TOPOLOGY`, `RAG_RERANK_API_URL` and `RAG_EMBEDDING_API_URL` (the model
+server App's URL plus `/v3/rerank` or `/v3/embeddings`), `RAG_OVMS_BUNDLE` and
+`RAG_BOOTSTRAP` itself (they win), and `RAG_RUN_LABEL`
+(`<topology>-<model server>`) unless the settings set it. Secrets stay in
 Domino's project or user environment variables, because `settings` are written
-into the Apps' launch scripts; `rag-deploy` refuses them in any block. A misspelt
-key is refused with its name.
+into the Apps' launch scripts. `rag-deploy` refuses, in any block, a setting
+whose name ends in `_API_KEY` (such as `RAG_GENERATION_API_KEY` or
+`RAG_ES_API_KEY`) unless its value is empty or `domino`, which names the run's
+token and is not a secret. A misspelt key is refused with its name.
 
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
@@ -803,8 +900,9 @@ Delete the cache file and the Apps are found by name again.
 `{domino_host}/{owner}/{project}/r/notebookSession/{instance id}`, where owner and
 project are the App's `project.ownerUsername` and `project.name` and the instance
 is the `Running` one of its current version (`domino_host` "" = the scheme and host
-of the App's own `url`). That URL is what the workflow App gets as
-`RAG_OVMS_*_URL`, what `rag-deploy url <part>` prints, what `make status` shows and
+of the App's own `url`). That URL, followed by `/v3/rerank` or `/v3/embeddings`,
+is what the workflow App gets as `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL`;
+the URL alone is what `rag-deploy url <part>` prints, what `make status` shows and
 checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
 own `url` stays in the messages that point at its page or logs. The instance id
 changes at every redeploy, so after `make deploy-embedder` or `make
@@ -878,7 +976,8 @@ Domino**:
 3. The run token is accepted for calls between Apps. Domino's own guidance for 6.3
    says a script calling an App needs a Personal Access Token; if the run token is
    rejected (`503 reranker_unavailable` with HTTP 401 or a redirect in the detail),
-   set `RAG_OVMS_AUTH=<personal access token>` as a project environment variable.
+   set `RAG_RERANK_API_KEY` and `RAG_EMBEDDING_API_KEY` to a personal access token
+   as project environment variables.
 4. An App answers on `/{owner}/{project}/r/notebookSession/{instance id}` of the
    Domino host. This path is not in the API reference: it comes from using
    Domino. If it is wrong, every URL `rag-deploy` hands out is wrong; the App's
@@ -900,9 +999,9 @@ instance. Replace the placeholders once; the code itself does not change.
 | `<domino-host>` | your Domino URL, e.g. `https://domino.example.com` |
 | `<registry>` | a registry Domino can pull environments from (only for step 1a) |
 | `RAG_ES_URL`, `RAG_ES_API_KEY` | project environment variables, every project |
-| `OPENAI_API_KEY` (and `OPENAI_BASE_URL` for a gateway), or `RAG_LLM_BACKEND=fake` | project environment variables of the monolith and workflow projects |
+| `RAG_GENERATION_API_KEY` (and `RAG_GENERATION_API_URL` for a gateway), or `RAG_GENERATION_BACKEND=fake` | project environment variables of the monolith and workflow projects |
 | `RAG_ROLE` | project environment variable, one value per project (see step 2) |
-| `RAG_OVMS_RERANK_URL`, `RAG_OVMS_EMBEDDINGS_URL` | workflow project, set after step 5 publishes the model apps |
+| `RAG_RERANK_API_URL`, `RAG_EMBEDDING_API_URL` | workflow project, set after step 5 publishes the model apps |
 | `RAG_OVMS_MODELS_DIR` | OVMS projects, only when the Dataset is not mounted at `/mnt/data/ovms-models` |
 | `RAG_OVMS_PREFIX_PROXY=1` | OVMS projects, only if step 6 returns `404` |
 | hardware tier | the same CPU tier (4+ cores) for every model app; one for the workflow apps |
@@ -927,12 +1026,12 @@ one project per app and set, in Project → Settings → Environment variables:
 
 | Project | `RAG_ROLE` | Environment | Other variables |
 | --- | --- | --- | --- |
-| `rag-monolith` | `monolith` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `OPENAI_API_KEY` |
+| `rag-monolith` | `monolith` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY` |
 | `rag-ovms-reranker` | `ovms-reranker` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
 | `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
-| `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `OPENAI_API_KEY`, `RAG_OVMS_RERANK_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_OVMS_EMBEDDINGS_URL` for split-all), `RAG_RUN_LABEL` for a variant |
+| `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY`, `RAG_RERANK_API_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_EMBEDDING_API_URL` for split-all), `RAG_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `RAG_DOMINO_TRACING` identical across projects
 (unset, or `true` everywhere).
@@ -958,15 +1057,15 @@ curl -s "$RAG_ES_URL/rag_passages/_count"          # {"count":200,...}
 ```
 
 Every app reads this one index; the serving embedder must be the one used here
-(`RAG_EMBEDDER_MODEL`, default `Snowflake/snowflake-arctic-embed-l-v2.0`, both locally and on OVMS).
+(`RAG_EMBEDDING_MODEL`, default `Snowflake/snowflake-arctic-embed-l-v2.0`, both locally and on OVMS).
 
 **5. Publish the apps (Apps → Publish, entry point `domino/app.sh`).**
 Order matters for the split topologies:
 
 1. model apps first: `rag-ovms-reranker`, `rag-ovms-embedder` (and/or the two
    FastAPI projects); wait for "Running" and copy each App URL from the Apps view;
-2. put those URLs, without a trailing slash, into `rag-workflow`'s
-   `RAG_OVMS_RERANK_URL` / `RAG_OVMS_EMBEDDINGS_URL`, set `RAG_TOPOLOGY`
+2. put those URLs, followed by `/v3/rerank` / `/v3/embeddings`, into
+   `rag-workflow`'s `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL`, set `RAG_TOPOLOGY`
    (`split-reranker` or `split-all`) and, for a variant, `RAG_RUN_LABEL`
    (`split-reranker-fastapi`, ...), then publish it;
 3. publish `rag-monolith`.
@@ -1016,11 +1115,11 @@ them into a Dataset before stopping it.
 
 | Experiment | Change |
 | --- | --- |
-| monolith vs split-reranker vs split-all | which app `HOST` points at; the workflow project's `RAG_TOPOLOGY`, `RAG_OVMS_*_URL` |
-| FastAPI vs OVMS behind the workflow | the workflow project's `RAG_OVMS_*_URL` (and a distinct `RAG_RUN_LABEL`) |
+| monolith vs split-reranker vs split-all | which app `HOST` points at; the workflow project's `RAG_TOPOLOGY`, `RAG_RERANK_API_URL`, `RAG_EMBEDDING_API_URL` |
+| FastAPI vs OVMS behind the workflow | the workflow project's `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` (and a distinct `RAG_RUN_LABEL`) |
 | FastAPI vs OVMS directly | `HOST` and `RUN_NAME` of `make loadtest-models` |
-| cost of reranking | `RAG_RERANKER_BACKEND=none` on the monolith or workflow project |
-| remove OpenAI latency | `RAG_LLM_BACKEND=fake` on the monolith and workflow projects |
+| cost of reranking | `RAG_RERANK_BACKEND=none` on the monolith or workflow project |
+| remove generation latency | `RAG_GENERATION_BACKEND=fake` on the monolith and workflow projects |
 
 Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
 `RAG_DOMINO_TRACING` identical across the runs you compare.

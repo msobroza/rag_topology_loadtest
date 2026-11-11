@@ -1,11 +1,11 @@
-"""The four async ports a workflow run needs, and their bundle.
+"""The async ports a workflow run needs, and their bundle.
 
 Each port is an abstract base class: an adapter states which port it implements
 by subclassing it, and one that forgets a method fails when it is instantiated,
 not on the first request that needs the method.
 
 Example:
-    >>> class MyReranker(RerankerPort):
+    >>> class MyReranker(BaseReranker):
     ...     async def rerank(self, query, passages, top_n): ...
     ...     async def ready(self): return True, "mine"
 """
@@ -23,7 +23,7 @@ from .passages import Passage, ScoredPassage
 # adapters offload to a thread pool, HTTP adapters await httpx.
 
 
-class EmbedderPort(ABC):
+class BaseEmbedder(ABC):
     """Turns texts into vectors."""
 
     model_name: str
@@ -49,7 +49,7 @@ class EmbedderPort(ABC):
         """
 
 
-class RerankerPort(ABC):
+class BaseReranker(ABC):
     """Re-scores retrieval candidates against the query and keeps the best."""
 
     @abstractmethod
@@ -76,8 +76,8 @@ class RerankerPort(ABC):
         """
 
 
-class VectorStorePort(ABC):
-    """Stores passages with their vectors and finds them by vector or by words."""
+class BaseVectorStore(ABC):
+    """Stores passages with their vectors and finds them by vector."""
 
     @abstractmethod
     async def upsert(
@@ -105,20 +105,6 @@ class VectorStorePort(ABC):
         """
 
     @abstractmethod
-    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
-        """Find the passages whose words best match a text (BM25).
-
-        Args:
-            text: The text searched for.
-            top_k: How many passages to return at most.
-
-        Returns:
-            The best-matching passages, best first, with the lexical score as
-            ``retrieval_score``; a passage sharing no word with ``text`` is left
-            out.
-        """
-
-    @abstractmethod
     async def count(self) -> int:
         """Count the stored passages.
 
@@ -136,7 +122,29 @@ class VectorStorePort(ABC):
         """
 
 
-class ChatModelPort(ABC):
+class BaseLexicalSearch(ABC):
+    """Ranks stored passages by how well their words match a text.
+
+    A port of its own, apart from ``BaseVectorStore``, because not every store
+    ranks text: open-source Chroma does not, Elasticsearch does.
+    """
+
+    @abstractmethod
+    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
+        """Find the passages whose words best match a text.
+
+        Args:
+            text: The text searched for.
+            top_k: How many passages to return at most.
+
+        Returns:
+            The best-matching passages, best first, ranked by the store's own
+            text ranking, with its score as ``retrieval_score``; a passage
+            sharing no word with ``text`` is left out.
+        """
+
+
+class BaseLLM(ABC):
     """Answers an OpenAI-style message list."""
 
     model_name: str
@@ -155,9 +163,14 @@ class ChatModelPort(ABC):
 
 @dataclass
 class RagDependencies:
-    """One open port of each kind: everything a workflow run needs."""
+    """One open port of each kind: everything a workflow run needs.
 
-    embedder: EmbedderPort
-    vector_store: VectorStorePort
-    reranker: RerankerPort
-    chat_model: ChatModelPort
+    ``lexical_search`` is None when the store ranks no text; a lexical or
+    hybrid workflow then refuses to be built.
+    """
+
+    embedder: BaseEmbedder
+    vector_store: BaseVectorStore
+    reranker: BaseReranker
+    chat_model: BaseLLM
+    lexical_search: BaseLexicalSearch | None = None

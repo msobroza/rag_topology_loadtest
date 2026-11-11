@@ -21,13 +21,13 @@ import shlex
 
 from .event_log import log_event
 from .launcher import (
-    AppLauncher,
     AppLaunchError,
     AppRunState,
+    BaseAppLauncher,
+    BaseCommandRunner,
+    BasePortProbe,
     CommandError,
     CommandResult,
-    CommandRunner,
-    PortProbe,
     SubprocessCommandRunner,
     TcpPortProbe,
 )
@@ -39,7 +39,7 @@ ACTIVE = "active"  # what `systemctl is-active` prints for a running unit
 ACTIVATING = "activating"  # ... and for one systemd is still starting
 
 
-class SshAppLauncher(AppLauncher):
+class SshAppLauncher(BaseAppLauncher):
     """Starts and checks Apps on the emulation's machines through ``ssh``.
 
     Args:
@@ -54,8 +54,8 @@ class SshAppLauncher(AppLauncher):
     def __init__(
         self,
         settings: PlacementSettings,
-        runner: CommandRunner | None = None,
-        probe: PortProbe | None = None,
+        runner: BaseCommandRunner | None = None,
+        probe: BasePortProbe | None = None,
     ) -> None:
         self.settings = settings
         self._runner = runner or SubprocessCommandRunner()

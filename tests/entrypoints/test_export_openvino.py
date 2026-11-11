@@ -92,8 +92,8 @@ def test_models_dir_option_beats_the_setting(
 def test_settings_overrides_pick_the_models_and_folder(
     exports: RecordingExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_EMBEDDER_MODEL", "org/embed")
-    monkeypatch.setenv("RAG_RERANKER_MODEL", "org/rerank")
+    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "org/embed")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "org/rerank")
     monkeypatch.setenv("RAG_OPENVINO_MODELS_DIR", "from-env")
 
     main([])

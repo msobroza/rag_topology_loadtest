@@ -13,7 +13,7 @@ from typing import Literal
 
 from .prompts import RagPrompts
 
-# How the retrieve stage finds candidates: by vector, by words (BM25), or both
+# How the retrieve stage finds candidates: by vector, by words, or both
 # fused by reciprocal rank.
 RetrievalMode = Literal["dense", "lexical", "hybrid"]
 DEFAULT_RETRIEVAL_MODE: RetrievalMode = "dense"

@@ -228,16 +228,16 @@ def test_workflow_role_passes_backends_and_auth_through_untouched(
         tmp_path,
         bin_dir,
         RAG_ROLE="workflow",
-        RAG_RERANKER_BACKEND="none",
-        RAG_OVMS_RERANK_URL="http://a",
+        RAG_RERANK_BACKEND="none",
+        RAG_RERANK_API_URL="http://a/v3/rerank",
     )
 
     assert result.returncode == 0, result.stderr
     env = rag_serve_env(tmp_path)
-    assert "RAG_RERANKER_BACKEND=none" in env
-    assert "RAG_OVMS_RERANK_URL=http://a" in env
-    assert not any(line.startswith("RAG_EMBEDDER_BACKEND=") for line in env)
-    assert not any(line.startswith("RAG_OVMS_AUTH=") for line in env)
+    assert "RAG_RERANK_BACKEND=none" in env
+    assert "RAG_RERANK_API_URL=http://a/v3/rerank" in env
+    assert not any(line.startswith("RAG_EMBEDDING_BACKEND=") for line in env)
+    assert not any(line.startswith("RAG_RERANK_API_KEY=") for line in env)
 
 
 def test_fastapi_roles_run_the_model_server(tmp_path: Path, bin_dir: Path) -> None:

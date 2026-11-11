@@ -1,16 +1,18 @@
-"""A FastAPI model server speaking the OVMS contract (the FastAPI-vs-OVMS experiment).
+"""A FastAPI model server on OVMS's routes and formats (the FastAPI-vs-OVMS experiment).
 
 Like an OVMS app it serves ONE model per process: ``--serve embedder`` exposes
-``POST /v3/embeddings``, ``--serve reranker`` exposes ``POST /v3/rerank``. Both
-answer ``GET /v3/models/{name}`` for the readiness probe of the ``ovms`` adapters.
-Paths and bodies come from :mod:`.v3_contract`, the same module the adapters read;
-like OVMS, a request for any model but this server's alias is a 404.
-The workflow app cannot tell the two servers apart, so ``RAG_OVMS_*_URL`` can
-point at either and the same load test compares FastAPI with OVMS.
+``POST /v3/embeddings`` (OpenAI's embeddings format), ``--serve reranker``
+exposes ``POST /v3/rerank`` (Cohere's rerank format). Both answer
+``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/model_api.py``
+and bodies from the API format modules the ``api`` adapters speak; like OVMS, a
+request for any model but this server's alias is a 404. The workflow app cannot
+tell the two servers apart, so ``RAG_EMBEDDING_API_URL`` / ``RAG_RERANK_API_URL``
+can point at either and the same load test compares FastAPI with OVMS.
 
 Example:
     $ rag-model-server --serve reranker --port 8011
-    $ RAG_TOPOLOGY=split-reranker RAG_OVMS_RERANK_URL=http://localhost:8011 rag-serve
+    $ RAG_TOPOLOGY=split-reranker \
+    >   RAG_RERANK_API_URL=http://localhost:8011/v3/rerank rag-serve
 """
 
 from __future__ import annotations
@@ -27,20 +29,21 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..adapters.ovms.v3_contract import (
-    EMBEDDINGS_PATH,
-    MODEL_PROBE_ROUTE,
-    RERANK_PATH,
+from ..adapters.model_api.cohere_rerank_format import CohereRerankRequest
+from ..adapters.model_api.model_server_contract import (
     UNKNOWN_MODEL_ERROR,
-    EmbeddingsRequest,
-    RerankRequest,
     candidates_from_rerank,
     embeddings_response_for,
-    embeddings_texts,
     rerank_response_for,
 )
+from ..adapters.model_api.openai_embeddings_format import OpenAIEmbeddingsRequest
 from ..adapters.rag_ports import RagPorts
 from ..config.settings import RagSettings
+from ..domain.model_api import (
+    MODEL_SERVER_EMBEDDINGS_PATH,
+    MODEL_SERVER_MODEL_ROUTE,
+    MODEL_SERVER_RERANK_PATH,
+)
 
 Role = Literal["embedder", "reranker"]
 
@@ -55,9 +58,9 @@ reranker_routes = APIRouter()
 def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
     """Build the server for the role over the ports; it always serves the local model.
 
-    The served name is the alias the clients use (``RAG_OVMS_EMBEDDINGS_MODEL`` /
-    ``RAG_OVMS_RERANK_MODEL``); the weights come from ``RAG_EMBEDDER_MODEL`` /
-    ``RAG_RERANKER_MODEL``.
+    The served name is the alias the clients send (``RAG_EMBEDDING_API_MODEL`` /
+    ``RAG_RERANK_API_MODEL``); the weights come from ``RAG_EMBEDDING_MODEL`` /
+    ``RAG_RERANK_MODEL``.
 
     Args:
         role: The one model this process serves, and so its one inference route.
@@ -83,8 +86,8 @@ def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
 
 def _served_alias(role: Role, settings: RagSettings) -> str:
     if role == "embedder":
-        return settings.ovms_embeddings_model
-    return settings.ovms_rerank_model
+        return settings.embedding_api_model
+    return settings.rerank_api_model
 
 
 @asynccontextmanager
@@ -111,9 +114,9 @@ async def healthz(request: Request) -> dict[str, str]:
     return {"status": "ok", "role": request.app.state.role}
 
 
-@common_routes.get(MODEL_PROBE_ROUTE)
+@common_routes.get(MODEL_SERVER_MODEL_ROUTE)
 async def model_status(name: str, request: Request) -> JSONResponse:
-    """Answer the adapters' readiness probe for the named model.
+    """Answer OVMS's model status route for the named model.
 
     Args:
         name: The model the client asks about.
@@ -130,12 +133,12 @@ async def model_status(name: str, request: Request) -> JSONResponse:
     return JSONResponse(status_code=HTTPStatus.OK, content=content)
 
 
-@embedder_routes.post(EMBEDDINGS_PATH)
-async def embeddings(body: EmbeddingsRequest, request: Request) -> JSONResponse:
+@embedder_routes.post(MODEL_SERVER_EMBEDDINGS_PATH)
+async def embeddings(body: OpenAIEmbeddingsRequest, request: Request) -> JSONResponse:
     """Embed the texts of the request, as OVMS does.
 
     Args:
-        body: The model alias and the texts.
+        body: The model alias and the texts (one bare string reads as one text).
         request: The HTTP request, for the app's alias and embedder.
 
     Returns:
@@ -144,12 +147,12 @@ async def embeddings(body: EmbeddingsRequest, request: Request) -> JSONResponse:
     alias = request.app.state.alias
     if body.model != alias:
         return _unknown_model()
-    vectors = await request.app.state.embedder.embed(embeddings_texts(body))
+    vectors = await request.app.state.embedder.embed(body.input)
     return JSONResponse(embeddings_response_for(alias, vectors).model_dump())
 
 
-@reranker_routes.post(RERANK_PATH)
-async def rerank(body: RerankRequest, request: Request) -> JSONResponse:
+@reranker_routes.post(MODEL_SERVER_RERANK_PATH)
+async def rerank(body: CohereRerankRequest, request: Request) -> JSONResponse:
     """Rerank the documents of the request against its query, as OVMS does.
 
     Args:

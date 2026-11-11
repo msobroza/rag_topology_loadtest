@@ -16,7 +16,7 @@ import re
 from collections.abc import Sequence
 
 from ...domain.passages import ScoredPassage, top_by_score
-from ...domain.ports import ChatModelPort, EmbedderPort, RerankerPort
+from ...domain.ports import BaseEmbedder, BaseLLM, BaseReranker
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
@@ -60,7 +60,7 @@ def _token_vector(token: str, dim: int) -> list[float]:
     return _normalise([digest[i % len(digest)] / 127.5 - 1.0 for i in range(dim)])
 
 
-class FakeEmbedder(EmbedderPort):
+class FakeEmbedder(BaseEmbedder):
     """Hashed bag-of-words embedder: texts sharing words get similar vectors.
 
     Args:
@@ -106,7 +106,7 @@ class FakeEmbedder(EmbedderPort):
         return True, self.model_name
 
 
-class FakeReranker(RerankerPort):
+class FakeReranker(BaseReranker):
     """Scores by Jaccard overlap between query and passage tokens (0..1)."""
 
     async def rerank(
@@ -139,7 +139,7 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b) if a | b else 0.0
 
 
-class FakeChatModel(ChatModelPort):
+class FakeLLM(BaseLLM):
     """Echoes the last user message; ``latency_ms`` imitates generation time.
 
     Args:

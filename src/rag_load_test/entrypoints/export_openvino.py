@@ -4,7 +4,7 @@ The ``openvino`` runtime (``RAG_LOCAL_MODEL_RUNTIME``, the default) loads the
 folder this command writes for each model under ``RAG_OPENVINO_MODELS_DIR``. An
 App whose folder is missing exports it itself on its first start, so this command
 only pre-warms: an image build, or a disk that should start without the Hub. The
-models are the settings' ``embedder_model`` and ``reranker_model``, so ``RAG_*``
+models are the settings' ``embedding_model`` and ``rerank_model``, so ``RAG_*``
 overrides apply.
 
 Example:
@@ -72,8 +72,8 @@ def export_models(settings: RagSettings, roles: Sequence[str], models_dir: str) 
         0
     """
     model_ids = {
-        "embedder": settings.embedder_model,
-        "reranker": settings.reranker_model,
+        "embedder": settings.embedding_model,
+        "reranker": settings.rerank_model,
     }
     for role in roles:
         target = exported_model_dir(models_dir, model_ids[role])

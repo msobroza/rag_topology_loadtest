@@ -43,16 +43,16 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
         autoscaling=Autoscaling(min_replicas=1, max_replicas=4),
         settings={
             "RAG_ES_URL": "https://es.test:9200",
-            "RAG_RERANKER_MODEL": "/mnt/data/models/bge reranker",
+            "RAG_RERANK_MODEL": "/mnt/data/models/bge reranker",
         },
     )
     embedder = settings.for_app("embedder")
     assert (embedder.kind, embedder.hardware_tier_id) == ("app", "cpu-8")
     assert embedder.autoscaling is None
     assert list(embedder.settings) == [  # merged, sorted by name
-        "RAG_EMBEDDER_MODEL",
+        "RAG_EMBEDDING_MODEL",
         "RAG_ES_URL",
-        "RAG_RERANKER_MODEL",
+        "RAG_RERANK_MODEL",
     ]
 
 
@@ -222,8 +222,8 @@ def placeholder_message(key: str, block: str, value: str, path: Path) -> str:
             "https://<es host>:9200",
         ),
         (
-            "apps: {embedder: {settings: {RAG_EMBEDDER_MODEL: /d/<dataset>/m}}}",
-            "RAG_EMBEDDER_MODEL",
+            "apps: {embedder: {settings: {RAG_EMBEDDING_MODEL: /d/<dataset>/m}}}",
+            "RAG_EMBEDDING_MODEL",
             "apps.embedder.settings",
             "/d/<dataset>/m",
         ),
@@ -282,6 +282,21 @@ def secret_message(name: str, path: Path, block: str) -> str:
     [
         ("defaults: {settings: {RAG_ES_API_KEY: s}}", "RAG_ES_API_KEY", "defaults"),
         (
+            "apps: {workflow: {settings: {RAG_GENERATION_API_KEY: sk-1}}}",
+            "RAG_GENERATION_API_KEY",
+            "apps.workflow",
+        ),
+        (
+            "apps: {workflow: {settings: {RAG_RERANK_API_KEY: co-1}}}",
+            "RAG_RERANK_API_KEY",
+            "apps.workflow",
+        ),
+        (
+            "apps: {embedder: {settings: {RAG_EMBEDDING_API_KEY: dom_pat_abc123}}}",
+            "RAG_EMBEDDING_API_KEY",
+            "apps.embedder",
+        ),
+        (
             "apps: {workflow: {settings: {OPENAI_API_KEY: sk-1}}}",
             "OPENAI_API_KEY",
             "apps.workflow",
@@ -290,11 +305,6 @@ def secret_message(name: str, path: Path, block: str) -> str:
             "apps: {workflow: {settings: {COHERE_API_KEY: co-1}}}",
             "COHERE_API_KEY",
             "apps.workflow",
-        ),
-        (
-            "apps: {reranker: {settings: {RAG_OVMS_AUTH: dom_pat_abc123}}}",
-            "RAG_OVMS_AUTH",
-            "apps.reranker",
         ),
     ],
 )
@@ -307,12 +317,29 @@ def test_a_secret_in_any_settings_block_is_refused(
     assert str(caught.value) == secret_message(name, deploy_file, f"{block}.settings")
 
 
-@pytest.mark.parametrize("auth", ["domino", ""])
-def test_a_non_secret_ovms_auth_passes_through(deploy_file: Path, auth: str) -> None:
-    deploy_file.write_text(f"defaults: {{settings: {{RAG_OVMS_AUTH: '{auth}'}}}}\n")
+@pytest.mark.parametrize(
+    "name",
+    [
+        "RAG_EMBEDDING_API_KEY",
+        "RAG_RERANK_API_KEY",
+        "RAG_GENERATION_API_KEY",
+        "RAG_ES_API_KEY",
+    ],
+)
+@pytest.mark.parametrize("value", ["domino", ""])
+def test_an_empty_or_domino_api_key_passes_through(
+    deploy_file: Path, name: str, value: str
+) -> None:
+    deploy_file.write_text(f"defaults: {{settings: {{{name}: '{value}'}}}}\n")
     settings = DeploySettings()
     refuse_secrets(settings)
-    assert settings.for_app("workflow").settings == {"RAG_OVMS_AUTH": auth}
+    assert settings.for_app("workflow").settings == {name: value}
+
+
+def test_only_a_name_ending_with_api_key_is_a_secret(deploy_file: Path) -> None:
+    values = "{RAG_API_KEY_FILE: /run/key, RAG_EMBEDDING_API_URL: 'http://e/v3'}"
+    deploy_file.write_text(f"defaults: {{settings: {values}}}\n")
+    refuse_secrets(DeploySettings())  # neither name ends with _API_KEY
 
 
 # --- the project id ---
@@ -349,7 +376,7 @@ def test_the_example_file_lists_the_model_paths_once_for_every_app(
     deploy_file.write_text(EXAMPLE_YAML.read_text())
     settings = DeploySettings()
     for part in ("embedder", "reranker", "workflow"):
-        assert {"RAG_ES_URL", "RAG_EMBEDDER_MODEL", "RAG_RERANKER_MODEL"} <= set(
+        assert {"RAG_ES_URL", "RAG_EMBEDDING_MODEL", "RAG_RERANK_MODEL"} <= set(
             settings.for_app(part).settings
         )
     assert settings.for_app("workflow").kind == "agent"

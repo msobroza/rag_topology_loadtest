@@ -20,10 +20,10 @@ def test_assignments_pair_each_source_id_with_its_alias(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     settings = settings_factory(
-        embedder_model="org/embed",
-        ovms_embeddings_model="embed",
-        reranker_model="org/rerank",
-        ovms_rerank_model="rerank",
+        embedding_model="org/embed",
+        embedding_api_model="embed",
+        rerank_model="org/rerank",
+        rerank_api_model="rerank",
     )
 
     assert served_model_assignments(settings) == [
@@ -60,10 +60,10 @@ def test_rag_served_models_prints_the_settings_defaults(
 def test_rag_served_models_honours_overrides_and_quotes_for_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("RAG_RERANKER_MODEL", "org/rerank")
-    monkeypatch.setenv("RAG_OVMS_RERANK_MODEL", "it's; rm -rf $HOME")
-    monkeypatch.setenv("RAG_EMBEDDER_MODEL", "org/embed v2")
-    monkeypatch.setenv("RAG_OVMS_EMBEDDINGS_MODEL", "embed")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "org/rerank")
+    monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; rm -rf $HOME")
+    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "org/embed v2")
+    monkeypatch.setenv("RAG_EMBEDDING_API_MODEL", "embed")
 
     assert main([]) == 0
 
@@ -79,7 +79,7 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
 def test_rag_served_models_output_round_trips_through_bash_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("RAG_OVMS_RERANK_MODEL", "it's; echo pwned")
+    monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; echo pwned")
     main([])
     script = 'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
 

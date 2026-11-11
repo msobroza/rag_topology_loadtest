@@ -11,7 +11,7 @@ Assumed (Domino's answers are undocumented): an unknown ``hardwareTierId`` is
 refused with 400, and a new version asking for another tier than the machine its
 App holds with 409, both as a ``FailureEnvelopeV1``.
 
-``AppPlacer`` is the core's ``InstanceScheduler`` seam, plugged into
+``AppPlacer`` is the core's ``BaseInstanceScheduler`` seam, plugged into
 ``FakeDominoApps(scheduler=...)``.
 
 Example:
@@ -29,16 +29,16 @@ from http import HTTPStatus
 from typing import NamedTuple
 
 from ..instances import (
+    BaseInstanceScheduler,
     FakeApp,
     FakeVersion,
-    InstanceScheduler,
     InstanceView,
     VersionRefusedError,
     instance_id,
 )
 from ..state import FAKE_OWNER, FAKE_PROJECT_NAME
 from .event_log import log_event
-from .launcher import AppLauncher, AppLaunchError, AppRunState
+from .launcher import AppLaunchError, AppRunState, BaseAppLauncher
 from .placement_settings import HardwareTierPool, PlacementSettings
 from .start_script import DominoRunVariables, compose_start_script
 
@@ -71,7 +71,7 @@ class _Placement:
     start_failed: bool = False
 
 
-class AppPlacer(InstanceScheduler):
+class AppPlacer(BaseInstanceScheduler):
     """Holds which App runs on which machine, and starts and checks them.
 
     Args:
@@ -86,7 +86,7 @@ class AppPlacer(InstanceScheduler):
     def __init__(
         self,
         settings: PlacementSettings,
-        launcher: AppLauncher,
+        launcher: BaseAppLauncher,
         project_env: Mapping[str, str] | None = None,
     ) -> None:
         self.settings = settings

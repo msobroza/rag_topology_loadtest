@@ -1,20 +1,20 @@
-"""The topology rule: which embedder and reranker backends each topology implies.
+"""The topology rule: which embedding and rerank backends each topology implies.
 
 A topology is a closed set; it says where the in-process models run, so it
-decides the embedder and reranker backends. An explicit backend may only repeat
-that choice or pick a variant that runs no model of ours: a hosted API (``openai``
-for the embedder; ``cohere`` or ``openai`` for the reranker), ``fake``, or
-``none`` for the reranker. The run label names the measured
-configuration and defaults to the topology plus every backend that differs from
-its default. Pure functions only: settings call them at construction; the Domino
-rule that ``rag-serve --domino`` applies lives in ``config/domino_rules.py``.
+decides the embedding and rerank backends. An explicit backend may only repeat
+that choice or pick a variant that loads no model of ours into this process:
+``api`` (an endpoint called over HTTP), ``fake``, or ``none`` for rerank. The
+run label names the measured configuration and defaults to the topology plus
+every choice that differs from its default. Pure functions only: settings call
+them at construction; the Domino rule that ``rag-serve --domino`` applies lives
+in ``config/domino_rules.py``.
 
 Example:
-    >>> resolve_reranker_backend("split-reranker", None)
-    'ovms'
-    >>> default_run_label("monolith", embedder="local", reranker="none",
-    ...                   store="elasticsearch", llm="openai")
-    'monolith+reranker=none'
+    >>> resolve_rerank_backend("split-reranker", None)
+    'api'
+    >>> default_run_label("monolith", embedding="local", rerank="none",
+    ...                   store="elasticsearch", generation="api")
+    'monolith+rerank=none'
 """
 
 from __future__ import annotations
@@ -26,126 +26,135 @@ from typing import Literal, NamedTuple
 from .workflow_parameters import DEFAULT_RETRIEVAL_MODE
 
 Topology = Literal["monolith", "split-reranker", "split-all"]
-EmbedderBackend = Literal["local", "ovms", "openai", "fake"]
-RerankerBackend = Literal["local", "ovms", "cohere", "openai", "fake", "none"]
+EmbeddingBackend = Literal["local", "api", "fake"]
+RerankBackend = Literal["local", "api", "fake", "none"]
+GenerationBackend = Literal["api", "fake"]
 VectorStoreBackend = Literal["elasticsearch", "chroma", "fake"]
-LlmBackend = Literal["openai", "fake"]
+# The stores that rank text themselves; open-source Chroma does not (Cloud only).
+LEXICAL_STORE_BACKENDS: tuple[VectorStoreBackend, ...] = ("elasticsearch", "fake")
 # What runs an in-process model: OpenVINO on its exported files, or PyTorch.
 LocalModelRuntime = Literal["openvino", "torch"]
 
-# Backends any topology allows: they run no model of ours, so where our models
-# run does not constrain them.
-EMBEDDER_VARIANTS: tuple[EmbedderBackend, ...] = ("openai", "fake")
-RERANKER_VARIANTS: tuple[RerankerBackend, ...] = ("cohere", "openai", "fake", "none")
+# Allowed in every topology: they load no model of ours into this process.
+EMBEDDING_VARIANTS: tuple[EmbeddingBackend, ...] = ("api", "fake")
+RERANK_VARIANTS: tuple[RerankBackend, ...] = ("api", "fake", "none")
 
 DEFAULT_VECTOR_STORE_BACKEND: VectorStoreBackend = "elasticsearch"
-DEFAULT_LLM_BACKEND: LlmBackend = "openai"
+DEFAULT_GENERATION_BACKEND: GenerationBackend = "api"
 # Sent as the X-RAG-Run-Label header, so only header-safe characters.
 RUN_LABEL_PATTERN = re.compile(r"[A-Za-z0-9._+=:-]{1,128}")
 RUN_LABEL_SHAPE = "letters, digits and ._+=:- only, 1 to 128 characters"
 
 
 class TopologyBackends(NamedTuple):
-    """The embedder and reranker backends one topology implies."""
+    """The embedding and rerank backends one topology implies."""
 
-    embedder: EmbedderBackend
-    reranker: RerankerBackend
+    embedding: EmbeddingBackend
+    rerank: RerankBackend
 
 
 TOPOLOGY_BACKENDS: dict[Topology, TopologyBackends] = {
-    "monolith": TopologyBackends(embedder="local", reranker="local"),
-    "split-reranker": TopologyBackends(embedder="local", reranker="ovms"),
-    "split-all": TopologyBackends(embedder="ovms", reranker="ovms"),
+    "monolith": TopologyBackends(embedding="local", rerank="local"),
+    "split-reranker": TopologyBackends(embedding="local", rerank="api"),
+    "split-all": TopologyBackends(embedding="api", rerank="api"),
 }
 
 
-def resolve_embedder_backend(
-    topology: Topology, explicit: EmbedderBackend | None
-) -> EmbedderBackend:
-    """Return the embedder backend for ``topology``.
+def resolve_embedding_backend(
+    topology: Topology, explicit: EmbeddingBackend | None
+) -> EmbeddingBackend:
+    """Return the embedding backend for ``topology``.
 
     Args:
         topology: The topology that implies the backend.
         explicit: The backend asked for, or None for the implied one; it may only
-            be the implied backend or one of ``EMBEDDER_VARIANTS``.
+            be the implied backend or one of ``EMBEDDING_VARIANTS``.
 
     Returns:
         ``explicit`` when set, else the backend the topology implies.
 
     Raises:
-        ValueError: If ``explicit`` contradicts the topology; the message names
-            the topologies that would allow it.
+        ValueError: If ``explicit`` contradicts the topology (``local`` where the
+            topology implies ``api``); the message names the topologies that
+            would allow it.
 
     Example:
-        >>> resolve_embedder_backend("split-all", None)
-        'ovms'
-        >>> resolve_embedder_backend("monolith", "ovms")
-        ValueError: ... contradicts RAG_TOPOLOGY='monolith' ...
+        >>> resolve_embedding_backend("split-all", None)
+        'api'
+        >>> resolve_embedding_backend("split-all", "local")
+        ValueError: RAG_EMBEDDING_BACKEND='local' contradicts ...
     """
-    implied = TOPOLOGY_BACKENDS[topology].embedder
+    implied = TOPOLOGY_BACKENDS[topology].embedding
     if explicit is None:
         return implied
-    _refuse_contradiction(topology, "embedder", explicit, (implied, *EMBEDDER_VARIANTS))
+    allowed = _distinct(implied, *EMBEDDING_VARIANTS)
+    _refuse_contradiction(topology, "embedding", explicit, allowed)
     return explicit
 
 
-def resolve_reranker_backend(
-    topology: Topology, explicit: RerankerBackend | None
-) -> RerankerBackend:
-    """Return the reranker backend for ``topology``.
+def resolve_rerank_backend(
+    topology: Topology, explicit: RerankBackend | None
+) -> RerankBackend:
+    """Return the rerank backend for ``topology``.
 
     Args:
         topology: The topology that implies the backend.
         explicit: The backend asked for, or None for the implied one; it may only
-            be the implied backend or one of ``RERANKER_VARIANTS`` (``none``
-            skips reranking).
+            be the implied backend or one of ``RERANK_VARIANTS`` (``none`` skips
+            reranking).
 
     Returns:
         ``explicit`` when set, else the backend the topology implies.
 
     Raises:
-        ValueError: If ``explicit`` contradicts the topology; the message names
-            the topologies that would allow it.
+        ValueError: If ``explicit`` contradicts the topology (``local`` where the
+            topology implies ``api``); the message names the topologies that
+            would allow it.
 
     Example:
-        >>> resolve_reranker_backend("monolith", "none")
+        >>> resolve_rerank_backend("monolith", "none")
         'none'
     """
-    implied = TOPOLOGY_BACKENDS[topology].reranker
+    implied = TOPOLOGY_BACKENDS[topology].rerank
     if explicit is None:
         return implied
-    allowed = (implied, *RERANKER_VARIANTS)
-    _refuse_contradiction(topology, "reranker", explicit, allowed)
+    allowed = _distinct(implied, *RERANK_VARIANTS)
+    _refuse_contradiction(topology, "rerank", explicit, allowed)
     return explicit
 
 
 def _refuse_contradiction(
     topology: Topology,
-    port: Literal["embedder", "reranker"],
+    component: Literal["embedding", "rerank"],
     explicit: str,
     allowed: Sequence[str],
 ) -> None:
     if explicit in allowed:
         return
-    variable = f"RAG_{port.upper()}_BACKEND"
+    variable = f"RAG_{component.upper()}_BACKEND"
     raise ValueError(
         f"{variable}={explicit!r} contradicts RAG_TOPOLOGY={topology!r}, which allows "
-        f"only {_either(allowed)} for the {port}; "
-        f"{_contradiction_fix(port, explicit, variable)}"
+        f"only {_either(allowed)} for {component}; "
+        f"{_contradiction_fix(component, explicit, variable)}"
     )
 
 
 def _contradiction_fix(
-    port: Literal["embedder", "reranker"], explicit: str, variable: str
+    component: Literal["embedding", "rerank"], explicit: str, variable: str
 ) -> str:
     matching = [
         f"RAG_TOPOLOGY={name}"
         for name, backends in TOPOLOGY_BACKENDS.items()
-        if getattr(backends, port) == explicit
+        if getattr(backends, component) == explicit
     ]
     if not matching:
         return f"drop {variable}"
     return f"set {' or '.join(matching)}, or drop {variable}"
+
+
+def _distinct(*values: str) -> tuple[str, ...]:
+    # The implied backend may also be a variant (``api``): name it once.
+    return tuple(dict.fromkeys(values))
 
 
 def _either(values: Sequence[str]) -> str:
@@ -156,44 +165,43 @@ def _either(values: Sequence[str]) -> str:
 def default_run_label(
     topology: Topology,
     *,
-    embedder: str,
-    reranker: str,
+    embedding: str,
+    rerank: str,
     store: str,
-    llm: str,
+    generation: str,
     retrieval: str = DEFAULT_RETRIEVAL_MODE,
 ) -> str:
     """Name a configuration after its topology and the choices off their default.
 
-    Choices are listed in a fixed order (embedder, reranker, store, llm, retrieval)
-    so the same configuration always gets the same label.
+    Choices are listed in a fixed order (embedding, rerank, store, generation,
+    retrieval) so the same configuration always gets the same label.
 
     Args:
-        topology: The topology; it sets the default embedder and reranker.
-        embedder: The embedder backend in use.
-        reranker: The reranker backend in use.
+        topology: The topology; it sets the default embedding and rerank backends.
+        embedding: The embedding backend in use.
+        rerank: The rerank backend in use.
         store: The vector store backend in use.
-        llm: The LLM backend in use.
+        generation: The generation backend in use.
         retrieval: The retrieval mode in use.
 
     Returns:
-        The topology plus ``+<port>=<backend>`` for each backend off its default,
-        then ``+retrieval=<mode>`` for a retrieval mode that is not ``dense``.
+        The topology plus ``+<choice>=<value>`` for each choice off its default.
 
     Example:
-        >>> default_run_label("split-all", embedder="ovms", reranker="ovms",
-        ...                   store="elasticsearch", llm="fake")
-        'split-all+llm=fake'
+        >>> default_run_label("split-all", embedding="api", rerank="api",
+        ...                   store="elasticsearch", generation="fake")
+        'split-all+generation=fake'
     """
     implied = TOPOLOGY_BACKENDS[topology]
-    ports = (
-        ("embedder", embedder, implied.embedder),
-        ("reranker", reranker, implied.reranker),
+    choices = (
+        ("embedding", embedding, implied.embedding),
+        ("rerank", rerank, implied.rerank),
         ("store", store, DEFAULT_VECTOR_STORE_BACKEND),
-        ("llm", llm, DEFAULT_LLM_BACKEND),
+        ("generation", generation, DEFAULT_GENERATION_BACKEND),
         ("retrieval", retrieval, DEFAULT_RETRIEVAL_MODE),
     )
     variants = [
-        f"+{port}={actual}" for port, actual, default in ports if actual != default
+        f"+{name}={actual}" for name, actual, default in choices if actual != default
     ]
     return topology + "".join(variants)
 

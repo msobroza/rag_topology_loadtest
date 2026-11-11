@@ -1,6 +1,6 @@
 """The fake Domino's state: its Apps and versions, and the scripted behaviours.
 
-What a new version's instance reports is decided by an ``InstanceScheduler``
+What a new version's instance reports is decided by an ``BaseInstanceScheduler``
 (``instances.py``): by default scripted, one status per GET of the App (a
 behaviour), so a test or a dry run can watch ``rag-deploy`` wait. The routes in
 ``apps_routes.py`` and ``stand_ins.py`` read and change this state, all of it in
@@ -22,9 +22,9 @@ from .api_shapes import (
     AppVersionResponse,
 )
 from .instances import (
+    BaseInstanceScheduler,
     FakeApp,
     FakeVersion,
-    InstanceScheduler,
     ScriptedInstances,
     VersionRefusedError,
     instance_id,
@@ -86,7 +86,7 @@ class FakeDominoApps:
         *,
         stale_gets: int = 0,
         forbidden: bool = False,
-        scheduler: InstanceScheduler | None = None,
+        scheduler: BaseInstanceScheduler | None = None,
     ) -> None:
         self.statuses, self.forbidden = list(statuses), forbidden
         self.scheduler = scheduler or ScriptedInstances(statuses, stale_gets)
@@ -97,7 +97,7 @@ class FakeDominoApps:
 
     @classmethod
     def from_behaviour(
-        cls, name: str, *, scheduler: InstanceScheduler | None = None
+        cls, name: str, *, scheduler: BaseInstanceScheduler | None = None
     ) -> FakeDominoApps:
         """Build the state for one of ``FAKE_DOMINO_BEHAVIOURS``.
 

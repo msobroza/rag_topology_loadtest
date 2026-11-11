@@ -2,50 +2,43 @@
 
 from __future__ import annotations
 
+from ..domain.model_api import DOMINO_RUN_TOKEN
 from .settings import RagSettings
 
 
 def apply_domino_rules(settings: RagSettings) -> RagSettings:
-    """Make settings fit for a Domino app.
+    """Make settings fit for a Domino App.
 
-    Every port on a model server needs its URL set explicitly (the localhost
-    defaults cannot be right on Domino), and app-to-app calls need the run's token,
-    so an unset ``ovms_auth`` becomes ``domino``. The input is not mutated.
+    On Domino a model server is another App, and App-to-App calls need the run's
+    token. So for embedding and for rerank, when the backend is ``api`` and the
+    key was not set explicitly, the key becomes ``domino``. The generation key is
+    never touched: a generation endpoint is not one of our Apps. The input is not
+    mutated.
 
     Args:
-        settings: The settings to check.
+        settings: The settings to make fit.
 
     Returns:
-        ``settings`` itself when ``ovms_auth`` was set explicitly, else a copy
-        with ``ovms_auth="domino"``.
-
-    Raises:
-        ValueError: If a backend on a model server has no explicit URL; the
-            message names each missing variable.
+        ``settings`` itself when no key needs a default, else a copy with
+        ``embedding_api_key`` and/or ``rerank_api_key`` set to ``domino``.
 
     Example:
-        >>> settings = apply_domino_rules(RagSettings())  # rag-serve --domino
+        >>> apply_domino_rules(RagSettings(topology="split-reranker",
+        ...     rerank_api_url="http://app/v3/rerank")).rerank_api_key
+        'domino'
     """
-    missing = _missing_model_server_urls(settings)
-    if missing:
-        raise ValueError(
-            f"RAG_TOPOLOGY={settings.topology!r} calls a model server on Domino: set "
-            f"{' and '.join(missing)} to the model server's App URL (the localhost "
-            "default cannot be right there)"
-        )
-    if "ovms_auth" in settings.model_fields_set:
-        return settings
-    return settings.model_copy(update={"ovms_auth": "domino"})
+    update = {
+        key: DOMINO_RUN_TOKEN
+        for key in _keys_to_default(settings)
+        if key not in settings.model_fields_set
+    }
+    return settings.model_copy(update=update) if update else settings
 
 
-def _missing_model_server_urls(settings: RagSettings) -> list[str]:
-    needed = []
-    if settings.embedder_backend == "ovms":
-        needed.append("ovms_embeddings_url")
-    if settings.reranker_backend == "ovms":
-        needed.append("ovms_rerank_url")
-    return [
-        f"RAG_{field.upper()}"
-        for field in needed
-        if field not in settings.model_fields_set
-    ]
+def _keys_to_default(settings: RagSettings) -> list[str]:
+    keys = []
+    if settings.embedding_backend == "api":
+        keys.append("embedding_api_key")
+    if settings.rerank_backend == "api":
+        keys.append("rerank_api_key")
+    return keys

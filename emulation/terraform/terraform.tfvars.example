@@ -27,9 +27,9 @@ git_ref = "main"
 #   "cpu-16" = { machine_type = "n2-standard-16", count = 1, disk_gb = 80 }
 # }
 
-# A Secret Manager secret of KEY=VALUE lines (OPENAI_API_KEY=...): the Project
+# A Secret Manager secret of KEY=VALUE lines (RAG_GENERATION_API_KEY=...): the Project
 # environment variables. Create it first:
-#   printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" | gcloud secrets create rag-emu-project-env --data-file=-
+#   printf 'RAG_GENERATION_API_KEY=%s\n' "$RAG_GENERATION_API_KEY" | gcloud secrets create rag-emu-project-env --data-file=-
 # project_env_secret = "rag-emu-project-env"
 
 # domino_project_id = "emulation"

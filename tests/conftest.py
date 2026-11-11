@@ -31,9 +31,9 @@ def settings_factory() -> Callable[..., RagSettings]:
 def fake_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
     """Every backend set to ``fake``: no weights, no network, no Elasticsearch."""
     return settings_factory(
-        embedder_backend="fake",
-        reranker_backend="fake",
-        llm_backend="fake",
+        embedding_backend="fake",
+        rerank_backend="fake",
+        generation_backend="fake",
         vector_store_backend="fake",
     )
 

@@ -174,7 +174,7 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
     assert fake.search_calls == [{"embedding": [0.5, 0.5], "k": 2}]
 
 
-async def test_es_lexical_query_is_a_bm25_match_on_the_text_field() -> None:
+async def test_es_lexical_query_is_a_match_query_on_the_text_field() -> None:
     fake = FakeLangChainStore(
         lexical_hits=[
             {**es_hit("p7", "vacation days", {"topic": "hr"}), "_score": 3.5},

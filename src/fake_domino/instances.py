@@ -1,6 +1,6 @@
 """What an App's instance reports: the one seam the fake's state calls out through.
 
-``FakeDominoApps`` calls an ``InstanceScheduler`` when an App or version is
+``FakeDominoApps`` calls an ``BaseInstanceScheduler`` when an App or version is
 created and when an instance's status is read. The default, ``ScriptedInstances``,
 scripts the statuses (the ``--behaviour`` scripts); another scheduler may be
 supplied, e.g. one that runs each App somewhere real. Nothing here depends on
@@ -85,7 +85,7 @@ class VersionRefusedError(ValueError):
         self.status = status
 
 
-class InstanceScheduler(abc.ABC):
+class BaseInstanceScheduler(abc.ABC):
     """Decides what an App's instance reports.
 
     Example:
@@ -137,7 +137,7 @@ class InstanceScheduler(abc.ABC):
         """
 
 
-class ScriptedInstances(InstanceScheduler):
+class ScriptedInstances(BaseInstanceScheduler):
     """Today's scripted statuses: one per GET of the App, the last repeating.
 
     Args:

@@ -23,13 +23,16 @@ from typing import Any
 
 from ...domain.errors import RagDependencyError
 from ...domain.passages import Passage, ScoredPassage
-from ...domain.ports import VectorStorePort
+from ...domain.ports import BaseLexicalSearch, BaseVectorStore
 
 
-class ElasticsearchVectorStore(VectorStorePort):
-    """VectorStorePort on LangChain's ``AsyncElasticsearchStore``.
+class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
+    """Both store ports on LangChain's ``AsyncElasticsearchStore``.
 
-    Vectors come from our own EmbedderPort, so the store is driven through
+    Elasticsearch ranks text itself (BM25), so this one store is the workflow's
+    ``BaseVectorStore`` and its ``BaseLexicalSearch``.
+
+    Vectors come from our own BaseEmbedder, so the store is driven through
     ``aadd_embeddings`` and ``asimilarity_search_by_vector_with_relevance_scores``
     and never needs a LangChain ``Embeddings`` object. Any Elasticsearch failure
     surfaces as ``RagDependencyError("vector_store", ...)``.

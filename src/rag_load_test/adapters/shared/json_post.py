@@ -3,12 +3,12 @@
 Each attempt times out after ``timeout_s``; transport errors, 5xx and the
 caller's extra statuses are retried ``retries`` times, waiting
 ``policy.backoff_before(attempt)`` in between; any other 4xx fails at once. The
-OVMS adapters and the hosted rerank route share it; they differ only in their
-headers and extra retryable statuses.
+model endpoints (``model_api/api_endpoint_client.py``) post through it; they
+differ only in their headers and extra retryable statuses.
 
 Example:
     >>> rate_limited = frozenset({HTTPStatus.TOO_MANY_REQUESTS})
-    >>> post = RetryingJsonPost(client, policy, headers=no_headers,
+    >>> post = RetryingJsonPost(client, policy, headers=token.headers,
     ...                         retry_statuses=rate_limited)
     >>> body = await post.post("reranker", url, {"query": "q"})
 """
@@ -28,19 +28,6 @@ from .http_policy import HttpPolicy
 
 HeaderSupplier = Callable[[], Awaitable[dict[str, str]]]
 StatusHook = Callable[[int], None]
-
-
-async def no_headers() -> dict[str, str]:
-    """Supply no headers, for a route that needs no auth.
-
-    Returns:
-        An empty dict.
-
-    Example:
-        >>> await no_headers()
-        {}
-    """
-    return {}
 
 
 def _ignore_status(status: int) -> None:
@@ -66,7 +53,7 @@ class RetryingJsonPost:
             a caller can drop a stale token.
 
     Example:
-        >>> post = RetryingJsonPost(client, policy, headers=no_headers,
+        >>> post = RetryingJsonPost(client, policy, headers=token.headers,
         ...                         retry_statuses=frozenset())
     """
 

@@ -34,10 +34,10 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
         'RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR'
     """
     values = {
-        "RERANKER_SOURCE_MODEL": settings.reranker_model,
-        "RERANKER_MODEL_NAME": settings.ovms_rerank_model,
-        "EMBEDDER_SOURCE_MODEL": settings.embedder_model,
-        "EMBEDDER_MODEL_NAME": settings.ovms_embeddings_model,
+        "RERANKER_SOURCE_MODEL": settings.rerank_model,
+        "RERANKER_MODEL_NAME": settings.rerank_api_model,
+        "EMBEDDER_SOURCE_MODEL": settings.embedding_model,
+        "EMBEDDER_MODEL_NAME": settings.embedding_api_model,
     }
     return [f"{name}={shlex.quote(value)}" for name, value in values.items()]
 

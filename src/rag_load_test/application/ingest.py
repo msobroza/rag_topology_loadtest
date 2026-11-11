@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..domain.passages import Passage
-from ..domain.ports import EmbedderPort, VectorStorePort
+from ..domain.ports import BaseEmbedder, BaseVectorStore
 
 
 async def ingest(
     passages: Sequence[Passage],
-    embedder: EmbedderPort,
-    store: VectorStorePort,
+    embedder: BaseEmbedder,
+    store: BaseVectorStore,
     *,
     batch_size: int = 64,
 ) -> int:

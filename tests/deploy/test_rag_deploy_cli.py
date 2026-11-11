@@ -334,12 +334,12 @@ def test_deploy_passes_each_apps_settings_to_it(run_main: RunMain) -> None:
     assert scripts[0].startswith(
         "export RAG_ES_URL=https://es.test:9200\n"
         "export RAG_MODEL_WORKERS=2\n"
-        "export RAG_RERANKER_MODEL='/mnt/data/models/bge reranker'\n"
+        "export RAG_RERANK_MODEL='/mnt/data/models/bge reranker'\n"
         "export RAG_ROLE=fastapi-reranker\n"
     )
     assert scripts[1].startswith(
         "export RAG_ES_URL=https://es.test:9200\n"
-        "export RAG_RERANKER_MODEL='/mnt/data/models/bge reranker'\n"
+        "export RAG_RERANK_MODEL='/mnt/data/models/bge reranker'\n"
         "export RAG_ROLE=workflow\n"
     )
     for entry in scripts:

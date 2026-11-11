@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from ..domain.passages import STAGES, RagMode, RagResult, ScoredPassage
-from ..domain.ports import RagDependencies
+from ..domain.ports import BaseLexicalSearch, RagDependencies
 from ..domain.rank_fusion import reciprocal_rank_fusion
 from ..domain.workflow_parameters import WorkflowParameters
 
@@ -54,6 +54,10 @@ class RagState(TypedDict, total=False):
     reranked: list[ScoredPassage]
     answer: str | None
     timings_ms: Annotated[dict[str, float], merge_timings]
+
+
+# The retrieve stage's search for one retrieval mode: state in, candidates out.
+CandidateFinder = Callable[[RagState], Awaitable[list[ScoredPassage]]]
 
 
 class Node(Protocol):
@@ -94,16 +98,48 @@ def timed(stage: str, node: Node) -> Node:
     return run
 
 
+def required_lexical_search(
+    search: BaseLexicalSearch | None, mode: str
+) -> BaseLexicalSearch:
+    """Return the lexical search a lexical or hybrid workflow needs, or refuse.
+
+    Args:
+        search: The store's lexical search; None when the store ranks no text.
+        mode: The retrieval mode that needs it, named in the error.
+
+    Returns:
+        ``search``, known not to be None.
+
+    Raises:
+        ValueError: ``search`` is None.
+
+    Example:
+        >>> required_lexical_search(deps.lexical_search, "hybrid")
+    """
+    if search is not None:
+        return search
+    raise ValueError(
+        f"retrieval_mode={mode!r} needs a store that ranks text, but the vector "
+        "store ranks no text: set RAG_VECTOR_STORE_BACKEND=elasticsearch, or "
+        "RAG_RETRIEVAL_MODE=dense"
+    )
+
+
 class RagWorkflow:
     """A compiled graph over ``RagDependencies``; build once, ``run`` per request.
 
     Args:
         deps: The ports the nodes call.
         parameters: Retrieval mode, sizes and prompts.
+
+    Raises:
+        ValueError: The retrieval mode is ``lexical`` or ``hybrid`` and
+            ``deps.lexical_search`` is None.
     """
 
     def __init__(self, deps: RagDependencies, parameters: WorkflowParameters) -> None:
         self.deps, self.parameters = deps, parameters
+        self._find_candidates = self._candidate_finder()
         # ty 0.0.100 does not match a TypedDict class against LangGraph's
         # TypedDictLike protocol (its __required_keys__); mypy accepts it.
         builder = StateGraph(RagState)  # ty: ignore[invalid-argument-type]
@@ -156,19 +192,33 @@ class RagWorkflow:
         return {"query_embedding": vector}
 
     async def _retrieve(self, state: RagState) -> dict[str, Any]:
+        return {"candidates": await self._find_candidates(state)}
+
+    # Chosen once at construction, so a lexical or hybrid workflow over a store
+    # that ranks no text fails at start-up, not on its first request.
+    def _candidate_finder(self) -> CandidateFinder:
         store, top_k = self.deps.vector_store, self.parameters.top_k_retrieve
-        mode = self.parameters.retrieval_mode
-        if mode == "lexical":
-            return {"candidates": await store.lexical_query(state["question"], top_k)}
+        mode, rrf_k = self.parameters.retrieval_mode, self.parameters.rrf_k
+
+        async def dense(state: RagState) -> list[ScoredPassage]:
+            return await store.query(state["query_embedding"], top_k)
+
         if mode == "dense":
-            return {"candidates": await store.query(state["query_embedding"], top_k)}
-        # hybrid: both legs at once, each asked for top_k, fused back to top_k
-        rankings = await asyncio.gather(
-            store.query(state["query_embedding"], top_k),
-            store.lexical_query(state["question"], top_k),
-        )
-        fused = reciprocal_rank_fusion(rankings, k=self.parameters.rrf_k, top_k=top_k)
-        return {"candidates": fused}
+            return dense
+        search = required_lexical_search(self.deps.lexical_search, mode)
+
+        async def lexical(state: RagState) -> list[ScoredPassage]:
+            return await search.lexical_query(state["question"], top_k)
+
+        if mode == "lexical":
+            return lexical
+
+        async def hybrid(state: RagState) -> list[ScoredPassage]:
+            # Both legs at once, each asked for top_k, fused back to top_k.
+            rankings = await asyncio.gather(dense(state), lexical(state))
+            return reciprocal_rank_fusion(rankings, k=rrf_k, top_k=top_k)
+
+        return hybrid
 
     async def _rerank(self, state: RagState) -> dict[str, Any]:
         reranked = await self.deps.reranker.rerank(

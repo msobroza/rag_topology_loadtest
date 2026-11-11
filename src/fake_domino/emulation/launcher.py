@@ -1,9 +1,9 @@
 """The ports the emulation starts Apps through, and their real implementations.
 
-Emulation only: ``AppLauncher`` runs an App's start script on a machine and
+Emulation only: ``BaseAppLauncher`` runs an App's start script on a machine and
 says how it is doing; ``SshAppLauncher`` (``ssh_launcher.py``) implements it
-over two smaller ports, ``CommandRunner`` (a local command, by default a
-subprocess) and ``PortProbe`` (a TCP connect), so tests never spawn ``ssh`` or
+over two smaller ports, ``BaseCommandRunner`` (a local command, by default a
+subprocess) and ``BasePortProbe`` (a TCP connect), so tests never spawn ``ssh`` or
 open a socket.
 
 Example:
@@ -33,7 +33,7 @@ class AppLaunchError(RuntimeError):
     """An App's start script could not be started on its machine."""
 
 
-class AppLauncher(abc.ABC):
+class BaseAppLauncher(abc.ABC):
     r"""Runs Apps on machines, one App per machine.
 
     Example:
@@ -76,7 +76,7 @@ class CommandError(RuntimeError):
     """A local command could not be run, or did not finish in time."""
 
 
-class CommandRunner(abc.ABC):
+class BaseCommandRunner(abc.ABC):
     """Runs a local command to its end.
 
     Example:
@@ -102,7 +102,7 @@ class CommandRunner(abc.ABC):
         """
 
 
-class SubprocessCommandRunner(CommandRunner):
+class SubprocessCommandRunner(BaseCommandRunner):
     """Runs a command as a subprocess, its output captured as text.
 
     Example:
@@ -142,7 +142,7 @@ class SubprocessCommandRunner(CommandRunner):
         return CommandResult(done.returncode, done.stdout, done.stderr)
 
 
-class PortProbe(abc.ABC):
+class BasePortProbe(abc.ABC):
     """Says whether a TCP port accepts a connection."""
 
     @abc.abstractmethod
@@ -159,7 +159,7 @@ class PortProbe(abc.ABC):
         """
 
 
-class TcpPortProbe(PortProbe):
+class TcpPortProbe(BasePortProbe):
     """Probes a port with a real TCP connect, closed at once.
 
     Example:

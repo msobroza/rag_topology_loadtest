@@ -33,7 +33,7 @@ from ..shared.json_log import log_json
 TIER_PATH = "/api/hardwaretiers/v1/hardwaretiers/{tier_id}"
 
 
-class CpuCounter(ABC):
+class BaseCpuCounter(ABC):
     """One source of the CPU count; ``None`` means this source cannot say."""
 
     name: str  # for the log line
@@ -48,7 +48,7 @@ class CpuCounter(ABC):
         """
 
 
-class FixedCpus(CpuCounter):
+class FixedCpus(BaseCpuCounter):
     """``RAG_MODEL_CPUS``: answers only when positive (0 = find out).
 
     Args:
@@ -69,7 +69,7 @@ class FixedCpus(CpuCounter):
         return self._cpus if self._cpus > 0 else None
 
 
-class ContainerCpus(CpuCounter):
+class ContainerCpus(BaseCpuCounter):
     """The CPUs the container may use (cgroup quota and affinity honoured)."""
 
     name = "container"
@@ -85,7 +85,7 @@ class ContainerCpus(CpuCounter):
         return float(joblib.cpu_count())
 
 
-class DominoHardwareTierCpus(CpuCounter):
+class DominoHardwareTierCpus(BaseCpuCounter):
     """``resources.cores`` of the run's hardware tier, via the Domino API proxy.
 
     Any failure (no ``ViewHardwareTiers`` permission -> 403, a bad body, no
@@ -166,7 +166,7 @@ def _cores(response: httpx.Response) -> float | None:
     return float(cores) if cores > 0 else None
 
 
-async def first_cpu_count(counters: Sequence[CpuCounter]) -> tuple[float, str]:
+async def first_cpu_count(counters: Sequence[BaseCpuCounter]) -> tuple[float, str]:
     """Ask the counters in order and return the first answer.
 
     Args:
@@ -191,7 +191,7 @@ async def first_cpu_count(counters: Sequence[CpuCounter]) -> tuple[float, str]:
 
 
 async def work_out_thread_budget(
-    counters: Sequence[CpuCounter],
+    counters: Sequence[BaseCpuCounter],
     *,
     max_workers: int,
     embedder_threads: int = 0,

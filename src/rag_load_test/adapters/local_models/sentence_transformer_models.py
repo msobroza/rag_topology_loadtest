@@ -17,7 +17,7 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from typing import Any, TypeVar
 
 from ...domain.passages import ScoredPassage, top_by_score
-from ...domain.ports import EmbedderPort, RerankerPort
+from ...domain.ports import BaseEmbedder, BaseReranker
 from .local_model import LocalModel
 from .native_threads import NativeThreadScope
 
@@ -61,8 +61,8 @@ async def run_blocking(executor: Executor, fn: Callable[..., T], *args: Any) -> 
     return await asyncio.get_running_loop().run_in_executor(executor, fn, *args)
 
 
-class SentenceTransformerEmbedder(EmbedderPort):
-    """EmbedderPort on a ``SentenceTransformer``; inject a fake ``model`` in tests.
+class SentenceTransformerEmbedder(BaseEmbedder):
+    """BaseEmbedder on a ``SentenceTransformer``; inject a fake ``model`` in tests.
 
     Args:
         model: A ``SentenceTransformer``, or a fake with the same ``encode``.
@@ -148,8 +148,8 @@ class SentenceTransformerEmbedder(EmbedderPort):
         return matrix.tolist()
 
 
-class CrossEncoderReranker(RerankerPort):
-    """RerankerPort on a sentence-transformers ``CrossEncoder`` (scores in 0..1).
+class CrossEncoderReranker(BaseReranker):
+    """BaseReranker on a sentence-transformers ``CrossEncoder`` (scores in 0..1).
 
     Args:
         model: A ``CrossEncoder``, or a fake with the same ``predict``.
@@ -236,8 +236,8 @@ class CrossEncoderReranker(RerankerPort):
         return True, self.model_name
 
 
-class NoReranker(RerankerPort):
-    """RerankerPort that keeps retrieval order (``RAG_RERANKER_BACKEND=none``)."""
+class NoReranker(BaseReranker):
+    """BaseReranker that keeps retrieval order (``RAG_RERANK_BACKEND=none``)."""
 
     async def rerank(
         self, query: str, passages: Sequence[ScoredPassage], top_n: int

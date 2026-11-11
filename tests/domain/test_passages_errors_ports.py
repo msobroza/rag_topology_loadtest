@@ -7,19 +7,19 @@ from collections.abc import Sequence
 import pytest
 
 from rag_load_test.adapters.fakes.fake_models import (
-    FakeChatModel,
     FakeEmbedder,
+    FakeLLM,
     FakeReranker,
 )
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.domain.errors import RagDependencyError, describe_error
 from rag_load_test.domain.passages import ScoredPassage, top_by_score
 from rag_load_test.domain.ports import (
-    ChatModelPort,
-    EmbedderPort,
-    RerankerPort,
-    VectorStorePort,
+    BaseEmbedder,
+    BaseLLM,
+    BaseReranker,
+    BaseVectorStore,
 )
-from store_fakes import in_memory_store
 
 
 def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:
@@ -55,15 +55,15 @@ def test_describe_error_names_the_type_and_the_message_when_there_is_one() -> No
 
 
 def test_fakes_subclass_their_ports() -> None:
-    assert isinstance(FakeEmbedder(), EmbedderPort)
-    assert isinstance(FakeReranker(), RerankerPort)
-    assert isinstance(in_memory_store(), VectorStorePort)
-    assert isinstance(FakeChatModel(), ChatModelPort)
-    assert not isinstance(FakeChatModel(), VectorStorePort)
+    assert isinstance(FakeEmbedder(), BaseEmbedder)
+    assert isinstance(FakeReranker(), BaseReranker)
+    assert isinstance(InMemoryVectorStore(), BaseVectorStore)
+    assert isinstance(FakeLLM(), BaseLLM)
+    assert not isinstance(FakeLLM(), BaseVectorStore)
 
 
 def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
-    class HalfReranker(RerankerPort):
+    class HalfReranker(BaseReranker):
         """Implements ``rerank`` but forgets ``ready``."""
 
         async def rerank(
@@ -85,4 +85,4 @@ def test_a_class_with_the_right_methods_but_no_port_base_is_not_a_port() -> None
         async def ready(self) -> tuple[bool, str]:
             return True, "duck"
 
-    assert not isinstance(DuckEmbedder(), EmbedderPort)
+    assert not isinstance(DuckEmbedder(), BaseEmbedder)

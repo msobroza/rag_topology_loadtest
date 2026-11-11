@@ -96,16 +96,16 @@ def test_split_all_workflow_script_quotes_urls_and_names_the_run() -> None:
         model_server="ovms",
         ovms_bundle="/mnt/code/ovms",
     )
-    urls = {
-        "reranker": "https://domino.test/apps/r1?a=1&b='x'",
+    urls = {  # a "/" ending an App URL is not doubled before the route
+        "reranker": "https://domino.test/apps/r'1/",
         "embedder": "https://domino.test/apps/e1",
     }
     assert script("workflow", settings, urls) == (
         "export RAG_ES_URL=https://es.test:9200\n"
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-all\n"
-        "export RAG_OVMS_RERANK_URL='https://domino.test/apps/r1?a=1&b='\"'\"'x'\"'\"''\n"
-        "export RAG_OVMS_EMBEDDINGS_URL=https://domino.test/apps/e1\n"
+        "export RAG_RERANK_API_URL='https://domino.test/apps/r'\"'\"'1/v3/rerank'\n"
+        "export RAG_EMBEDDING_API_URL=https://domino.test/apps/e1/v3/embeddings\n"
         "export RAG_RUN_LABEL=split-all-ovms\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -117,7 +117,7 @@ def test_split_reranker_workflow_script_has_only_the_reranker_url() -> None:
     assert script("workflow", settings, urls) == (
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-reranker\n"
-        "export RAG_OVMS_RERANK_URL=https://domino.test/apps/r1\n"
+        "export RAG_RERANK_API_URL=https://domino.test/apps/r1/v3/rerank\n"
         "export RAG_RUN_LABEL=split-reranker-fastapi\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -173,7 +173,7 @@ def test_a_run_label_in_the_settings_replaces_the_computed_one() -> None:
         "export RAG_RUN_LABEL=split-reranker-8cores\n"
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-reranker\n"
-        "export RAG_OVMS_RERANK_URL=https://domino.test/apps/r1\n"
+        "export RAG_RERANK_API_URL=https://domino.test/apps/r1/v3/rerank\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -210,8 +210,8 @@ def test_deploy_all_for_split_all_creates_three_apps_in_order() -> None:
     assert apps.creates[2].version.entryScript == (
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-all\n"
-        f"export RAG_OVMS_RERANK_URL={INSTANCES_URL}/app-2-v1-i\n"
-        f"export RAG_OVMS_EMBEDDINGS_URL={INSTANCES_URL}/app-1-v1-i\n"
+        f"export RAG_RERANK_API_URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
+        f"export RAG_EMBEDDING_API_URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
         "export RAG_RUN_LABEL=split-all-fastapi\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -273,11 +273,11 @@ def test_a_secret_is_refused_before_anything_is_sent() -> None:
 
 def test_a_placeholder_is_refused_before_anything_is_sent() -> None:
     apps = FakeDominoApps(["Running"])
-    settings = with_settings("embedder", {"RAG_EMBEDDER_MODEL": "/d/<dataset>"})
+    settings = with_settings("embedder", {"RAG_EMBEDDING_MODEL": "/d/<dataset>"})
     with pytest.raises(DominoDeployError) as caught:
         run_deploy(apps, settings, "all")
     assert str(caught.value).startswith(
-        "RAG_EMBEDDER_MODEL in apps.embedder.settings of deploy.yaml still holds"
+        "RAG_EMBEDDING_MODEL in apps.embedder.settings of deploy.yaml still holds"
     )
     assert apps.received == []
 

@@ -23,13 +23,10 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
-from ..adapters.ovms.v3_contract import (
-    EMBEDDINGS_PATH,
-    RERANK_PATH,
-    EmbeddingsRequest,
-    RerankRequest,
-)
+from ..adapters.model_api.cohere_rerank_format import CohereRerankRequest
+from ..adapters.model_api.openai_embeddings_format import OpenAIEmbeddingsRequest
 from ..domain.corpus import chunk, synthetic_corpus, synthetic_questions
+from ..domain.model_api import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.passages import STAGES
 
 # --- configuration: the environment, read once ---------------------------------
@@ -266,18 +263,19 @@ def plan_rerank_request(
         rng: Picks the query.
 
     Returns:
-        The plan for ``RERANK_PATH``, also its stats name.
+        The plan for ``MODEL_SERVER_RERANK_PATH``, also its stats name.
 
     Example:
         >>> plan_rerank_request("reranker-alias", pool, random.Random(7)).path
     """
-    request = RerankRequest(
+    request = CohereRerankRequest(
         model=alias,
         query=rng.choice(pool.questions),
         documents=list(pool.rerank_documents),
         top_n=pool.top_n,
     )
-    return RequestPlan(RERANK_PATH, request.to_wire(), RERANK_PATH)
+    path = MODEL_SERVER_RERANK_PATH
+    return RequestPlan(path, request.to_wire(), path)
 
 
 def plan_embeddings_request(
@@ -291,13 +289,15 @@ def plan_embeddings_request(
         rng: Picks the question.
 
     Returns:
-        The plan for ``EMBEDDINGS_PATH``, also its stats name.
+        The plan for ``MODEL_SERVER_EMBEDDINGS_PATH``, also its stats name.
 
     Example:
         >>> plan_embeddings_request("embedder-alias", pool, random.Random(7)).path
     """
-    request = EmbeddingsRequest(model=alias, input=[rng.choice(pool.questions)])
-    return RequestPlan(EMBEDDINGS_PATH, request.to_wire(), EMBEDDINGS_PATH)
+    question = rng.choice(pool.questions)
+    request = OpenAIEmbeddingsRequest(model=alias, input=[question])
+    path = MODEL_SERVER_EMBEDDINGS_PATH
+    return RequestPlan(path, request.to_wire(), path)
 
 
 # --- what to record -------------------------------------------------------------

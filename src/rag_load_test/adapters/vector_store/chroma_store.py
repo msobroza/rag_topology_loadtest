@@ -1,11 +1,10 @@
 """The Chroma vector store: embedded (a folder) or a Chroma server (a URL).
 
 Open-source Chroma has no ranked text search: it filters documents by
-``$contains`` / ``$regex`` only, and its Search API is Chroma Cloud only. So
-``lexical_query`` ranks with a ``Bm25Index`` kept in this process, filled from the
-collection by ``open`` and by every ``upsert`` made through this store. Passages
-another process ingests after ``open`` are not seen by ``lexical_query`` until
-this process restarts (``query`` sees them at once).
+``$contains`` / ``$regex`` only, and its Search API (sparse index) is Chroma Cloud
+only; embedded and self-hosted Chroma 1.5.9 refuse it. So this store is a
+``BaseVectorStore`` only, and lexical or hybrid retrieval over it is refused at
+start-up (``RagSettings.check_retrieval_store``).
 
 chromadb's client is synchronous, so every call runs in a worker thread; the
 heavy import lives inside ``open`` so importing this module stays cheap.
@@ -18,67 +17,56 @@ from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
-from ...domain.bm25 import Bm25Index
 from ...domain.errors import RagDependencyError
 from ...domain.passages import MetadataValue, Passage, ScoredPassage
-from ...domain.ports import VectorStorePort
+from ...domain.ports import BaseVectorStore
 
 # Cosine distance, so ``1 - distance`` is the cosine similarity ``query`` reports.
 _COSINE_SPACE = {"hnsw": {"space": "cosine"}}
 _DEFAULT_PORTS = {"http": 80, "https": 443}  # a URL without a port means these
 
 
-class ChromaVectorStore(VectorStorePort):
-    """VectorStorePort on a Chroma collection, with BM25 kept in this process.
+class ChromaVectorStore(BaseVectorStore):
+    """BaseVectorStore on a Chroma collection; it ranks no text.
 
     Any chromadb failure surfaces as ``RagDependencyError("vector_store", ...)``
     with the collection name as its target.
 
     Args:
         collection: A ``chromadb`` collection.
-        lexical_index: The BM25 index that answers ``lexical_query``.
 
     Example:
         >>> store = await ChromaVectorStore.open(
-        ...     url="", path="chroma", collection="rag_passages",
-        ...     lexical_index=Bm25Index(k1=1.2, b=0.75))
-        >>> hits = await store.lexical_query("vacation days", top_k=20)
+        ...     url="", path="chroma", collection="rag_passages")
+        >>> hits = await store.query(vector, top_k=20)
     """
 
-    def __init__(self, collection: Any, lexical_index: Bm25Index) -> None:
-        self._collection, self._lexical_index = collection, lexical_index
+    def __init__(self, collection: Any) -> None:
+        self._collection = collection
         self._name: str = collection.name
 
     @classmethod
-    async def open(
-        cls, *, url: str, path: str, collection: str, lexical_index: Bm25Index
-    ) -> ChromaVectorStore:
-        """Open the collection and index its passages for lexical search.
+    async def open(cls, *, url: str, path: str, collection: str) -> ChromaVectorStore:
+        """Open the collection, creating it when missing.
 
         Args:
             url: A Chroma server; "" opens the embedded store at ``path``.
             path: The embedded store's folder.
             collection: The collection the passages live in, created (cosine
                 distance) when missing.
-            lexical_index: An empty BM25 index, filled from the collection.
 
         Returns:
-            The store on that collection, its BM25 index holding every passage
-            already in it.
+            The store on that collection.
         """
         import chromadb
 
-        def connect() -> tuple[Any, int]:
+        def connect() -> Any:
             client = _chroma_client(chromadb, url, path)
-            found = client.get_or_create_collection(
+            return client.get_or_create_collection(
                 collection, configuration=_COSINE_SPACE, embedding_function=None
             )
-            return found, client.get_max_batch_size()
 
-        found, page_size = await _off_loop(collection, connect)
-        store = cls(found, lexical_index)
-        await store._index_existing(page_size)
-        return store
+        return cls(await _off_loop(collection, connect))
 
     async def upsert(
         self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
@@ -106,8 +94,6 @@ class ChromaVectorStore(VectorStorePort):
             )
 
         await self._call(replace)
-        for passage in passages:
-            self._lexical_index.add(passage.id, passage.text)
 
     async def query(
         self, embedding: Sequence[float], top_k: int
@@ -139,31 +125,6 @@ class ChromaVectorStore(VectorStorePort):
         )
         return [_scored(pid, text, meta, 1.0 - dist) for pid, text, meta, dist in rows]
 
-    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
-        """Find the passages whose words best match a text, by BM25.
-
-        Args:
-            text: The text searched for.
-            top_k: How many passages to return at most.
-
-        Returns:
-            The best-matching passages, best first, with the BM25 score as
-            ``retrieval_score``; a passage sharing no word with ``text`` is left
-            out.
-        """
-        ranked = self._lexical_index.search(text, top_k)
-        if not ranked:
-            return []  # Chroma rejects get(ids=[])
-        found = await self._call(
-            self._collection.get,
-            ids=[pid for pid, _ in ranked],
-            include=["documents", "metadatas"],
-        )
-        # get() returns the ids in storage order, not in the order asked for.
-        columns = zip(found["ids"], found["documents"], found["metadatas"], strict=True)
-        rows = {pid: (text, meta) for pid, text, meta in columns}
-        return [_scored(pid, *rows[pid], score) for pid, score in ranked if pid in rows]
-
     async def count(self) -> int:
         """Count the stored passages.
 
@@ -180,22 +141,6 @@ class ChromaVectorStore(VectorStorePort):
         """
         count = await self.count()
         return count > 0, f"{count} passages in {self._name}"
-
-    async def _index_existing(self, page_size: int) -> None:
-        # Pages of the server's own max batch size: the largest it will send.
-        offset = 0
-        while True:
-            page = await self._call(
-                self._collection.get,
-                include=["documents"],
-                limit=page_size,
-                offset=offset,
-            )
-            for pid, text in zip(page["ids"], page["documents"] or [], strict=True):
-                self._lexical_index.add(pid, text or "")
-            if len(page["ids"]) < page_size:
-                return
-            offset += page_size
 
     async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         return await _off_loop(self._name, fn, *args, **kwargs)

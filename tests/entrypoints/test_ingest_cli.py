@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.corpus import (
@@ -14,7 +15,6 @@ from rag_load_test.domain.corpus import (
     SourceDocument,
 )
 from rag_load_test.entrypoints.ingest_cli import load_jsonl, main
-from store_fakes import in_memory_store
 
 SLUGS = list(TOPICS)
 
@@ -63,7 +63,7 @@ def test_load_jsonl_names_the_offending_line(
 def test_main_ingests_the_synthetic_corpus_and_prints_one_summary_line(
     fake_settings: RagSettings, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    ports = RagPorts(fake_settings, vector_store=in_memory_store())
+    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
 
     assert main(["--synthetic", "3"], ports=ports) == 0
 
@@ -84,7 +84,7 @@ def test_main_chunks_a_corpus_file(
     short = json.dumps({"id": "b", "title": "B", "text": "short"})
     path = _jsonl(tmp_path / "docs.jsonl", _record(text=" ".join(["w"] * 30)), short)
     opts = ["--chunk-words", "20", "--overlap-words", "5"]
-    ports = RagPorts(fake_settings, vector_store=in_memory_store())
+    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
 
     assert main(["--corpus", str(path), *opts], ports=ports) == 0
 

@@ -10,13 +10,21 @@ One text RAG workflow, deployed in several topologies on Domino, and a Locust su
 Where the embedder and the reranker run relative to the workflow app. A closed set: `monolith` (both in its process), `split-reranker` (reranker behind a model server), `split-all` (both behind model servers).
 _Avoid_: deployment, layout, and using "topology" for a free-form name (that is a run label)
 
-**Backend**:
-The kind of adapter behind one port: `local`, `ovms`, `openai`, `cohere`, `fake`, `none`, `elasticsearch`, `chroma`. The topology decides the embedder and reranker backends; a hosted API (`openai`, `cohere`), `fake` and `none` run no model of ours and are variants allowed in any topology.
-_Avoid_: provider, implementation, driver
+**Component**:
+One of the three model steps of the workflow: embedding, rerank, generation. Each has its own backend and its own endpoint settings, shaped the same way.
+_Avoid_: model, service, and "embedder" or "reranker" for the setting (those are the objects that do the work)
 
-**Hosted API**:
-A model reached through a vendor's or a gateway's HTTP API rather than run by us: the OpenAI embeddings API, a rerank route in the Cohere shape.
-_Avoid_: external model, SaaS model, remote model (a model server is ours)
+**Backend**:
+How a component, or the vector store, runs: `local` (a model loaded in the workflow app's process), `api` (an endpoint called over HTTP), `fake`, `none` (rerank only), and for the store `elasticsearch`, `chroma`, `fake`. The topology decides the embedding and rerank backends; `api`, `fake` and `none` load no model of ours into the process and are variants allowed in any topology. Generation is `api` or `fake`.
+_Avoid_: provider, implementation, driver, and a vendor's name for a backend (a vendor is reached through an endpoint)
+
+**Endpoint**:
+Where a component on the `api` backend is called: the full route, the API format it speaks, an API key and the model name sent. A model server of ours, a gateway and a vendor's API are all endpoints.
+_Avoid_: base URL (an endpoint is the full route), hosted API, external model, remote model
+
+**API format**:
+The request and response shapes an endpoint speaks, named after whoever defined them: `openai` for embeddings and generation, `cohere` for rerank. A format is a wire shape, not a vendor: any server that speaks it is called the same way.
+_Avoid_: provider, vendor, protocol, contract
 
 **Runtime**:
 What runs an in-process model: `openvino` on files exported beforehand, or `torch`.
@@ -27,12 +35,12 @@ The process that serves the RAG workflow over HTTP.
 _Avoid_: service, API, RAG app, server
 
 **Model server**:
-A process that serves one model behind the /v3 contract: OpenVINO Model Server or the FastAPI model server.
+A process of ours that serves one model on the /v3 routes: OpenVINO Model Server or the FastAPI model server. To the workflow app it is an endpoint like any other.
 _Avoid_: inference service, OVMS app (when the FastAPI one is also meant)
 
-**/v3 contract**:
-The HTTP paths and JSON shapes a model server speaks for embeddings, reranking and the model probe, as OpenVINO Model Server defines them.
-_Avoid_: OVMS API, model API
+**/v3 routes**:
+The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings and rerank, each in an API format, and the model probe.
+_Avoid_: /v3 contract, OVMS API, model API
 
 **Served model**:
 A model as a model server exposes it: a source id paired with an alias.
@@ -103,7 +111,7 @@ _Avoid_: step, node, phase
 How far a request runs through the stages: `query` runs all four, `retrieve` stops after rerank.
 
 **Retrieval mode**:
-How the retrieve stage finds candidates: `dense` (by vector), `lexical` (by words, BM25) or `hybrid` (both, fused by reciprocal rank). A lexical workflow has no embed stage.
+How the retrieve stage finds candidates: `dense` (by vector), `lexical` (by words, ranked by the store) or `hybrid` (both, fused by reciprocal rank). A lexical workflow has no embed stage.
 _Avoid_: search type, and plain "mode" for it (that is query or retrieve)
 
 ### Load test
@@ -117,7 +125,7 @@ The name the load-test side gives a run; it names the run's result files.
 _Avoid_: run label
 
 **Run label**:
-The free-form name the workflow app reports for the configuration being measured. Defaults to the topology plus every backend that differs from that topology's default; set explicitly to name a variant such as model-server kind or hardware tier.
+The free-form name the workflow app reports for the configuration being measured. Defaults to the topology plus every choice (embedding, rerank, store, generation, retrieval) that differs from its default; set explicitly to name a variant such as model-server kind or hardware tier.
 _Avoid_: deployment, topology label, run name
 
 **Target record**:

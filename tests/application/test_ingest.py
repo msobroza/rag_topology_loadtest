@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from rag_load_test.adapters.fakes.fake_models import FakeEmbedder
+from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.application.ingest import ingest
 from rag_load_test.domain.corpus import (
     TOPICS,
@@ -14,7 +15,6 @@ from rag_load_test.domain.corpus import (
     chunk,
     synthetic_corpus,
 )
-from store_fakes import in_memory_store
 
 SLUGS = list(TOPICS)
 
@@ -52,7 +52,7 @@ class SpyEmbedder(FakeEmbedder):
 async def test_ingest_upserts_every_passage_in_batches() -> None:
     passages = [p for doc in synthetic_corpus(7) for p in chunk(doc)]
     assert len(passages) == 7  # each synthetic document fits one chunk
-    embedder, store = SpyEmbedder(), in_memory_store()
+    embedder, store = SpyEmbedder(), InMemoryVectorStore()
     assert await ingest(passages, embedder, store, batch_size=3) == 7
     assert await store.count() == 7
     assert embedder.batch_sizes == [3, 3, 1]

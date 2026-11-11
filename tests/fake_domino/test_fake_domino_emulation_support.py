@@ -18,13 +18,13 @@ from fastapi.testclient import TestClient
 
 from fake_domino.emulation.identity import FAKE_API_KEY, FAKE_RUN_TOKEN
 from fake_domino.emulation.launcher import (
-    AppLauncher,
     AppLaunchError,
     AppRunState,
+    BaseAppLauncher,
+    BaseCommandRunner,
+    BasePortProbe,
     CommandError,
     CommandResult,
-    CommandRunner,
-    PortProbe,
 )
 from fake_domino.emulation.placement import AppPlacer
 from fake_domino.emulation.placement_settings import (
@@ -47,7 +47,7 @@ PLACEMENT = PlacementSettings(
 )
 
 
-class FakeAppLauncher(AppLauncher):
+class FakeAppLauncher(BaseAppLauncher):
     """Records each start; reports the state a test sets per machine (default starting)."""
 
     def __init__(self) -> None:
@@ -64,7 +64,7 @@ class FakeAppLauncher(AppLauncher):
         return self.states.get(machine, AppRunState.STARTING)
 
 
-class FakeCommandRunner(CommandRunner):
+class FakeCommandRunner(BaseCommandRunner):
     """Records each command; answers with the results a test queued, or raises."""
 
     def __init__(self, *results: CommandResult | CommandError) -> None:
@@ -81,7 +81,7 @@ class FakeCommandRunner(CommandRunner):
         return result
 
 
-class FakePortProbe(PortProbe):
+class FakePortProbe(BasePortProbe):
     """Says the ports a test opened are open; records each probe."""
 
     def __init__(self, *open_ports: tuple[str, int]) -> None:

@@ -24,6 +24,10 @@ bulk
 # LangGraph: a RagState key, written and read by the nodes as a string key.
 query_embedding
 
+# pydantic: the wire field OpenAIEmbeddingsRequest.input, sent and read as JSON
+# (the model server reads it as body.input; vulture may not tie the two).
+input
+
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.
 accessStatuses

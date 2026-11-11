@@ -1,11 +1,11 @@
-"""A named fake for ``CpuCounter``, shared by the CPU-count and ``RagPorts`` tests."""
+"""A named fake for ``BaseCpuCounter``, shared by the CPU-count and ``RagPorts`` tests."""
 
 from __future__ import annotations
 
-from rag_load_test.adapters.local_models.cpu_count import CpuCounter
+from rag_load_test.adapters.local_models.cpu_count import BaseCpuCounter
 
 
-class FakeCpuCounter(CpuCounter):
+class FakeCpuCounter(BaseCpuCounter):
     """Answers ``value`` (``None`` = cannot say) and counts how often it was asked."""
 
     def __init__(self, value: float | None, name: str = "fake") -> None:
