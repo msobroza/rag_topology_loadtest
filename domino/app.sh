@@ -6,6 +6,7 @@
 #                     split-all
 #   ovms-reranker     OpenVINO Model Server serving config_reranker.json
 #   ovms-embedder     OpenVINO Model Server serving config_embedder.json
+#                     (both from RAG_OVMS_MODELS_DIR, /mnt/data/ovms-models by default)
 #   fastapi-reranker / fastapi-embedder   the same models behind rag-model-server
 #                     (same /v3 contract as OVMS) for the FastAPI-vs-OVMS experiment
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
@@ -17,6 +18,16 @@
 # role uv-installs this project into a virtualenv under $HOME, with the extras named
 # by RAG_BOOTSTRAP_EXTRAS (e.g. "domino") when set. Unset, nothing is installed:
 # the prebuilt `rag` / `ovms` images already have it all.
+#
+# Models are provisioned on the App's own disk the first time it starts without
+# them, then reused. An OVMS role whose config is missing from RAG_OVMS_MODELS_DIR
+# runs ovms/export_models.sh there (it exports both models; needs uv and the Hub):
+# the exporter's pinned requirements go into a virtualenv of their own
+# ($HOME/ovms-exporter-venv) so they cannot downgrade the project's packages, and
+# the project is uv-installed into $HOME/rag-venv first when `rag-served-models`
+# is not on PATH (the OVMS roles' bootstrap installs no project). The in-process
+# models (monolith, workflow, fastapi-*) export themselves into
+# RAG_OPENVINO_MODELS_DIR on their first start (RAG_LOCAL_MODEL_RUNTIME=openvino).
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedder and
 # reranker backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
@@ -72,8 +83,7 @@ render_proxy_config() {
 
 serve_ovms() {
   local config="$MODELS_DIR/$1"
-  [ -f "$config" ] \
-    || die "OVMS config not found: $config (fill a Domino Dataset with ovms/export_models.sh and mount it at $MODELS_DIR, or set RAG_OVMS_MODELS_DIR)"
+  if [ ! -f "$config" ]; then provision_ovms_models "$config"; fi
   command -v ovms >/dev/null 2>&1 \
     || die "'ovms' binary not on PATH; use the environment built from domino/Dockerfile --target ovms"
   if [ "${RAG_OVMS_PREFIX_PROXY:-}" != 1 ]; then
@@ -95,21 +105,48 @@ serve_ovms() {
   die "ovms or nginx exited"
 }
 
+# provision_ovms_models <config>: export both models into $MODELS_DIR, once.
+# Each App has its own disk, so no other process writes this folder: no lock.
+provision_ovms_models() {
+  local config=$1 exporter_venv="$HOME/ovms-exporter-venv"
+  command -v uv >/dev/null 2>&1 \
+    || die "OVMS config not found: $config, and 'uv' is not on PATH to export it with ovms/export_models.sh; install uv, or mount a folder holding it and set RAG_OVMS_MODELS_DIR"
+  echo "app.sh[$ROLE]: $config not found; exporting the models into $MODELS_DIR (RAG_OVMS_MODELS_DIR) with ovms/export_models.sh" >&2
+  # export_models.sh asks the project's rag-served-models which models to export.
+  if ! command -v rag-served-models >/dev/null 2>&1; then
+    install_project "$HOME/rag-venv" .
+  fi
+  # Its pinned requirements are pip-installed into $PYTHON, hence a virtualenv of
+  # their own; --seed because the script runs "$PYTHON -m pip".
+  if [ ! -x "$exporter_venv/bin/python" ]; then
+    uv venv "$exporter_venv" --seed --python "$(cat .python-version)"
+  fi
+  PYTHON="$exporter_venv/bin/python" ovms/export_models.sh "$MODELS_DIR" \
+    || die "exporting the OVMS models into $MODELS_DIR failed (ran ovms/export_models.sh with PYTHON=$exporter_venv/bin/python; it needs the Hugging Face Hub and the OVMS exporter's requirements); $config is missing; fix the error above, or mount a folder holding it and set RAG_OVMS_MODELS_DIR"
+  [ -f "$config" ] \
+    || die "ovms/export_models.sh finished but $config is still missing; check RAG_OVMS_MODELS_DIR=$MODELS_DIR"
+}
+
+# install_project <venv> <project>: uv-install this project, then put it on PATH.
+install_project() {
+  # Its own virtualenv, on the project's Python (.python-version), which uv
+  # fetches when the environment lacks it: the environment's own packages
+  # (an old urllib3 in Domino's standard image) break ours.
+  uv venv "$1" --python "$(cat .python-version)"
+  uv pip install --python "$1/bin/python" "$2"
+  export PATH="$1/bin:$PATH"
+}
+
 # rag-deploy publishes into a generic environment with no image of our own, so
 # the role's dependencies are installed when the App starts.
 bootstrap() {
   case "$ROLE" in
     ovms-*) bootstrap_ovms ;;
     *)
-      local venv="$HOME/rag-venv" project=.
+      local project=.
       # An Agent's launch script sets RAG_BOOTSTRAP_EXTRAS=domino (Domino tracing).
       if [ -n "${RAG_BOOTSTRAP_EXTRAS:-}" ]; then project=".[$RAG_BOOTSTRAP_EXTRAS]"; fi
-      # Its own virtualenv, on the project's Python (.python-version), which uv
-      # fetches when the environment lacks it: the environment's own packages
-      # (an old urllib3 in Domino's standard image) break ours.
-      uv venv "$venv" --python "$(cat .python-version)"
-      uv pip install --python "$venv/bin/python" "$project"
-      export PATH="$venv/bin:$PATH"
+      install_project "$HOME/rag-venv" "$project"
       ;;
   esac
 }

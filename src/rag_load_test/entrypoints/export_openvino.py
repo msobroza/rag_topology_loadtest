@@ -1,9 +1,11 @@
 """``rag-export-openvino``: convert the in-process models to OpenVINO, once.
 
 The ``openvino`` runtime (``RAG_LOCAL_MODEL_RUNTIME``, the default) loads the
-folder this command writes for each model under ``RAG_OPENVINO_MODELS_DIR``;
-without it, every start converts the model in memory again. The models are the
-settings' ``embedder_model`` and ``reranker_model``, so ``RAG_*`` overrides apply.
+folder this command writes for each model under ``RAG_OPENVINO_MODELS_DIR``. An
+App whose folder is missing exports it itself on its first start, so this command
+only pre-warms: an image build, or a disk that should start without the Hub. The
+models are the settings' ``embedder_model`` and ``reranker_model``, so ``RAG_*``
+overrides apply.
 
 Example:
     >>> rag-export-openvino --only reranker --models-dir models/openvino

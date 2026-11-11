@@ -112,18 +112,17 @@ src/rag_load_test/
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
     cli.py          rag-deploy: the parser, url, --dry-run
     apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
-src/fake_domino/    a stand-in for Domino 6.2: its Apps API and the proxy in front of an App. It imports nothing
-                    from rag_load_test, and only deploy/cli.py (--dry-run) imports it (both checked by
+src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
+                    It imports nothing from rag_load_test, and only deploy/cli.py imports it (both checked by
                     tests/structure/test_layering.py)
   api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
-  state.py          FakeDominoApps: the fake's Apps, versions and instances; the --behaviour scripts
+  state.py          FakeDominoApps: the fake's Apps, versions and instances
+  instances.py      InstanceScheduler: what decides an instance's status; by default the --behaviour scripts
   apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
-  identity.py       the fake's one user, its run token and API key, the identity token Domino passes to an App
-  proxy_settings.py FakeDominoProxySettings: what the proxy does without a credential, the upstreams, the prefix
-  app_proxy.py      FakeAppProxy: check the credential, rewrite the headers as Domino does, forward to the App
-  proxy_routes.py   the two App URL shapes and the signing keys (JWKS)
-  stand_ins.py      hardware tiers, /access-token and an App instance's /readyz when no real App is behind it
+  stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
   server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
+  emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
+emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
@@ -133,6 +132,7 @@ tests/              pytest: no model weights, no network, no Elasticsearch; one 
   scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
   structure/        the layering and code-shape rules, read from the source with ast
   fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
+  emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
   helpers/          named fakes, fixtures and REPO_ROOT shared by several test files (on pytest's path)
 ```
 
@@ -348,6 +348,7 @@ usage error, not a traceback.
 | `RAG_ES_URL` | `http://localhost:9200` | `http://user:password@host:9200` for basic auth |
 | `RAG_ES_API_KEY` | `` | Elasticsearch API key (alternative to basic auth) |
 | `RAG_ES_INDEX` | `rag_passages` | Elasticsearch index holding the passages |
+| `RAG_ES_TEXT_ANALYZER` | `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `RAG_DOMINO_TRACING` | `false` | wrap the workflow run with Domino `add_tracing` |
 | `RAG_TOP_K_RETRIEVE` | `20` | candidates from the vector store (>= 1) |
 | `RAG_TOP_K_RERANK` | `5` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
@@ -370,6 +371,7 @@ usage error, not a traceback.
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
+| `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 
 Every tunable is a field of `RagSettings` in `config/settings.py`; adapters get
 the values as constructor arguments from `adapters/rag_ports.py`. Locust's rerank
@@ -438,6 +440,21 @@ size, so it needs its own index: ingest with the embedder you will serve with.
 In a split topology `rag-deploy` still publishes the model server Apps the
 topology names, even when a hosted backend leaves one unused.
 
+**A French corpus.** The synthetic handbook is English. For a French,
+domain-specific corpus, `rag-fetch-corpus quebec-insurance --out DIR` downloads
+the Quebec automobile insurance corpus of GRAAL-Research (Beauchemin et al.,
+NLLP 2024: about 1,200 passages and 82 questions) and writes `DIR/corpus.jsonl`
+for `rag-ingest --corpus` and `DIR/questions.jsonl` for
+`RAG_LOADTEST_QUESTIONS_FILE`. Its source repository states no licence: research
+use, cite the paper, and commit none of it. With Elasticsearch, ingest it into
+an index created with `RAG_ES_TEXT_ANALYZER=french`.
+
+```bash
+rag-fetch-corpus quebec-insurance --out data/quebec
+RAG_ES_INDEX=rag_quebec RAG_ES_TEXT_ANALYZER=french rag-ingest --corpus data/quebec/corpus.jsonl
+RAG_LOADTEST_QUESTIONS_FILE=data/quebec/questions.jsonl make loadtest RUN_NAME=monolith-fr HOST=http://localhost:8888
+```
+
 ## Elasticsearch
 
 * The store is LangChain's `AsyncElasticsearchStore` over index `rag_passages`,
@@ -474,11 +491,17 @@ rag-export-openvino --only reranker --models-dir /domino/datasets/local/<dataset
 `RAG_OPENVINO_MODELS_DIR`, named after the last segment of the model id. A
 folder holds everything the model loads from, so it works with the network off.
 An export is written beside its target and swapped in at the end: a failed run
-leaves the previous export in place. At start-up a model with a folder there
-loads from it; a model without one is converted in memory, every start, which is
-slow. Each call uses the threads the thread budget gives it (OpenVINO's
-`INFERENCE_NUM_THREADS`). The conversion needs Hub access and, for the embedder,
-about 4.5 GB of disk.
+leaves the previous export in place.
+
+Running it is optional. A process that finds a model's folder missing when it
+first loads the model downloads it, converts it into that folder, logs one
+`local_model_provisioned` line and carries on; later starts load the folder.
+So the first start of an App is slow (the embedder is a 2.3 GB download) and
+needs the Hub, about 5.5 GB of disk for both models and several GB of memory
+while converting; with `HF_HUB_OFFLINE=1` or no network it fails, naming the
+model and the folder. The command is for filling the folder ahead of time, as
+the `rag` Docker image does at build. Each call uses the threads the thread
+budget gives it (OpenVINO's `INFERENCE_NUM_THREADS`).
 
 The OpenVINO packages come with the install (`sentence-transformers[openvino]`).
 Their `optimum-intel` accepts transformers below 5.6 only, so pip holds
@@ -521,6 +544,14 @@ then runs `rerank_ov` and `embeddings_ov --pooling CLS`
 with `--weight-format int8`. The result is `config_reranker.json`,
 `config_embedder.json` and one directory per model; the configs reference the
 model directories relatively, so the tree can be mounted anywhere.
+
+**On Domino the export is optional.** An OVMS role (`RAG_ROLE=ovms-reranker` /
+`ovms-embedder`) that finds its `config_*.json` missing under
+`RAG_OVMS_MODELS_DIR` runs `export_models.sh` itself, once, before serving: it
+needs `uv`, installs this project into `$HOME/rag-venv` when `rag-served-models`
+is not on `PATH`, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
+prebuilt `ovms` image has no `uv`, so there the models still have to be mounted.
+This path has not been run for real.
 
 **Compose** (`make infra-up`) mounts `ovms/models` read-only at `/workspace` and
 starts the reranker with `--rest_port 8001 --config_path /workspace/config_reranker.json`,
@@ -831,61 +862,10 @@ calls it lists a version's instances, answers `/readyz` at each instance's
 hardware tier (`GET /api/hardwaretiers/v1/hardwaretiers/<id>`) with a fixed
 number of cores.
 
-#### A real app behind the fake Domino's proxy
-
-On Domino a proxy sits in front of every App and Agent (Agents use the same
-hosting): it checks who is calling before the request reaches the app, and tells
-the app who that is. The fake does the same on both URL shapes of an App,
-`/apps/<app id>/...` and `/<owner>/<project>/r/notebookSession/<instance id>/...`,
-for every method and sub-path, and forwards the request to a real app on your
-machine when `--upstream` names one for that App:
-
-```bash
-make model-server SERVE=reranker PORT=8011           # a real model server
-rag-fake-domino --upstream rag-reranker=http://localhost:8011
-DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make deploy-reranker
-url=$(DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local rag-deploy url reranker)
-curl -i "$url/v3/models/crossencoder-camembert-base-mmarcoFR"                    # 401
-curl -i -H "Authorization: Bearer $(curl -s localhost:8899/access-token)" \
-  "$url/v3/models/crossencoder-camembert-base-mmarcoFR"                          # 200, from :8011
-```
-
-With `RAG_OVMS_RERANK_URL=$url` and `RAG_OVMS_AUTH=domino`, a workflow app on the
-same machine fetches its token from the fake and calls the reranker through the
-proxy, as it would on Domino.
-
-| The request | What the fake does |
-|---|---|
-| `Authorization: Bearer <the token /access-token serves>` or `X-Domino-Api-Key: fake-api-key` | the caller is `fake-owner`; the request goes on |
-| no credential, or one the fake does not know | `401` with `WWW-Authenticate` (`--unauthenticated redirect`: `302` to a login URL) |
-| an App or instance the fake does not have | `404` |
-| an App with an upstream | forwarded (method, sub-path, query, body), the answer relayed; `502` naming the upstream when it does not answer |
-| an App without an upstream | `/readyz` answers as a stand-in; any other path is a `502` saying how to name an upstream |
-
-What the app receives, in place of the caller's own `Authorization`,
-`X-Domino-Api-Key` and `domino-username`:
-
-* `domino-username: fake-owner`;
-* `Authorization: Bearer <JWT>`, the identity token of Domino's secure identity
-  propagation: RS256, audience `apps`, claims `sub`, `preferred_username`,
-  `email`, `given_name` and `family_name`, verifiable with the keys at
-  `/auth/realms/DominoRealm/protocol/openid-connect/certs` (`--no-identity-jwt`
-  leaves it out, as a Domino with that feature off does);
-* for a version published with `extendedIdentityPropagationToAppsEnabled`, the
-  caller's own token as `Authorization: Bearer` and no `domino-username`.
-
-The path prefix is stripped before forwarding; `--keep-prefix` sends the full
-path, which is the case `RAG_OVMS_PREFIX_PROXY=1` exists for.
-`--forward-timeout` bounds a forwarded call (30 s). The fake has one user and
-does not apply `visibility` or access lists: it stores and echoes them.
-
-Domino's documentation states the proxy, the two headers, the token's algorithm,
-audience and claims, the keys URL, both URL shapes, and the run token at
-`/access-token`. It does not state which credentials the proxy takes from a
-script, what an unauthenticated call gets back, whether the caller's own headers
-are removed, or whether the prefix is stripped: there the fake follows the Domino
-API's rules (bearer token or API key, `401`), and its Swagger page says which is
-which.
+The fake only stands in for the Apps API. Imitating Domino at run time (the
+proxy in front of every App, Apps placed on machines) is the job of a temporary
+emulation, kept apart so that it can be deleted once the real Domino is in use:
+see [emulation/README.md](emulation/README.md).
 
 Implemented from the Domino 6.2 API reference but **not verified on a live
 Domino**:
@@ -895,8 +875,7 @@ Domino**:
    page).
 2. The inline `entryScript` runs (it starts `domino/app.sh` by absolute path, so
    whatever directory the App starts in does not matter).
-3. The run token is accepted for calls between Apps (the fake Domino accepts it,
-   which proves nothing about Domino). Domino's own guidance for 6.3
+3. The run token is accepted for calls between Apps. Domino's own guidance for 6.3
    says a script calling an App needs a Personal Access Token; if the run token is
    rejected (`503 reranker_unavailable` with HTTP 401 or a redirect in the detail),
    set `RAG_OVMS_AUTH=<personal access token>` as a project environment variable.

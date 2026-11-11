@@ -74,12 +74,20 @@ Where a person works inside Domino: deploys, ingestion and runs are started from
 _Avoid_: client, dev box, laptop (when the Domino side is meant)
 
 **Fake Domino**:
-A stand-in for Domino: it speaks Domino's Apps API, serves a run's token, and sits in front of each App as Domino's proxy does.
+A stand-in for Domino's Apps API, for tests and for trying a deploy without Domino.
 _Avoid_: mock Domino, Domino simulator
 
+### Emulation
+
+Temporary: these terms leave with the emulation, once the real Domino is in use.
+
 **Emulation**:
-A set of cloud machines standing in for a Domino deployment: a fake Domino with its Workspace, the vector store, and the Apps of one topology.
+A set of cloud machines standing in for a Domino deployment: an emulated Domino with its Workspace, the vector store, and the Apps of one topology.
 _Avoid_: staging, test environment, GCP deployment
+
+**Emulated Domino**:
+The fake Domino extended to behave like Domino at run time: it sits in front of each App as Domino's proxy does and places Apps on machines.
+_Avoid_: fake Domino (that is the Apps API stand-in alone), mini Domino
 
 **Machine**:
 One cloud VM of the emulation.

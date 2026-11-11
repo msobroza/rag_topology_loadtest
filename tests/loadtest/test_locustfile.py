@@ -58,7 +58,8 @@ def _import_locustfile(name: str) -> ModuleType:
 
 @pytest.fixture
 def locustfile(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    for var in ("TARGET", "SHAPE", "QUERY_WEIGHT", "RETRIEVE_WEIGHT", "QUESTIONS"):
+    variables = ("TARGET", "SHAPE", "QUERY_WEIGHT", "RETRIEVE_WEIGHT", "QUESTIONS")
+    for var in (*variables, "QUESTIONS_FILE"):
         monkeypatch.delenv(f"RAG_LOADTEST_{var}", raising=False)
     return _import_locustfile("locustfile_under_test")
 

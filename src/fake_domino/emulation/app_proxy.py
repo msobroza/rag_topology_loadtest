@@ -17,6 +17,11 @@ Domino prefix is stripped before the App sees the path; and with an API key the
 "viewer's token" under extended propagation is the user's run token.
 Visibility and ``accessStatuses`` are stored and echoed, never enforced.
 
+Emulation only: an App placed on a machine is forwarded to
+``http://<machine>:<app_port>`` unless ``--upstream`` names it. One pooled
+``httpx.AsyncClient`` carries every forwarded request for the fake's lifetime;
+``aclose`` (on the app's shutdown) closes it.
+
 Example:
     >>> await FakeAppProxy(FakeDominoProxySettings()).answer(request, caller, target)
 """
@@ -32,6 +37,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 from starlette.datastructures import Headers
 
+from ..instances import FakeApp, FakeVersion
+from ..stand_ins import readyz_stand_in
 from .identity import (
     API_KEY_HEADER,
     FAKE_RUN_TOKEN,
@@ -40,8 +47,6 @@ from .identity import (
     caller_of,
 )
 from .proxy_settings import FakeDominoProxySettings, UnauthenticatedResponse
-from .stand_ins import readyz_stand_in
-from .state import _FakeApp, _FakeVersion
 
 DOMINO_USERNAME_HEADER = "domino-username"
 LOGIN_PATH = f"{KEYCLOAK_REALM_PATH}/protocol/openid-connect/auth"  # assumed
@@ -56,10 +61,11 @@ _UNRELAYED = {"content-length", "content-encoding", "transfer-encoding", "connec
 class AppTarget(NamedTuple):
     """The App a proxied request is for, and the path it asks of it."""
 
-    app: _FakeApp
-    version: _FakeVersion  # whose instance answers
+    app: FakeApp
+    version: FakeVersion  # whose instance answers
     prefix: str  # the Domino path in front of the App's own, e.g. "/apps/app-1"
     sub_path: str  # the App's own path, without the leading "/"
+    placed_upstream: str | None = None  # the App's machine, in the emulation
 
 
 class FakeAppProxy:
@@ -68,7 +74,8 @@ class FakeAppProxy:
     Args:
         settings: The options Domino's docs leave open.
         transport: Carries forwarded requests; None opens real connections
-            (tests pass an ``httpx.MockTransport``).
+            (tests pass an ``httpx.MockTransport``). The pooled client closes
+            it in ``aclose``.
 
     Example:
         >>> FakeAppProxy(FakeDominoProxySettings(upstreams={"rag-reranker": url}))
@@ -82,6 +89,13 @@ class FakeAppProxy:
         self.settings = settings
         self.tokens = FakeIdentityTokens()
         self._transport = transport
+        self._client: httpx.AsyncClient | None = None  # made on first forward
+
+    async def aclose(self) -> None:
+        """Close the pooled client, if a request ever opened it (app shutdown)."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     def gate(self, request: Request) -> str:
         """Let through only a request with a valid credential.
@@ -121,11 +135,12 @@ class FakeAppProxy:
             target: The App it is for.
 
         Returns:
-            The App's answer when an upstream is configured for it; otherwise
-            the ``/readyz`` stand-in, or 502 for any other path.
+            The App's answer when an upstream is configured for it or it runs
+            on a machine (``--upstream`` wins); otherwise the ``/readyz``
+            stand-in, or 502 for any other path.
         """
         name = target.app.request.name
-        upstream = self.settings.upstreams.get(name)
+        upstream = self.settings.upstreams.get(name) or target.placed_upstream
         if upstream is None and target.sub_path == "readyz":
             return readyz_stand_in(target.version)
         if upstream is None:
@@ -159,17 +174,12 @@ class FakeAppProxy:
         headers: list[tuple[str, str]],
     ) -> Response:
         url = _upstream_url(upstream, target, request.url.query, self.settings)
-        timeout = self.settings.forward_timeout_seconds
+        client = self._pooled()
+        sent = client.build_request(
+            request.method, url, headers=headers, content=await request.body()
+        )
         try:
-            # Closing the client closes the transport too: a test's MockTransport
-            # does not mind, and a real one is opened per request anyway.
-            async with httpx.AsyncClient(
-                transport=self._transport, timeout=timeout
-            ) as client:
-                sent = client.build_request(
-                    request.method, url, headers=headers, content=await request.body()
-                )
-                answer = await client.send(sent)
+            answer = await client.send(sent)
         except httpx.TransportError as exc:
             return PlainTextResponse(
                 f"upstream {upstream} of App {target.app.request.name!r} did not "
@@ -177,6 +187,14 @@ class FakeAppProxy:
                 status_code=HTTPStatus.BAD_GATEWAY,
             )
         return _relayed(answer)
+
+    def _pooled(self) -> httpx.AsyncClient:
+        # One client for the fake's lifetime: a new one per request would open a
+        # new connection to the App each time, which the proxy's numbers include.
+        if self._client is None:
+            timeout = self.settings.forward_timeout_seconds
+            self._client = httpx.AsyncClient(transport=self._transport, timeout=timeout)
+        return self._client
 
 
 def _passed_on(headers: Headers) -> list[tuple[str, str]]:

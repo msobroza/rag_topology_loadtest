@@ -24,7 +24,7 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import NamedTuple, TypedDict, TypeVar, Unpack, cast
@@ -56,8 +56,10 @@ from .local_models.cpu_count import (
     FixedCpus,
     work_out_thread_budget,
 )
-from .local_models.local_model import LocalModel, local_model
+from .local_models.local_model import LocalModel
+from .local_models.model_provisioning import Exporter, provision_local_model
 from .local_models.native_threads import settle_torch_thread
+from .local_models.openvino_export import export_embedder, export_reranker
 from .local_models.sentence_transformer_models import (
     CrossEncoderReranker,
     NoReranker,
@@ -278,7 +280,10 @@ class RagPorts:
                 lexical_index=self._bm25_index(),
             )
         store = ElasticsearchVectorStore.open(
-            settings.es_url, index=settings.es_index, api_key=settings.es_api_key
+            settings.es_url,
+            index=settings.es_index,
+            api_key=settings.es_api_key,
+            text_analyzer=settings.es_text_analyzer,
         )
         self._stack("vector_store").push_async_callback(store.aclose)
         return store
@@ -317,8 +322,9 @@ class RagPorts:
 
     async def _load_embedder(self) -> EmbedderPort:
         budget, pool = await self._thread_budget(), await self._model_pool()
+        model_id = self.settings.embedder_model
         return SentenceTransformerEmbedder.from_pretrained(
-            self._local_model(self.settings.embedder_model),
+            await self._local_model(model_id, export_embedder, pool),
             pool,
             batch_size=self.settings.embedder_batch_size,
             threads=budget.embedder_threads,
@@ -329,19 +335,26 @@ class RagPorts:
 
     async def _load_reranker(self) -> RerankerPort:
         budget, pool = await self._thread_budget(), await self._model_pool()
+        model_id = self.settings.reranker_model
         return CrossEncoderReranker.from_pretrained(
-            self._local_model(self.settings.reranker_model),
+            await self._local_model(model_id, export_reranker, pool),
             pool,
             batch_size=self.settings.reranker_batch_size,
             threads=budget.reranker_threads,
         )
 
-    def _local_model(self, model_id: str) -> LocalModel:
+    # Under openvino, a model whose folder is missing is exported there first (on
+    # the model pool: it takes minutes); see local_models/model_provisioning.py.
+    async def _local_model(
+        self, model_id: str, export: Exporter, pool: Executor
+    ) -> LocalModel:
         settings = self.settings
-        return local_model(
+        return await provision_local_model(
             model_id,
             runtime=settings.local_model_runtime,
             models_dir=settings.openvino_models_dir,
+            export=export,
+            executor=pool,
         )
 
     async def _model_pool(self) -> ThreadPoolExecutor:

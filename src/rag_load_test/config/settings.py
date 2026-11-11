@@ -136,6 +136,10 @@ class RagSettings(BaseSettings):
     es_url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     es_api_key: str = ""
     es_index: str = "rag_passages"
+    # Analyzer of the passages' text, applied when the index is created and to
+    # every lexical query: "standard", or a language's (e.g. "french"). An
+    # index keeps the analyzer it was created with.
+    es_text_analyzer: str = "standard"
     chroma_url: str = ""  # a Chroma server; "" = embedded Chroma at chroma_path
     chroma_path: str = "chroma"
     chroma_collection: str = "rag_passages"
@@ -154,8 +158,9 @@ class RagSettings(BaseSettings):
 
     # --- in-process models -------------------------------------------------------
     local_model_runtime: LocalModelRuntime = "openvino"  # openvino | torch
-    # Where rag-export-openvino writes and the openvino runtime looks first; a
-    # model without a folder there is converted in memory each time it loads.
+    # Where the openvino runtime keeps its models, one folder each. A model
+    # without a folder there is downloaded and converted into it the first time
+    # it loads; rag-export-openvino fills it ahead of time.
     openvino_models_dir: str = "models/openvino"
     embedder_batch_size: int = Field(default=64, ge=1)
     reranker_batch_size: int = Field(default=32, ge=1)

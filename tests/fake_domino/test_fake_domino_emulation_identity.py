@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import jwt
 import pytest
-from fake_domino_support import RUN_TOKEN_AUTH, FakeUpstream, create, http_to
 from starlette.datastructures import Headers
+from test_fake_domino_emulation_support import (
+    RUN_TOKEN_AUTH,
+    FakeUpstream,
+    create,
+    http_to,
+)
 
-from fake_domino.identity import (
+from fake_domino.emulation.identity import (
     FAKE_API_KEY,
     FAKE_RUN_TOKEN,
     FAKE_USERNAME,
     FakeIdentityTokens,
     caller_of,
 )
-from fake_domino.proxy_settings import FakeDominoProxySettings
+from fake_domino.emulation.proxy_settings import FakeDominoProxySettings
 from fake_domino.state import FakeDominoApps
 
 JWKS_PATH = "/auth/realms/DominoRealm/protocol/openid-connect/certs"

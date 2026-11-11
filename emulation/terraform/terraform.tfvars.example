@@ -1,0 +1,37 @@
+# cp terraform.tfvars.example terraform.tfvars, then edit. Only the first two are
+# required; every other line shows its default.
+
+project_id = "<your project id>"
+# The branch, tag or commit every machine checks out (push it first: machines clone
+# from GitHub).
+git_ref = "main"
+
+# region         = "europe-west1"
+# zone           = "europe-west1-b"
+# name           = "rag-emu"
+# labels         = {}
+# max_run_hours  = 8   # every machine deletes itself after this long
+# repo_url       = "https://github.com/msobroza/rag_topology_loadtest.git"
+# repo_path      = "/repos/rag_topology_loadtest"
+# uv_version     = "0.8.0"
+
+# workspace_machine_type = "n2-standard-8"   # fake Domino + Workspace + Locust
+# workspace_disk_gb      = 50
+# es_machine_type        = "n2-standard-4"
+# es_disk_gb             = 50
+# es_heap                = "4g"
+
+# One pool of machines per hardware tier; exactly one default tier.
+# hardware_tiers = {
+#   "cpu-8"  = { machine_type = "n2-standard-8", count = 3, default = true }
+#   "cpu-16" = { machine_type = "n2-standard-16", count = 1, disk_gb = 80 }
+# }
+
+# A Secret Manager secret of KEY=VALUE lines (OPENAI_API_KEY=...): the Project
+# environment variables. Create it first:
+#   printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" | gcloud secrets create rag-emu-project-env --data-file=-
+# project_env_secret = "rag-emu-project-env"
+
+# domino_project_id = "emulation"
+# environment_id    = "emulation-environment"
+# ovms_bundle_path  = "/opt/rag-emulation/ovms.tar.gz"

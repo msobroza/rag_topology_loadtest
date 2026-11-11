@@ -7,7 +7,8 @@ with plain calls and without gevent monkey-patching the interpreter.
 
 Example:
     >>> pool = build_request_pool(config.question_count, settings.top_k_retrieve,
-    ...                           settings.top_k_rerank)
+    ...                           settings.top_k_rerank,
+    ...                           questions_file=config.questions_file)
     >>> plan = plan_rag_request("/query", pool, rng)
     >>> verdict = judge_response(plan.path, resp.status_code, resp.text or "")
 """
@@ -34,6 +35,7 @@ from ..domain.passages import STAGES
 # --- configuration: the environment, read once ---------------------------------
 
 LOAD_TARGETS: tuple[str, ...] = ("rag", "rerank", "embeddings")
+QUESTIONS_FILE_VAR = "RAG_LOADTEST_QUESTIONS_FILE"
 
 
 @dataclass(frozen=True)
@@ -46,13 +48,16 @@ class LoadTestConfig:
     step_shape: bool
     auth_headers: Mapping[str, str]
     question_count: int  # distinct synthetic questions the users pick from
+    questions_file: Path | None = None  # replaces the synthetic questions when set
 
 
 def read_loadtest_config(env: Mapping[str, str]) -> LoadTestConfig:
     """Read and validate the ``RAG_LOADTEST_*`` knobs (and Domino auth) once.
 
     Defaults: target ``rag``, query weight 1, retrieve weight 3, 50 questions;
-    ``RAG_LOADTEST_SHAPE=step`` turns on the step shape. Domino auth is
+    ``RAG_LOADTEST_SHAPE=step`` turns on the step shape;
+    ``RAG_LOADTEST_QUESTIONS_FILE`` (unset or "" for none) names a file of
+    questions to ask instead of the synthetic ones. Domino auth is
     ``RAG_LOADTEST_BEARER_TOKEN`` as a bearer token, else ``DOMINO_API_KEY``.
 
     Args:
@@ -81,6 +86,9 @@ def read_loadtest_config(env: Mapping[str, str]) -> LoadTestConfig:
         step_shape=env.get("RAG_LOADTEST_SHAPE") == "step",
         auth_headers=_auth_headers(env),
         question_count=_question_count(env),
+        questions_file=(
+            Path(env[QUESTIONS_FILE_VAR]) if env.get(QUESTIONS_FILE_VAR) else None
+        ),
     )
 
 
@@ -127,27 +135,95 @@ class RequestPool:
     top_n: int
 
 
-def build_request_pool(question_count: int, candidates: int, top_n: int) -> RequestPool:
-    """Build the pool: synthetic questions, and the first ``candidates`` passages.
+def build_request_pool(
+    question_count: int,
+    candidates: int,
+    top_n: int,
+    *,
+    questions_file: Path | None = None,
+) -> RequestPool:
+    """Build the pool: the questions, and the first ``candidates`` passages.
+
+    The questions are every one of ``questions_file`` when it is given, else
+    ``question_count`` synthetic ones. The rerank and embeddings targets draw
+    their queries from the same questions; the rerank candidates stay synthetic
+    passages whatever the questions, so a file changes what is asked, not what
+    is ranked.
 
     Args:
-        question_count: Distinct synthetic questions to draw from.
+        question_count: Distinct synthetic questions to draw from; ignored with
+            a ``questions_file``.
         candidates: Synthetic passages each rerank request carries, as the
             workflow retrieves (``RAG_TOP_K_RETRIEVE``).
         top_n: The ``top_n`` each rerank request asks for (``RAG_TOP_K_RERANK``).
+        questions_file: A file read by ``load_questions``; ``None`` for the
+            synthetic questions.
 
     Returns:
         The pool, its questions and passages as tuples.
 
     Example:
-        >>> build_request_pool(50, settings.top_k_retrieve, settings.top_k_rerank)
+        >>> build_request_pool(50, settings.top_k_retrieve, settings.top_k_rerank,
+        ...                    questions_file=Path("data/quebec/questions.jsonl"))
     """
     passages = [p.text for d in synthetic_corpus(candidates) for p in chunk(d)]
+    questions = (
+        load_questions(questions_file)
+        if questions_file
+        else tuple(synthetic_questions(question_count))
+    )
     return RequestPool(
-        questions=tuple(synthetic_questions(question_count)),
+        questions=questions,
         rerank_documents=tuple(passages[:candidates]),
         top_n=top_n,
     )
+
+
+def load_questions(path: Path) -> tuple[str, ...]:
+    """Read a questions file: JSON lines with a ``question`` key, or plain text.
+
+    A file whose first non-blank line starts with ``{`` is JSON lines (what
+    ``rag-fetch-corpus`` writes); any other is one question per line. Blank lines
+    are skipped and surrounding spaces stripped.
+
+    Args:
+        path: The file, from ``RAG_LOADTEST_QUESTIONS_FILE``.
+
+    Returns:
+        The questions, in file order.
+
+    Raises:
+        ValueError: If the file cannot be read or holds no question, or a JSON
+            line is not an object with a non-empty string ``question``; the
+            message names the file, and the line.
+
+    Example:
+        >>> load_questions(Path("data/quebec/questions.jsonl"))[0]
+        'Qui paie ...?'
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"{QUESTIONS_FILE_VAR}={str(path)!r}: {exc}") from exc
+    lines = [(n, line.strip()) for n, line in enumerate(text.splitlines(), 1)]
+    lines = [(n, line) for n, line in lines if line]
+    if not lines:
+        raise ValueError(f"{QUESTIONS_FILE_VAR}={str(path)!r}: no question in it")
+    if not lines[0][1].startswith("{"):
+        return tuple(line for _, line in lines)
+    return tuple(_json_question(path, n, line) for n, line in lines)
+
+
+def _json_question(path: Path, lineno: int, line: str) -> str:
+    # The non-empty string ``question`` of one JSON line, or an error naming it.
+    try:
+        question = json.loads(line).get("question")
+    except (ValueError, AttributeError):  # not JSON, or not an object
+        question = None
+    if not isinstance(question, str) or not question.strip():
+        detail = 'expected a JSON object with a non-empty "question"'
+        raise ValueError(f"{path}: line {lineno}: {detail}, got {line[:80]!r}")
+    return question.strip()
 
 
 @dataclass(frozen=True)

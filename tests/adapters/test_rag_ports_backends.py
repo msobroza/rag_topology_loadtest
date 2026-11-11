@@ -15,12 +15,19 @@ import pytest
 from rag_load_test.adapters.chat_model.openai_chat import OpenAIChatModel
 from rag_load_test.adapters.hosted_models.openai_embedder import OpenAIEmbedder
 from rag_load_test.adapters.hosted_models.rerank_api import RerankApiReranker
-from rag_load_test.adapters.local_models.local_model import local_model
+from rag_load_test.adapters.local_models.local_model import (
+    exported_model_dir,
+    local_model,
+)
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.chroma_store import ChromaVectorStore
 from rag_load_test.config.settings import RagSettings
+from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage, ScoredPassage
-from sentence_transformers_fakes import FakeSentenceTransformersModule
+from sentence_transformers_fakes import (
+    FakeSentenceTransformersModule,
+    fake_openvino_modules,
+)
 
 SettingsFactory = Callable[..., RagSettings]
 
@@ -135,11 +142,16 @@ async def test_the_openai_reranker_backend_posts_to_the_gateways_rerank_route(
 
 # --- in-process runtime ---------------------------------------------------------------
 
+# What the export loads a model with: convert it to OpenVINO, in memory.
+EXPORT_ARGUMENTS = {"backend": "openvino", "model_kwargs": {"export": True}}
+
 
 @pytest.fixture
 def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersModule:
     module = FakeSentenceTransformersModule()
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+    for name, fake in fake_openvino_modules().items():
+        monkeypatch.setitem(sys.modules, name, fake)
     return module
 
 
@@ -152,6 +164,19 @@ def local_settings(
     )
 
 
+def folders(settings: RagSettings, models_dir: Path) -> tuple[Path, Path]:
+    """Where the embedder and the reranker are exported under ``models_dir``."""
+    return (
+        exported_model_dir(str(models_dir), settings.embedder_model),
+        exported_model_dir(str(models_dir), settings.reranker_model),
+    )
+
+
+def provisioned_lines(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
+    lines = [json.loads(r.message) for r in caplog.records]
+    return [line for line in lines if line["event"] == "local_model_provisioned"]
+
+
 @pytest.mark.parametrize("runtime", ["openvino", "torch"])
 async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
     settings_factory: SettingsFactory,
@@ -160,10 +185,10 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
     runtime: str,
 ) -> None:
     settings = local_settings(
-        settings_factory,
-        local_model_runtime=runtime,
-        openvino_models_dir=str(tmp_path / "nothing-exported"),
+        settings_factory, local_model_runtime=runtime, openvino_models_dir=str(tmp_path)
     )
+    for folder in folders(settings, tmp_path):
+        folder.mkdir()  # exported already: nothing to provision
 
     async with RagPorts(settings) as ports:
         await ports.local_embedder()
@@ -172,46 +197,128 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
     # 4 CPUs over 4 workers: one thread per call, for both models.
     described = local_model(settings.embedder_model, runtime=runtime, models_dir="")
     assert fake_weights.load_arguments == [described.load_arguments(1)] * 2
+    assert fake_weights.saved == []
+
+
+async def test_a_first_openvino_start_exports_each_model_then_loads_its_folder(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
+    embedder_dir, reranker_dir = folders(settings, tmp_path)
+
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        async with RagPorts(settings) as ports:
+            embedder = await ports.local_embedder()
+            await ports.local_reranker()
+            assert await embedder.ready() == (True, settings.embedder_model)
+
+    assert fake_weights.loaded == [
+        f"embedder:{settings.embedder_model}",  # the export: download, convert
+        f"embedder:{embedder_dir}",  # then the folder it wrote
+        f"reranker:{settings.reranker_model}",
+        f"reranker:{reranker_dir}",
+    ]
+    assert fake_weights.load_arguments[0] == EXPORT_ARGUMENTS
+    assert len(fake_weights.saved) == 2  # one export per model
+    assert (embedder_dir / "openvino_model.xml").read_text() == settings.embedder_model
+    assert (reranker_dir / "openvino_model.xml").read_text() == settings.reranker_model
+    # Off the event loop: on the model pool.
+    assert all(name.startswith("rag-model") for name in fake_weights.save_threads)
+    lines = provisioned_lines(caplog)
+    assert [(line["model"], line["folder"]) for line in lines] == [
+        (settings.embedder_model, str(embedder_dir)),
+        (settings.reranker_model, str(reranker_dir)),
+    ]
+    assert all(isinstance(line["seconds"], float) for line in lines)
+
+
+async def test_a_later_openvino_start_loads_the_folder_without_exporting(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    tmp_path: Path,
+) -> None:
+    settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
+    embedder_dir, _ = folders(settings, tmp_path)
+
+    for _start in range(2):
+        async with RagPorts(settings) as ports:
+            await ports.local_embedder()
+
+    assert fake_weights.loaded == [
+        f"embedder:{settings.embedder_model}",
+        f"embedder:{embedder_dir}",
+        f"embedder:{embedder_dir}",  # the second start: the folder, no export
+    ]
+    assert len(fake_weights.saved) == 1
+
+
+async def test_the_torch_runtime_never_exports_and_ignores_an_exported_folder(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    tmp_path: Path,
+) -> None:
+    settings = local_settings(
+        settings_factory, local_model_runtime="torch", openvino_models_dir=str(tmp_path)
+    )
+    embedder_dir, _ = folders(settings, tmp_path)
+    embedder_dir.mkdir()
+
+    async with RagPorts(settings) as ports:
+        await ports.local_embedder()
+        await ports.local_reranker()
+
     assert fake_weights.loaded == [
         f"embedder:{settings.embedder_model}",
         f"reranker:{settings.reranker_model}",
     ]
+    assert fake_weights.saved == []
+    assert list(tmp_path.iterdir()) == [embedder_dir]
 
 
-async def test_the_openvino_runtime_loads_a_model_from_its_exported_folder(
+async def test_a_failed_export_names_the_model_and_folder_and_leaves_no_folder(
     settings_factory: SettingsFactory,
     fake_weights: FakeSentenceTransformersModule,
     tmp_path: Path,
 ) -> None:
-    exported = tmp_path / "snowflake-arctic-embed-l-v2.0"
-    exported.mkdir()
+    fake_weights.save_error = OSError("No space left on device")
+    models = tmp_path / "models"
+    settings = local_settings(settings_factory, openvino_models_dir=str(models))
+    _, reranker_dir = folders(settings, models)
+
+    async with RagPorts(settings) as ports:
+        with pytest.raises(RagDependencyError) as raised:
+            await ports.local_reranker()
+
+    message = str(raised.value)
+    assert message.startswith("local_reranker unavailable")
+    assert f"{settings.reranker_model!r}" in message
+    assert str(reranker_dir) in message
+    assert "No space left on device" in message
+    assert list(models.iterdir()) == []  # neither the folder nor its partial copy
+    assert fake_weights.loaded == [f"reranker:{settings.reranker_model}"]  # no load
+
+
+async def test_an_export_without_the_openvino_packages_fails_before_any_download(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "openvino", None)  # not installed
     settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
+    embedder_dir, _ = folders(settings, tmp_path)
 
     async with RagPorts(settings) as ports:
-        embedder = await ports.local_embedder()
-        await ports.local_reranker()
+        with pytest.raises(RagDependencyError) as raised:
+            await ports.local_embedder()
 
-        assert await embedder.ready() == (True, settings.embedder_model)
-    assert fake_weights.loaded == [
-        f"embedder:{exported}",  # exported: loaded from the folder
-        f"reranker:{settings.reranker_model}",  # not exported: the id
-    ]
-
-
-async def test_the_torch_runtime_ignores_an_exported_folder(
-    settings_factory: SettingsFactory,
-    fake_weights: FakeSentenceTransformersModule,
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "snowflake-arctic-embed-l-v2.0").mkdir()
-    settings = local_settings(
-        settings_factory, local_model_runtime="torch", openvino_models_dir=str(tmp_path)
-    )
-
-    async with RagPorts(settings) as ports:
-        await ports.local_embedder()
-
-    assert fake_weights.loaded == [f"embedder:{settings.embedder_model}"]
+    assert str(embedder_dir) in str(raised.value)
+    assert "sentence-transformers[openvino]" in str(raised.value)
+    assert fake_weights.loaded == []
+    assert list(tmp_path.iterdir()) == []
 
 
 # --- chat temperature ------------------------------------------------------------------

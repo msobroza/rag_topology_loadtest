@@ -1,5 +1,8 @@
 """domino/app.sh drives real binaries; here fakes (``ovms``, ``nginx``, ``rag-*``,
-``uv``, ``sudo``, ``apt-get``) record their argv instead, so nothing is installed."""
+``uv``, ``sudo``, ``apt-get``) record their argv instead, so nothing is installed.
+Every OVMS role here finds its config; a missing one makes app.sh run the real
+ovms/export_models.sh, so that case lives in test_domino_app_sh_provisioning.py,
+against a copy of app.sh beside a fake exporter."""
 
 from __future__ import annotations
 
@@ -165,16 +168,6 @@ def test_prefix_proxy_without_a_prefix_only_forwards_root(
     conf = (tmp_path / "nginx.conf").read_text()
     assert conf.count("location ") == 1
     assert "location / {" in conf
-
-
-def test_missing_ovms_config_fails_with_a_clear_message(
-    tmp_path: Path, bin_dir: Path
-) -> None:
-    result = run_app(
-        tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(tmp_path)
-    )
-    assert result.returncode == 1
-    assert "OVMS config not found" in result.stderr
 
 
 def test_monolith_role_is_the_default_and_serves_the_monolith(

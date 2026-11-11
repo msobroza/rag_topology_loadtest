@@ -17,6 +17,10 @@ settings_customise_sources
 # httpx: a BaseTransport subclass answers through handle_request (fake_domino).
 handle_request
 
+# elasticsearch-py: async_bulk calls client.bulk by name (FakeAsyncElasticsearch
+# in tests/adapters/test_elasticsearch_store.py).
+bulk
+
 # LangGraph: a RagState key, written and read by the nodes as a string key.
 query_embedding
 

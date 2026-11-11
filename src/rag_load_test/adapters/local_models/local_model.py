@@ -1,8 +1,10 @@
 """An in-process model: which files it loads from and what runs it.
 
-``openvino`` loads the folder ``rag-export-openvino`` wrote for the model when
-there is one, else the Hugging Face id (sentence-transformers then converts the
-model in memory, every time it loads). ``torch`` always loads the id.
+``openvino`` loads the model's exported folder when there is one, else the
+Hugging Face id (which sentence-transformers would convert in memory on every
+load). ``RagPorts`` never lets it come to that: it exports a missing folder first
+(``model_provisioning.py``). ``torch`` always loads the id. Describing a model
+reads nothing but whether the folder exists.
 
 Example:
     >>> model = local_model("org/name", runtime="openvino", models_dir="models/ov")

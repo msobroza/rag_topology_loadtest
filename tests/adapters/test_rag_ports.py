@@ -41,6 +41,10 @@ TOKEN_URL = "http://token.test/access-token"
 def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersModule:
     module = FakeSentenceTransformersModule()
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+    # Under the default openvino runtime a first start exports each model into
+    # RAG_OPENVINO_MODELS_DIR; these tests are about the ports, so the models load
+    # by id. The runtimes and the export: test_rag_ports_backends.py.
+    monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
     return module
 
 

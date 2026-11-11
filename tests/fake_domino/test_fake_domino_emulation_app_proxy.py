@@ -6,7 +6,8 @@ from collections.abc import Mapping
 
 import httpx
 import pytest
-from fake_domino_support import (
+from fastapi.testclient import TestClient
+from test_fake_domino_emulation_support import (
     API_KEY_AUTH,
     INSTANCE_PATH,
     RUN_TOKEN_AUTH,
@@ -14,10 +15,14 @@ from fake_domino_support import (
     create,
     http_to,
 )
-from fastapi.testclient import TestClient
 
-from fake_domino.identity import FAKE_RUN_TOKEN
-from fake_domino.proxy_settings import FakeDominoProxySettings, UnauthenticatedResponse
+from fake_domino.emulation.identity import FAKE_RUN_TOKEN
+from fake_domino.emulation.proxy_settings import (
+    FakeDominoProxySettings,
+    UnauthenticatedResponse,
+)
+from fake_domino.emulation.server import create_domino_emulation
+from fake_domino.server import FAKE_DOMINO_URL
 from fake_domino.state import FakeDominoApps
 
 UPSTREAM = "http://127.0.0.1:9001"
@@ -190,3 +195,60 @@ def test_an_unknown_app_or_instance_is_404(app_url: str, detail: str) -> None:
         f"{app_url}/v3/models", headers=RUN_TOKEN_AUTH
     )
     assert (response.status_code, response.json()) == (404, {"detail": detail})
+
+
+class CloseCountingTransport(httpx.MockTransport):
+    """A MockTransport that counts how often the client closing it closed it."""
+
+    def __init__(self, upstream: FakeUpstream) -> None:
+        super().__init__(upstream.answer)
+        self.closes = 0
+
+    async def aclose(self) -> None:
+        self.closes += 1
+
+
+def test_one_pooled_client_forwards_every_request_and_closes_on_shutdown() -> None:
+    upstream = FakeUpstream()
+    transport = CloseCountingTransport(upstream)
+    proxy = FakeDominoProxySettings(upstreams={"rag-reranker": UPSTREAM})
+    fake = create_domino_emulation(
+        FakeDominoApps(), proxy=proxy, upstream_transport=transport
+    )
+    with TestClient(fake, base_url=FAKE_DOMINO_URL) as http:
+        create(http, "rag-reranker")
+        for _ in range(3):
+            http.get("/apps/app-1/v3/models", headers=RUN_TOKEN_AUTH)
+        assert (len(upstream.seen), transport.closes) == (3, 0)
+    assert transport.closes == 1
+
+
+def test_readyz_stand_in_answers_on_the_apps_url_when_no_upstream_runs() -> None:
+    http = http_to(FakeDominoApps())
+    script = "export RAG_TOPOLOGY=split-all\nexec bash domino/app.sh"
+    create(http, "rag-workflow", version={"entryScript": script})
+    response = http.get("/apps/app-1/readyz", headers=RUN_TOKEN_AUTH)
+    assert response.status_code == 200
+    assert response.headers["X-RAG-Topology"] == "split-all"
+
+
+def test_readyz_is_gated_behind_the_proxy() -> None:
+    http = http_to(FakeDominoApps())
+    create(http, "rag-workflow")
+    assert http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz").status_code == 401
+
+
+def test_the_app_proxy_takes_every_method_on_both_url_shapes() -> None:
+    document = http_to(FakeDominoApps()).get("/openapi.json").json()
+    methods = {"get", "post", "put", "patch", "delete", "head", "options"}
+    for path in (
+        "/apps/{app_id}/{path}",
+        "/{owner}/{project}/r/notebookSession/{instance_id}/{path}",
+    ):
+        operations = document["paths"][path]
+        assert set(operations) == methods
+        assert all(
+            op["tags"] == ["App proxy (stand-in for Domino's)"]
+            for op in operations.values()
+        )
+    assert "/auth/realms/DominoRealm/protocol/openid-connect/certs" in document["paths"]

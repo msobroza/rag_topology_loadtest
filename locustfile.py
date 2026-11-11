@@ -7,8 +7,10 @@ does the I/O.
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
 model server directly. Rerank requests carry ``RAG_TOP_K_RETRIEVE`` documents and
 ``RAG_TOP_K_RERANK`` as ``top_n``, like the workflow; ``RAG_LOADTEST_QUESTIONS``
-sets how many distinct questions the users ask. ``RAG_LOADTEST_SHAPE=step``
-enables the 5 -> 10 -> 20 -> 40 user ramp.
+sets how many distinct synthetic questions the users ask, unless
+``RAG_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask instead (what
+``rag-fetch-corpus`` writes, or plain text). ``RAG_LOADTEST_SHAPE=step`` enables
+the 5 -> 10 -> 20 -> 40 user ramp.
 """
 
 from __future__ import annotations
@@ -37,7 +39,10 @@ from rag_load_test.loadtest.request_plans import (
 CONFIG = read_loadtest_config(os.environ)
 SETTINGS = RagSettings()
 POOL = build_request_pool(
-    CONFIG.question_count, SETTINGS.top_k_retrieve, SETTINGS.top_k_rerank
+    CONFIG.question_count,
+    SETTINGS.top_k_retrieve,
+    SETTINGS.top_k_rerank,
+    questions_file=CONFIG.questions_file,
 )
 RNG = random.Random()
 # Responses per (topology, run label) for the target record; one process, one run.

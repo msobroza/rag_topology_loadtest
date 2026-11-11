@@ -25,8 +25,10 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 
-FAKE_USERNAME = "fake-owner"  # the fake's one user, who owns every App
-FAKE_RUN_TOKEN = "fake-run-token"
+from ..stand_ins import FAKE_RUN_TOKEN
+from ..state import FAKE_OWNER
+
+FAKE_USERNAME = FAKE_OWNER  # the fake's one user, who owns every App
 FAKE_API_KEY = "fake-api-key"
 API_KEY_HEADER = "X-Domino-Api-Key"
 IDENTITY_AUDIENCE = "apps"

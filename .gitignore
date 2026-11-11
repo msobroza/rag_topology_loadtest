@@ -48,3 +48,6 @@ deploy.yaml
 # and the embedded Chroma store (RAG_CHROMA_PATH).
 /models/
 /chroma/
+
+# A fetched corpus (rag-fetch-corpus): never committed.
+/data/

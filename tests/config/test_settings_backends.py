@@ -135,6 +135,7 @@ def test_settings_field_set_is_pinned() -> None:
         "embedder_threads",
         "es_api_key",
         "es_index",
+        "es_text_analyzer",
         "es_url",
         "fake_store_seed_documents",
         "http_backoff_s",

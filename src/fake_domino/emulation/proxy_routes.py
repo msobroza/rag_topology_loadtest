@@ -18,10 +18,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
+from ..apps_routes import FakeState
+from ..instances import FakeApp
+from ..state import FakeDominoApps
 from .app_proxy import AppTarget, FakeAppProxy
-from .apps_routes import FakeState
 from .identity import JWKS_PATH
-from .state import FakeDominoApps
+from .placement import AppPlacer
 
 APP_PATH = "/apps/{app_id}"
 LEGACY_INSTANCE_PATH = "/{owner}/{project}/r/notebookSession/{instance_id}"
@@ -42,6 +44,12 @@ class _Gated:
     caller: str
     apps: FakeDominoApps
     proxy: FakeAppProxy
+
+
+def _placed_upstream(apps: FakeDominoApps, app: FakeApp) -> str | None:
+    # Only a placing scheduler knows a machine; a scripted one leaves --upstream.
+    scheduler = apps.scheduler
+    return scheduler.upstream(app.id) if isinstance(scheduler, AppPlacer) else None
 
 
 def _gated(request: Request, apps: FakeState) -> _Gated:
@@ -71,7 +79,8 @@ async def app_by_id(request: Request, gated: Gated, app_id: str, path: str) -> R
     app = gated.apps.apps.get(app_id)
     if app is None:
         raise HTTPException(HTTPStatus.NOT_FOUND, f"no App {app_id}")
-    target = AppTarget(app, app.versions[-1], f"/apps/{app_id}", path)
+    prefix, upstream = f"/apps/{app_id}", _placed_upstream(gated.apps, app)
+    target = AppTarget(app, app.versions[-1], prefix, path, upstream)
     return await gated.proxy.answer(request, gated.caller, target)
 
 
@@ -103,7 +112,7 @@ async def app_by_instance(
     if owned is None:
         raise HTTPException(HTTPStatus.NOT_FOUND, f"no App instance {instance_id}")
     prefix = f"/{owner}/{project}/r/notebookSession/{instance_id}"
-    target = AppTarget(*owned, prefix, path)
+    target = AppTarget(*owned, prefix, path, _placed_upstream(gated.apps, owned[0]))
     return await gated.proxy.answer(request, gated.caller, target)
 
 

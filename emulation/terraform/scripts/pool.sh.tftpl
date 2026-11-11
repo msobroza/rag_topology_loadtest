@@ -1,0 +1,53 @@
+# --- A pool machine of a hardware tier: where the fake Domino runs one App ---
+# Rendered by Terraform (machines.tf) after scripts/common.sh. In this template
+# Terraform substitutes dollar-brace expressions, so the bash below never uses
+# braces after a dollar sign.
+
+REPO_URL='${repo_url}'
+GIT_REF='${git_ref}'
+REPO_PATH='${repo_path}'
+UV_VERSION='${uv_version}'
+OVMS_BUNDLE='${ovms_bundle_path}'
+WORKSPACE_ADDRESS='${workspace_address}'
+DOMINO_PORT='${domino_port}'
+
+# fetch_ovms_bundle: the OVMS binary tarball the cloned ref pins (ovms/versions.env),
+# fetched again only when that pin changes. deploy.yaml's ovms_bundle names it.
+fetch_ovms_bundle() {
+  local url
+  url=$(sed -n 's/^OVMS_BINARY_URL=//p' "$REPO_PATH/ovms/versions.env")
+  [ -n "$url" ] || die "no OVMS_BINARY_URL in $REPO_PATH/ovms/versions.env"
+  if [ -s "$OVMS_BUNDLE" ] && [ "$(cat "$OVMS_BUNDLE.url" 2>/dev/null)" = "$url" ]; then return 0; fi
+  install -d -m 755 "$(dirname "$OVMS_BUNDLE")"
+  download "$url" "$OVMS_BUNDLE"
+  chmod 644 "$OVMS_BUNDLE"
+  printf '%s\n' "$url" >"$OVMS_BUNDLE.url"
+}
+
+ensure_ubuntu_user
+# libxml2 is what app.sh's OVMS bootstrap would apt-get; installed here, it is ready.
+apt_install git curl socat python3 ca-certificates libxml2
+install_uv "$UV_VERSION"
+sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
+fetch_ovms_bundle
+
+# Domino's sidecar on localhost:8899 (run token, Domino API) is the fake Domino on
+# the Workspace machine: Apps reach it at the same address as on Domino.
+install_service rag-domino-sidecar <<UNIT
+[Unit]
+Description=Forward localhost:$DOMINO_PORT to the fake Domino, as Domino's sidecar
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+DynamicUser=yes
+ExecStart=/usr/bin/socat TCP-LISTEN:$DOMINO_PORT,bind=127.0.0.1,fork,reuseaddr TCP:$WORKSPACE_ADDRESS:$DOMINO_PORT,connect-timeout=10
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+guest_attribute startup "done"
+log "pool machine ready"

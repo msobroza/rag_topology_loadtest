@@ -1,0 +1,6 @@
+# Terraform working files: never committed (the plan and state hold the SSH key).
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+terraform.tfvars

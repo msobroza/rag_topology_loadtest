@@ -27,14 +27,15 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6",  # config/prompts.yaml, read by pydantic-settings
-    # The fake Domino signs the identity token Domino passes to an App (RS256).
-    "pyjwt>=2.8",
-    "cryptography>=42",
     "joblib>=1.3",  # cpu_count() honours the container's CPU quota
     "threadpoolctl>=3.1",  # per-model caps on OpenMP/BLAS threads
 ]
 
 [project.optional-dependencies]
+# TEMPORARY, with the emulation (see emulation/README.md, "Removing the
+# emulation"): what rag-domino-emulation needs beyond the project itself. Its
+# proxy signs the identity token Domino passes to an App (RS256).
+emulation = ["pyjwt>=2.8", "cryptography>=42"]
 # RAG_VECTOR_STORE_BACKEND=chroma (embedded on disk, or a Chroma server).
 chroma = ["chromadb>=1.0"]
 # Driving the load test (locust monkey-patches gevent at import; keep it optional).
@@ -44,6 +45,10 @@ domino = ["dominodatalab[agents]>=2.2.0"]
 dev = [
     "locust>=2.29",
     "chromadb>=1.0",  # the Chroma store's tests run a real embedded Chroma
+    # TEMPORARY, with the emulation: its tests sign tokens and parse Terraform.
+    "pyjwt>=2.8",
+    "cryptography>=42",
+    "python-hcl2>=4.3",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     # Gate tools are pinned exactly: a new release may add a rule or move a score,
@@ -65,8 +70,11 @@ rag-compare = "rag_load_test.loadtest.run_comparison:compare_main"
 rag-model-server = "rag_load_test.entrypoints.model_server:main"
 rag-served-models = "rag_load_test.entrypoints.served_models:main"
 rag-export-openvino = "rag_load_test.entrypoints.export_openvino:main"
+rag-fetch-corpus = "rag_load_test.entrypoints.fetch_corpus:main"
 rag-deploy = "rag_load_test.deploy.cli:main"
 rag-fake-domino = "fake_domino.server:main"
+# TEMPORARY, with the emulation.
+rag-domino-emulation = "fake_domino.emulation.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -188,7 +196,6 @@ package_module_name_map = { dominodatalab = "domino" }
 
 [tool.deptry.per_rule_ignores]
 DEP002 = [
-    "elasticsearch",  # its [async] extra brings aiohttp, the node AsyncElasticsearchStore uses
     "pyyaml",  # pydantic-settings' YAML source reads config/prompts.yaml with it
     "dominodatalab",  # imported by module name (domino.*) through importlib, see find_add_tracing
 ]

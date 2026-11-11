@@ -1,0 +1,135 @@
+# --- The Workspace machine: the fake Domino on :${domino_port}, the Workspace for ubuntu ---
+# Rendered by Terraform (machines.tf) after scripts/common.sh. In this template
+# Terraform substitutes dollar-brace expressions, so the bash below never uses
+# braces after a dollar sign. As in a Domino Workspace, DOMINO_API_PROXY and the run
+# token are on localhost:${domino_port}: here the fake Domino serves both.
+
+REPO_URL='${repo_url}'
+GIT_REF='${git_ref}'
+REPO_PATH='${repo_path}'
+UV_VERSION='${uv_version}'
+PROJECT_ID='${project_id}'
+SSH_KEY_SECRET='${ssh_key_secret}'
+SSH_KEY_PATH='${ssh_key_path}'
+PROJECT_ENV_SECRET='${project_env_secret}'
+CONFIG_DIR='${config_dir}'
+DOMINO_PORT='${domino_port}'
+POOL_ADDRESSES='${pool_addresses}'
+
+# The project's virtualenv in the clone, with the loadtest and emulation extras: rag-deploy,
+# rag-ingest, rag-fetch-corpus, locust and rag-domino-emulation.
+install_project() {
+  if [ ! -x "$REPO_PATH/.venv/bin/python" ]; then
+    retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv --python "$(cat .python-version)" .venv' _ "$REPO_PATH"
+  fi
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python -e ".[loadtest,emulation]"' _ "$REPO_PATH"
+}
+
+# The key the fake Domino logs in to the pool machines with, from Secret Manager.
+# Pool machines are re-created with new host keys at reused addresses, inside a
+# network with no public address: their host keys are not pinned.
+install_ssh_key() {
+  install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+  write_secret "$PROJECT_ID" "$SSH_KEY_SECRET" "$SSH_KEY_PATH"
+  as_ubuntu tee /home/ubuntu/.ssh/config >/dev/null <<SSHCONFIG
+# Written by the emulation's startup script at every boot: the pool machines.
+Host $POOL_ADDRESSES
+  User ubuntu
+  IdentityFile $SSH_KEY_PATH
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  LogLevel ERROR
+SSHCONFIG
+  chmod 600 /home/ubuntu/.ssh/config
+}
+
+# placement.json (the pools, from Terraform) and project.env (the Project
+# environment variables, from Secret Manager, or empty): what rag-domino-emulation reads.
+write_fake_domino_config() {
+  install -d -m 755 "$CONFIG_DIR"
+  cat >"$CONFIG_DIR/placement.json.part" <<'PLACEMENT'
+${placement_json}
+PLACEMENT
+  chmod 644 "$CONFIG_DIR/placement.json.part"
+  mv "$CONFIG_DIR/placement.json.part" "$CONFIG_DIR/placement.json"
+  if [ -n "$PROJECT_ENV_SECRET" ]; then
+    write_secret "$PROJECT_ID" "$PROJECT_ENV_SECRET" "$CONFIG_DIR/project.env"
+  else
+    install -m 600 -o ubuntu -g ubuntu /dev/null "$CONFIG_DIR/project.env"
+  fi
+}
+
+# deploy.yaml for this emulation, once: later edits (topology, per-App blocks) stay.
+# Topology and model server keep rag-deploy's defaults; RAG_DEPLOY_TOPOLOGY and
+# RAG_DEPLOY_MODEL_SERVER override them.
+write_deploy_yaml() {
+  [ ! -e "$REPO_PATH/deploy.yaml" ] || return 0
+  as_ubuntu tee "$REPO_PATH/deploy.yaml" >/dev/null <<'DEPLOY'
+# Written by the emulation's startup script (emulation/terraform): rag-deploy talks
+# to the fake Domino on this machine. Keys are documented in deploy.example.yaml.
+# Apps run on pool machines, so they are handed URLs on this machine's address.
+domino_host: "http://${workspace_address}:${domino_port}"
+run_token_url: "http://localhost:${domino_port}/access-token"
+# On every pool machine (for model_server: ovms).
+ovms_bundle: "${ovms_bundle_path}"
+defaults:
+  environment_id: "${environment_id}"
+  hardware_tier_id: "${default_tier}"
+  settings:
+    RAG_ES_URL: "${es_url}"
+DEPLOY
+}
+
+# The Workspace's shell for ubuntu: Domino's variables, and the Project environment
+# variables exported line by line (never evaluated as shell).
+write_shell_environment() {
+  as_ubuntu tee /home/ubuntu/.rag-emulation.sh >/dev/null <<'SHELLENV'
+# Written by the emulation's startup script at every boot; sourced by ~/.bashrc.
+export DOMINO_API_PROXY='http://localhost:${domino_port}'
+export DOMINO_PROJECT_ID='${domino_project_id}'
+export RAG_ES_URL='${es_url}'
+export PATH="${repo_path}/.venv/bin:$PATH"
+while IFS= read -r line || [ -n "$line" ]; do
+  case $line in '' | '#'*) continue ;; esac
+  export "$line"
+done <'${config_dir}/project.env'
+if [ "$PWD" = "$HOME" ]; then cd '${repo_path}'; fi
+SHELLENV
+  grep -qF '.rag-emulation.sh' /home/ubuntu/.bashrc 2>/dev/null \
+    || as_ubuntu bash -c 'printf "%s\n" ". \"\$HOME/.rag-emulation.sh\"" >>"$HOME/.bashrc"'
+}
+
+ensure_ubuntu_user
+apt_install git curl make python3 ca-certificates
+install_uv "$UV_VERSION"
+sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
+install_project
+install_ssh_key
+write_fake_domino_config
+write_deploy_yaml
+write_shell_environment
+
+install_service rag-domino-emulation <<UNIT
+[Unit]
+Description=The fake Domino (Apps API, run token, App proxy) of the emulation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=$REPO_PATH
+Environment=HOME=/home/ubuntu
+Environment=PATH=$REPO_PATH/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$REPO_PATH/.venv/bin/rag-domino-emulation --host 0.0.0.0 --port $DOMINO_PORT --placement $CONFIG_DIR/placement.json --project-env $CONFIG_DIR/project.env
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+wait_for_http "http://localhost:$DOMINO_PORT/access-token" 60
+
+guest_attribute startup "done"
+log "workspace ready"
