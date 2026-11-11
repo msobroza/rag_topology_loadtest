@@ -2,7 +2,7 @@
 
 What a new version's instance reports is scripted, one status per GET of the App
 (a behaviour), so a test or a dry run can watch ``rag-deploy`` wait. The routes
-in ``apps_routes.py`` and ``stand_ins.py`` read and change this state.
+in ``apps_routes.py`` and ``proxy_routes.py`` read and change this state.
 
 Example:
     >>> FakeDominoApps.from_behaviour("slow")  # Queued ... then Running
@@ -193,17 +193,17 @@ class FakeDominoApps:
             return []
         return [_instance(version, status)]
 
-    def version_of_instance(self, instance_id: str) -> _FakeVersion | None:
-        """Find the version whose instance is ``instance_id``.
+    def instance_owner(self, instance_id: str) -> tuple[_FakeApp, _FakeVersion] | None:
+        """Find the App and version whose instance is ``instance_id``.
 
         Args:
             instance_id: An instance id, e.g. ``"app-1-v1-i"``.
 
         Returns:
-            That version, or None if no App has it.
+            That App and version, or None if no App has it.
         """
-        versions = (v for app in self.apps.values() for v in app.versions)
-        return next((v for v in versions if _instance_id(v) == instance_id), None)
+        owners = ((a, v) for a in self.apps.values() for v in a.versions)
+        return next((o for o in owners if _instance_id(o[1]) == instance_id), None)
 
     def _status(self, version: _FakeVersion, offset: int = 0) -> str | None:
         return self.statuses[min(version.gets + offset, len(self.statuses) - 1)]

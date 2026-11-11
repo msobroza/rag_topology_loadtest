@@ -5,7 +5,7 @@ FastAPI model server (server side) both read it from here, so the two cannot
 drift apart.
 
 Example:
-    >>> request = RerankRequest(model="bge-reranker-base", query="q", documents=["a"])
+    >>> request = RerankRequest(model="reranker-alias", query="q", documents=["a"])
     >>> httpx.post(base_url + RERANK_PATH, json=request.to_wire())
 """
 
@@ -34,8 +34,8 @@ def model_probe_path(alias: str) -> str:
         The path under the server's base URL.
 
     Example:
-        >>> model_probe_path("bge-reranker-base")
-        '/v3/models/bge-reranker-base'
+        >>> model_probe_path("reranker-alias")
+        '/v3/models/reranker-alias'
     """
     return MODEL_PROBE_ROUTE.format(name=alias)
 
@@ -90,7 +90,7 @@ def rerank_request_for(
         The request, with the passages' texts as ``documents``, in order.
 
     Example:
-        >>> rerank_request_for("bge-reranker-base", "vacation", passages, top_n=5)
+        >>> rerank_request_for("reranker-alias", "vacation", passages, top_n=5)
     """
     documents = [passage.text for passage in passages]
     return RerankRequest(model=alias, query=query, documents=documents, top_n=top_n)
@@ -214,7 +214,7 @@ def embeddings_response_for(
         The answer, where row ``index`` i holds the vector of input text i.
 
     Example:
-        >>> embeddings_response_for("bge-small-en-v1.5", [[0.1, 0.2]])
+        >>> embeddings_response_for("embedder-alias", [[0.1, 0.2]])
     """
     rows = [
         EmbeddingRow(index=i, embedding=list(vector))

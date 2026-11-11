@@ -1,8 +1,10 @@
 """The topology rule: which embedder and reranker backends each topology implies.
 
-A topology is a closed set; it decides the embedder and reranker backends, and an
-explicit backend may only repeat that choice or pick an experiment variant
-(``fake`` anywhere, ``none`` for the reranker). The run label names the measured
+A topology is a closed set; it says where the in-process models run, so it
+decides the embedder and reranker backends. An explicit backend may only repeat
+that choice or pick a variant that runs no model of ours: a hosted API (``openai``
+for the embedder; ``cohere`` or ``openai`` for the reranker), ``fake``, or
+``none`` for the reranker. The run label names the measured
 configuration and defaults to the topology plus every backend that differs from
 its default. Pure functions only: settings call them at construction; the Domino
 rule that ``rag-serve --domino`` applies lives in ``config/domino_rules.py``.
@@ -21,17 +23,26 @@ import re
 from collections.abc import Sequence
 from typing import Literal, NamedTuple
 
+from .workflow_parameters import DEFAULT_RETRIEVAL_MODE
+
 Topology = Literal["monolith", "split-reranker", "split-all"]
-EmbedderBackend = Literal["local", "ovms", "fake"]
-RerankerBackend = Literal["local", "ovms", "fake", "none"]
-VectorStoreBackend = Literal["elasticsearch", "fake"]
+EmbedderBackend = Literal["local", "ovms", "openai", "fake"]
+RerankerBackend = Literal["local", "ovms", "cohere", "openai", "fake", "none"]
+VectorStoreBackend = Literal["elasticsearch", "chroma", "fake"]
 LlmBackend = Literal["openai", "fake"]
+# What runs an in-process model: OpenVINO on its exported files, or PyTorch.
+LocalModelRuntime = Literal["openvino", "torch"]
+
+# Backends any topology allows: they run no model of ours, so where our models
+# run does not constrain them.
+EMBEDDER_VARIANTS: tuple[EmbedderBackend, ...] = ("openai", "fake")
+RERANKER_VARIANTS: tuple[RerankerBackend, ...] = ("cohere", "openai", "fake", "none")
 
 DEFAULT_VECTOR_STORE_BACKEND: VectorStoreBackend = "elasticsearch"
 DEFAULT_LLM_BACKEND: LlmBackend = "openai"
 # Sent as the X-RAG-Run-Label header, so only header-safe characters.
-RUN_LABEL_PATTERN = re.compile(r"[A-Za-z0-9._+=:-]{1,64}")
-RUN_LABEL_SHAPE = "letters, digits and ._+=:- only, 1 to 64 characters"
+RUN_LABEL_PATTERN = re.compile(r"[A-Za-z0-9._+=:-]{1,128}")
+RUN_LABEL_SHAPE = "letters, digits and ._+=:- only, 1 to 128 characters"
 
 
 class TopologyBackends(NamedTuple):
@@ -56,7 +67,7 @@ def resolve_embedder_backend(
     Args:
         topology: The topology that implies the backend.
         explicit: The backend asked for, or None for the implied one; it may only
-            be the implied backend or ``fake``.
+            be the implied backend or one of ``EMBEDDER_VARIANTS``.
 
     Returns:
         ``explicit`` when set, else the backend the topology implies.
@@ -74,7 +85,7 @@ def resolve_embedder_backend(
     implied = TOPOLOGY_BACKENDS[topology].embedder
     if explicit is None:
         return implied
-    _refuse_contradiction(topology, "embedder", explicit, (implied, "fake"))
+    _refuse_contradiction(topology, "embedder", explicit, (implied, *EMBEDDER_VARIANTS))
     return explicit
 
 
@@ -86,7 +97,8 @@ def resolve_reranker_backend(
     Args:
         topology: The topology that implies the backend.
         explicit: The backend asked for, or None for the implied one; it may only
-            be the implied backend, ``fake`` or ``none`` (skip reranking).
+            be the implied backend or one of ``RERANKER_VARIANTS`` (``none``
+            skips reranking).
 
     Returns:
         ``explicit`` when set, else the backend the topology implies.
@@ -102,7 +114,8 @@ def resolve_reranker_backend(
     implied = TOPOLOGY_BACKENDS[topology].reranker
     if explicit is None:
         return implied
-    _refuse_contradiction(topology, "reranker", explicit, (implied, "fake", "none"))
+    allowed = (implied, *RERANKER_VARIANTS)
+    _refuse_contradiction(topology, "reranker", explicit, allowed)
     return explicit
 
 
@@ -147,11 +160,12 @@ def default_run_label(
     reranker: str,
     store: str,
     llm: str,
+    retrieval: str = DEFAULT_RETRIEVAL_MODE,
 ) -> str:
-    """Name a configuration after its topology and the backends off their default.
+    """Name a configuration after its topology and the choices off their default.
 
-    Ports are listed in a fixed order (embedder, reranker, store, llm) so the same
-    configuration always gets the same label.
+    Choices are listed in a fixed order (embedder, reranker, store, llm, retrieval)
+    so the same configuration always gets the same label.
 
     Args:
         topology: The topology; it sets the default embedder and reranker.
@@ -159,9 +173,11 @@ def default_run_label(
         reranker: The reranker backend in use.
         store: The vector store backend in use.
         llm: The LLM backend in use.
+        retrieval: The retrieval mode in use.
 
     Returns:
-        The topology plus ``+<port>=<backend>`` for each backend off its default.
+        The topology plus ``+<port>=<backend>`` for each backend off its default,
+        then ``+retrieval=<mode>`` for a retrieval mode that is not ``dense``.
 
     Example:
         >>> default_run_label("split-all", embedder="ovms", reranker="ovms",
@@ -174,6 +190,7 @@ def default_run_label(
         ("reranker", reranker, implied.reranker),
         ("store", store, DEFAULT_VECTOR_STORE_BACKEND),
         ("llm", llm, DEFAULT_LLM_BACKEND),
+        ("retrieval", retrieval, DEFAULT_RETRIEVAL_MODE),
     )
     variants = [
         f"+{port}={actual}" for port, actual, default in ports if actual != default
@@ -192,7 +209,7 @@ def validate_run_label(label: str) -> str:
 
     Raises:
         ValueError: If ``label`` is not header-safe (letters, digits and
-            ``._+=:-`` only, 1 to 64 characters).
+            ``._+=:-`` only, 1 to 128 characters).
 
     Example:
         >>> validate_run_label("split-reranker-fastapi")

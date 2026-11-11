@@ -43,3 +43,8 @@ deploy.env
 # rag-deploy: its settings and the App ids it has seen
 deploy.yaml
 .rag-deploy-cache.json
+
+# Written at run time by the defaults: the OpenVINO exports (RAG_OPENVINO_MODELS_DIR)
+# and the embedded Chroma store (RAG_CHROMA_PATH).
+/models/
+/chroma/

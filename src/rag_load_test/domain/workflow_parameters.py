@@ -1,4 +1,4 @@
-"""What one workflow needs besides its ports: retrieval sizes and prompts.
+"""What one workflow needs besides its ports: how it retrieves, and its prompts.
 
 ``RagSettings.workflow_parameters()`` builds it from the configuration.
 
@@ -9,18 +9,30 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from .prompts import RagPrompts
+
+# How the retrieve stage finds candidates: by vector, by words (BM25), or both
+# fused by reciprocal rank.
+RetrievalMode = Literal["dense", "lexical", "hybrid"]
+DEFAULT_RETRIEVAL_MODE: RetrievalMode = "dense"
 
 
 @dataclass(frozen=True)
 class WorkflowParameters:
-    """Retrieval sizes and prompts of one workflow.
+    """Retrieval mode, sizes and prompts of one workflow.
 
-    ``top_k_retrieve`` candidates come from the store, ``top_k_rerank`` are kept for
-    the LLM, and ``prompts`` frame them.
+    ``top_k_retrieve`` candidates come from the store by ``retrieval_mode``,
+    ``top_k_rerank`` are kept for the LLM, and ``prompts`` frame them.
+    ``query_prefix`` goes in front of the question before it is embedded (some
+    embedding models expect one on queries); ``rrf_k`` is the rank constant of
+    the fusion a ``hybrid`` retrieval ends with.
     """
 
     top_k_retrieve: int
     top_k_rerank: int
     prompts: RagPrompts
+    retrieval_mode: RetrievalMode
+    rrf_k: int
+    query_prefix: str

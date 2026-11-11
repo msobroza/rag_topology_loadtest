@@ -1,8 +1,10 @@
 """What the fake serves besides the Apps API: hardware tiers and two stand-ins.
 
 ``/api/hardwaretiers/v1/hardwaretiers/{id}`` (any id is a tier), ``/access-token``
-(the token service of a Domino run) and an App instance's ``/readyz``, so
-``rag-deploy status`` has something to read without Domino.
+(the token service of a Domino run, documented to answer the raw token as plain
+text) and the ``/readyz`` an App answers when no upstream runs behind the App
+proxy (``readyz_stand_in``), so ``rag-deploy status`` has something to read
+without Domino.
 
 Example:
     >>> fake.include_router(_tiers_router)  # as create_fake_domino does
@@ -12,15 +14,15 @@ from __future__ import annotations
 
 import shlex
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .api_shapes import HardwareTierEnvelopeV1
-from .apps_routes import FakeState
+from .identity import FAKE_RUN_TOKEN
+from .state import _FakeVersion
 
 HARDWARE_TIERS_PATH = "/api/hardwaretiers/v1/hardwaretiers"
 FAKE_TIER_CORES = 4.0  # every hardware tier the fake describes has this many cores
-FAKE_RUN_TOKEN = "fake-run-token"
 
 _tiers_router = APIRouter(
     prefix=HARDWARE_TIERS_PATH, tags=["Hardware tiers (Domino 6.2 API)"]
@@ -69,26 +71,21 @@ def access_token() -> str:
     return FAKE_RUN_TOKEN
 
 
-@_stand_ins_router.get("/{owner}/{project}/r/notebookSession/{instanceId}/readyz")
-def app_readyz(apps: FakeState, instanceId: str) -> JSONResponse:
-    """Answer as an App instance would, run headers from its entry script.
+def readyz_stand_in(version: _FakeVersion) -> JSONResponse:
+    """Answer ``/readyz`` as the App would, run headers from its entry script.
 
     The ``X-RAG-Topology`` and ``X-RAG-Run-Label`` headers carry the values the
-    instance's version exports as ``RAG_TOPOLOGY`` and ``RAG_RUN_LABEL``.
+    version exports as ``RAG_TOPOLOGY`` and ``RAG_RUN_LABEL``.
 
     Args:
-        apps: The fake's state.
-        instanceId: The instance that answers.
+        version: The App version whose instance answers.
 
     Returns:
         A ready status with one passing check, and the run headers.
 
-    Raises:
-        HTTPException: 404 if no version has that instance.
+    Example:
+        >>> readyz_stand_in(apps.apps["app-1"].versions[-1])
     """
-    version = apps.version_of_instance(instanceId)
-    if version is None:
-        raise HTTPException(404, f"no App instance {instanceId}")
     exported = _exported(version.request.entryScript or "")
     headers = {key: exported[name] for key, name in _RUN_HEADERS if name in exported}
     return JSONResponse({"status": "ready", "checks": [_FAKE_CHECK]}, headers=headers)

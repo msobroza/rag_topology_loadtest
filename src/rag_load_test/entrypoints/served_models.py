@@ -31,7 +31,7 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
 
     Example:
         >>> served_model_assignments(RagSettings())[0]
-        'RERANKER_SOURCE_MODEL=BAAI/bge-reranker-base'
+        'RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR'
     """
     values = {
         "RERANKER_SOURCE_MODEL": settings.reranker_model,
@@ -53,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         The exit status, 0, after printing the assignments one per line.
 
     Example:
-        >>> main([])  # prints RERANKER_SOURCE_MODEL=BAAI/bge-reranker-base, ...
+        >>> main([])  # prints RERANKER_SOURCE_MODEL=<source id>, then three more
         0
     """
     parser = argparse.ArgumentParser(

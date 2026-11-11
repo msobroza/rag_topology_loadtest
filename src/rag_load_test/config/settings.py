@@ -2,15 +2,16 @@
 
 ``RAG_TOPOLOGY`` decides the embedder and reranker backends (the rule lives in
 ``domain/topology.py``); ``RAG_EMBEDDER_BACKEND`` / ``RAG_RERANKER_BACKEND`` may only
-repeat that choice or pick ``fake`` (or ``none`` for the reranker). A
+repeat that choice or pick a variant that runs no model of ours: a hosted API,
+``fake`` (or ``none`` for the reranker). A
 contradiction or a bad ``RAG_RUN_LABEL`` fails construction, so at start-up.
 
 Example:
     >>> settings = RagSettings()  # from the env
     >>> settings = RagSettings(_env_file=None, reranker_backend="fake")  # in tests
 
-Every tunable (retrieval sizes, index, batch sizes, timeouts, ...) is a field here,
-so one ``RAG_*`` variable changes it; adapters receive the values from
+Every tunable (retrieval mode and sizes, index, batch sizes, timeouts, ...) is a
+field here, so one ``RAG_*`` variable changes it; adapters receive the values from
 ``adapters/rag_ports.py`` and never read this module. The prompts have no Python
 default: they come from ``prompts.yaml`` (or the file ``RAG_PROMPTS_FILE`` names),
 the lowest-priority source, so ``RAG_SYSTEM_PROMPT`` / ``RAG_USER_PROMPT`` and
@@ -21,7 +22,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import (
@@ -37,6 +38,7 @@ from ..domain.topology import (
     DEFAULT_VECTOR_STORE_BACKEND,
     EmbedderBackend,
     LlmBackend,
+    LocalModelRuntime,
     RerankerBackend,
     Topology,
     VectorStoreBackend,
@@ -45,9 +47,21 @@ from ..domain.topology import (
     resolve_reranker_backend,
     validate_run_label,
 )
-from ..domain.workflow_parameters import WorkflowParameters
+from ..domain.workflow_parameters import (
+    DEFAULT_RETRIEVAL_MODE,
+    RetrievalMode,
+    WorkflowParameters,
+)
 
 PACKAGED_PROMPTS = Path(__file__).with_name("prompts.yaml")
+
+
+class RerankApi(NamedTuple):
+    """A hosted rerank endpoint: where it is, the model it is asked for, its key."""
+
+    url: str
+    model: str
+    api_key: str  # "" sends no Authorization header
 
 
 class RagSettings(BaseSettings):
@@ -76,36 +90,73 @@ class RagSettings(BaseSettings):
     embedder_backend: EmbedderBackend = Field(
         default=cast(EmbedderBackend, None), validate_default=False
     )
-    embedder_model: str = "BAAI/bge-small-en-v1.5"
+    embedder_model: str = "Snowflake/snowflake-arctic-embed-l-v2.0"
+    # Put in front of a question before embedder_model embeds it (arctic-embed
+    # expects it on queries, never on passages). A hosted or fake embedder has its
+    # own conventions and gets none: see workflow_parameters.
+    embedder_query_prefix: str = "query: "
     reranker_backend: RerankerBackend = Field(
         default=cast(RerankerBackend, None), validate_default=False
     )
-    reranker_model: str = "BAAI/bge-reranker-base"
+    reranker_model: str = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
 
     ovms_embeddings_url: str = "http://localhost:8002"
-    ovms_embeddings_model: str = "bge-small-en-v1.5"
+    ovms_embeddings_model: str = "snowflake-arctic-embed-l-v2.0"
     ovms_rerank_url: str = "http://localhost:8001"
-    ovms_rerank_model: str = "bge-reranker-base"
+    ovms_rerank_model: str = "crossencoder-camembert-base-mmarcoFR"
     # "" = no auth, "domino" = the run's token from localhost:8899, else a bearer token
     ovms_auth: str = ""
 
+    # --- hosted model APIs (embedder_backend=openai, reranker_backend=cohere|openai)
+    openai_embedding_model: str = "text-embedding-3-small"
+    # Both rerankers speak the Cohere rerank shape; any server with that route works.
+    cohere_rerank_url: str = "https://api.cohere.com/v2/rerank"
+    cohere_rerank_model: str = "rerank-v3.5"
+    # Asked of {OPENAI_BASE_URL}/rerank, a route OpenAI-compatible gateways add
+    # (api.openai.com has none), so it has no default.
+    openai_rerank_model: str = ""
+    # The providers' own variables, read here without the RAG_ prefix ("" leaves
+    # the OpenAI SDK to its own environment lookup).
+    cohere_api_key: str = Field(
+        default="", validation_alias=AliasChoices("COHERE_API_KEY", "cohere_api_key")
+    )
+    openai_api_key: str = Field(
+        default="", validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key")
+    )
+    openai_base_url: str = Field(
+        default="", validation_alias=AliasChoices("OPENAI_BASE_URL", "openai_base_url")
+    )
+
     llm_backend: LlmBackend = DEFAULT_LLM_BACKEND
     openai_model: str = "gpt-4o-mini"  # OPENAI_API_KEY / OPENAI_BASE_URL via the SDK
+    llm_temperature: float = Field(default=0.0, ge=0, le=2)
 
     # "fake" = in-memory store seeded with the synthetic corpus when the app starts
     vector_store_backend: VectorStoreBackend = DEFAULT_VECTOR_STORE_BACKEND
     es_url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     es_api_key: str = ""
     es_index: str = "rag_passages"
+    chroma_url: str = ""  # a Chroma server; "" = embedded Chroma at chroma_path
+    chroma_path: str = "chroma"
+    chroma_collection: str = "rag_passages"
+    # BM25 of the stores without ranked text search of their own (chroma, fake).
+    bm25_k1: float = Field(default=1.2, ge=0)
+    bm25_b: float = Field(default=0.75, ge=0, le=1)
     domino_tracing: bool = False
 
-    # --- workflow: retrieval sizes and prompts (no default: see prompts.yaml) -----
+    # --- workflow: retrieval and prompts (no prompt default: see prompts.yaml) -----
+    retrieval_mode: RetrievalMode = DEFAULT_RETRIEVAL_MODE  # dense | lexical | hybrid
+    hybrid_rrf_k: int = Field(default=60, ge=1)  # rank constant of the hybrid fusion
     top_k_retrieve: int = Field(default=20, ge=1)  # candidates from the store
     top_k_rerank: int = Field(default=5, ge=1)  # passages kept and sent to the LLM
     system_prompt: str
     user_prompt: str  # holds {context} and {question}
 
     # --- in-process models -------------------------------------------------------
+    local_model_runtime: LocalModelRuntime = "openvino"  # openvino | torch
+    # Where rag-export-openvino writes and the openvino runtime looks first; a
+    # model without a folder there is converted in memory each time it loads.
+    openvino_models_dir: str = "models/openvino"
     embedder_batch_size: int = Field(default=64, ge=1)
     reranker_batch_size: int = Field(default=32, ge=1)
     model_workers: int = Field(default=4, ge=1)  # inference calls running at once, max
@@ -206,20 +257,76 @@ class RagSettings(BaseSettings):
         self.workflow_parameters()  # RagPrompts checks the user template
         return self
 
-    def workflow_parameters(self) -> WorkflowParameters:
-        """Build the retrieval sizes and prompts ``RagWorkflow`` runs with.
+    @model_validator(mode="after")
+    def check_openai_reranker(self) -> RagSettings:
+        """Fail at start-up when the ``openai`` reranker has no route or model.
 
         Returns:
-            The workflow parameters from ``top_k_retrieve``, ``top_k_rerank`` and
-            the two prompts.
+            The settings, unchanged.
+
+        Raises:
+            ValueError: If ``reranker_backend`` is ``openai`` without
+                ``OPENAI_BASE_URL`` or ``RAG_OPENAI_RERANK_MODEL``.
+        """
+        if self.reranker_backend != "openai":
+            return self
+        if self.openai_base_url and self.openai_rerank_model:
+            return self
+        raise ValueError(
+            "RAG_RERANKER_BACKEND='openai' posts to {OPENAI_BASE_URL}/rerank: set "
+            "OPENAI_BASE_URL to an OpenAI-compatible gateway that has that route "
+            "(api.openai.com has none) and RAG_OPENAI_RERANK_MODEL to its model; got "
+            f"OPENAI_BASE_URL={self.openai_base_url!r}, "
+            f"RAG_OPENAI_RERANK_MODEL={self.openai_rerank_model!r}"
+        )
+
+    def workflow_parameters(self) -> WorkflowParameters:
+        """Build what ``RagWorkflow`` runs with: retrieval mode, sizes and prompts.
+
+        The query prefix belongs to ``embedder_model``, so only an embedder that
+        serves it (``local`` or ``ovms``) gets it.
+
+        Returns:
+            The workflow parameters from the retrieval settings and the two
+            prompts.
 
         Example:
             >>> RagWorkflow(deps, RagSettings().workflow_parameters())
         """
+        serves_our_model = self.embedder_backend in ("local", "ovms")
         return WorkflowParameters(
             top_k_retrieve=self.top_k_retrieve,
             top_k_rerank=self.top_k_rerank,
             prompts=RagPrompts(system=self.system_prompt, user=self.user_prompt),
+            retrieval_mode=self.retrieval_mode,
+            rrf_k=self.hybrid_rrf_k,
+            query_prefix=self.embedder_query_prefix if serves_our_model else "",
+        )
+
+    def rerank_api(self) -> RerankApi:
+        """Name the hosted rerank endpoint ``reranker_backend`` stands for.
+
+        Returns:
+            Cohere's endpoint, model and key for ``cohere``; for ``openai``, the
+            ``/rerank`` route under ``OPENAI_BASE_URL`` with the OpenAI key.
+
+        Raises:
+            ValueError: If ``reranker_backend`` is not a hosted rerank API.
+
+        Example:
+            >>> RagSettings(reranker_backend="cohere").rerank_api().url
+            'https://api.cohere.com/v2/rerank'
+        """
+        if self.reranker_backend == "cohere":
+            return RerankApi(
+                self.cohere_rerank_url, self.cohere_rerank_model, self.cohere_api_key
+            )
+        if self.reranker_backend == "openai":
+            url = self.openai_base_url.rstrip("/") + "/rerank"
+            return RerankApi(url, self.openai_rerank_model, self.openai_api_key)
+        raise ValueError(
+            f"RAG_RERANKER_BACKEND={self.reranker_backend!r} is not a hosted rerank "
+            "API: expected 'cohere' or 'openai'"
         )
 
     def _default_label(self) -> str:
@@ -229,6 +336,7 @@ class RagSettings(BaseSettings):
             reranker=self.reranker_backend,
             store=self.vector_store_backend,
             llm=self.llm_backend,
+            retrieval=self.retrieval_mode,
         )
 
 

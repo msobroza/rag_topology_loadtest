@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rag-load-test"
 version = "0.1.0"
-description = "Locust load test comparing one RAG workflow (sentence-transformers + Elasticsearch + reranker + OpenAI + LangGraph + FastAPI) across monolith and OpenVINO Model Server split topologies on Domino."
+description = "Locust load test comparing one RAG workflow (sentence-transformers + Elasticsearch or Chroma + reranker + OpenAI + LangGraph + FastAPI) across monolith and OpenVINO Model Server split topologies on Domino."
 readme = "README.md"
 requires-python = ">=3.11"  # the version in .python-version
 license = { text = "Apache-2.0" }
@@ -17,23 +17,33 @@ dependencies = [
     "langchain-core>=0.3",
     "langchain-elasticsearch>=1.0",
     "elasticsearch[async]>=8.13",  # aiohttp node for AsyncElasticsearchStore
-    "sentence-transformers>=3.0",
+    # [openvino] is the default runtime of the in-process models
+    # (RAG_LOCAL_MODEL_RUNTIME) and what rag-export-openvino needs. Its
+    # optimum-intel accepts transformers < 5.6 only, so pip keeps transformers and
+    # huggingface-hub at the versions it supports.
+    "sentence-transformers[openvino]>=6.2",
     "openai>=1.40",
     "httpx>=0.27",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6",  # config/prompts.yaml, read by pydantic-settings
+    # The fake Domino signs the identity token Domino passes to an App (RS256).
+    "pyjwt>=2.8",
+    "cryptography>=42",
     "joblib>=1.3",  # cpu_count() honours the container's CPU quota
     "threadpoolctl>=3.1",  # per-model caps on OpenMP/BLAS threads
 ]
 
 [project.optional-dependencies]
+# RAG_VECTOR_STORE_BACKEND=chroma (embedded on disk, or a Chroma server).
+chroma = ["chromadb>=1.0"]
 # Driving the load test (locust monkey-patches gevent at import; keep it optional).
 loadtest = ["locust>=2.29"]
 # Domino 6.2 agent tracing (`domino.agents.tracing.add_tracing`).
 domino = ["dominodatalab[agents]>=2.2.0"]
 dev = [
     "locust>=2.29",
+    "chromadb>=1.0",  # the Chroma store's tests run a real embedded Chroma
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     # Gate tools are pinned exactly: a new release may add a rule or move a score,
@@ -54,6 +64,7 @@ rag-ingest = "rag_load_test.entrypoints.ingest_cli:main"
 rag-compare = "rag_load_test.loadtest.run_comparison:compare_main"
 rag-model-server = "rag_load_test.entrypoints.model_server:main"
 rag-served-models = "rag_load_test.entrypoints.served_models:main"
+rag-export-openvino = "rag_load_test.entrypoints.export_openvino:main"
 rag-deploy = "rag_load_test.deploy.cli:main"
 rag-fake-domino = "fake_domino.server:main"
 
@@ -67,9 +78,13 @@ where = ["src"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# tests/fake_domino/ shares its name with the package it tests. With src on the
-# path the real package (it has an __init__.py) always wins over that folder.
-pythonpath = ["src"]
+# tests/ mirrors src/rag_load_test, one folder per layer; what several test
+# files share (named fakes, fixtures, REPO_ROOT) lives in tests/helpers, on the
+# path so it is imported by plain module name. Test files keep unique names: the
+# folders are not packages. tests/fake_domino/ shares its name with the package
+# it tests; with src on the path the real package (it has an __init__.py) always
+# wins over that folder.
+pythonpath = ["src", "tests/helpers"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -80,7 +95,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests/helpers"]
 
 [tool.ruff.lint]
 # Preview is on for DOC501 alone: explicit-preview-rules keeps every other

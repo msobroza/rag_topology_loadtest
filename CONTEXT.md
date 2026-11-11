@@ -11,8 +11,16 @@ Where the embedder and the reranker run relative to the workflow app. A closed s
 _Avoid_: deployment, layout, and using "topology" for a free-form name (that is a run label)
 
 **Backend**:
-The kind of adapter behind one port: `local`, `ovms`, `fake`, `none`, `elasticsearch`, `openai`. The topology decides the embedder and reranker backends; `fake` and `none` are experiment variants allowed in any topology.
+The kind of adapter behind one port: `local`, `ovms`, `openai`, `cohere`, `fake`, `none`, `elasticsearch`, `chroma`. The topology decides the embedder and reranker backends; a hosted API (`openai`, `cohere`), `fake` and `none` run no model of ours and are variants allowed in any topology.
 _Avoid_: provider, implementation, driver
+
+**Hosted API**:
+A model reached through a vendor's or a gateway's HTTP API rather than run by us: the OpenAI embeddings API, a rerank route in the Cohere shape.
+_Avoid_: external model, SaaS model, remote model (a model server is ours)
+
+**Runtime**:
+What runs an in-process model: `openvino` on files exported beforehand, or `torch`.
+_Avoid_: backend (that is the adapter kind), engine, device
 
 **Workflow app**:
 The process that serves the RAG workflow over HTTP.
@@ -41,6 +49,42 @@ _Avoid_: servable, model name
 What one Domino app is published as: a workflow app (`monolith` for the monolith topology, `workflow` for a split topology) or a model server (an OpenVINO Model Server or a FastAPI model server, for the reranker or the embedder).
 _Avoid_: mode, app type
 
+**App**:
+What Domino publishes and serves behind its proxy, in one role; an Agent is an App with tracing.
+_Avoid_: service, deployment
+
+**Instance**:
+The running copy of an App's current version; an App answers at its instance's address.
+_Avoid_: pod, replica, and "instance" for a cloud VM (that is a machine)
+
+**Hardware tier**:
+A named size of compute that Domino runs an App or a Workspace on. In the emulation each tier is a pool of machines of one size.
+_Avoid_: machine type, instance type, flavour
+
+**Dataset**:
+A folder of files Domino shares with the Apps and Workspaces of a project; the exported models live in one.
+_Avoid_: volume, shared drive, bucket
+
+**Project environment variable**:
+A value Domino hands to every App and Workspace of a project; where secrets are kept.
+_Avoid_: secret (not every one is), setting (those are per App)
+
+**Workspace**:
+Where a person works inside Domino: deploys, ingestion and runs are started from there.
+_Avoid_: client, dev box, laptop (when the Domino side is meant)
+
+**Fake Domino**:
+A stand-in for Domino: it speaks Domino's Apps API, serves a run's token, and sits in front of each App as Domino's proxy does.
+_Avoid_: mock Domino, Domino simulator
+
+**Emulation**:
+A set of cloud machines standing in for a Domino deployment: a fake Domino with its Workspace, the vector store, and the Apps of one topology.
+_Avoid_: staging, test environment, GCP deployment
+
+**Machine**:
+One cloud VM of the emulation.
+_Avoid_: instance, node, server
+
 ### Workflow
 
 **Stage**:
@@ -49,6 +93,10 @@ _Avoid_: step, node, phase
 
 **Mode**:
 How far a request runs through the stages: `query` runs all four, `retrieve` stops after rerank.
+
+**Retrieval mode**:
+How the retrieve stage finds candidates: `dense` (by vector), `lexical` (by words, BM25) or `hybrid` (both, fused by reciprocal rank). A lexical workflow has no embed stage.
+_Avoid_: search type, and plain "mode" for it (that is query or retrieve)
 
 ### Load test
 

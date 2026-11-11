@@ -101,6 +101,34 @@ class ElasticsearchVectorStore(VectorStorePort):
             for doc, score in hits
         ]
 
+    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
+        """Find the passages whose words best match a text (Elasticsearch BM25).
+
+        Args:
+            text: The text searched for.
+            top_k: How many passages to return at most.
+
+        Returns:
+            The best-matching passages, best first, with Elasticsearch's BM25
+            ``_score`` as ``retrieval_score``.
+        """
+        # LangChain's store keeps the passage text in the ``text`` field.
+        found = await self._call(
+            self._store.client.search,
+            index=self.index,
+            query={"match": {"text": text}},
+            size=top_k,
+        )
+        return [
+            ScoredPassage(
+                id=hit["_id"],
+                text=hit["_source"].get("text", ""),
+                metadata=hit["_source"].get("metadata", {}),
+                retrieval_score=float(hit["_score"]),
+            )
+            for hit in found["hits"]["hits"]
+        ]
+
     async def count(self) -> int:
         """Count the passages in the index.
 

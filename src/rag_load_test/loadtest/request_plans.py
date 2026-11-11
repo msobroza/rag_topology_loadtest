@@ -193,7 +193,7 @@ def plan_rerank_request(
         The plan for ``RERANK_PATH``, also its stats name.
 
     Example:
-        >>> plan_rerank_request("bge-reranker-base", pool, random.Random(7)).path
+        >>> plan_rerank_request("reranker-alias", pool, random.Random(7)).path
     """
     request = RerankRequest(
         model=alias,
@@ -218,7 +218,7 @@ def plan_embeddings_request(
         The plan for ``EMBEDDINGS_PATH``, also its stats name.
 
     Example:
-        >>> plan_embeddings_request("bge-small-en-v1.5", pool, random.Random(7)).path
+        >>> plan_embeddings_request("embedder-alias", pool, random.Random(7)).path
     """
     request = EmbeddingsRequest(model=alias, input=[rng.choice(pool.questions)])
     return RequestPlan(EMBEDDINGS_PATH, request.to_wire(), EMBEDDINGS_PATH)

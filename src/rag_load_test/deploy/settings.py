@@ -221,8 +221,9 @@ def refuse_secrets(settings: DeploySettings) -> None:
         settings: The deploy settings whose ``defaults`` and ``apps`` are checked.
 
     Raises:
-        DominoDeployError: If ``RAG_ES_API_KEY`` or ``OPENAI_API_KEY`` is set, or
-            ``RAG_OVMS_AUTH`` holds a token rather than ``domino``.
+        DominoDeployError: If ``RAG_ES_API_KEY``, ``OPENAI_API_KEY`` or
+            ``COHERE_API_KEY`` is set, or ``RAG_OVMS_AUTH`` holds a token rather
+            than ``domino``.
 
     Example:
         >>> refuse_secrets(DeploySettings())
@@ -281,9 +282,8 @@ def _values_used(
 
 def _secrets_in(values: dict[str, str]) -> list[str]:
     # RAG_OVMS_AUTH is a secret only when it holds a token ("domino" names a mode).
-    secrets: list[str] = [
-        n for n in ("RAG_ES_API_KEY", "OPENAI_API_KEY") if n in values
-    ]
+    api_keys = ("RAG_ES_API_KEY", "OPENAI_API_KEY", "COHERE_API_KEY")
+    secrets: list[str] = [name for name in api_keys if name in values]
     if values.get("RAG_OVMS_AUTH") not in (None, "", "domino"):
         secrets.append("RAG_OVMS_AUTH")
     return secrets

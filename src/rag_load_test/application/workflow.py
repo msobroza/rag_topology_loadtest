@@ -1,9 +1,13 @@
 """The LangGraph workflow (``embed -> retrieve -> rerank -> generate``).
 
 ``RagWorkflow`` sees only ports, so the same graph runs in every topology; which
-adapters sit behind them is ``RagPorts``' business. Retrieval sizes and prompts
-come in as one ``WorkflowParameters``. Each node records its wall time in
-``timings_ms`` (a LangGraph reducer merges the per-stage keys).
+adapters sit behind them is ``RagPorts``' business. Retrieval mode, sizes and
+prompts come in as one ``WorkflowParameters``. Each node records its wall time
+in ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
+
+The retrieve stage finds candidates by vector (``dense``), by words
+(``lexical``), or both at once, fused by reciprocal rank (``hybrid``). A lexical
+workflow needs no vector, so its graph starts at retrieve and ``embed`` is 0 ms.
 
 Example:
     >>> async with RagPorts(settings) as ports:
@@ -14,6 +18,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable
 from typing import Annotated, Any, Protocol, TypedDict
@@ -22,6 +27,7 @@ from langgraph.graph import END, START, StateGraph
 
 from ..domain.passages import STAGES, RagMode, RagResult, ScoredPassage
 from ..domain.ports import RagDependencies
+from ..domain.rank_fusion import reciprocal_rank_fusion
 from ..domain.workflow_parameters import WorkflowParameters
 
 
@@ -93,7 +99,7 @@ class RagWorkflow:
 
     Args:
         deps: The ports the nodes call.
-        parameters: Retrieval sizes and prompts.
+        parameters: Retrieval mode, sizes and prompts.
     """
 
     def __init__(self, deps: RagDependencies, parameters: WorkflowParameters) -> None:
@@ -101,12 +107,15 @@ class RagWorkflow:
         # ty 0.0.100 does not match a TypedDict class against LangGraph's
         # TypedDictLike protocol (its __required_keys__); mypy accepts it.
         builder = StateGraph(RagState)  # ty: ignore[invalid-argument-type]
-        builder.add_node("embed", timed("embed", self._embed))
         builder.add_node("retrieve", timed("retrieve", self._retrieve))
         builder.add_node("rerank", timed("rerank", self._rerank))
         builder.add_node("generate", timed("generate", self._generate))
-        builder.add_edge(START, "embed")
-        builder.add_edge("embed", "retrieve")
+        if parameters.retrieval_mode == "lexical":  # no vector to compute
+            builder.add_edge(START, "retrieve")
+        else:
+            builder.add_node("embed", timed("embed", self._embed))
+            builder.add_edge(START, "embed")
+            builder.add_edge("embed", "retrieve")
         builder.add_edge("retrieve", "rerank")
         builder.add_conditional_edges(
             "rerank",
@@ -142,14 +151,24 @@ class RagWorkflow:
         )
 
     async def _embed(self, state: RagState) -> dict[str, Any]:
-        [vector] = await self.deps.embedder.embed([state["question"]])
+        query = self.parameters.query_prefix + state["question"]
+        [vector] = await self.deps.embedder.embed([query])
         return {"query_embedding": vector}
 
     async def _retrieve(self, state: RagState) -> dict[str, Any]:
-        hits = await self.deps.vector_store.query(
-            state["query_embedding"], self.parameters.top_k_retrieve
+        store, top_k = self.deps.vector_store, self.parameters.top_k_retrieve
+        mode = self.parameters.retrieval_mode
+        if mode == "lexical":
+            return {"candidates": await store.lexical_query(state["question"], top_k)}
+        if mode == "dense":
+            return {"candidates": await store.query(state["query_embedding"], top_k)}
+        # hybrid: both legs at once, each asked for top_k, fused back to top_k
+        rankings = await asyncio.gather(
+            store.query(state["query_embedding"], top_k),
+            store.lexical_query(state["question"], top_k),
         )
-        return {"candidates": hits}
+        fused = reciprocal_rank_fusion(rankings, k=self.parameters.rrf_k, top_k=top_k)
+        return {"candidates": fused}
 
     async def _rerank(self, state: RagState) -> dict[str, Any]:
         reranked = await self.deps.reranker.rerank(

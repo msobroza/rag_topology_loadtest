@@ -77,7 +77,7 @@ class RerankerPort(ABC):
 
 
 class VectorStorePort(ABC):
-    """Stores passages with their vectors and finds the nearest ones."""
+    """Stores passages with their vectors and finds them by vector or by words."""
 
     @abstractmethod
     async def upsert(
@@ -102,6 +102,20 @@ class VectorStorePort(ABC):
 
         Returns:
             The nearest passages, nearest first, with their ``retrieval_score``.
+        """
+
+    @abstractmethod
+    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
+        """Find the passages whose words best match a text (BM25).
+
+        Args:
+            text: The text searched for.
+            top_k: How many passages to return at most.
+
+        Returns:
+            The best-matching passages, best first, with the lexical score as
+            ``retrieval_score``; a passage sharing no word with ``text`` is left
+            out.
         """
 
     @abstractmethod

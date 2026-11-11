@@ -18,6 +18,7 @@ from typing import Any, TypeVar
 
 from ...domain.passages import ScoredPassage, top_by_score
 from ...domain.ports import EmbedderPort, RerankerPort
+from .local_model import LocalModel
 from .native_threads import NativeThreadScope
 
 T = TypeVar("T")
@@ -71,8 +72,9 @@ class SentenceTransformerEmbedder(EmbedderPort):
         scope: Caps the OpenMP threads of each encode call.
 
     Example:
+        >>> model = local_model("org/embedder", runtime="torch", models_dir="models")
         >>> embedder = SentenceTransformerEmbedder.from_pretrained(
-        ...     "BAAI/bge-small", pool, batch_size=64, threads=2
+        ...     model, pool, batch_size=64, threads=2
         ... )
         >>> [vector] = await embedder.embed(["vacation policy"])
     """
@@ -91,26 +93,28 @@ class SentenceTransformerEmbedder(EmbedderPort):
 
     @classmethod
     def from_pretrained(
-        cls, model_name: str, executor: Executor, *, batch_size: int, threads: int
+        cls, model: LocalModel, executor: Executor, *, batch_size: int, threads: int
     ) -> SentenceTransformerEmbedder:
         """Load a ``SentenceTransformer`` on CPU, then build its thread scope.
 
         Args:
-            model_name: The Hugging Face model id or local path to load.
+            model: The model to load, and the runtime it loads under.
             executor: The shared inference pool the encode calls run on.
             batch_size: Texts per ``encode`` batch.
-            threads: OpenMP threads one encode call may use.
+            threads: Threads one encode call may use.
 
         Returns:
             The embedder on the loaded model.
         """
         from sentence_transformers import SentenceTransformer  # pulls in torch
 
-        model = SentenceTransformer(model_name, device="cpu")
+        loaded = SentenceTransformer(
+            model.source, device="cpu", **model.load_arguments(threads)
+        )
         # After the model: the scope only sees native libraries already loaded.
         scope = NativeThreadScope(threads)
         return cls(
-            model, executor, model_name=model_name, batch_size=batch_size, scope=scope
+            loaded, executor, model_name=model.name, batch_size=batch_size, scope=scope
         )
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -155,8 +159,9 @@ class CrossEncoderReranker(RerankerPort):
         scope: Caps the OpenMP threads of each predict call.
 
     Example:
+        >>> model = local_model("org/reranker", runtime="torch", models_dir="models")
         >>> reranker = CrossEncoderReranker.from_pretrained(
-        ...     "BAAI/bge-reranker-base", pool, batch_size=32, threads=2
+        ...     model, pool, batch_size=32, threads=2
         ... )
         >>> best = await reranker.rerank("vacation policy", candidates, top_n=5)
     """
@@ -175,26 +180,28 @@ class CrossEncoderReranker(RerankerPort):
 
     @classmethod
     def from_pretrained(
-        cls, model_name: str, executor: Executor, *, batch_size: int, threads: int
+        cls, model: LocalModel, executor: Executor, *, batch_size: int, threads: int
     ) -> CrossEncoderReranker:
         """Load a ``CrossEncoder`` on CPU, then build its thread scope.
 
         Args:
-            model_name: The Hugging Face model id or local path to load.
+            model: The model to load, and the runtime it loads under.
             executor: The shared inference pool the predict calls run on.
             batch_size: Query-passage pairs per ``predict`` batch.
-            threads: OpenMP threads one predict call may use.
+            threads: Threads one predict call may use.
 
         Returns:
             The reranker on the loaded model.
         """
         from sentence_transformers import CrossEncoder  # pulls in torch
 
-        model = CrossEncoder(model_name, device="cpu")
+        loaded = CrossEncoder(
+            model.source, device="cpu", **model.load_arguments(threads)
+        )
         # After the model: the scope only sees native libraries already loaded.
         scope = NativeThreadScope(threads)
         return cls(
-            model, executor, model_name=model_name, batch_size=batch_size, scope=scope
+            loaded, executor, model_name=model.name, batch_size=batch_size, scope=scope
         )
 
     async def rerank(

@@ -33,6 +33,7 @@ import httpx
 
 from ..application.ingest import ingest
 from ..config.settings import RagSettings
+from ..domain.bm25 import Bm25Index
 from ..domain.corpus import chunk, synthetic_corpus
 from ..domain.errors import RagDependencyError, describe_error
 from ..domain.ports import (
@@ -46,6 +47,8 @@ from ..domain.thread_budget import ThreadBudget
 from .chat_model.openai_chat import OpenAIChatModel
 from .fakes.fake_models import FakeChatModel, FakeEmbedder, FakeReranker
 from .fakes.in_memory_vector_store import InMemoryVectorStore
+from .hosted_models.openai_embedder import OpenAIEmbedder
+from .hosted_models.rerank_api import RerankApiReranker
 from .local_models.cpu_count import (
     ContainerCpus,
     CpuCounter,
@@ -53,6 +56,7 @@ from .local_models.cpu_count import (
     FixedCpus,
     work_out_thread_budget,
 )
+from .local_models.local_model import LocalModel, local_model
 from .local_models.native_threads import settle_torch_thread
 from .local_models.sentence_transformer_models import (
     CrossEncoderReranker,
@@ -62,6 +66,7 @@ from .local_models.sentence_transformer_models import (
 )
 from .ovms.ovms_adapters import BearerToken, OvmsEmbedder, OvmsReranker
 from .shared.http_policy import HttpPolicy
+from .vector_store.chroma_store import ChromaVectorStore
 from .vector_store.elasticsearch_store import ElasticsearchVectorStore
 
 T = TypeVar("T")
@@ -208,7 +213,21 @@ class RagPorts:
                 policy=self._http_policy,
                 batch_size=settings.embedder_batch_size,
             )
+        if settings.embedder_backend == "openai":
+            return await self._open_openai_embedder()
         return await self._local_embedder()
+
+    async def _open_openai_embedder(self) -> EmbedderPort:
+        settings = self.settings
+        embedder = OpenAIEmbedder.open(
+            settings.openai_embedding_model,
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            batch_size=settings.embedder_batch_size,
+            policy=self._http_policy,
+        )
+        self._stack("embedder").push_async_callback(embedder.aclose)
+        return embedder
 
     async def _reranker(self) -> RerankerPort:
         if (supplied := self._supplied.get("reranker")) is not None:
@@ -230,6 +249,15 @@ class RagPorts:
                 token=await self._bearer_token(),
                 policy=self._http_policy,
             )
+        if settings.reranker_backend in ("cohere", "openai"):
+            api = settings.rerank_api()
+            return RerankApiReranker(
+                await self._http_client(),
+                api.url,
+                api.model,
+                api_key=api.api_key,
+                policy=self._http_policy,
+            )
         return await self._local_reranker()
 
     async def _vector_store(self) -> VectorStorePort:
@@ -239,17 +267,28 @@ class RagPorts:
         return await self._once("vector_store", backend, self._open_vector_store)
 
     async def _open_vector_store(self) -> VectorStorePort:
-        if self.settings.vector_store_backend == "fake":
-            return await self._seeded_in_memory_store()
         settings = self.settings
+        if settings.vector_store_backend == "fake":
+            return await self._seeded_in_memory_store()
+        if settings.vector_store_backend == "chroma":
+            return await ChromaVectorStore.open(
+                url=settings.chroma_url,
+                path=settings.chroma_path,
+                collection=settings.chroma_collection,
+                lexical_index=self._bm25_index(),
+            )
         store = ElasticsearchVectorStore.open(
             settings.es_url, index=settings.es_index, api_key=settings.es_api_key
         )
         self._stack("vector_store").push_async_callback(store.aclose)
         return store
 
+    # A fresh BM25 index for a store that has no ranked text search of its own.
+    def _bm25_index(self) -> Bm25Index:
+        return Bm25Index(k1=self.settings.bm25_k1, b=self.settings.bm25_b)
+
     async def _seeded_in_memory_store(self) -> VectorStorePort:
-        store = InMemoryVectorStore()
+        store = InMemoryVectorStore(self._bm25_index())
         documents = synthetic_corpus(self.settings.fake_store_seed_documents)
         passages = [passage for document in documents for passage in chunk(document)]
         await ingest(passages, await self._embedder(), store)
@@ -264,7 +303,10 @@ class RagPorts:
     async def _open_chat_model(self) -> ChatModelPort:
         if self.settings.llm_backend == "fake":
             return FakeChatModel()
-        chat_model = OpenAIChatModel.open(self.settings.openai_model)
+        settings = self.settings
+        chat_model = OpenAIChatModel.open(
+            settings.openai_model, temperature=settings.llm_temperature
+        )
         self._stack("chat_model").push_async_callback(chat_model.aclose)
         return chat_model
 
@@ -276,7 +318,7 @@ class RagPorts:
     async def _load_embedder(self) -> EmbedderPort:
         budget, pool = await self._thread_budget(), await self._model_pool()
         return SentenceTransformerEmbedder.from_pretrained(
-            self.settings.embedder_model,
+            self._local_model(self.settings.embedder_model),
             pool,
             batch_size=self.settings.embedder_batch_size,
             threads=budget.embedder_threads,
@@ -288,10 +330,18 @@ class RagPorts:
     async def _load_reranker(self) -> RerankerPort:
         budget, pool = await self._thread_budget(), await self._model_pool()
         return CrossEncoderReranker.from_pretrained(
-            self.settings.reranker_model,
+            self._local_model(self.settings.reranker_model),
             pool,
             batch_size=self.settings.reranker_batch_size,
             threads=budget.reranker_threads,
+        )
+
+    def _local_model(self, model_id: str) -> LocalModel:
+        settings = self.settings
+        return local_model(
+            model_id,
+            runtime=settings.local_model_runtime,
+            models_dir=settings.openvino_models_dir,
         )
 
     async def _model_pool(self) -> ThreadPoolExecutor:

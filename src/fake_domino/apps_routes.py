@@ -23,6 +23,7 @@ from .api_shapes import (
     ListAppsResponse,
     PaginatedMetadataV1,
 )
+from .identity import FAKE_USERNAME
 from .state import FakeDominoApps, _FakeApp
 
 APPS_API_PATH = "/api/apps/beta/apps"
@@ -44,7 +45,7 @@ def _app_response(
 ) -> AppResponse:
     fields = app.request.model_dump(exclude_none=True, exclude={"version"})
     project = {"id": app.request.projectId, "name": "fake-project"}
-    owner = {"ownerId": "fake-owner", "ownerUsername": "fake-owner"}
+    owner = {"ownerId": FAKE_USERNAME, "ownerUsername": FAKE_USERNAME}
     url = f"{str(request.base_url).rstrip('/')}/apps/{app.id}"
     return AppResponse.model_validate(
         {**_APP_DEFAULTS, **fields, "id": app.id, "url": url}

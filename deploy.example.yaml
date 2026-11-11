@@ -52,8 +52,11 @@ defaults:
     # The model paths are here, not per App, because which App loads a model
     # depends on the topology (the workflow loads the embedder in split-reranker
     # and both models in monolith). A Hugging Face id works as well as a folder.
-    RAG_EMBEDDER_MODEL: /domino/datasets/local/<dataset>/models/bge-small-en-v1.5
-    RAG_RERANKER_MODEL: /domino/datasets/local/<dataset>/models/bge-reranker-base
+    RAG_EMBEDDER_MODEL: /domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0
+    RAG_RERANKER_MODEL: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
+    # Where rag-export-openvino wrote the in-process models (a model without a
+    # folder there is converted in memory at every start):
+    # RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/<dataset>/openvino
     # The folder holding config_reranker.json and config_embedder.json (ovms):
     # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 

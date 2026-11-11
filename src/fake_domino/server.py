@@ -1,12 +1,15 @@
-"""A fake Domino 6.2 Apps API (FastAPI), for trying ``rag-deploy`` without Domino.
+"""A fake Domino 6.2 (FastAPI): its Apps API, and its App proxy around a local App.
 
-Transcribed from the Domino 6.2 Platform API reference, so it shows what
-``rag-deploy`` expects of Domino, not what a live Domino does. Used three ways:
-its ``/docs`` page documents the API, ``rag-fake-domino`` serves it locally, and
-``rag-deploy --dry-run`` runs the real deploy code against it in-process.
+The Apps API is transcribed from the Domino 6.2 Platform API reference, so it
+shows what ``rag-deploy`` expects of Domino, not what a live Domino does. The App
+proxy (``app_proxy.py``) gates a request, adds the headers Domino documents and
+forwards it to an App running locally, so a real app can run "behind Domino" on
+a laptop. Used three ways: its ``/docs`` page documents both, ``rag-fake-domino``
+serves it locally, and ``rag-deploy --dry-run`` runs the real deploy code
+against it in-process.
 
 Example:
-    >>> main(["--behaviour", "slow"])  # then open http://localhost:8899/docs
+    >>> main(["--upstream", "rag-reranker=http://127.0.0.1:9001"])  # then /docs
 """
 
 from __future__ import annotations
@@ -22,7 +25,11 @@ from starlette.testclient import TestClient
 from starlette.types import ASGIApp
 
 from .api_shapes import FailureEnvelopeV1
+from .app_proxy import FakeAppProxy
 from .apps_routes import APPS_API_PATH, _apps_router, _state
+from .identity import API_KEY_HEADER, FAKE_API_KEY, FAKE_RUN_TOKEN, FAKE_USERNAME
+from .proxy_routes import _identity_router, _proxy_router
+from .proxy_settings import FakeDominoProxySettings, UnauthenticatedResponse
 from .stand_ins import _stand_ins_router, _tiers_router
 from .state import FAKE_DOMINO_BEHAVIOURS, FakeDominoApps
 
@@ -45,13 +52,23 @@ async def _record_and_forbid(
     return await call_next(request)
 
 
-def create_fake_domino(apps: FakeDominoApps | None = None) -> FastAPI:
-    """Build the fake Domino over ``apps``.
+def create_fake_domino(
+    apps: FakeDominoApps | None = None,
+    *,
+    proxy: FakeDominoProxySettings | None = None,
+    upstream_transport: httpx.AsyncBaseTransport | None = None,
+) -> FastAPI:
+    """Build the fake Domino over ``apps``, its App proxy set by ``proxy``.
 
-    Its Swagger description lists every behaviour of ``FAKE_DOMINO_BEHAVIOURS``.
+    Its Swagger description lists every behaviour of ``FAKE_DOMINO_BEHAVIOURS``
+    and what of the App proxy is documented by Domino and what is assumed.
 
     Args:
         apps: The state it serves; None takes a fresh one that ``starts``.
+        proxy: The App proxy's options; None takes the defaults (401, identity
+            JWT on, prefix stripped, no upstream).
+        upstream_transport: Carries the requests forwarded to an App; None
+            opens real connections.
 
     Returns:
         The FastAPI app.
@@ -59,19 +76,24 @@ def create_fake_domino(apps: FakeDominoApps | None = None) -> FastAPI:
     Example:
         >>> TestClient(create_fake_domino(), base_url=FAKE_DOMINO_URL)
     """
+    fake = FastAPI(title="Fake Domino 6.2", description=_description())
+    fake.state.fake_domino_apps = apps or FakeDominoApps()
+    settings = proxy or FakeDominoProxySettings()
+    fake.state.fake_domino_proxy = FakeAppProxy(settings, upstream_transport)
+    fake.middleware("http")(_record_and_forbid)
+    for router in (_apps_router, _tiers_router, _stand_ins_router, _identity_router):
+        fake.include_router(router)
+    fake.include_router(_proxy_router)  # last: its routes match the widest paths
+    return fake
+
+
+def _description() -> str:
     behaviours = [
         f"- `{name}`: {b.description}" for name, b in FAKE_DOMINO_BEHAVIOURS.items()
     ]
-    description = "\n".join(
-        [_ABOUT, "", "Behaviours (`--behaviour`):", "", *behaviours]
+    return "\n".join(
+        [_ABOUT, "", "Behaviours (`--behaviour`):", "", *behaviours, "", _PROXY_ABOUT]
     )
-    fake = FastAPI(title="Fake Domino 6.2 Apps API", description=description)
-    fake.state.fake_domino_apps = apps or FakeDominoApps()
-    fake.middleware("http")(_record_and_forbid)
-    fake.include_router(_apps_router)
-    fake.include_router(_tiers_router)
-    fake.include_router(_stand_ins_router)
-    return fake
 
 
 class _InProcessTransport(httpx.BaseTransport):
@@ -117,28 +139,128 @@ _ABOUT = (
     "Transcribed from the Domino 6.2 Platform API reference: it shows what "
     "rag-deploy expects of Domino, not what a live Domino does."
 )
+_PROXY_ABOUT = f"""App proxy (`/apps/{{app_id}}/...` and \
+`/{{owner}}/{{project}}/r/notebookSession/{{instance_id}}/...`), forwarding to \
+`--upstream NAME=URL` by App name.
+
+Credentials: `Authorization: Bearer {FAKE_RUN_TOKEN}` (what `/access-token` \
+answers) or `{API_KEY_HEADER}: {FAKE_API_KEY}`, both the user `{FAKE_USERNAME}`.
+
+Documented by Domino:
+
+- the proxy checks access before a request reaches the App; Agents \
+(`AISYSTEM`) share it;
+- the App gets `domino-username: <viewer>`, and with secure identity \
+propagation `Authorization: Bearer <RS256 JWT>` (audience `apps`; `sub`, \
+`preferred_username`, `email`, `given_name`, `family_name`), keys at \
+`/auth/realms/DominoRealm/protocol/openid-connect/certs`;
+- with `extendedIdentityPropagationToAppsEnabled` the Bearer value is the \
+viewer's own token, and no `domino-username` is passed;
+- `/access-token` answers a run's token as plain text.
+
+Assumed (not in Domino's docs):
+
+- a script opens an App URL with the API's credentials;
+- no valid credential answers 401 (`--unauthenticated redirect`: 302 to the \
+login page), before the App is looked up;
+- the caller's `Authorization`, `{API_KEY_HEADER}` and `domino-username` are \
+removed;
+- the Domino prefix is stripped before the App sees the path (`--keep-prefix` \
+keeps it);
+- the JWT's `iss` is the realm URL; with an API key, the extended "viewer's \
+token" is the run token;
+- visibility and `accessStatuses` are stored, never enforced."""
 
 
 def main(
     argv: Sequence[str] | None = None, *, serve: Callable[..., None] = uvicorn.run
 ) -> None:
-    """Serve the fake: ``rag-fake-domino [--host H] [--port P] [--behaviour B]``.
+    """Serve the fake: ``rag-fake-domino [--behaviour B] [--upstream NAME=URL]...``.
 
     Args:
         argv: The command-line arguments; None reads ``sys.argv``.
         serve: Runs the ASGI app on a host and port; tests replace uvicorn.
 
     Example:
-        >>> main(["--behaviour", "slow"])  # Swagger at http://localhost:8899/docs
+        >>> main(["--upstream", "rag-reranker=http://127.0.0.1:9001"])
     """
+    args = _parser().parse_args(argv)
+    proxy = FakeDominoProxySettings(
+        unauthenticated=UnauthenticatedResponse(args.unauthenticated),
+        identity_jwt=args.identity_jwt,
+        keep_prefix=args.keep_prefix,
+        upstreams=dict(args.upstream),
+        forward_timeout_seconds=args.forward_timeout,
+    )
+    apps = FakeDominoApps.from_behaviour(args.behaviour)
+    serve(create_fake_domino(apps, proxy=proxy), host=args.host, port=args.port)
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="rag-fake-domino", description="Serve a fake Domino 6.2 Apps API."
+        prog="rag-fake-domino",
+        description="Serve a fake Domino 6.2: its Apps API, and its App proxy.",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=FAKE_DOMINO_PORT)
     parser.add_argument(
         "--behaviour", default="starts", choices=list(FAKE_DOMINO_BEHAVIOURS)
     )
-    args = parser.parse_args(argv)
-    apps = FakeDominoApps.from_behaviour(args.behaviour)
-    serve(create_fake_domino(apps), host=args.host, port=args.port)
+    proxy = parser.add_argument_group("App proxy")
+    _add_forwarding_flags(proxy, FakeDominoProxySettings())
+    _add_identity_flags(proxy, FakeDominoProxySettings())
+    return parser
+
+
+def _add_forwarding_flags(
+    proxy: argparse._ArgumentGroup, defaults: FakeDominoProxySettings
+) -> None:
+    # Where a request for an App goes, and what of its path it keeps.
+    proxy.add_argument(
+        "--upstream",
+        action="append",
+        default=[],
+        type=_upstream,
+        metavar="NAME=URL",
+        help="where the App named NAME runs (repeatable)",
+    )
+    proxy.add_argument(
+        "--keep-prefix",
+        action="store_true",
+        help="forward the Domino path prefix to the App instead of stripping it",
+    )
+    proxy.add_argument(
+        "--forward-timeout",
+        type=float,
+        metavar="SECONDS",
+        default=defaults.forward_timeout_seconds,
+    )
+
+
+def _add_identity_flags(
+    proxy: argparse._ArgumentGroup, defaults: FakeDominoProxySettings
+) -> None:
+    # Who gets through, and how the App is told who they are.
+    proxy.add_argument(
+        "--no-identity-jwt",
+        dest="identity_jwt",
+        action="store_false",
+        help="secure identity propagation off: only domino-username is passed",
+    )
+    proxy.add_argument(
+        "--unauthenticated",
+        default=defaults.unauthenticated.value,
+        choices=[mode.value for mode in UnauthenticatedResponse],
+        help="answer to no credential: 401, or a 302 to the login page",
+    )
+
+
+def _upstream(text: str) -> tuple[str, str]:
+    # argparse prints an ArgumentTypeError's message as is, the value included.
+    name, _, url = text.partition("=")
+    if not name or not url.startswith(("http://", "https://")):
+        raise argparse.ArgumentTypeError(
+            f"--upstream {text!r}: expected NAME=URL, "
+            "e.g. rag-reranker=http://127.0.0.1:9001"
+        )
+    return name, url
