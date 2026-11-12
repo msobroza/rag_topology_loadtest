@@ -37,8 +37,7 @@ from ..domain.api_endpoint import (
     GenerationApiFormat,
     RerankApiFormat,
 )
-from ..domain.prompts import RagPrompts
-from ..domain.topology import (
+from ..domain.backends import (
     DEFAULT_GENERATION_BACKEND,
     DEFAULT_VECTOR_STORE_BACKEND,
     LEXICAL_STORE_BACKENDS,
@@ -46,12 +45,14 @@ from ..domain.topology import (
     GenerationBackend,
     LocalModelRuntime,
     RerankBackend,
-    Topology,
     VectorStoreBackend,
-    default_run_label,
+)
+from ..domain.prompts import RagPrompts
+from ..domain.run_label import default_run_label, validate_run_label
+from ..domain.topology import (
+    Topology,
     resolve_embedding_backend,
     resolve_rerank_backend,
-    validate_run_label,
 )
 from ..domain.workflow_parameters import (
     DEFAULT_RETRIEVAL_MODE,

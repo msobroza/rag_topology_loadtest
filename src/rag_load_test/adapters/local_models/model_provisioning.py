@@ -31,8 +31,8 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from pathlib import Path
 
+from ...domain.backends import LocalModelRuntime
 from ...domain.errors import describe_error
-from ...domain.topology import LocalModelRuntime
 from ..json_log import log_json
 from .local_model import LocalModel, exported_model_dir, local_model
 from .sentence_transformer_models import run_blocking

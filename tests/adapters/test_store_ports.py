@@ -7,8 +7,8 @@ from rag_load_test.adapters.vector_store.chroma_store import ChromaVectorStore
 from rag_load_test.adapters.vector_store.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
+from rag_load_test.domain.backends import LEXICAL_STORE_BACKENDS
 from rag_load_test.domain.ports import BaseLexicalSearch, BaseVectorStore
-from rag_load_test.domain.topology import LEXICAL_STORE_BACKENDS
 
 
 def test_elasticsearch_and_the_in_memory_store_rank_text_and_chroma_does_not() -> None:

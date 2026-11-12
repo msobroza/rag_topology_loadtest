@@ -63,7 +63,9 @@ src/rag_load_test/
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
-    topology.py     the topology rule: backends per topology, contradictions, default run label
+    backends.py     the Backend and Runtime names, the variants every topology allows, the defaults
+    topology.py     the topology rule: backends per topology, contradictions
+    run_label.py    the run label: its default for a configuration, what a valid one is
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain only
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
