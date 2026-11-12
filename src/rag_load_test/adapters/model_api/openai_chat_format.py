@@ -10,35 +10,8 @@ Example:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
-from .api_format_bases import BaseApiRequest, BaseGenerationApiFormat
-
-
-class OpenAIChatRequest(BaseApiRequest):
-    """``{model, messages, temperature}`` of ``POST /v1/chat/completions``."""
-
-    model: str
-    messages: list[dict[str, str]]
-    temperature: float
-
-
-class OpenAIChatMessage(BaseModel):
-    """The answer's message; ``content`` is null for, say, a tool call."""
-
-    content: str | None = None
-
-
-class OpenAIChatChoice(BaseModel):
-    """One completion choice."""
-
-    message: OpenAIChatMessage
-
-
-class OpenAIChatResponse(BaseModel):
-    """The answer; an empty ``choices`` list carries no answer, so it is malformed."""
-
-    choices: list[OpenAIChatChoice] = Field(min_length=1)
+from ...domain.standard_formats import OpenAIChatRequest, OpenAIChatResponse
+from .api_format_bases import BaseGenerationApiFormat
 
 
 class OpenAIChatFormat(BaseGenerationApiFormat):

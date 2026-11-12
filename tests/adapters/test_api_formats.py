@@ -16,14 +16,10 @@ from rag_load_test.adapters.model_api.api_formats import (
     generation_api_format,
     rerank_api_format,
 )
-from rag_load_test.adapters.model_api.cohere_rerank_format import (
-    CohereRerankFormat,
-    CohereRerankRequest,
-)
+from rag_load_test.adapters.model_api.cohere_rerank_format import CohereRerankFormat
 from rag_load_test.adapters.model_api.openai_chat_format import OpenAIChatFormat
 from rag_load_test.adapters.model_api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
-    OpenAIEmbeddingsRequest,
 )
 from rag_load_test.domain.model_api import (
     EmbeddingApiFormat,
@@ -89,12 +85,6 @@ def test_embeddings_request_sends_input_as_a_list() -> None:
     assert body == {"model": "m", "input": ["only"]}
 
 
-def test_embeddings_request_reads_one_bare_string_as_one_text() -> None:
-    # What our model server receives when a client sends ``"input": "hi"``.
-    request = OpenAIEmbeddingsRequest.model_validate({"model": "m", "input": "hi"})
-    assert request.to_wire() == {"model": "m", "input": ["hi"]}
-
-
 def test_embeddings_vectors_come_back_in_request_order() -> None:
     rows = [{"index": 1, "embedding": [2.0]}, {"index": 0, "embedding": [1.0]}]
     body = {"object": "list", "data": rows, "usage": {"total_tokens": 2}}
@@ -122,11 +112,6 @@ def test_embeddings_malformed_bodies_fail_validation(body: object) -> None:
 def test_rerank_request_has_the_cohere_shape() -> None:
     body = CohereRerankFormat().request_body("r", "q", ("a", "b"), 1)
     assert body == {"model": "r", "query": "q", "documents": ["a", "b"], "top_n": 1}
-
-
-def test_to_wire_leaves_unset_optional_fields_out() -> None:
-    request = CohereRerankRequest(model="r", query="q", documents=[])
-    assert request.to_wire() == {"model": "r", "query": "q", "documents": []}
 
 
 def test_rerank_scores_keep_the_answers_order() -> None:

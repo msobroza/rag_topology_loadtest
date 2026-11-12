@@ -3,8 +3,9 @@
 The FastAPI model server answers on OpenVINO Model Server's routes (the
 ``MODEL_SERVER_*`` constants of ``domain/model_api.py``) in the same formats the
 ``api`` adapters speak: OpenAI's embeddings shape and Cohere's rerank shape. It
-reads requests with the formats' own models (``OpenAIEmbeddingsRequest``,
-``CohereRerankRequest``), so client and server cannot drift apart.
+reads requests with the standards' own models (``OpenAIEmbeddingsRequest``,
+``CohereRerankRequest`` of ``domain/standard_formats.py``), so client and server
+cannot drift apart.
 
 Example:
     >>> candidates = candidates_from_rerank(request)
@@ -16,12 +17,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ...domain.passages import ScoredPassage
-from .cohere_rerank_format import (
+from ...domain.standard_formats import (
     CohereRerankRequest,
     CohereRerankResponse,
     CohereRerankResult,
+    OpenAIEmbeddingRow,
+    OpenAIEmbeddingsResponse,
 )
-from .openai_embeddings_format import OpenAIEmbeddingRow, OpenAIEmbeddingsResponse
 
 # Verbatim from OVMS: the body of its 404 when ``model`` names no served model.
 UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not found"

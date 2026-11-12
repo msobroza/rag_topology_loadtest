@@ -57,6 +57,7 @@ src/rag_load_test/
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
     ports.py        the async ports (abstract base classes: BaseEmbedder, BaseReranker, BaseVectorStore, BaseLexicalSearch, BaseLLM) and RagDependencies
     model_api.py    ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
+    standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
     errors.py       RagDependencyError, describe_error
     prompts.py      RagPrompts: system prompt + user template -> chat messages
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
@@ -82,7 +83,7 @@ src/rag_load_test/
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
       cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
     model_api/      models behind an endpoint (the `api` backends), spoken to in an API format
-      api_format_bases.py  what an API format is: a request body builder and an answer reader, no HTTP
+      api_format_bases.py  what an API format is: a request body builder and an answer reader, no HTTP (the shapes are in domain/standard_formats.py)
       openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
       cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
       openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
@@ -480,6 +481,13 @@ vendor. The formats today:
 | embedding | `openai` | `{"model","input":[...]}` → `{"data":[{"index","embedding":[...]}]}` | OVMS and the FastAPI model server (`/v3/embeddings`), OpenAI, vLLM, LiteLLM |
 | rerank | `cohere` | `{"model","query","documents","top_n"}` → `{"results":[{"index","relevance_score"}]}` | OVMS and the FastAPI model server (`/v3/rerank`), Cohere (`/v2/rerank`), the `/rerank` routes of LiteLLM, vLLM, Jina and Infinity |
 | generation | `openai` | `{"model","messages","temperature"}` → `{"choices":[{"message":{"content"}}]}` | OpenAI, vLLM, LiteLLM, the Domino AI Gateway |
+
+Each component has one standard format, the one in the table, and it is the
+same whether the endpoint is OVMS, the FastAPI model server or a gateway. An API
+that speaks another shape is reached through an adapter class that implements
+`BaseEmbedder` or `BaseReranker`, either in the workflow process or behind the
+model server's route. The shapes of the standards are pydantic classes in
+`src/rag_load_test/domain/standard_formats.py`.
 
 The key is the same for every component: empty sends no `Authorization` header,
 `domino` sends the Domino run's token, anything else is sent as a bearer token.

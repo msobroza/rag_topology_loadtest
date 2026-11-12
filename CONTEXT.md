@@ -26,6 +26,10 @@ _Avoid_: base URL (an endpoint is the full route), hosted API, external model, r
 The request and response shapes an endpoint speaks, named after whoever defined them: `openai` for embeddings and generation, `cohere` for rerank. A format is a wire shape, not a vendor: any server that speaks it is called the same way.
 _Avoid_: provider, vendor, protocol, contract
 
+**Standard format**:
+The one API format each component uses on the wire: OpenAI's for embedding and generation, Cohere's for rerank. OVMS, our model server and any gateway are called in it, and an in-process model follows the same contract. An API that speaks another shape is reached through an adapter that presents it as the standard.
+_Avoid_: canonical format, native format, default format
+
 **Runtime**:
 What runs an in-process model: `openvino` on files exported beforehand, or `torch`.
 _Avoid_: backend (that is the adapter kind), engine, device

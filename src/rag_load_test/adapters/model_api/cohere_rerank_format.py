@@ -12,31 +12,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from pydantic import BaseModel
-
-from .api_format_bases import BaseApiRequest, BaseRerankApiFormat
-
-
-class CohereRerankRequest(BaseApiRequest):
-    """Score ``documents`` against ``query``; the server keeps ``top_n``."""
-
-    model: str
-    query: str
-    documents: list[str]
-    top_n: int | None = None
-
-
-class CohereRerankResult(BaseModel):
-    """One score; ``index`` is the position of its document in the request."""
-
-    index: int
-    relevance_score: float
-
-
-class CohereRerankResponse(BaseModel):
-    """The answer: at most ``top_n`` results; ``id`` and ``meta`` are ignored."""
-
-    results: list[CohereRerankResult]
+from ...domain.standard_formats import CohereRerankRequest, CohereRerankResponse
+from .api_format_bases import BaseRerankApiFormat
 
 
 class CohereRerankFormat(BaseRerankApiFormat):

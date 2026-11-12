@@ -29,14 +29,12 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..adapters.model_api.cohere_rerank_format import CohereRerankRequest
 from ..adapters.model_api.model_server_contract import (
     UNKNOWN_MODEL_ERROR,
     candidates_from_rerank,
     embeddings_response_for,
     rerank_response_for,
 )
-from ..adapters.model_api.openai_embeddings_format import OpenAIEmbeddingsRequest
 from ..adapters.rag_ports import RagPorts
 from ..config.settings import RagSettings
 from ..domain.model_api import (
@@ -44,6 +42,7 @@ from ..domain.model_api import (
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,
 )
+from ..domain.standard_formats import CohereRerankRequest, OpenAIEmbeddingsRequest
 
 Role = Literal["embedder", "reranker"]
 

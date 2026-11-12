@@ -1,7 +1,10 @@
 """The registry: the only place that maps an API format name to its class.
 
 A new format is one new module, one entry in the matching dict below, and one
-new value in the matching ``Literal`` of ``domain/model_api.py``.
+new value in the matching ``Literal`` of ``domain/model_api.py``. That holds for
+an API that does the same operation with other field names: one request in, all
+the vectors or scores out. An API that works differently (for example one call
+per candidate) is not a format: it is an adapter class implementing the port.
 
 Example:
     >>> embedding_api_format("openai")

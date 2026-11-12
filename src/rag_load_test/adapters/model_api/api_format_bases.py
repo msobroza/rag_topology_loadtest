@@ -2,7 +2,9 @@
 
 Each format turns the call's arguments into a JSON body and reads the decoded
 answer back; the adapters (``ApiEmbedder``, ``ApiReranker``, ``ApiLLM``)
-send it. So a new wire shape is one new subclass, and no adapter changes.
+send it. So a new wire shape is one new subclass, and no adapter changes. The
+request and answer shapes the formats build and read are in
+``domain/standard_formats.py``.
 
 Example:
     >>> api_format = OpenAIEmbeddingsFormat()
@@ -14,29 +16,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-
-from pydantic import BaseModel
-
-
-class BaseApiRequest(BaseModel):
-    """A request body of some API format; ``to_wire`` is what goes on the wire.
-
-    Example:
-        >>> CohereRerankRequest(model="r", query="q", documents=[]).to_wire()
-        {'model': 'r', 'query': 'q', 'documents': []}
-    """
-
-    def to_wire(self) -> dict[str, object]:
-        """Return the JSON body, with unset optional fields left out, never null.
-
-        Returns:
-            The body as a dict, ready for ``json=``.
-
-        Example:
-            >>> CohereRerankRequest(model="r", query="q", documents=[]).to_wire()
-            {'model': 'r', 'query': 'q', 'documents': []}
-        """
-        return self.model_dump(exclude_none=True)
 
 
 class BaseEmbeddingApiFormat(ABC):

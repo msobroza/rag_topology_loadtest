@@ -8,10 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.adapters.model_api.cohere_rerank_format import (
-    CohereRerankFormat,
-    CohereRerankRequest,
-)
+from rag_load_test.adapters.model_api.cohere_rerank_format import CohereRerankFormat
 from rag_load_test.adapters.model_api.model_server_contract import (
     UNKNOWN_MODEL_ERROR,
     candidates_from_rerank,
@@ -20,22 +17,13 @@ from rag_load_test.adapters.model_api.model_server_contract import (
 )
 from rag_load_test.adapters.model_api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
-    OpenAIEmbeddingsRequest,
 )
+from rag_load_test.domain.standard_formats import CohereRerankRequest
 
 
 def test_unknown_model_error_is_the_ovms_text() -> None:
     expected = "Mediapipe graph definition with requested name is not found"
     assert expected == UNKNOWN_MODEL_ERROR
-
-
-def test_requests_parse_from_plain_json() -> None:
-    parsed = CohereRerankRequest.model_validate(
-        {"model": "r", "query": "q", "documents": ["a", "b"]}
-    )
-    assert (parsed.documents, parsed.top_n) == (["a", "b"], None)
-    embeddings = OpenAIEmbeddingsRequest.model_validate({"model": "e", "input": "x"})
-    assert embeddings.input == ["x"]
 
 
 def test_embeddings_response_for_numbers_rows_in_input_order() -> None:
