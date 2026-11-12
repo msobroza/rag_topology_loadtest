@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
+)
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import (
     TOPICS,

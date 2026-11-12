@@ -13,9 +13,9 @@ from typing import Any
 
 import httpx
 
+from rag_load_test.adapters.endpoint.api_endpoint_client import ApiEndpointClient
+from rag_load_test.adapters.endpoint.bearer_token import BearerToken
 from rag_load_test.adapters.http.http_policy import HttpPolicy
-from rag_load_test.adapters.model_api.api_endpoint_client import ApiEndpointClient
-from rag_load_test.adapters.model_api.bearer_token import BearerToken
 from rag_load_test.domain.api_endpoint import ApiEndpoint
 from rag_load_test.domain.passages import ScoredPassage
 

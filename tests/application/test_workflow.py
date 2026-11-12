@@ -8,8 +8,15 @@ from collections.abc import Sequence
 
 import pytest
 
-from rag_load_test.adapters.fakes.fake_models import FakeLLM
-from rag_load_test.adapters.no_reranker import NoReranker
+from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
+from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
+from rag_load_test.adapters.reranker.base_reranker import BaseReranker
+from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
+from rag_load_test.adapters.vector_store.base_vector_store import (
+    BaseLexicalSearch,
+    BaseVectorStore,
+)
+from rag_load_test.application.rag_dependencies import RagDependencies
 from rag_load_test.application.workflow import (
     RagWorkflow,
     merge_timings,
@@ -18,13 +25,6 @@ from rag_load_test.application.workflow import (
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
 from rag_load_test.domain.passages import STAGES, Passage, ScoredPassage
-from rag_load_test.domain.ports import (
-    BaseEmbedder,
-    BaseLexicalSearch,
-    BaseReranker,
-    BaseVectorStore,
-    RagDependencies,
-)
 from rag_load_test.domain.prompts import RagPrompts
 from rag_load_test.domain.workflow_parameters import WorkflowParameters
 

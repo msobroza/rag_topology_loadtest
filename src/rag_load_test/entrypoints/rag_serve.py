@@ -31,12 +31,12 @@ from pydantic import BaseModel, Field
 
 from ..adapters.json_log import log_json
 from ..adapters.rag_ports import RagPorts
+from ..application.rag_dependencies import RagDependencies
 from ..application.workflow import RagWorkflow
 from ..config.domino_rules import apply_domino_rules
 from ..config.rag_settings import RagSettings
 from ..domain.errors import RagDependencyError
 from ..domain.passages import RagMode, ScoredPassage
-from ..domain.ports import RagDependencies
 
 logger = logging.getLogger("rag_load_test")
 

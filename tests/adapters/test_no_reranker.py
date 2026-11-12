@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rag_load_test.adapters.no_reranker import NoReranker
+from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
 from rag_load_test.domain.passages import ScoredPassage
 
 

@@ -25,10 +25,11 @@ from typing import Annotated, Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from ..adapters.vector_store.base_vector_store import BaseLexicalSearch
 from ..domain.passages import STAGES, RagMode, RagResult, ScoredPassage
-from ..domain.ports import BaseLexicalSearch, RagDependencies
 from ..domain.rank_fusion import reciprocal_rank_fusion
 from ..domain.workflow_parameters import WorkflowParameters
+from .rag_dependencies import RagDependencies
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:

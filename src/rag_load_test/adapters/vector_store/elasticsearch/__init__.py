@@ -1,0 +1,1 @@
+"""The ``elasticsearch`` vector store."""

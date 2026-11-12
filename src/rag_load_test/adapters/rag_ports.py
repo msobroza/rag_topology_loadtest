@@ -33,21 +33,20 @@ from typing import NamedTuple, TypedDict, TypeVar, Unpack, cast
 import httpx
 
 from ..application.ingest import ingest
+from ..application.rag_dependencies import RagDependencies
 from ..config.rag_settings import RagSettings
 from ..domain.corpus import chunk, synthetic_corpus
 from ..domain.errors import RagDependencyError, describe_error
-from ..domain.ports import (
-    BaseEmbedder,
-    BaseLexicalSearch,
-    BaseLLM,
-    BaseReranker,
-    BaseVectorStore,
-    RagDependencies,
-)
 from ..domain.thread_budget import ThreadBudget
-from .fakes.fake_models import FakeEmbedder, FakeLLM, FakeReranker
-from .fakes.in_memory_vector_store import InMemoryVectorStore
+from .embedder.api.api_embedder import open_api_embedder
+from .embedder.base_embedder import BaseEmbedder
+from .embedder.fake.fake_embedder import FakeEmbedder
+from .embedder.local.sentence_transformer_embedder import SentenceTransformerEmbedder
+from .endpoint.open_endpoint_client import RunTokenSource
 from .http.http_policy import HttpPolicy
+from .llm.api.api_llm import open_api_llm
+from .llm.base_llm import BaseLLM
+from .llm.fake.fake_llm import FakeLLM
 from .local_models.cpu_count import (
     BaseCpuCounter,
     ContainerCpus,
@@ -56,23 +55,19 @@ from .local_models.cpu_count import (
     work_out_thread_budget,
 )
 from .local_models.local_model import LocalModel
+from .local_models.model_pool import model_executor
 from .local_models.model_provisioning import Exporter, provision_local_model
 from .local_models.native_threads import settle_torch_thread
 from .local_models.openvino_export import export_embedder, export_reranker
-from .local_models.sentence_transformer_models import (
-    CrossEncoderReranker,
-    SentenceTransformerEmbedder,
-    model_executor,
-)
-from .model_api.endpoint_adapters import (
-    RunTokenSource,
-    open_api_embedder,
-    open_api_llm,
-    open_api_reranker,
-)
-from .no_reranker import NoReranker
-from .vector_store.chroma_store import ChromaVectorStore
-from .vector_store.elasticsearch_store import ElasticsearchVectorStore
+from .reranker.api.api_reranker import open_api_reranker
+from .reranker.base_reranker import BaseReranker
+from .reranker.fake.fake_reranker import FakeReranker
+from .reranker.local.cross_encoder_reranker import CrossEncoderReranker
+from .reranker.none.no_reranker import NoReranker
+from .vector_store.base_vector_store import BaseLexicalSearch, BaseVectorStore
+from .vector_store.chroma.chroma_store import ChromaVectorStore
+from .vector_store.elasticsearch.elasticsearch_store import ElasticsearchVectorStore
+from .vector_store.fake.in_memory_vector_store import InMemoryVectorStore
 
 T = TypeVar("T")
 Opener = Callable[[], Awaitable[T]]  # opens one port for one backend name

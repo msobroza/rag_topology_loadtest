@@ -10,20 +10,22 @@ import httpx
 import pytest
 
 from cpu_fakes import FakeCpuCounter
-from rag_load_test.adapters.fakes.fake_models import (
-    FakeEmbedder,
-    FakeLLM,
-    FakeReranker,
-)
-from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
-from rag_load_test.adapters.local_models.sentence_transformer_models import (
-    CrossEncoderReranker,
+from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
-from rag_load_test.adapters.no_reranker import NoReranker
+from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.adapters.vector_store.elasticsearch_store import (
+from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
+from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
+    CrossEncoderReranker,
+)
+from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
+from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
+)
+from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
 )
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError

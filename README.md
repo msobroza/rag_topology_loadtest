@@ -66,8 +66,9 @@ The tree is three applications over one shared domain. The domain
    | Package | May import |
    | --- | --- |
    | `domain` | `domain` |
-   | `application`, `config` | itself and `domain` |
-   | `adapters` | `adapters` and `domain`; `rag_ports.py` alone, which builds the ports, may also import `config` and `application` |
+   | `application` | itself, `domain`, and the ports of the adapters (`adapters/<component>/base_<component>.py`), nothing else of them |
+   | `config` | itself and `domain` |
+   | `adapters` | `adapters` and `domain`, and a port only `domain`; `rag_ports.py` alone, which builds the ports, may also import `config` and `application` |
    | `entrypoints` | `adapters`, `application`, `config`, `domain` |
    | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the four `RAG_*` values a load test sends |
@@ -81,21 +82,23 @@ The tree is three applications over one shared domain. The domain
    a domain module that holds a glossary term of [CONTEXT.md](CONTEXT.md) is
    named after it (`topology.py`, `backends.py`, `run_label.py`,
    `api_endpoint.py`).
-4. **Adapters.** One package per Backend of the model components
-   (`local_models/` for `local`, `model_api/` for `api`, `fakes/` for `fake`,
-   the fake store included), one for the vector store (`vector_store/`), one per
-   outside source (`corpora/`), and one module that builds them all from the
-   settings (`rag_ports.py`). What every adapter that calls out shares is in
-   `http/`; a module that fits none of these sits at the root (`no_reranker.py`,
-   `json_log.py`).
+4. **Adapters.** One package per component: `embedder/`, `reranker/`, `llm/`
+   (generation) and `vector_store/`. Its port, the abstract class the
+   application depends on, is `base_<component>.py`; each implementation is a
+   directory named after its Backend value, `RAG_EMBEDDING_BACKEND=local` being
+   `embedder/local/`, and holds one implementation of the port. What several
+   implementations share sits beside the components: `endpoint/` (the `api`
+   ones), `local_models/` (the `local` ones), `http/`, and `fake_text.py`. One
+   package per outside source (`corpora/`), `json_log.py`, and `rag_ports.py`,
+   the one module that builds the implementations from the settings.
 5. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, and that
 `locustfile.py` imports only the `loadtest` package;
-`tests/structure/test_placement.py` checks rule 2, the file names of rule 3 and
-rule 5. The fake Domino (`src/fake_domino/`) is a test double, not part of the
-product, and the rule does not apply to it.
+`tests/structure/test_placement.py` checks rule 2, the file names of rule 3, the
+component layout of rule 4 and rule 5. The fake Domino (`src/fake_domino/`) is a
+test double, not part of the product, and the rule does not apply to it.
 
 ### The tree
 
@@ -104,7 +107,6 @@ src/rag_load_test/
   __init__.py       package docstring, __version__
   domain/           no I/O, no framework; imports no other package
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
-    ports.py        the async ports (abstract base classes: BaseEmbedder, BaseReranker, BaseVectorStore, BaseLexicalSearch, BaseLLM) and RagDependencies
     api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
     errors.py       RagDependencyError, describe_error
@@ -117,7 +119,8 @@ src/rag_load_test/
     run_label.py    the run label: its default for a configuration, what a valid one is
     roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
     corpus.py       synthetic handbook corpus, its questions, chunking
-  application/      use cases over the ports; imports domain only
+  application/      use cases over the ports; imports domain and the adapters' ports only
+    rag_dependencies.py  RagDependencies: one open port of each kind, what a workflow run needs
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
     ingest.py       embed passages in batches and upsert them
   config/           the settings; imports domain only
@@ -128,40 +131,68 @@ src/rag_load_test/
   adapters/         the outside systems behind the ports, grouped by rule 4
     rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
                     (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
-    local_models/   the `local` backend: models loaded in this process
-      sentence_transformer_models.py  SentenceTransformerEmbedder, CrossEncoderReranker, the model thread pool
+    embedder/       the embedder
+      base_embedder.py  BaseEmbedder, the port
+      local/        RAG_EMBEDDING_BACKEND=local
+        sentence_transformer_embedder.py  SentenceTransformerEmbedder: a sentence-transformers model in this process
+      api/          RAG_EMBEDDING_BACKEND=api
+        api_embedder.py  ApiEmbedder, and open_api_embedder: the embedder of one endpoint
+        base_embedding_api_format.py  BaseEmbeddingApiFormat: a request body builder and an answer reader, no HTTP
+        openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
+        embedding_api_formats.py  the embeddings formats by name
+      fake/         RAG_EMBEDDING_BACKEND=fake
+        fake_embedder.py  FakeEmbedder: a hashed bag of words
+    reranker/       the reranker
+      base_reranker.py  BaseReranker, the port
+      local/        RAG_RERANK_BACKEND=local
+        cross_encoder_reranker.py  CrossEncoderReranker: a cross-encoder model in this process
+      api/          RAG_RERANK_BACKEND=api
+        api_reranker.py  ApiReranker, and open_api_reranker: the reranker of one endpoint
+        base_rerank_api_format.py  BaseRerankApiFormat
+        cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
+        rerank_api_formats.py  the rerank formats by name
+      fake/         RAG_RERANK_BACKEND=fake
+        fake_reranker.py  FakeReranker: token overlap with the query
+      none/         RAG_RERANK_BACKEND=none
+        no_reranker.py  NoReranker: retrieval order kept
+    llm/            the LLM of the generation component
+      base_llm.py   BaseLLM, the port
+      api/          RAG_GENERATION_BACKEND=api
+        api_llm.py  ApiLLM, and open_api_llm: the LLM of one endpoint
+        base_generation_api_format.py  BaseGenerationApiFormat
+        openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
+        generation_api_formats.py  the generation formats by name
+      fake/         RAG_GENERATION_BACKEND=fake
+        fake_llm.py  FakeLLM: an echo
+    vector_store/   the vector store
+      base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
+      elasticsearch/  RAG_VECTOR_STORE_BACKEND=elasticsearch
+        elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+      chroma/       RAG_VECTOR_STORE_BACKEND=chroma
+        chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
+      fake/         RAG_VECTOR_STORE_BACKEND=fake
+        in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
+    endpoint/       what every api implementation shares
+      api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
+      bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
+      open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
+      api_format_lookup.py  lookup_api_format: an API format by name, for each component's registry
+    local_models/   what the local implementations share
       local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
+      model_pool.py  model_executor, run_blocking: the one bounded thread pool the models run on
       model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
       cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
-    model_api/      the `api` backend: models behind an endpoint, spoken to in an API format
-      api_format_bases.py  what an API format is: a request body builder and an answer reader, no HTTP (the shapes are in domain/standard_formats.py)
-      openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
-      cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
-      openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
-      api_formats.py  the registry: the one place that maps an API format name to its class
-      bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
-      api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
-      api_embedder.py  ApiEmbedder
-      api_reranker.py  ApiReranker
-      api_llm.py      ApiLLM
-      endpoint_adapters.py  builds the api embedder, reranker and LLM of one endpoint, each with its own BearerToken
-    fakes/          the `fake` backend
-      fake_models.py  FakeEmbedder, FakeReranker, FakeLLM
-      in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-    vector_store/   the vector store
-      elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
-      chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
+    http/           what every adapter that calls out shares
+      http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
+      json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
     corpora/        an outside source: the public corpora rag-fetch-corpus downloads
       catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
       download.py   download a corpus's files under one HttpPolicy and convert them
       conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
       jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
-    http/           what every adapter that calls out shares
-      http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
-      json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
-    no_reranker.py  NoReranker: the `none` rerank backend, retrieval order kept
+    fake_text.py    tokenize, cosine: the text helpers the fake implementations share
     json_log.py     log_json: the one log format
   entrypoints/      the RAG system's commands: FastAPI apps and CLIs
     rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
@@ -729,7 +760,7 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
 
 **API formats.** OVMS speaks the `cohere` rerank format on `/v3/rerank` and the
 `openai` embeddings format on `/v3/embeddings`, so the workflow calls it through
-the generic endpoint adapters of `adapters/model_api/`, with the full routes as
+the generic `api` implementations of `adapters/<component>/api/`, with the full routes as
 URLs. The routes are wire-contract constants in `domain/api_endpoint.py`; the
 FastAPI model server answers on the same ones.
 

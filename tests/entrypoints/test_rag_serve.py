@@ -8,12 +8,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.adapters.reranker.base_reranker import BaseReranker
+from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
+)
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
-from rag_load_test.domain.ports import BaseReranker
 from rag_load_test.entrypoints import rag_serve as api
 from rag_load_test.entrypoints.rag_serve import create_app, main, traced
 

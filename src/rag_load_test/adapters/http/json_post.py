@@ -3,7 +3,7 @@
 Each attempt times out after ``timeout_s``; transport errors, 5xx and the
 caller's extra statuses are retried ``retries`` times, waiting
 ``policy.backoff_before(attempt)`` in between; any other 4xx fails at once. The
-model endpoints (``model_api/api_endpoint_client.py``) post through it; they
+model endpoints (``endpoint/api_endpoint_client.py``) post through it; they
 differ only in their headers and extra retryable statuses.
 
 Example:

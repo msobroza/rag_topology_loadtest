@@ -1,19 +1,29 @@
 """Where a file goes and what it is called (the README's "Where a file goes").
 
-Three checks, each a pure function shown failing on a literal input first:
+Four checks, each a pure function shown failing on a literal input first:
 every command of the product lives in a module named after it, in its
 application's package; the README's module tree lists every package and module
-of ``rag_load_test`` and nothing else; no two modules share a file name. The
+of ``rag_load_test`` and nothing else; no two modules share a file name; each
+component of the adapters has its port in ``base_<component>.py`` and one
+directory per Backend, each holding one implementation of the port. The
 fake Domino is not the product: its commands and modules are outside the rule.
 """
 
 from __future__ import annotations
 
+import ast
 import tomllib
 from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
+from typing import get_args
 
+from rag_load_test.domain.backends import (
+    EmbeddingBackend,
+    GenerationBackend,
+    RerankBackend,
+    VectorStoreBackend,
+)
 from repo_paths import REPO_ROOT
 
 PACKAGE = REPO_ROOT / "src" / "rag_load_test"
@@ -234,3 +244,121 @@ def test_no_two_modules_of_the_product_share_a_file_name() -> None:
 
     assert modules, f"no module found under {PACKAGE}"
     assert shared_file_names(modules) == {}
+
+
+# --- adapters: one package per component, one directory per Backend ----------------
+
+ADAPTERS = PACKAGE / "adapters"
+# Component package -> its port classes, and the Backend values that name its
+# implementation directories.
+COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
+    "embedder": ({"BaseEmbedder"}, get_args(EmbeddingBackend)),
+    "reranker": ({"BaseReranker"}, get_args(RerankBackend)),
+    "llm": ({"BaseLLM"}, get_args(GenerationBackend)),
+    "vector_store": (
+        {"BaseVectorStore", "BaseLexicalSearch"},
+        get_args(VectorStoreBackend),
+    ),
+}
+
+
+def port_implementations(source: str, ports: set[str]) -> list[str]:
+    """Names of the classes in ``source`` that subclass one of ``ports``.
+
+    Example::
+
+        port_implementations("class A(BaseEmbedder): ...", {"BaseEmbedder"})  # ["A"]
+    """
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases = {
+            b.id if isinstance(b, ast.Name) else getattr(b, "attr", "")
+            for b in node.bases
+        }
+        if bases & ports:
+            found.append(node.name)
+    return found
+
+
+def component_problems(
+    component: Path, ports: set[str], backends: tuple[str, ...]
+) -> list[str]:
+    """What breaks the layout of one component package.
+
+    The layout: ``base_<component>.py`` holds the port, and each Backend value is
+    a directory holding exactly one implementation of it.
+
+    Example::
+
+        component_problems(ADAPTERS / "embedder", {"BaseEmbedder"}, ("local", "api"))
+        # [] when embedder/ has base_embedder.py, local/ and api/, one class each
+    """
+    name = component.name
+    problems = (
+        []
+        if (component / f"base_{name}.py").is_file()
+        else [f"{name}: no base_{name}.py"]
+    )
+    directories = {path.parent.name for path in component.glob("*/__init__.py")}
+    problems += [f"{name}: no {b}/ directory" for b in backends if b not in directories]
+    problems += [
+        f"{name}/{d}/ is not a Backend" for d in sorted(directories - set(backends))
+    ]
+    for backend in sorted(directories & set(backends)):
+        classes = [
+            cls
+            for path in sorted((component / backend).rglob("*.py"))
+            for cls in port_implementations(path.read_text(encoding="utf-8"), ports)
+        ]
+        if len(classes) != 1:
+            problems.append(
+                f"{name}/{backend}/ implements the port {len(classes)} times: {classes}"
+            )
+    return problems
+
+
+def test_the_component_layout_on_a_literal_package(tmp_path: Path) -> None:
+    sources = {
+        "base_embedder.py": "class BaseEmbedder: ...",
+        "local/__init__.py": "",
+        "local/st.py": "class StEmbedder(BaseEmbedder): ...",
+        "api/__init__.py": "",
+        "api/a.py": "class A(BaseEmbedder): ...\nclass B(base_embedder.BaseEmbedder): ...",
+        "gpu/__init__.py": "",
+    }
+    for name, source in sources.items():
+        (tmp_path / "embedder" / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "embedder" / name).write_text(source, encoding="utf-8")
+
+    assert component_problems(
+        tmp_path / "embedder", {"BaseEmbedder"}, ("local", "api", "fake")
+    ) == [
+        "embedder: no fake/ directory",
+        "embedder/gpu/ is not a Backend",
+        "embedder/api/ implements the port 2 times: ['A', 'B']",
+    ]
+    assert component_problems(tmp_path / "reranker", {"BaseReranker"}, ()) == [
+        "reranker: no base_reranker.py"
+    ]
+
+
+def test_each_component_has_its_port_and_one_directory_per_backend() -> None:
+    problems = [
+        problem
+        for name, (ports, backends) in COMPONENTS.items()
+        for problem in component_problems(ADAPTERS / name, ports, backends)
+    ]
+    assert problems == []
+
+
+def test_every_port_implementation_lives_in_its_component() -> None:
+    misplaced = [
+        f"{path.relative_to(ADAPTERS)}: {cls}"
+        for name, (ports, _) in COMPONENTS.items()
+        for path in sorted(ADAPTERS.rglob("*.py"))
+        if path.relative_to(ADAPTERS).parts[0] != name
+        for cls in port_implementations(path.read_text(encoding="utf-8"), ports)
+    ]
+    assert misplaced == []

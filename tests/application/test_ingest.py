@@ -6,8 +6,10 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from rag_load_test.adapters.fakes.fake_models import FakeEmbedder
-from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
+from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
+)
 from rag_load_test.application.ingest import ingest
 from rag_load_test.domain.corpus import (
     TOPICS,

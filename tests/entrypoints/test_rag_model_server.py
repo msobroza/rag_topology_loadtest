@@ -13,14 +13,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from model_api_fakes import endpoint_client
-from rag_load_test.adapters.fakes.fake_models import FakeEmbedder, FakeReranker
-from rag_load_test.adapters.model_api.api_embedder import ApiEmbedder
-from rag_load_test.adapters.model_api.api_reranker import ApiReranker
-from rag_load_test.adapters.model_api.cohere_rerank_format import CohereRerankFormat
-from rag_load_test.adapters.model_api.openai_embeddings_format import (
+from rag_load_test.adapters.embedder.api.api_embedder import ApiEmbedder
+from rag_load_test.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
+from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
 from rag_load_test.adapters.rag_ports import RagPorts
+from rag_load_test.adapters.reranker.api.api_reranker import ApiReranker
+from rag_load_test.adapters.reranker.api.cohere_rerank_format import CohereRerankFormat
+from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.api_endpoint import ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
