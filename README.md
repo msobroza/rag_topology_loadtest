@@ -77,7 +77,7 @@ src/rag_load_test/
     rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
                     (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
     local_models/   models loaded in this process
-      sentence_transformer_models.py  SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, the model thread pool
+      sentence_transformer_models.py  SentenceTransformerEmbedder, CrossEncoderReranker, the model thread pool
       local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
@@ -94,20 +94,20 @@ src/rag_load_test/
       api_reranker.py  ApiReranker
       api_llm.py      ApiLLM
       endpoint_adapters.py  builds the api embedder, reranker and LLM of one endpoint, each with its own BearerToken
-      model_server_contract.py  the FastAPI model server's side of the formats: its answers, UNKNOWN_MODEL_ERROR
     vector_store/
       elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
       chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
     fakes/          the `fake` backends
       fake_models.py  FakeEmbedder, FakeReranker, FakeLLM
       in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-    shared/
+    http/
       http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
       json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
-      json_log.py   log_json: the one log format
+    no_reranker.py  NoReranker: keeps retrieval order (RAG_RERANK_BACKEND=none)
+    json_log.py     log_json: the one log format
   entrypoints/      processes: FastAPI apps and CLIs
     rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
-    rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes
+    rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
     rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus

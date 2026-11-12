@@ -9,13 +9,13 @@ import httpx
 import pytest
 
 from cpu_fakes import FakeCpuCounter
+from rag_load_test.adapters.http.http_policy import HttpPolicy
 from rag_load_test.adapters.local_models.cpu_count import (
     ContainerCpus,
     DominoHardwareTierCpus,
     FixedCpus,
     first_cpu_count,
 )
-from rag_load_test.adapters.shared.http_policy import HttpPolicy
 
 PROXY = "http://proxy.test:8899"
 TIER_PATH = "/api/hardwaretiers/v1/hardwaretiers/tier-9"

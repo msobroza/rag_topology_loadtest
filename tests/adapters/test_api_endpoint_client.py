@@ -16,8 +16,8 @@ from model_api_fakes import (
     endpoint_client,
     token_text,
 )
+from rag_load_test.adapters.http.http_policy import HttpPolicy
 from rag_load_test.adapters.model_api.api_endpoint_client import ApiEndpointClient
-from rag_load_test.adapters.shared.http_policy import HttpPolicy
 from rag_load_test.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.standard_formats import CohereRerankResponse

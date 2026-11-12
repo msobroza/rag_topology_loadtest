@@ -28,7 +28,7 @@ from ..adapters.corpora.download import (
     FetchedCorpus,
 )
 from ..adapters.corpora.jsonl_files import write_jsonl_atomically
-from ..adapters.shared.http_policy import HttpPolicy
+from ..adapters.http.http_policy import HttpPolicy
 from ..config.rag_settings import RagSettings
 
 CORPUS_FILE, QUESTIONS_FILE = "corpus.jsonl", "questions.jsonl"

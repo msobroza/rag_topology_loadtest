@@ -21,8 +21,8 @@ import httpx
 
 from ...domain.api_endpoint import ApiEndpoint
 from ...domain.errors import RagDependencyError
-from ..shared.http_policy import HttpPolicy
-from ..shared.json_post import RetryingJsonPost, describe_malformed
+from ..http.http_policy import HttpPolicy
+from ..http.json_post import RetryingJsonPost, describe_malformed
 from .bearer_token import BearerToken
 
 # Retried like a 5xx whatever the key: a rate limit lifts by itself.

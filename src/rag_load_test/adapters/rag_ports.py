@@ -47,6 +47,7 @@ from ..domain.ports import (
 from ..domain.thread_budget import ThreadBudget
 from .fakes.fake_models import FakeEmbedder, FakeLLM, FakeReranker
 from .fakes.in_memory_vector_store import InMemoryVectorStore
+from .http.http_policy import HttpPolicy
 from .local_models.cpu_count import (
     BaseCpuCounter,
     ContainerCpus,
@@ -60,7 +61,6 @@ from .local_models.native_threads import settle_torch_thread
 from .local_models.openvino_export import export_embedder, export_reranker
 from .local_models.sentence_transformer_models import (
     CrossEncoderReranker,
-    NoReranker,
     SentenceTransformerEmbedder,
     model_executor,
 )
@@ -70,7 +70,7 @@ from .model_api.endpoint_adapters import (
     open_api_llm,
     open_api_reranker,
 )
-from .shared.http_policy import HttpPolicy
+from .no_reranker import NoReranker
 from .vector_store.chroma_store import ChromaVectorStore
 from .vector_store.elasticsearch_store import ElasticsearchVectorStore
 

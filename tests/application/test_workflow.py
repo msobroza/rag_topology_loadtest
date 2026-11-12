@@ -9,7 +9,7 @@ from collections.abc import Sequence
 import pytest
 
 from rag_load_test.adapters.fakes.fake_models import FakeLLM
-from rag_load_test.adapters.local_models.sentence_transformer_models import NoReranker
+from rag_load_test.adapters.no_reranker import NoReranker
 from rag_load_test.application.workflow import (
     RagWorkflow,
     merge_timings,

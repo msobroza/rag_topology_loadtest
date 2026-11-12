@@ -4,8 +4,11 @@ Like an OVMS app it serves ONE model per process: ``--serve embedder`` exposes
 ``POST /v3/embeddings`` (OpenAI's embeddings format), ``--serve reranker``
 exposes ``POST /v3/rerank`` (Cohere's rerank format). Both answer
 ``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/api_endpoint.py``
-and bodies from the API format modules the ``api`` adapters speak; like OVMS, a
-request for any model but this server's alias is a 404. The workflow app cannot
+and bodies are the standard formats' own models (``OpenAIEmbeddingsRequest``,
+``CohereRerankRequest`` of ``domain/standard_formats.py``), the shapes the ``api``
+adapters speak, so client and server cannot drift apart; the answers are built
+by the three functions at the end of this module. Like OVMS, a request for any
+model but this server's alias is a 404. The workflow app cannot
 tell the two servers apart, so ``RAG_EMBEDDING_API_URL`` / ``RAG_RERANK_API_URL``
 can point at either and the same load test compares FastAPI with OVMS.
 
@@ -29,12 +32,6 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..adapters.model_api.model_server_contract import (
-    UNKNOWN_MODEL_ERROR,
-    candidates_from_rerank,
-    embeddings_response_for,
-    rerank_response_for,
-)
 from ..adapters.rag_ports import RagPorts
 from ..config.rag_settings import RagSettings
 from ..domain.api_endpoint import (
@@ -42,9 +39,20 @@ from ..domain.api_endpoint import (
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,
 )
-from ..domain.standard_formats import CohereRerankRequest, OpenAIEmbeddingsRequest
+from ..domain.passages import ScoredPassage
+from ..domain.standard_formats import (
+    CohereRerankRequest,
+    CohereRerankResponse,
+    CohereRerankResult,
+    OpenAIEmbeddingRow,
+    OpenAIEmbeddingsRequest,
+    OpenAIEmbeddingsResponse,
+)
 
 Role = Literal["embedder", "reranker"]
+
+# Verbatim from OVMS: the body of its 404 when ``model`` names no served model.
+UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not found"
 
 
 # The handlers read what the factory left on ``app.state``: ``role``, ``alias``
@@ -174,6 +182,82 @@ def _unknown_model() -> JSONResponse:
     # What OVMS answers when ``model`` names no served model (checked in its source).
     return JSONResponse(
         status_code=HTTPStatus.NOT_FOUND, content={"error": UNKNOWN_MODEL_ERROR}
+    )
+
+
+# --- the answers, in the standard formats' shapes ---------------------------------
+
+
+def embeddings_response_for(
+    alias: str, vectors: Sequence[Sequence[float]]
+) -> OpenAIEmbeddingsResponse:
+    """Build the embeddings answer.
+
+    Args:
+        alias: The name the embedder is served under, sent back as ``model``.
+        vectors: One vector per input text, in input order.
+
+    Returns:
+        The answer, where row ``index`` i holds the vector of input text i.
+
+    Example:
+        >>> embeddings_response_for("embedder-alias", [[0.1, 0.2]]).data[0].index
+        0
+    """
+    rows = [
+        OpenAIEmbeddingRow(index=i, embedding=list(vector))
+        for i, vector in enumerate(vectors)
+    ]
+    return OpenAIEmbeddingsResponse(model=alias, data=rows)
+
+
+def candidates_from_rerank(request: CohereRerankRequest) -> list[ScoredPassage]:
+    """Turn the request's documents into rerank candidates.
+
+    Args:
+        request: The rerank request the server received.
+
+    Returns:
+        One passage per document, whose ``id`` is its index in the request and
+        whose ``retrieval_score`` is 0.0.
+
+    Example:
+        >>> candidates_from_rerank(request)[1].id
+        '1'
+    """
+    return [
+        ScoredPassage(id=str(i), text=text, retrieval_score=0.0)
+        for i, text in enumerate(request.documents)
+    ]
+
+
+def rerank_response_for(ranked: Sequence[ScoredPassage]) -> CohereRerankResponse:
+    """Build the rerank answer.
+
+    Args:
+        ranked: Reranked passages made by ``candidates_from_rerank``, best first;
+            each must carry a ``rerank_score``.
+
+    Returns:
+        One result per passage, in the given order, ``index`` taken from its id.
+
+    Raises:
+        ValueError: If a passage has no ``rerank_score``.
+
+    Example:
+        >>> rerank_response_for(await reranker.rerank(query, candidates, top_n))
+    """
+    return CohereRerankResponse(results=[_rerank_result(p) for p in ranked])
+
+
+def _rerank_result(passage: ScoredPassage) -> CohereRerankResult:
+    if passage.rerank_score is None:
+        raise ValueError(
+            f"passage {passage.id!r} has no rerank_score; expected a reranked "
+            "passage from candidates_from_rerank"
+        )
+    return CohereRerankResult(
+        index=int(passage.id), relevance_score=passage.rerank_score
     )
 
 

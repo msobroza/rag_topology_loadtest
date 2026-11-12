@@ -18,9 +18,9 @@ from rag_load_test.adapters.fakes.fake_models import (
 from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
 from rag_load_test.adapters.local_models.sentence_transformer_models import (
     CrossEncoderReranker,
-    NoReranker,
     SentenceTransformerEmbedder,
 )
+from rag_load_test.adapters.no_reranker import NoReranker
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.elasticsearch_store import (
     ElasticsearchVectorStore,

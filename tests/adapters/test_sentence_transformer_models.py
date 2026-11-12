@@ -21,7 +21,6 @@ from rag_load_test.adapters.local_models.local_model import LocalModel
 from rag_load_test.adapters.local_models.native_threads import NativeThreadScope
 from rag_load_test.adapters.local_models.sentence_transformer_models import (
     CrossEncoderReranker,
-    NoReranker,
     SentenceTransformerEmbedder,
 )
 from rag_load_test.domain.passages import ScoredPassage
@@ -147,7 +146,7 @@ async def test_st_embedder_empty_input_skips_model_and_ready_names_model(
     assert await st_embedder.ready() == (True, "fake-st")
 
 
-# --- CrossEncoderReranker / NoReranker --------------------------------------
+# --- CrossEncoderReranker --------------------------------------------------
 
 
 class FakeCrossEncoder:
@@ -257,10 +256,3 @@ async def test_from_pretrained_loads_the_source_with_the_runtime_arguments(
     assert await embedder.ready() == (True, "org/name")
     assert await reranker.ready() == (True, "org/name")
     assert embedder.scope.threads == reranker.scope.threads == 3
-
-
-async def test_no_reranker_keeps_order_and_truncates() -> None:
-    ranked = await NoReranker().rerank("q", scored_passages("a", "b", "c"), top_n=2)
-    assert [p.id for p in ranked] == ["a", "b"]
-    assert all(p.rerank_score is None for p in ranked)
-    assert await NoReranker().ready() == (True, "none")

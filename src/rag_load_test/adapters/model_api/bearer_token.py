@@ -20,7 +20,7 @@ import httpx
 
 from ...domain.api_endpoint import DOMINO_RUN_TOKEN
 from ...domain.errors import RagDependencyError, describe_error
-from ..shared.http_policy import HttpPolicy
+from ..http.http_policy import HttpPolicy
 
 _TOKEN_COMPONENT = "domino_access_token"
 

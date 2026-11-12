@@ -20,7 +20,7 @@ ADAPTER_MODULES = (
     "rag_load_test.adapters.vector_store.elasticsearch_store",
     "rag_load_test.adapters.vector_store.chroma_store",
     "rag_load_test.adapters.model_api.endpoint_adapters",
-    "rag_load_test.adapters.model_api.model_server_contract",
+    "rag_load_test.adapters.no_reranker",
     "rag_load_test.adapters.local_models.local_model",
     "rag_load_test.adapters.local_models.openvino_export",
     "rag_load_test.adapters.local_models.native_threads",

@@ -11,10 +11,10 @@ import pytest
 
 from rag_load_test.adapters.fakes.fake_models import FakeEmbedder, FakeLLM, FakeReranker
 from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
-from rag_load_test.adapters.local_models.sentence_transformer_models import NoReranker
 from rag_load_test.adapters.model_api.api_embedder import ApiEmbedder
 from rag_load_test.adapters.model_api.api_llm import ApiLLM
 from rag_load_test.adapters.model_api.api_reranker import ApiReranker
+from rag_load_test.adapters.no_reranker import NoReranker
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
