@@ -17,6 +17,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import get_args
 
 from ..adapters.local_models.local_model import exported_model_dir
 from ..adapters.local_models.openvino_export import (
@@ -25,19 +26,20 @@ from ..adapters.local_models.openvino_export import (
     export_reranker,
 )
 from ..config.rag_settings import RagSettings
+from ..domain.roles import ModelServerPart
 
 PROG = "rag-export-openvino"
-ROLES = ("embedder", "reranker")
+PARTS: tuple[ModelServerPart, ...] = get_args(ModelServerPart)  # embedder, reranker
 # Failures an operator can act on (missing package, download or disk problem, a
 # model the converter refuses); anything else is a bug and keeps its traceback.
 EXPECTED_ERRORS = (OpenVinoUnavailableError, OSError, ValueError)
 
 
-def export_role(role: str, model_id: str, target: Path) -> Path:
-    """Export one model with the converter its role needs.
+def export_part(part: ModelServerPart, model_id: str, target: Path) -> Path:
+    """Export one model with the converter it needs.
 
     Args:
-        role: ``embedder`` or ``reranker``.
+        part: ``embedder`` or ``reranker``.
         model_id: The model's Hugging Face id or local path.
         target: The folder to write.
 
@@ -45,22 +47,24 @@ def export_role(role: str, model_id: str, target: Path) -> Path:
         ``target``, now holding the export.
 
     Example:
-        >>> export_role("reranker", "org/rerank", Path("models/openvino/rerank"))
+        >>> export_part("reranker", "org/rerank", Path("models/openvino/rerank"))
         PosixPath('models/openvino/rerank')
     """
-    exporters: dict[str, Callable[[str, Path], Path]] = {
+    exporters: dict[ModelServerPart, Callable[[str, Path], Path]] = {
         "embedder": export_embedder,
         "reranker": export_reranker,
     }
-    return exporters[role](model_id, target)
+    return exporters[part](model_id, target)
 
 
-def export_models(settings: RagSettings, roles: Sequence[str], models_dir: str) -> int:
-    """Export each role's model, one line per model; stop at the first failure.
+def export_models(
+    settings: RagSettings, parts: Sequence[ModelServerPart], models_dir: str
+) -> int:
+    """Export each part's model, one line per model; stop at the first failure.
 
     Args:
         settings: Source of the embedder and reranker model ids.
-        roles: Which models to export, in order.
+        parts: Which models to export, in order.
         models_dir: The folder that holds every export.
 
     Returns:
@@ -71,21 +75,21 @@ def export_models(settings: RagSettings, roles: Sequence[str], models_dir: str) 
         >>> export_models(RagSettings(), ["reranker"], "models/openvino")
         0
     """
-    model_ids = {
+    model_ids: dict[ModelServerPart, str] = {
         "embedder": settings.embedding_model,
         "reranker": settings.rerank_model,
     }
-    for role in roles:
-        target = exported_model_dir(models_dir, model_ids[role])
+    for part in parts:
+        target = exported_model_dir(models_dir, model_ids[part])
         try:
-            export_role(role, model_ids[role], target)
+            export_part(part, model_ids[part], target)
         except EXPECTED_ERRORS as exc:
             print(
-                f"{PROG}: cannot export {role} {model_ids[role]} to {target}: {exc}",
+                f"{PROG}: cannot export {part} {model_ids[part]} to {target}: {exc}",
                 file=sys.stderr,
             )
             return 1
-        print(f"{PROG}: {role} {model_ids[role]} -> {target}")
+        print(f"{PROG}: {part} {model_ids[part]} -> {target}")
     return 0
 
 
@@ -107,13 +111,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Convert the embedder and reranker to OpenVINO IR, one folder "
         "per model, where the openvino runtime loads them from.",
     )
-    parser.add_argument("--only", choices=ROLES, help="export just this model")
+    parser.add_argument("--only", choices=PARTS, help="export just this model")
     parser.add_argument(
         "--models-dir", help="where the exports go (default: RAG_OPENVINO_MODELS_DIR)"
     )
     args = parser.parse_args(argv)
     settings = RagSettings()
-    roles = [args.only] if args.only else list(ROLES)
+    parts = [args.only] if args.only else list(PARTS)
     return export_models(
-        settings, roles, args.models_dir or settings.openvino_models_dir
+        settings, parts, args.models_dir or settings.openvino_models_dir
     )

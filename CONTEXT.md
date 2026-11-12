@@ -81,6 +81,10 @@ _Avoid_: mode, app type
 What Domino publishes and serves behind its proxy, in one role; an Agent is an App with tracing.
 _Avoid_: service, deployment
 
+**App part**:
+Which App of a topology it is: the workflow app (`workflow`), or the model server of the embedder (`embedder`) or of the reranker (`reranker`). A topology's App parts follow from the backends it implies; the App is named `rag-<part>`.
+_Avoid_: role (a role also says what serves the model, and which workflow app), app name
+
 **Instance**:
 The running copy of an App's current version; an App answers at its instance's address.
 _Avoid_: pod, replica, and "instance" for a cloud VM (that is a machine)

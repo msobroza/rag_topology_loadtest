@@ -13,7 +13,13 @@ from collections.abc import Callable, Mapping
 from typing import Literal
 
 from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
-from ..domain.topology import Topology
+from ..domain.roles import (
+    AppPart,
+    ModelServerPart,
+    apps_for_topology,
+    model_servers_for_topology,
+    role_for,
+)
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -22,7 +28,6 @@ from .apps_client import (
 )
 from .deploy_settings import (
     AppKind,
-    AppPart,
     AppSettings,
     Autoscaling,
     DeploySettings,
@@ -39,28 +44,6 @@ CONFIGURATION_TYPES: dict[AppKind, str] = {"app": "STANDARD", "agent": "AISYSTEM
 # Exported by an Agent unless its settings set them: Domino tracing, and the
 # [domino] extra that brings its library.
 AGENT_EXPORTS = {"RAG_DOMINO_TRACING": "1", "RAG_BOOTSTRAP_EXTRAS": "domino"}
-
-APPS_BY_TOPOLOGY: dict[Topology, list[AppPart]] = {
-    "split-all": ["embedder", "reranker", "workflow"],
-    "split-reranker": ["reranker", "workflow"],
-    "monolith": ["workflow"],
-}
-
-
-def apps_for_topology(topology: Topology) -> list[AppPart]:
-    """List the Apps ``topology`` needs, model servers first.
-
-    Args:
-        topology: The topology being deployed.
-
-    Returns:
-        Its App parts, the workflow App last.
-
-    Example:
-        >>> apps_for_topology("split-reranker")
-        ['reranker', 'workflow']
-    """
-    return list(APPS_BY_TOPOLOGY[topology])
 
 
 def launch_script_in(directory: str) -> str:
@@ -128,8 +111,11 @@ def entry_script(
     return "\n".join([*lines, f"exec bash {shlex.quote(launch_script)}"])
 
 
-def _model_server_exports(part: AppPart, settings: DeploySettings) -> dict[str, str]:
-    exports = {"RAG_ROLE": f"{settings.model_server}-{part}"}
+def _model_server_exports(
+    part: ModelServerPart, settings: DeploySettings
+) -> dict[str, str]:
+    role = role_for(settings.topology, part, settings.model_server)
+    exports: dict[str, str] = {"RAG_ROLE": role}
     if settings.model_server == "ovms":
         exports["RAG_OVMS_BUNDLE"] = settings.ovms_bundle
     return exports
@@ -141,12 +127,16 @@ def _workflow_exports(
     app_settings: Mapping[str, str],
 ) -> dict[str, str]:
     topology = settings.topology
-    if topology == "monolith":
-        return {"RAG_ROLE": "monolith", "RAG_TOPOLOGY": topology}
-    exports = {"RAG_ROLE": "workflow", "RAG_TOPOLOGY": topology}
+    role = role_for(topology, "workflow", settings.model_server)
+    exports: dict[str, str] = {"RAG_ROLE": role, "RAG_TOPOLOGY": topology}
+    servers = model_servers_for_topology(topology)
+    if not servers:  # everything in one process: no URL, no run label
+        return exports
     # The settings take the full route; an App URL may end with a "/".
-    exports["RAG_RERANK_API_URL"] = _route(urls["reranker"], MODEL_SERVER_RERANK_PATH)
-    if topology == "split-all":
+    if "reranker" in servers:
+        reranker = _route(urls["reranker"], MODEL_SERVER_RERANK_PATH)
+        exports["RAG_RERANK_API_URL"] = reranker
+    if "embedder" in servers:
         embeddings = _route(urls["embedder"], MODEL_SERVER_EMBEDDINGS_PATH)
         exports["RAG_EMBEDDING_API_URL"] = embeddings
     if "RAG_RUN_LABEL" not in app_settings:
@@ -352,10 +342,9 @@ def model_server_urls(
         >>> model_server_urls(client, DeploySettings())
         {'embedder': ..., ...}
     """
-    model_servers = apps_for_topology(settings.topology)[:-1]  # workflow is last
     return {
         part: endpoint_url(client, require_app(client, part), settings.domino_host)
-        for part in model_servers
+        for part in model_servers_for_topology(settings.topology)
     }
 
 

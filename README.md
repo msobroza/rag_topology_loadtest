@@ -115,6 +115,7 @@ src/rag_load_test/
     backends.py     the Backend and Runtime names, the variants every topology allows, the defaults
     topology.py     the topology rule: backends per topology, contradictions
     run_label.py    the run label: its default for a configuration, what a valid one is
+    roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain only
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
@@ -171,7 +172,7 @@ src/rag_load_test/
     rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
   deploy/           the deploy tool: rag-deploy on Domino 6.2
     deploy_settings.py  DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
-    publish.py      which Apps a topology needs, their entry scripts, App or Agent, and publishing them in order
+    publish.py      the entry scripts of a topology's Apps (domain/roles.py says which Apps and Roles), App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
     app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
@@ -759,15 +760,20 @@ which `cd`s into the project root, reads its role from `RAG_ROLE` and listens on
 `0.0.0.0:8888` (a Domino requirement). Only environment variables differ between
 topologies, so the Locust numbers stay comparable.
 
-| Topology | App | `RAG_ROLE` | Environment variables | Image |
+A model server App is OpenVINO Model Server or the FastAPI model server
+(`rag-model-server`, the same models on the same `/v3` routes and formats):
+`model_server` in `deploy.yaml` picks one for every model server App of a
+topology. Which Apps a topology needs and the Role of each follow from the
+backends the topology implies (`src/rag_load_test/domain/roles.py`).
+
+| Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
 | `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_GENERATION_API_KEY`, `RAG_ES_URL` (+ `RAG_ES_API_KEY`) | `rag` |
-| `split-reranker` | **A** OVMS reranker | `ovms-reranker` | `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`; `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS | `ovms` |
+| `split-reranker` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | OVMS: `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `RAG_RERANK_MODEL`) | `ovms` / `rag` |
 | | **B** workflow + embedder | `workflow` | `RAG_RERANK_API_URL=<URL of A>/v3/rerank`, `RAG_GENERATION_API_KEY`, `RAG_ES_URL` | `rag` |
-| `split-all` | **A** OVMS reranker | `ovms-reranker` | as above | `ovms` |
-| | **C** OVMS embedder | `ovms-embedder` | as above | `ovms` |
+| `split-all` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | as above | `ovms` / `rag` |
+| | **C** model server: embedder | `ovms-embedder` / `fastapi-embedder` | as above (FastAPI: weights from `RAG_EMBEDDING_MODEL`) | `ovms` / `rag` |
 | | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_RERANK_API_URL=<URL of A>/v3/rerank`, `RAG_EMBEDDING_API_URL=<URL of C>/v3/embeddings`, `RAG_GENERATION_API_KEY`, `RAG_ES_URL` | `rag` |
-| FastAPI variants | **A'** / **C'** the same models behind `rag-model-server` | `fastapi-reranker` / `fastapi-embedder` | none (weights from `RAG_RERANK_MODEL` / `RAG_EMBEDDING_MODEL`); point B's `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` at these apps instead | `rag` |
 
 Both workflow app roles run `rag-serve --domino`. A role only defaults
 `RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and

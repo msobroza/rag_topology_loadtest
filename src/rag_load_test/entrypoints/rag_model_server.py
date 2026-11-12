@@ -26,7 +26,7 @@ import os
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import Literal
+from typing import get_args
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, Request
@@ -40,6 +40,7 @@ from ..domain.api_endpoint import (
     MODEL_SERVER_RERANK_PATH,
 )
 from ..domain.passages import ScoredPassage
+from ..domain.roles import ModelServerPart
 from ..domain.standard_formats import (
     CohereRerankRequest,
     CohereRerankResponse,
@@ -49,28 +50,26 @@ from ..domain.standard_formats import (
     OpenAIEmbeddingsResponse,
 )
 
-Role = Literal["embedder", "reranker"]
-
 # Verbatim from OVMS: the body of its 404 when ``model`` names no served model.
 UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not found"
 
 
-# The handlers read what the factory left on ``app.state``: ``role``, ``alias``
+# The handlers read what the factory left on ``app.state``: ``part``, ``alias``
 # and ``ports`` from the start, the served model once the lifespan has loaded it.
 common_routes = APIRouter()
 embedder_routes = APIRouter()
 reranker_routes = APIRouter()
 
 
-def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
-    """Build the server for the role over the ports; it always serves the local model.
+def create_model_server(part: ModelServerPart, ports: RagPorts) -> FastAPI:
+    """Build the server for one model over the ports; it always serves the local model.
 
     The served name is the alias the clients send (``RAG_EMBEDDING_API_MODEL`` /
     ``RAG_RERANK_API_MODEL``); the weights come from ``RAG_EMBEDDING_MODEL`` /
     ``RAG_RERANK_MODEL``.
 
     Args:
-        role: The one model this process serves, and so its one inference route.
+        part: The one model this process serves, and so its one inference route.
         ports: Builds the in-process model when the lifespan starts.
 
     Returns:
@@ -80,19 +79,19 @@ def create_model_server(role: Role, ports: RagPorts) -> FastAPI:
         >>> create_model_server("reranker", RagPorts(settings, reranker=FakeReranker()))
     """
     app = FastAPI(
-        title=f"rag-model-server ({role})",
+        title=f"rag-model-server ({part})",
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),  # Domino's prefix
         lifespan=_lifespan,
     )
-    app.state.role, app.state.ports = role, ports
-    app.state.alias = _served_alias(role, ports.settings)
+    app.state.part, app.state.ports = part, ports
+    app.state.alias = _served_alias(part, ports.settings)
     app.include_router(common_routes)
-    app.include_router(embedder_routes if role == "embedder" else reranker_routes)
+    app.include_router(embedder_routes if part == "embedder" else reranker_routes)
     return app
 
 
-def _served_alias(role: Role, settings: RagSettings) -> str:
-    if role == "embedder":
+def _served_alias(part: ModelServerPart, settings: RagSettings) -> str:
+    if part == "embedder":
         return settings.embedding_api_model
     return settings.rerank_api_model
 
@@ -101,7 +100,7 @@ def _served_alias(role: Role, settings: RagSettings) -> str:
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ports: RagPorts = app.state.ports
     async with ports:
-        if app.state.role == "embedder":
+        if app.state.part == "embedder":
             app.state.embedder = await ports.local_embedder()
         else:
             app.state.reranker = await ports.local_reranker()
@@ -110,15 +109,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 @common_routes.get("/healthz")
 async def healthz(request: Request) -> dict[str, str]:
-    """Answer while the process is up, naming the role it serves.
+    """Answer while the process is up, naming the model it serves.
 
     Args:
-        request: The HTTP request, for the app's role.
+        request: The HTTP request, for the app's part.
 
     Returns:
-        ``{"status": "ok", "role": ...}``.
+        ``{"status": "ok", "role": ...}``: ``embedder`` or ``reranker``, under
+        the key the route has always used.
     """
-    return {"status": "ok", "role": request.app.state.role}
+    return {"status": "ok", "role": request.app.state.part}
 
 
 @common_routes.get(MODEL_SERVER_MODEL_ROUTE)
@@ -127,16 +127,17 @@ async def model_status(name: str, request: Request) -> JSONResponse:
 
     Args:
         name: The model the client asks about.
-        request: The HTTP request, for the app's alias and role.
+        request: The HTTP request, for the app's alias and part.
 
     Returns:
-        200 naming the alias and role, or 404 when the name is not the alias.
+        200 naming the alias and part (under ``role``), or 404 when the name is
+        not the alias.
     """
     alias = request.app.state.alias
     if name != alias:
         body = {"error": f"unknown model {name!r}, this server serves {alias!r}"}
         return JSONResponse(status_code=HTTPStatus.NOT_FOUND, content=body)
-    content = {"name": alias, "role": request.app.state.role}
+    content = {"name": alias, "role": request.app.state.part}
     return JSONResponse(status_code=HTTPStatus.OK, content=content)
 
 
@@ -276,7 +277,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="rag-model-server", description="Serve one model."
     )
-    parser.add_argument("--serve", choices=("embedder", "reranker"), required=True)
+    parser.add_argument("--serve", choices=get_args(ModelServerPart), required=True)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args(argv)

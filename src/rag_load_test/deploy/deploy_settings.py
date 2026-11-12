@@ -26,12 +26,11 @@ from pydantic_settings import (
 )
 
 from ..domain.api_endpoint import DOMINO_RUN_TOKEN
+from ..domain.roles import AppPart, ModelServerKind
 from ..domain.topology import Topology
 from .apps_client import DominoDeployError, WaitLimits
 
-AppPart = Literal["embedder", "reranker", "workflow"]
 AppKind = Literal["app", "agent"]
-ModelServer = Literal["fastapi", "ovms"]
 DEPLOY_FILE = (
     "deploy.yaml"  # in the working directory, unless RAG_DEPLOY_FILE names one
 )
@@ -131,7 +130,7 @@ class DeploySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RAG_DEPLOY_", extra="forbid")
 
     topology: Topology = "split-all"
-    model_server: ModelServer = "fastapi"
+    model_server: ModelServerKind = "fastapi"
     project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
     ovms_bundle: str = ""  # required for ``ovms``: bin/ovms + lib/, or its .tar.gz
     domino_host: str = ""  # "" = the scheme and host of each App's own url

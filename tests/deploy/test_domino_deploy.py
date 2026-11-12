@@ -1,5 +1,5 @@
-"""Tests of ``rag_load_test.deploy`` below ``cli.main``: the topology's Apps,
-entry scripts, ``deploy`` and the launch script. Settings: test_deploy_settings.
+"""Tests of ``rag_load_test.deploy`` below ``rag_deploy.main``: entry scripts,
+``deploy`` and the launch script. Settings: test_deploy_settings.
 """
 
 from __future__ import annotations
@@ -23,25 +23,14 @@ from fake_domino.state import FakeDominoApps
 from rag_load_test.deploy.apps_client import DominoDeployError
 from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.publish import (
-    apps_for_topology,
     deploy,
     entry_script,
     launch_script_in,
 )
 
-
-@pytest.mark.parametrize(
-    ("topology", "apps"),
-    [
-        ("split-all", ["embedder", "reranker", "workflow"]),
-        ("split-reranker", ["reranker", "workflow"]),
-        ("monolith", ["workflow"]),
-    ],
-)
-def test_each_topology_needs_its_apps_in_deploy_order(
-    topology: str, apps: list[str]
-) -> None:
-    assert apps_for_topology(topology) == apps  # type: ignore[arg-type]
+# Which Apps a topology needs is tested in tests/domain/test_roles.py; that each
+# Role the scripts export starts the right server, in
+# test_entry_scripts_through_app_sh.py.
 
 
 def script(part: str, settings: DeploySettings, urls: dict[str, str]) -> str:
@@ -51,14 +40,6 @@ def script(part: str, settings: DeploySettings, urls: dict[str, str]) -> str:
 def with_settings(part: str, values: dict[str, str], **overrides: object) -> DeploySettings:  # fmt: skip
     """Settings where ``rag-<part>``'s own block sets ``values``."""
     return make_settings(apps={part: {"settings": values}}, **overrides)
-
-
-@pytest.mark.parametrize("part", ["embedder", "reranker"])
-def test_fastapi_model_server_script_exports_its_role_and_bootstrap(part: str) -> None:
-    settings = make_settings(model_server="fastapi")
-    assert script(part, settings, {}) == (
-        f"export RAG_ROLE=fastapi-{part}\n{BOOTSTRAP_AND_EXEC}"
-    )
 
 
 @pytest.mark.parametrize("part", ["embedder", "reranker"])
@@ -75,15 +56,6 @@ def test_ovms_model_server_script_exports_the_bundle_after_app_settings(
         "export RAG_OVMS_MODELS_DIR=/mnt/data/ovms-models\n"
         f"export RAG_ROLE=ovms-{part}\n"
         "export RAG_OVMS_BUNDLE='/mnt/code/ovms bundle.tar.gz'\n"
-        f"{BOOTSTRAP_AND_EXEC}"
-    )
-
-
-def test_ovms_script_without_app_settings_has_only_computed_exports() -> None:
-    settings = make_settings(model_server="ovms", ovms_bundle="/mnt/code/ovms")
-    assert script("reranker", settings, {}) == (
-        "export RAG_ROLE=ovms-reranker\n"
-        "export RAG_OVMS_BUNDLE=/mnt/code/ovms\n"
         f"{BOOTSTRAP_AND_EXEC}"
     )
 
