@@ -1,6 +1,6 @@
 """Helpers and constants shared by the rag-deploy tests over the fake Domino.
 
-Imported by the ``test_domino_*.py`` files and ``test_rag_deploy_cli.py``. The
+Imported by the ``test_domino_*.py`` files and ``test_rag_deploy.py``. The
 CLI tests' fixtures are in ``domino_deploy_fixtures.py``.
 """
 
@@ -19,7 +19,7 @@ from fake_domino.server import FAKE_DOMINO_URL, create_fake_domino, fake_domino_
 from fake_domino.state import FakeDominoApps
 from rag_load_test.deploy.app_id_cache import AppIdCache
 from rag_load_test.deploy.apps_client import DominoAppsClient
-from rag_load_test.deploy.settings import DeploySettings
+from rag_load_test.deploy.deploy_settings import DeploySettings
 
 APPS_PATH = "/api/apps/beta/apps"
 APPS_URL = f"{FAKE_DOMINO_URL}/apps"  # the fake's App pages: {APPS_URL}/app-1, ...

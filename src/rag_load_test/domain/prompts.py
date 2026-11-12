@@ -1,4 +1,4 @@
-r"""The prompts the workflow sends to the chat model, as a value object.
+r"""The prompts the workflow sends to the LLM, as a value object.
 
 The texts live in ``config/prompts.yaml`` and reach the workflow through
 ``RagSettings``; this module only knows how to turn them into messages.

@@ -31,8 +31,8 @@ from rag_load_test.deploy.apps_client import (
     DominoAppsClient,
     DominoDeployError,
 )
+from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.publish import publish_app
-from rag_load_test.deploy.settings import DeploySettings
 
 
 def sent(body: BaseModel) -> dict[str, object]:

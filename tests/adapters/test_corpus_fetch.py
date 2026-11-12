@@ -20,7 +20,7 @@ from rag_load_test.adapters.corpora.conversion import (
 )
 from rag_load_test.adapters.corpora.download import CorpusDownloader, CorpusFetchError
 from rag_load_test.adapters.corpora.jsonl_files import write_jsonl_atomically
-from rag_load_test.adapters.shared.http_policy import HttpPolicy
+from rag_load_test.adapters.http.http_policy import HttpPolicy
 
 BASE = "https://corpus.test/raw"
 TINY = CorpusDefinition(

@@ -50,80 +50,173 @@ text provides.
 
 ## Code layout
 
+### Where a file goes
+
+The tree is three applications over one shared domain. The domain
+(`domain/`) is the language all three use: no I/O, no framework.
+
+| Application | What it is | Where it lives |
+| --- | --- | --- |
+| RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `entrypoints/` |
+| deploy tool | what publishes the Apps of a Topology (`rag-deploy`) | one package, `deploy/` |
+| load-test client | what drives a target and compares runs (Locust, `rag-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, where Locust looks for it |
+
+1. **Imports.** A package imports only what this table allows.
+
+   | Package | May import |
+   | --- | --- |
+   | `domain` | `domain` |
+   | `application` | itself, `domain`, and the ports of the adapters (`adapters/<component>/base_<component>.py`), nothing else of them |
+   | `config` | itself and `domain` |
+   | `adapters` | `adapters` and `domain`, and a port only `domain`; `rag_ports.py` alone, which builds the ports, may also import `config` and `application` |
+   | `entrypoints` | `adapters`, `application`, `config`, `domain` |
+   | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
+   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the four `RAG_*` values a load test sends |
+
+2. **Commands.** A command lives in its own application, in a module named
+   exactly after it with hyphens as underscores: the RAG system's six in
+   `entrypoints/` (`rag-serve` is `entrypoints/rag_serve.py`), `rag-deploy` in
+   `deploy/rag_deploy.py`, `rag-compare` in `loadtest/rag_compare.py`.
+3. **One name, one module.** No two modules share a file name. A settings module
+   is named after its settings class (`rag_settings.py`, `deploy_settings.py`);
+   a domain module that holds a glossary term of [CONTEXT.md](CONTEXT.md) is
+   named after it (`topology.py`, `backends.py`, `run_label.py`,
+   `api_endpoint.py`).
+4. **Adapters.** One package per component: `embedder/`, `reranker/`, `llm/`
+   (generation) and `vector_store/`. Its port, the abstract class the
+   application depends on, is `base_<component>.py`; each implementation is a
+   directory named after its Backend value, `RAG_EMBEDDING_BACKEND=local` being
+   `embedder/local/`, and holds one implementation of the port. What several
+   implementations share sits beside the components: `endpoint/` (the `api`
+   ones), `local_models/` (the `local` ones), `http/`, and `fake_text.py`. One
+   package per outside source (`corpora/`), `json_log.py`, and `rag_ports.py`,
+   the one module that builds the implementations from the settings.
+5. **The tree below** lists every package and module of `src/rag_load_test/`; a
+   new module gets a line.
+
+`tests/structure/test_layering.py` checks rule 1 for every package, and that
+`locustfile.py` imports only the `loadtest` package;
+`tests/structure/test_placement.py` checks rule 2, the file names of rule 3, the
+component layout of rule 4 and rule 5. The fake Domino (`src/fake_domino/`) is a
+test double, not part of the product, and the rule does not apply to it.
+
+### The tree
+
 ```text
 src/rag_load_test/
   __init__.py       package docstring, __version__
-  domain/           no I/O, no framework; imports no other layer
+  domain/           no I/O, no framework; imports no other package
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
-    ports.py        the async ports (abstract base classes: BaseEmbedder, BaseReranker, BaseVectorStore, BaseLexicalSearch, BaseLLM) and RagDependencies
-    model_api.py    ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
+    api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
     errors.py       RagDependencyError, describe_error
     prompts.py      RagPrompts: system prompt + user template -> chat messages
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
-    topology.py     the topology rule: backends per topology, contradictions, default run label
+    backends.py     the Backend and Runtime names, the variants every topology allows, the defaults
+    topology.py     the topology rule: backends per topology, contradictions
+    run_label.py    the run label: its default for a configuration, what a valid one is
+    roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
     corpus.py       synthetic handbook corpus, its questions, chunking
-  application/      use cases over the ports; imports domain only
+  application/      use cases over the ports; imports domain and the adapters' ports only
+    rag_dependencies.py  RagDependencies: one open port of each kind, what a workflow run needs
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
     ingest.py       embed passages in batches and upsert them
-  config/           imports domain only
-    settings.py     RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
+  config/           the settings; imports domain only
+    rag_settings.py RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     prompts_source.py  the settings source that reads the prompts YAML
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
-  adapters/         one subfolder per kind of outside system
+  adapters/         the outside systems behind the ports, grouped by rule 4
     rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
                     (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
-    local_models/   models loaded in this process
-      sentence_transformer_models.py  SentenceTransformerEmbedder, CrossEncoderReranker, NoReranker, the model thread pool
+    embedder/       the embedder
+      base_embedder.py  BaseEmbedder, the port
+      local/        RAG_EMBEDDING_BACKEND=local
+        sentence_transformer_embedder.py  SentenceTransformerEmbedder: a sentence-transformers model in this process
+      api/          RAG_EMBEDDING_BACKEND=api
+        api_embedder.py  ApiEmbedder, and open_api_embedder: the embedder of one endpoint
+        base_embedding_api_format.py  BaseEmbeddingApiFormat: a request body builder and an answer reader, no HTTP
+        openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
+        embedding_api_formats.py  the embeddings formats by name
+      fake/         RAG_EMBEDDING_BACKEND=fake
+        fake_embedder.py  FakeEmbedder: a hashed bag of words
+    reranker/       the reranker
+      base_reranker.py  BaseReranker, the port
+      local/        RAG_RERANK_BACKEND=local
+        cross_encoder_reranker.py  CrossEncoderReranker: a cross-encoder model in this process
+      api/          RAG_RERANK_BACKEND=api
+        api_reranker.py  ApiReranker, and open_api_reranker: the reranker of one endpoint
+        base_rerank_api_format.py  BaseRerankApiFormat
+        cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
+        rerank_api_formats.py  the rerank formats by name
+      fake/         RAG_RERANK_BACKEND=fake
+        fake_reranker.py  FakeReranker: token overlap with the query
+      none/         RAG_RERANK_BACKEND=none
+        no_reranker.py  NoReranker: retrieval order kept
+    llm/            the LLM of the generation component
+      base_llm.py   BaseLLM, the port
+      api/          RAG_GENERATION_BACKEND=api
+        api_llm.py  ApiLLM, and open_api_llm: the LLM of one endpoint
+        base_generation_api_format.py  BaseGenerationApiFormat
+        openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
+        generation_api_formats.py  the generation formats by name
+      fake/         RAG_GENERATION_BACKEND=fake
+        fake_llm.py  FakeLLM: an echo
+    vector_store/   the vector store
+      base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
+      elasticsearch/  RAG_VECTOR_STORE_BACKEND=elasticsearch
+        elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+      chroma/       RAG_VECTOR_STORE_BACKEND=chroma
+        chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
+      fake/         RAG_VECTOR_STORE_BACKEND=fake
+        in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
+    endpoint/       what every api implementation shares
+      api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
+      bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
+      open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
+      api_format_lookup.py  lookup_api_format: an API format by name, for each component's registry
+    local_models/   what the local implementations share
       local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
+      model_pool.py  model_executor, run_blocking: the one bounded thread pool the models run on
+      model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
       cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
-    model_api/      models behind an endpoint (the `api` backends), spoken to in an API format
-      api_format_bases.py  what an API format is: a request body builder and an answer reader, no HTTP (the shapes are in domain/standard_formats.py)
-      openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
-      cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
-      openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
-      api_formats.py  the registry: the one place that maps an API format name to its class
-      bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
-      api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
-      api_embedder.py  ApiEmbedder
-      api_reranker.py  ApiReranker
-      api_llm.py      ApiLLM
-      endpoint_adapters.py  builds the api embedder, reranker and LLM of one endpoint, each with its own BearerToken
-      model_server_contract.py  the FastAPI model server's side of the formats: its answers, UNKNOWN_MODEL_ERROR
-    vector_store/
-      elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
-      chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
-    fakes/          the `fake` backends
-      fake_models.py  FakeEmbedder, FakeReranker, FakeLLM
-      in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-    shared/
+    http/           what every adapter that calls out shares
       http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
       json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
-      json_log.py   log_json: the one log format
-  entrypoints/      processes: FastAPI apps and CLIs
-    workflow_api.py FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
-    model_server.py FastAPI model server on OpenVINO Model Server's /v3 routes (rag-model-server)
-    served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
-    export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
-    ingest_cli.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
-  loadtest/
-    request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
-    run_comparison.py rag-compare: Locust *_stats.csv files to markdown tables
-  deploy/           rag-deploy on Domino 6.2
-    settings.py     DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
-    publish.py      which Apps a topology needs, their entry scripts, App or Agent, and publishing them in order
+    corpora/        an outside source: the public corpora rag-fetch-corpus downloads
+      catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
+      download.py   download a corpus's files under one HttpPolicy and convert them
+      conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
+      jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
+    fake_text.py    tokenize, cosine: the text helpers the fake implementations share
+    json_log.py     log_json: the one log format
+  entrypoints/      the RAG system's commands: FastAPI apps and CLIs
+    rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
+    rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
+    rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
+    rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
+    rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
+    rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
+  deploy/           the deploy tool: rag-deploy on Domino 6.2
+    deploy_settings.py  DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
+    publish.py      the entry scripts of a topology's Apps (domain/roles.py says which Apps and Roles), App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
     app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
-    cli.py          rag-deploy: the parser, url, --dry-run
+    rag_deploy.py   rag-deploy: the parser, url, --dry-run
     apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
+  loadtest/         the load-test client, with locustfile.py
+    loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four RAG_* values a model-server request carries, Domino auth
+    request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
+    response_checks.py  what to record: a response becomes a failure or STAGE rows
+    target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
+    rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
-                    It imports nothing from rag_load_test, and only deploy/cli.py imports it (both checked by
+                    It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
                     tests/structure/test_layering.py)
   api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
   state.py          FakeDominoApps: the fake's Apps, versions and instances
@@ -137,10 +230,10 @@ locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` find
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
 domino/             app.sh (one entry point, role from RAG_ROLE), Dockerfile (targets `rag` and `ovms`)
-tests/              pytest: no model weights, no network, no Elasticsearch; one folder per layer of src/
+tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
   domain/ application/ config/ adapters/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
   scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
-  structure/        the layering and code-shape rules, read from the source with ast
+  structure/        the import, placement and code-shape rules, read from the source with ast
   fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
   emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
   helpers/          named fakes, fixtures and REPO_ROOT shared by several test files (on pytest's path)
@@ -229,8 +322,12 @@ App URL).
 | Knob | Effect |
 | --- | --- |
 | `USERS`, `SPAWN_RATE`, `RUN_TIME` | Makefile variables passed to `locust -u -r -t` |
-| `RAG_LOADTEST_QUERY_WEIGHT` / `RAG_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3` |
-| `RAG_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more) |
+| `RAG_LOADTEST_TARGET` | the user class: `rag` (default), `rerank` or `embeddings` |
+| `RAG_LOADTEST_QUERY_WEIGHT` / `RAG_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3`; a whole number of 0 or more |
+| `RAG_LOADTEST_WAIT_MIN_S` / `RAG_LOADTEST_WAIT_MAX_S` | each user waits a random time in this range between requests, default `0.2` / `1.0` s |
+| `RAG_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more); any other value but unset is refused |
+| `RAG_LOADTEST_STEP_USERS` / `RAG_LOADTEST_STEP_SECONDS` | the steps of the step shape, default `5,10,20,40` / `60` |
+| `RAG_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
 | `RAG_LOADTEST_BEARER_TOKEN` | sent as `Authorization: Bearer ...` (Domino run token) |
 | `DOMINO_API_KEY` | sent as `X-Domino-Api-Key` (from outside Domino) |
 
@@ -391,12 +488,15 @@ with a one-line usage error, not a traceback.
 | `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token (an API key set to `domino`) |
 | `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
+| `RAG_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
-| `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
+| `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
+| `RAG_LOADTEST_WAIT_MIN_S`, `RAG_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
+| `RAG_LOADTEST_STEP_USERS`, `RAG_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `RAG_LOADTEST_SHAPE=step` |
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 
-Every tunable is a field of `RagSettings` in `config/settings.py`; adapters get
+Every tunable is a field of `RagSettings` in `config/rag_settings.py`; adapters get
 the values as constructor arguments from `adapters/rag_ports.py`. Locust's rerank
 users send `RAG_TOP_K_RETRIEVE` documents with `top_n=RAG_TOP_K_RERANK`, like the
 workflow. Sources win in this order: constructor arguments, environment, `.env`,
@@ -510,7 +610,7 @@ An OpenAI-compatible gateway, for generation and embeddings:
 
 ```bash
 RAG_GENERATION_API_URL=https://gateway.example/v1/chat/completions \
-  RAG_GENERATION_API_KEY=<key> RAG_GENERATION_API_MODEL=<chat model> \
+  RAG_GENERATION_API_KEY=<key> RAG_GENERATION_API_MODEL=<model name> \
   RAG_EMBEDDING_BACKEND=api RAG_EMBEDDING_API_URL=https://gateway.example/v1/embeddings \
   RAG_EMBEDDING_API_KEY=<key> RAG_EMBEDDING_API_MODEL=<embedding model> make serve
 ```
@@ -619,7 +719,7 @@ compose with `--env-file`:
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
 
 The served models (source id and alias) are pinned once, by the `RagSettings`
-defaults in `config/settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
+defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
 `antoinelouis/crossencoder-camembert-base-mmarcoFR` / `crossencoder-camembert-base-mmarcoFR`, `RAG_EMBEDDING_MODEL` /
 `RAG_EMBEDDING_API_MODEL` = `Snowflake/snowflake-arctic-embed-l-v2.0` / `snowflake-arctic-embed-l-v2.0`).
 `rag-served-models` prints them, `RAG_*` overrides included, as shell
@@ -660,8 +760,8 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
 
 **API formats.** OVMS speaks the `cohere` rerank format on `/v3/rerank` and the
 `openai` embeddings format on `/v3/embeddings`, so the workflow calls it through
-the generic endpoint adapters of `adapters/model_api/`, with the full routes as
-URLs. The routes are wire-contract constants in `domain/model_api.py`; the
+the generic `api` implementations of `adapters/<component>/api/`, with the full routes as
+URLs. The routes are wire-contract constants in `domain/api_endpoint.py`; the
 FastAPI model server answers on the same ones.
 
 | Adapter | Request | Response |
@@ -681,7 +781,7 @@ request (one text embedded, one document scored), not a probe of
 **Bumping OVMS**: change `ovms/versions.env` only, re-run `make ovms-export`
 (the exporter is fetched from the new tag), rebuild the `ovms` Domino image and
 refill the models Dataset. **Changing a served model**: change its default in
-`config/settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
+`config/rag_settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
 image (it pre-downloads the source ids) and refill the models Dataset.
 
 ## Deploying on Domino 6.2
@@ -691,15 +791,20 @@ which `cd`s into the project root, reads its role from `RAG_ROLE` and listens on
 `0.0.0.0:8888` (a Domino requirement). Only environment variables differ between
 topologies, so the Locust numbers stay comparable.
 
-| Topology | App | `RAG_ROLE` | Environment variables | Image |
+A model server App is OpenVINO Model Server or the FastAPI model server
+(`rag-model-server`, the same models on the same `/v3` routes and formats):
+`model_server` in `deploy.yaml` picks one for every model server App of a
+topology. Which Apps a topology needs and the Role of each follow from the
+backends the topology implies (`src/rag_load_test/domain/roles.py`).
+
+| Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
 | `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_GENERATION_API_KEY`, `RAG_ES_URL` (+ `RAG_ES_API_KEY`) | `rag` |
-| `split-reranker` | **A** OVMS reranker | `ovms-reranker` | `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`; `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS | `ovms` |
+| `split-reranker` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | OVMS: `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `RAG_RERANK_MODEL`) | `ovms` / `rag` |
 | | **B** workflow + embedder | `workflow` | `RAG_RERANK_API_URL=<URL of A>/v3/rerank`, `RAG_GENERATION_API_KEY`, `RAG_ES_URL` | `rag` |
-| `split-all` | **A** OVMS reranker | `ovms-reranker` | as above | `ovms` |
-| | **C** OVMS embedder | `ovms-embedder` | as above | `ovms` |
+| `split-all` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | as above | `ovms` / `rag` |
+| | **C** model server: embedder | `ovms-embedder` / `fastapi-embedder` | as above (FastAPI: weights from `RAG_EMBEDDING_MODEL`) | `ovms` / `rag` |
 | | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_RERANK_API_URL=<URL of A>/v3/rerank`, `RAG_EMBEDDING_API_URL=<URL of C>/v3/embeddings`, `RAG_GENERATION_API_KEY`, `RAG_ES_URL` | `rag` |
-| FastAPI variants | **A'** / **C'** the same models behind `rag-model-server` | `fastapi-reranker` / `fastapi-embedder` | none (weights from `RAG_RERANK_MODEL` / `RAG_EMBEDDING_MODEL`); point B's `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL` at these apps instead | `rag` |
 
 Both workflow app roles run `rag-serve --domino`. A role only defaults
 `RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and

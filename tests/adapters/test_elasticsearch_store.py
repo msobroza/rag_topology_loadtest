@@ -13,7 +13,7 @@ from elastic_transport import JsonSerializer
 from elasticsearch.helpers.vectorstore import AsyncDenseVectorStrategy, DistanceMetric
 from langchain_elasticsearch import AsyncElasticsearchStore
 
-from rag_load_test.adapters.vector_store.elasticsearch_store import (
+from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
 from rag_load_test.domain.errors import RagDependencyError

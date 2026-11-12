@@ -8,23 +8,23 @@ from collections.abc import Sequence
 
 import pytest
 
-from rag_load_test.adapters.fakes.fake_models import FakeLLM
-from rag_load_test.adapters.local_models.sentence_transformer_models import NoReranker
+from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
+from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
+from rag_load_test.adapters.reranker.base_reranker import BaseReranker
+from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
+from rag_load_test.adapters.vector_store.base_vector_store import (
+    BaseLexicalSearch,
+    BaseVectorStore,
+)
+from rag_load_test.application.rag_dependencies import RagDependencies
 from rag_load_test.application.workflow import (
     RagWorkflow,
     merge_timings,
     required_lexical_search,
 )
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
 from rag_load_test.domain.passages import STAGES, Passage, ScoredPassage
-from rag_load_test.domain.ports import (
-    BaseEmbedder,
-    BaseLexicalSearch,
-    BaseReranker,
-    BaseVectorStore,
-    RagDependencies,
-)
 from rag_load_test.domain.prompts import RagPrompts
 from rag_load_test.domain.workflow_parameters import WorkflowParameters
 
@@ -96,8 +96,8 @@ async def test_retrieve_mode_skips_generation(
     workflow = RagWorkflow(fake_deps, parameters)
     result = await workflow.run(VACATION_QUESTION, mode="retrieve")
 
-    assert isinstance(fake_deps.chat_model, FakeLLM)
-    assert fake_deps.chat_model.calls == 0
+    assert isinstance(fake_deps.llm, FakeLLM)
+    assert fake_deps.llm.calls == 0
     assert result.mode == "retrieve"
     assert result.answer is None
     assert result.timings_ms["generate"] == 0.0

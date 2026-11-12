@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.fakes.fake_models import tokenize
+from rag_load_test.adapters.fake_text import tokenize
 from rag_load_test.domain.corpus import (
     TOPICS,
     SourceDocument,

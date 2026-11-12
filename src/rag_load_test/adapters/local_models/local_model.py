@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...domain.topology import LocalModelRuntime
+from ...domain.backends import LocalModelRuntime
 
 
 @dataclass(frozen=True)

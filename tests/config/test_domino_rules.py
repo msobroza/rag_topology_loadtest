@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 
 from rag_load_test.config.domino_rules import apply_domino_rules
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 
 SettingsFactory = Callable[..., RagSettings]
 EMBED_URL = "http://embedder-app/v3/embeddings"

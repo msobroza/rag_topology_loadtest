@@ -10,6 +10,7 @@ from http import HTTPStatus
 import httpx
 
 from ..domain.errors import describe_error
+from ..domain.roles import apps_for_topology
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -17,9 +18,8 @@ from .apps_client import (
     json_list,
     json_mapping,
 )
+from .deploy_settings import DeploySettings
 from .endpoint_url import endpoint_url
-from .publish import apps_for_topology
-from .settings import DeploySettings
 
 
 def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:

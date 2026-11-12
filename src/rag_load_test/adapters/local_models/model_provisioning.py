@@ -31,11 +31,11 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from pathlib import Path
 
+from ...domain.backends import LocalModelRuntime
 from ...domain.errors import describe_error
-from ...domain.topology import LocalModelRuntime
-from ..shared.json_log import log_json
+from ..json_log import log_json
 from .local_model import LocalModel, exported_model_dir, local_model
-from .sentence_transformer_models import run_blocking
+from .model_pool import run_blocking
 
 # ``export_embedder`` or ``export_reranker``: (model id, target folder) -> folder.
 Exporter = Callable[[str, Path], Path]

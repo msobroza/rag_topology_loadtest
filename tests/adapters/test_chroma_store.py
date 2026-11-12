@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.adapters.vector_store.chroma_store import ChromaVectorStore
+from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage
 

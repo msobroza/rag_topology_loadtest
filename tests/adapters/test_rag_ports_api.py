@@ -9,14 +9,18 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from rag_load_test.adapters.fakes.fake_models import FakeEmbedder, FakeLLM, FakeReranker
-from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
-from rag_load_test.adapters.local_models.sentence_transformer_models import NoReranker
-from rag_load_test.adapters.model_api.api_embedder import ApiEmbedder
-from rag_load_test.adapters.model_api.api_llm import ApiLLM
-from rag_load_test.adapters.model_api.api_reranker import ApiReranker
+from rag_load_test.adapters.embedder.api.api_embedder import ApiEmbedder
+from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from rag_load_test.adapters.llm.api.api_llm import ApiLLM
+from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.adapters.reranker.api.api_reranker import ApiReranker
+from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
+from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
+from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
+)
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
 
@@ -107,7 +111,7 @@ async def test_each_generation_backend_opens_its_adapter(
 ) -> None:
     settings = settings_factory(**(EVERYTHING_FAKE | {"generation_backend": backend}))
     async with RagPorts(settings) as ports:
-        assert isinstance((await ports.workflow_dependencies()).chat_model, adapter)
+        assert isinstance((await ports.workflow_dependencies()).llm, adapter)
 
 
 # --- the api backends on the wire --------------------------------------------------
@@ -176,9 +180,9 @@ async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
         http_timeout_s=4.5,
     )
     async with RagPorts(settings, transport=httpx.MockTransport(routes)) as ports:
-        chat_model = (await ports.workflow_dependencies()).chat_model
+        llm = (await ports.workflow_dependencies()).llm
         messages = [{"role": "user", "content": "How many vacation days?"}]
-        assert await chat_model.generate(messages) == "Twenty-five days."
+        assert await llm.generate(messages) == "Twenty-five days."
 
     expected_body = {"model": "llama-3", "messages": messages, "temperature": 0.7}
     assert routes.sent() == [(CHAT_URL, expected_body, "Bearer sk-key", 90.0)]
@@ -199,8 +203,8 @@ async def test_the_generation_endpoint_keeps_the_shared_retries(
         http_backoff_s=0.0,
     )
     async with RagPorts(settings, transport=httpx.MockTransport(busy)) as ports:
-        chat_model = (await ports.workflow_dependencies()).chat_model
+        llm = (await ports.workflow_dependencies()).llm
         with pytest.raises(RagDependencyError, match="HTTP 503"):
-            await chat_model.generate([{"role": "user", "content": "q"}])
+            await llm.generate([{"role": "user", "content": "q"}])
 
     assert len(attempts) == 2  # the first attempt and http_retries=1

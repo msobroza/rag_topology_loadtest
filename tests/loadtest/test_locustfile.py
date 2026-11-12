@@ -10,37 +10,11 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.loadtest.request_plans import (
-    RequestPlan,
-)
+from loadtest_settings_helpers import clear_loadtest_variables
+from rag_load_test.loadtest.request_plans import RequestPlan
 from repo_paths import REPO_ROOT
 
 LOCUSTFILE = REPO_ROOT / "locustfile.py"
-STATS_HEADER = [
-    "Type",
-    "Name",
-    "Request Count",
-    "Failure Count",
-    "Median Response Time",
-    "Average Response Time",
-    "Min Response Time",
-    "Max Response Time",
-    "Average Content Size",
-    "Requests/s",
-    "Failures/s",
-    "50%",
-    "66%",
-    "75%",
-    "80%",
-    "90%",
-    "95%",
-    "98%",
-    "99%",
-    "99.9%",
-    "99.99%",
-    "100%",
-]
-BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
 
 
 # --- locustfile.py ---
@@ -56,15 +30,17 @@ def _import_locustfile(name: str) -> ModuleType:
     return module
 
 
+@pytest.fixture(autouse=True)
+def no_loadtest_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    clear_loadtest_variables(monkeypatch)
+
+
 @pytest.fixture
-def locustfile(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    variables = ("TARGET", "SHAPE", "QUERY_WEIGHT", "RETRIEVE_WEIGHT", "QUESTIONS")
-    for var in (*variables, "QUESTIONS_FILE"):
-        monkeypatch.delenv(f"RAG_LOADTEST_{var}", raising=False)
+def locustfile() -> ModuleType:
     return _import_locustfile("locustfile_under_test")
 
 
-def test_locustfile_pool_follows_the_settings_and_the_config(
+def test_locustfile_pool_follows_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RAG_TOP_K_RETRIEVE", "7")
@@ -91,6 +67,39 @@ def test_step_shape_ramps_then_stops(monkeypatch: pytest.MonkeyPatch) -> None:
     for run_time, expected in ((0.0, (5, 5.0)), (239.0, (40, 40.0)), (240.0, None)):
         monkeypatch.setattr(shape, "get_run_time", lambda t=run_time: t)
         assert shape.tick() == expected
+
+
+def test_step_shape_follows_its_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_LOADTEST_SHAPE", "step")
+    monkeypatch.setenv("RAG_LOADTEST_STEP_USERS", "2,4")
+    monkeypatch.setenv("RAG_LOADTEST_STEP_SECONDS", "10")
+    shape = _import_locustfile("locustfile_step_settings").StepLoadShape()
+    for run_time, expected in ((9.0, (2, 2.0)), (10.0, (4, 4.0)), (20.0, None)):
+        monkeypatch.setattr(shape, "get_run_time", lambda t=run_time: t)
+        assert shape.tick() == expected
+
+
+def test_every_user_waits_as_the_settings_say(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_LOADTEST_WAIT_MIN_S", "0.5")
+    monkeypatch.setenv("RAG_LOADTEST_WAIT_MAX_S", "0.5")
+    module = _import_locustfile("locustfile_wait_time")
+    for name in ("RagUser", "RerankUser", "EmbeddingsUser"):
+        assert getattr(module, name).wait_time(None) == 0.5
+
+
+def test_a_split_topology_without_endpoint_urls_imports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The RAG system would refuse this configuration; the load generator never
+    # builds it, so Locust can still drive whatever answers at --host.
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
+    monkeypatch.delenv("RAG_EMBEDDING_API_URL", raising=False)
+    monkeypatch.delenv("RAG_RERANK_API_URL", raising=False)
+
+    module = _import_locustfile("locustfile_split_topology")
+
+    assert module.SETTINGS.target == "rag"
+    assert not module.RagUser.abstract
 
 
 @pytest.mark.parametrize(

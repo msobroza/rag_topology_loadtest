@@ -10,22 +10,24 @@ import httpx
 import pytest
 
 from cpu_fakes import FakeCpuCounter
-from rag_load_test.adapters.fakes.fake_models import (
-    FakeEmbedder,
-    FakeLLM,
-    FakeReranker,
-)
-from rag_load_test.adapters.fakes.in_memory_vector_store import InMemoryVectorStore
-from rag_load_test.adapters.local_models.sentence_transformer_models import (
-    CrossEncoderReranker,
-    NoReranker,
+from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
+from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.adapters.vector_store.elasticsearch_store import (
+from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
+from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
+    CrossEncoderReranker,
+)
+from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
+from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
+)
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
 from sentence_transformers_fakes import FakeSentenceTransformersModule
@@ -72,7 +74,7 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.embedder, FakeEmbedder)
         assert isinstance(deps.vector_store, InMemoryVectorStore)
         assert isinstance(deps.reranker, FakeReranker)
-        assert isinstance(deps.chat_model, FakeLLM)
+        assert isinstance(deps.llm, FakeLLM)
         assert deps.lexical_search is deps.vector_store  # the fake store ranks text
         # Every synthetic document fits one chunk, so passages == documents.
         assert await deps.vector_store.ready() == (True, "200 passages in memory")
@@ -225,29 +227,31 @@ def with_an_unknown_generation_format(settings: RagSettings) -> RagSettings:
     return settings.model_copy(update=update)
 
 
-async def test_the_chat_model_opens_before_any_weights_load(
+async def test_the_llm_opens_before_any_weights_load(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api chat
+    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api generation
     async with RagPorts(with_an_unknown_generation_format(settings)) as ports:
-        with pytest.raises(RagDependencyError, match="chat_model unavailable"):
+        with pytest.raises(RagDependencyError, match="llm unavailable"):
             await ports.workflow_dependencies()
 
-    assert fake_weights.loaded == []  # a bad chat setting fails before the slow part
+    assert (
+        fake_weights.loaded == []
+    )  # a bad generation setting fails before the slow part
 
 
 # --- each caller gets only what it asks for -------------------------------------------
 
 
-async def test_ingest_ports_leave_the_chat_model_shut(
+async def test_ingest_ports_leave_the_llm_shut(
     fake_settings: RagSettings,
 ) -> None:
     settings = with_an_unknown_generation_format(fake_settings)
     async with RagPorts(settings) as ports:
-        _, store = await ports.ingest_ports()  # the chat model is never opened
+        _, store = await ports.ingest_ports()  # the LLM is never opened
         assert await store.count() == 200  # the default seed size
 
-        expected = "chat_model unavailable: could not open backend 'api'"
+        expected = "llm unavailable: could not open backend 'api'"
         with pytest.raises(RagDependencyError, match=expected):
             await ports.workflow_dependencies()
 

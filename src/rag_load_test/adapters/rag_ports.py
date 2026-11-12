@@ -33,20 +33,20 @@ from typing import NamedTuple, TypedDict, TypeVar, Unpack, cast
 import httpx
 
 from ..application.ingest import ingest
-from ..config.settings import RagSettings
+from ..application.rag_dependencies import RagDependencies
+from ..config.rag_settings import RagSettings
 from ..domain.corpus import chunk, synthetic_corpus
 from ..domain.errors import RagDependencyError, describe_error
-from ..domain.ports import (
-    BaseEmbedder,
-    BaseLexicalSearch,
-    BaseLLM,
-    BaseReranker,
-    BaseVectorStore,
-    RagDependencies,
-)
 from ..domain.thread_budget import ThreadBudget
-from .fakes.fake_models import FakeEmbedder, FakeLLM, FakeReranker
-from .fakes.in_memory_vector_store import InMemoryVectorStore
+from .embedder.api.api_embedder import open_api_embedder
+from .embedder.base_embedder import BaseEmbedder
+from .embedder.fake.fake_embedder import FakeEmbedder
+from .embedder.local.sentence_transformer_embedder import SentenceTransformerEmbedder
+from .endpoint.open_endpoint_client import RunTokenSource
+from .http.http_policy import HttpPolicy
+from .llm.api.api_llm import open_api_llm
+from .llm.base_llm import BaseLLM
+from .llm.fake.fake_llm import FakeLLM
 from .local_models.cpu_count import (
     BaseCpuCounter,
     ContainerCpus,
@@ -55,24 +55,19 @@ from .local_models.cpu_count import (
     work_out_thread_budget,
 )
 from .local_models.local_model import LocalModel
+from .local_models.model_pool import model_executor
 from .local_models.model_provisioning import Exporter, provision_local_model
 from .local_models.native_threads import settle_torch_thread
 from .local_models.openvino_export import export_embedder, export_reranker
-from .local_models.sentence_transformer_models import (
-    CrossEncoderReranker,
-    NoReranker,
-    SentenceTransformerEmbedder,
-    model_executor,
-)
-from .model_api.endpoint_adapters import (
-    RunTokenSource,
-    open_api_embedder,
-    open_api_llm,
-    open_api_reranker,
-)
-from .shared.http_policy import HttpPolicy
-from .vector_store.chroma_store import ChromaVectorStore
-from .vector_store.elasticsearch_store import ElasticsearchVectorStore
+from .reranker.api.api_reranker import open_api_reranker
+from .reranker.base_reranker import BaseReranker
+from .reranker.fake.fake_reranker import FakeReranker
+from .reranker.local.cross_encoder_reranker import CrossEncoderReranker
+from .reranker.none.no_reranker import NoReranker
+from .vector_store.base_vector_store import BaseLexicalSearch, BaseVectorStore
+from .vector_store.chroma.chroma_store import ChromaVectorStore
+from .vector_store.elasticsearch.elasticsearch_store import ElasticsearchVectorStore
+from .vector_store.fake.in_memory_vector_store import InMemoryVectorStore
 
 T = TypeVar("T")
 Opener = Callable[[], Awaitable[T]]  # opens one port for one backend name
@@ -92,7 +87,7 @@ class SuppliedPorts(TypedDict, total=False):
     embedder: BaseEmbedder | None
     vector_store: BaseVectorStore | None
     reranker: BaseReranker | None
-    chat_model: BaseLLM | None
+    llm: BaseLLM | None
 
 
 class RagPorts:
@@ -105,7 +100,7 @@ class RagPorts:
         container_cpus: Counts the container's CPUs when nothing earlier in the
             chain answers; None for ``ContainerCpus()``.
         **supplied: Ready-made ports by name (``embedder``, ``vector_store``,
-            ``reranker``, ``chat_model``), used as given and never closed here.
+            ``reranker``, ``llm``), used as given and never closed here.
 
     Example:
         >>> ports = RagPorts(settings, reranker=FailingReranker("timeout"))
@@ -155,27 +150,25 @@ class RagPorts:
     async def workflow_dependencies(self) -> RagDependencies:
         """Open all four ports, for the workflow app.
 
-        The chat model opens first: it is cheap, so a bad generation setting fails
+        The LLM opens first: it is cheap, so a bad generation setting fails
         before any weights load. If a port cannot open, the error propagates and
         nothing is returned.
 
         Returns:
-            The embedder, vector store, reranker and chat model, and the store as
+            The embedder, vector store, reranker and LLM, and the store as
             lexical search when it ranks text (None otherwise).
         """
-        chat_model = await self._chat_model()
+        llm = await self._llm()
         embedder = await self._embedder()
         store = await self._vector_store()
         reranker = await self._reranker()
         lexical = store if isinstance(store, BaseLexicalSearch) else None
-        return RagDependencies(
-            embedder, store, reranker, chat_model, lexical_search=lexical
-        )
+        return RagDependencies(embedder, store, reranker, llm, lexical_search=lexical)
 
     async def ingest_ports(self) -> IngestPorts:
         """Open the embedder and the vector store, for ``rag-ingest``.
 
-        The reranker and chat model stay shut.
+        The reranker and the LLM stay shut.
 
         Returns:
             The embedder and the vector store.
@@ -297,13 +290,13 @@ class RagPorts:
         await ingest(passages, await self._embedder(), store)
         return store
 
-    async def _chat_model(self) -> BaseLLM:
-        if (supplied := self._supplied.get("chat_model")) is not None:
+    async def _llm(self) -> BaseLLM:
+        if (supplied := self._supplied.get("llm")) is not None:
             return supplied
         backend = self.settings.generation_backend
-        return await self._once("chat_model", backend, self._open_chat_model)
+        return await self._once("llm", backend, self._open_llm)
 
-    async def _open_chat_model(self) -> BaseLLM:
+    async def _open_llm(self) -> BaseLLM:
         openers: dict[str, Opener[BaseLLM]] = {
             "api": self._api_llm,
             "fake": lambda: _built(FakeLLM()),

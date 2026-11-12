@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from loadtest_settings_helpers import settings_from
 from rag_load_test.loadtest.request_plans import (
     build_request_pool,
     load_questions,
     plan_embeddings_request,
     plan_rerank_request,
-    read_loadtest_config,
 )
 from repo_paths import REPO_ROOT
 
@@ -26,13 +26,14 @@ def written(tmp_path: Path, text: str, name: str = "questions.jsonl") -> Path:
     return path
 
 
-def test_the_config_reads_the_questions_file_and_leaves_it_unset_by_default(
-    tmp_path: Path,
+def test_the_settings_read_the_questions_file_and_leave_it_unset_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert read_loadtest_config({}).questions_file is None
-    assert read_loadtest_config({QUESTIONS_FILE: ""}).questions_file is None
+    assert settings_from(monkeypatch, {}).questions_file is None
+    assert settings_from(monkeypatch, {QUESTIONS_FILE: ""}).questions_file is None
     path = str(tmp_path / "q.jsonl")
-    assert read_loadtest_config({QUESTIONS_FILE: path}).questions_file == Path(path)
+    settings = settings_from(monkeypatch, {QUESTIONS_FILE: path})
+    assert settings.questions_file == Path(path)
 
 
 def test_json_lines_give_their_question_and_skip_blank_lines(tmp_path: Path) -> None:
