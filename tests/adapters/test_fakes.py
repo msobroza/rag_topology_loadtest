@@ -1,4 +1,4 @@
-"""The ``fake`` backends: the embedder, the reranker, the in-memory store and the chat model."""
+"""The ``fake`` backends: the embedder, the reranker, the in-memory store and the LLM."""
 
 from __future__ import annotations
 
@@ -138,7 +138,7 @@ async def test_in_memory_store_rejects_mismatched_lengths() -> None:
         )
 
 
-async def test_fake_chat_model_echoes_last_user_message_and_counts_calls() -> None:
+async def test_fake_llm_echoes_last_user_message_and_counts_calls() -> None:
     llm = FakeLLM()
     messages = [
         {"role": "system", "content": "be terse"},
@@ -152,7 +152,7 @@ async def test_fake_chat_model_echoes_last_user_message_and_counts_calls() -> No
     assert llm.calls == 2
 
 
-async def test_fake_chat_model_honours_latency() -> None:
+async def test_fake_llm_honours_latency() -> None:
     llm = FakeLLM(latency_ms=30)
     start = time.perf_counter()
     await llm.generate([{"role": "user", "content": "hi"}])

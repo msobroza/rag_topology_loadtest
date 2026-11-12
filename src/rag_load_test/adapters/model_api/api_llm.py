@@ -1,9 +1,9 @@
 """BaseLLM over an HTTP endpoint that speaks a generation API format.
 
 Example:
-    >>> chat_model = ApiLLM(endpoint_client, generation_api_format("openai"),
+    >>> llm = ApiLLM(endpoint_client, generation_api_format("openai"),
     ...                           temperature=0.0)
-    >>> answer = await chat_model.generate(messages)
+    >>> answer = await llm.generate(messages)
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ class ApiLLM(BaseLLM):
         temperature: The sampling temperature sent with every request.
 
     Example:
-        >>> chat_model = ApiLLM(endpoint_client, OpenAIChatFormat(),
+        >>> llm = ApiLLM(endpoint_client, OpenAIChatFormat(),
         ...                           temperature=0.0)
-        >>> await chat_model.generate([{"role": "user", "content": "Hi"}])
+        >>> await llm.generate([{"role": "user", "content": "Hi"}])
         'Hello!'
     """
 

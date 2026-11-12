@@ -1,6 +1,6 @@
 """Deterministic, dependency-free doubles for the model ports (the ``fake`` backends).
 
-The embedder, the reranker and the chat model are here; the vector store's double
+The embedder, the reranker and the LLM are here; the vector store's double
 is ``in_memory_vector_store.py``, which borrows ``cosine`` from this module.
 ``FakeEmbedder`` is a hashed bag-of-words embedder, so texts sharing words get
 similar vectors and retrieval over the synthetic corpus stays meaningful in

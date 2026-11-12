@@ -113,7 +113,7 @@ def test_a_retrieval_mode_its_store_can_serve_is_accepted(
 
 
 @pytest.mark.parametrize("temperature", [0.0, 1.0, 2.0])
-def test_the_temperature_may_be_anything_the_chat_api_accepts(
+def test_the_temperature_may_be_anything_the_generation_api_accepts(
     settings_factory: SettingsFactory, temperature: float
 ) -> None:
     assert (

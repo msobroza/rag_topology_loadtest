@@ -96,8 +96,8 @@ async def test_retrieve_mode_skips_generation(
     workflow = RagWorkflow(fake_deps, parameters)
     result = await workflow.run(VACATION_QUESTION, mode="retrieve")
 
-    assert isinstance(fake_deps.chat_model, FakeLLM)
-    assert fake_deps.chat_model.calls == 0
+    assert isinstance(fake_deps.llm, FakeLLM)
+    assert fake_deps.llm.calls == 0
     assert result.mode == "retrieve"
     assert result.answer is None
     assert result.timings_ms["generate"] == 0.0

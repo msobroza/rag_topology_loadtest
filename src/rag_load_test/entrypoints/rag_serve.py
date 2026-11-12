@@ -185,7 +185,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             topology=settings.topology,
             run_label=settings.run_label,
             embedder=deps.embedder.model_name,
-            llm=deps.chat_model.model_name,
+            llm=deps.llm.model_name,
         )
         yield
 

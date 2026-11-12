@@ -72,7 +72,7 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.embedder, FakeEmbedder)
         assert isinstance(deps.vector_store, InMemoryVectorStore)
         assert isinstance(deps.reranker, FakeReranker)
-        assert isinstance(deps.chat_model, FakeLLM)
+        assert isinstance(deps.llm, FakeLLM)
         assert deps.lexical_search is deps.vector_store  # the fake store ranks text
         # Every synthetic document fits one chunk, so passages == documents.
         assert await deps.vector_store.ready() == (True, "200 passages in memory")
@@ -225,29 +225,31 @@ def with_an_unknown_generation_format(settings: RagSettings) -> RagSettings:
     return settings.model_copy(update=update)
 
 
-async def test_the_chat_model_opens_before_any_weights_load(
+async def test_the_llm_opens_before_any_weights_load(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api chat
+    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api generation
     async with RagPorts(with_an_unknown_generation_format(settings)) as ports:
-        with pytest.raises(RagDependencyError, match="chat_model unavailable"):
+        with pytest.raises(RagDependencyError, match="llm unavailable"):
             await ports.workflow_dependencies()
 
-    assert fake_weights.loaded == []  # a bad chat setting fails before the slow part
+    assert (
+        fake_weights.loaded == []
+    )  # a bad generation setting fails before the slow part
 
 
 # --- each caller gets only what it asks for -------------------------------------------
 
 
-async def test_ingest_ports_leave_the_chat_model_shut(
+async def test_ingest_ports_leave_the_llm_shut(
     fake_settings: RagSettings,
 ) -> None:
     settings = with_an_unknown_generation_format(fake_settings)
     async with RagPorts(settings) as ports:
-        _, store = await ports.ingest_ports()  # the chat model is never opened
+        _, store = await ports.ingest_ports()  # the LLM is never opened
         assert await store.count() == 200  # the default seed size
 
-        expected = "chat_model unavailable: could not open backend 'api'"
+        expected = "llm unavailable: could not open backend 'api'"
         with pytest.raises(RagDependencyError, match=expected):
             await ports.workflow_dependencies()
 

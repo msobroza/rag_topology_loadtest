@@ -107,7 +107,7 @@ async def test_each_generation_backend_opens_its_adapter(
 ) -> None:
     settings = settings_factory(**(EVERYTHING_FAKE | {"generation_backend": backend}))
     async with RagPorts(settings) as ports:
-        assert isinstance((await ports.workflow_dependencies()).chat_model, adapter)
+        assert isinstance((await ports.workflow_dependencies()).llm, adapter)
 
 
 # --- the api backends on the wire --------------------------------------------------
@@ -176,9 +176,9 @@ async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
         http_timeout_s=4.5,
     )
     async with RagPorts(settings, transport=httpx.MockTransport(routes)) as ports:
-        chat_model = (await ports.workflow_dependencies()).chat_model
+        llm = (await ports.workflow_dependencies()).llm
         messages = [{"role": "user", "content": "How many vacation days?"}]
-        assert await chat_model.generate(messages) == "Twenty-five days."
+        assert await llm.generate(messages) == "Twenty-five days."
 
     expected_body = {"model": "llama-3", "messages": messages, "temperature": 0.7}
     assert routes.sent() == [(CHAT_URL, expected_body, "Bearer sk-key", 90.0)]
@@ -199,8 +199,8 @@ async def test_the_generation_endpoint_keeps_the_shared_retries(
         http_backoff_s=0.0,
     )
     async with RagPorts(settings, transport=httpx.MockTransport(busy)) as ports:
-        chat_model = (await ports.workflow_dependencies()).chat_model
+        llm = (await ports.workflow_dependencies()).llm
         with pytest.raises(RagDependencyError, match="HTTP 503"):
-            await chat_model.generate([{"role": "user", "content": "q"}])
+            await llm.generate([{"role": "user", "content": "q"}])
 
     assert len(attempts) == 2  # the first attempt and http_retries=1

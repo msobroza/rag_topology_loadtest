@@ -149,11 +149,11 @@ def open_api_llm(
     policy: HttpPolicy,
     temperature: float,
 ) -> ApiLLM:
-    """Build the LLM of one generation (chat) endpoint.
+    """Build the LLM of one generation endpoint.
 
     Args:
         client: The shared HTTP client.
-        endpoint: The chat route, its API format, its key and its model.
+        endpoint: The generation route, its API format, its key and its model.
         tokens: Where the Domino run token comes from, for the ``domino`` key.
         policy: Timeout, retries and backoff of every call; generation has a
             longer timeout than the model servers.

@@ -172,5 +172,5 @@ class RagDependencies:
     embedder: BaseEmbedder
     vector_store: BaseVectorStore
     reranker: BaseReranker
-    chat_model: BaseLLM
+    llm: BaseLLM
     lexical_search: BaseLexicalSearch | None = None

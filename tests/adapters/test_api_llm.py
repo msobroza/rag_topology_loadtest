@@ -32,8 +32,8 @@ def make(
     route = ScriptedRoute(*script)
     endpoint = ApiEndpoint(url=URL, api_format="openai", api_key="k1", model=MODEL)
     client = endpoint_client(clients.over(route), endpoint, component="llm")
-    chat_model = ApiLLM(client, OpenAIChatFormat(), temperature=temperature)
-    return chat_model, route
+    llm = ApiLLM(client, OpenAIChatFormat(), temperature=temperature)
+    return llm, route
 
 
 def completion(content: str | None) -> httpx.Response:
@@ -45,10 +45,10 @@ def completion(content: str | None) -> httpx.Response:
 async def test_returns_content_and_sends_model_and_temperature(
     clients: HttpClients, temperature: float
 ) -> None:
-    chat_model, route = make(clients, completion("Paris."), temperature=temperature)
-    assert isinstance(chat_model, BaseLLM)
-    assert chat_model.model_name == MODEL
-    assert await chat_model.generate(MESSAGES) == "Paris."
+    llm, route = make(clients, completion("Paris."), temperature=temperature)
+    assert isinstance(llm, BaseLLM)
+    assert llm.model_name == MODEL
+    assert await llm.generate(MESSAGES) == "Paris."
     [request] = route.requests
     assert (request.method, request.url) == ("POST", URL)
     assert request.json == {
@@ -60,8 +60,8 @@ async def test_returns_content_and_sends_model_and_temperature(
 
 
 async def test_null_content_reads_as_empty(clients: HttpClients) -> None:
-    chat_model, _ = make(clients, completion(None))
-    assert await chat_model.generate(MESSAGES) == ""
+    llm, _ = make(clients, completion(None))
+    assert await llm.generate(MESSAGES) == ""
 
 
 @pytest.mark.parametrize(
@@ -72,9 +72,9 @@ async def test_null_content_reads_as_empty(clients: HttpClients) -> None:
 async def test_malformed_answer_raises(
     clients: HttpClients, body: dict[str, object]
 ) -> None:
-    chat_model, route = make(clients, httpx.Response(200, json=body))
+    llm, route = make(clients, httpx.Response(200, json=body))
     with pytest.raises(RagDependencyError, match="malformed response") as info:
-        await chat_model.generate(MESSAGES)
+        await llm.generate(MESSAGES)
     assert (info.value.component, info.value.target) == ("llm", URL)
     assert len(route.requests) == 1
 
@@ -90,15 +90,15 @@ async def test_malformed_answer_raises(
 async def test_failures_carry_component_llm_and_kind(
     clients: HttpClients, error: httpx.Response | Exception, kind: str
 ) -> None:
-    chat_model, route = make(clients, error)
+    llm, route = make(clients, error)
     with pytest.raises(RagDependencyError) as info:
-        await chat_model.generate(MESSAGES)
+        await llm.generate(MESSAGES)
     assert (info.value.component, info.value.kind) == ("llm", kind)
     assert len(route.requests) == 3  # retried like any other call
 
 
 async def test_a_rejected_key_fails_at_once(clients: HttpClients) -> None:
-    chat_model, route = make(clients, httpx.Response(401, text="bad key"))
+    llm, route = make(clients, httpx.Response(401, text="bad key"))
     with pytest.raises(RagDependencyError, match="HTTP 401"):
-        await chat_model.generate(MESSAGES)
+        await llm.generate(MESSAGES)
     assert len(route.requests) == 1

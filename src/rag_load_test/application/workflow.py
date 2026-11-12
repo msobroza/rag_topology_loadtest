@@ -229,4 +229,4 @@ class RagWorkflow:
     async def _generate(self, state: RagState) -> dict[str, Any]:
         prompts = self.parameters.prompts
         messages = prompts.messages(state["question"], state["reranked"])
-        return {"answer": await self.deps.chat_model.generate(messages)}
+        return {"answer": await self.deps.llm.generate(messages)}

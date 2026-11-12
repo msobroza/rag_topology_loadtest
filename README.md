@@ -510,7 +510,7 @@ An OpenAI-compatible gateway, for generation and embeddings:
 
 ```bash
 RAG_GENERATION_API_URL=https://gateway.example/v1/chat/completions \
-  RAG_GENERATION_API_KEY=<key> RAG_GENERATION_API_MODEL=<chat model> \
+  RAG_GENERATION_API_KEY=<key> RAG_GENERATION_API_MODEL=<model name> \
   RAG_EMBEDDING_BACKEND=api RAG_EMBEDDING_API_URL=https://gateway.example/v1/embeddings \
   RAG_EMBEDDING_API_KEY=<key> RAG_EMBEDDING_API_MODEL=<embedding model> make serve
 ```
