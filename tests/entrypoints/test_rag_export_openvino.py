@@ -14,8 +14,8 @@ import pytest
 from rag_load_test.adapters.local_models.openvino_export import (
     OpenVinoUnavailableError,
 )
-from rag_load_test.entrypoints import export_openvino
-from rag_load_test.entrypoints.export_openvino import main
+from rag_load_test.entrypoints import rag_export_openvino
+from rag_load_test.entrypoints.rag_export_openvino import main
 
 DEFAULT_EMBEDDER = "Snowflake/snowflake-arctic-embed-l-v2.0"
 DEFAULT_RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
@@ -45,8 +45,8 @@ class RecordingExports:
 def exports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> RecordingExports:
     """Recorder in place, no RAG_* variable from the shell, no stray ``.env``."""
     recorder = RecordingExports()
-    monkeypatch.setattr(export_openvino, "export_embedder", recorder.embedder)
-    monkeypatch.setattr(export_openvino, "export_reranker", recorder.reranker)
+    monkeypatch.setattr(rag_export_openvino, "export_embedder", recorder.embedder)
+    monkeypatch.setattr(rag_export_openvino, "export_reranker", recorder.reranker)
     for name in [n for n in os.environ if n.startswith("RAG_")]:
         monkeypatch.delenv(name)
     monkeypatch.chdir(tmp_path)

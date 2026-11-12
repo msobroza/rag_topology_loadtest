@@ -106,24 +106,24 @@ src/rag_load_test/
       json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
       json_log.py   log_json: the one log format
   entrypoints/      processes: FastAPI apps and CLIs
-    workflow_api.py FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, rag-serve
-    model_server.py FastAPI model server on OpenVINO Model Server's /v3 routes (rag-model-server)
-    served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
-    export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
-    ingest_cli.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
+    rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
+    rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes
+    rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
+    rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
+    rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
   loadtest/
     request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
-    run_comparison.py rag-compare: Locust *_stats.csv files to markdown tables
+    rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
   deploy/           rag-deploy on Domino 6.2
     settings.py     DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
     publish.py      which Apps a topology needs, their entry scripts, App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
     app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
-    cli.py          rag-deploy: the parser, url, --dry-run
+    rag_deploy.py   rag-deploy: the parser, url, --dry-run
     apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
-                    It imports nothing from rag_load_test, and only deploy/cli.py imports it (both checked by
+                    It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
                     tests/structure/test_layering.py)
   api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
   state.py          FakeDominoApps: the fake's Apps, versions and instances

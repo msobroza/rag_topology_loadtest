@@ -1,6 +1,6 @@
 """The layer rule, read from the source with ``ast``: domain imports no other layer;
 application and config import only domain (and themselves). And the mock rule:
-``fake_domino`` imports nothing from ``rag_load_test``, and only ``deploy/cli.py``
+``fake_domino`` imports nothing from ``rag_load_test``, and only ``deploy/rag_deploy.py``
 (``--dry-run``) imports ``fake_domino``; the mock's own tests, in
 ``tests/fake_domino/``, import nothing from ``rag_load_test`` either."""
 
@@ -15,7 +15,7 @@ from repo_paths import REPO_ROOT
 
 PACKAGE = REPO_ROOT / "src" / "rag_load_test"
 FAKE_DOMINO = PACKAGE.parent / "fake_domino"
-FAKE_DOMINO_IMPORTERS = {Path("deploy") / "cli.py"}  # relative to PACKAGE
+FAKE_DOMINO_IMPORTERS = {Path("deploy") / "rag_deploy.py"}  # relative to PACKAGE
 ALLOWED_LAYERS: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
@@ -71,7 +71,7 @@ def absolute_imports(path: Path, package: str) -> list[tuple[int, str]]:
 
     Example::
 
-        absolute_imports(PACKAGE / "deploy" / "cli.py", "fake_domino")
+        absolute_imports(PACKAGE / "deploy" / "rag_deploy.py", "fake_domino")
         # [(26, "fake_domino.api_shapes"), ...]
     """
     found = []
@@ -106,11 +106,13 @@ def test_the_fake_domino_tests_import_nothing_from_the_product() -> None:
     assert not offending, f"tests/fake_domino may not import rag_load_test: {offending}"
 
 
-def test_only_the_deploy_cli_imports_fake_domino() -> None:
+def test_only_rag_deploy_imports_fake_domino() -> None:
     offending = [
         f"{path.relative_to(PACKAGE)}:{line} imports {module}"
         for path in sorted(PACKAGE.rglob("*.py"))
         if path.relative_to(PACKAGE) not in FAKE_DOMINO_IMPORTERS
         for line, module in absolute_imports(path, "fake_domino")
     ]
-    assert not offending, f"only deploy/cli.py may import fake_domino: {offending}"
+    assert (
+        not offending
+    ), f"only deploy/rag_deploy.py may import fake_domino: {offending}"

@@ -1,4 +1,4 @@
-"""Tests for ``entrypoints.ingest_cli``: JSONL loading and the ``rag-ingest`` command."""
+"""Tests for ``entrypoints.rag_ingest``: JSONL loading and the ``rag-ingest`` command."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from rag_load_test.domain.corpus import (
     TOPICS,
     SourceDocument,
 )
-from rag_load_test.entrypoints.ingest_cli import load_jsonl, main
+from rag_load_test.entrypoints.rag_ingest import load_jsonl, main
 
 SLUGS = list(TOPICS)
 

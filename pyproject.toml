@@ -63,14 +63,14 @@ dev = [
 ]
 
 [project.scripts]
-rag-serve = "rag_load_test.entrypoints.workflow_api:main"
-rag-ingest = "rag_load_test.entrypoints.ingest_cli:main"
-rag-compare = "rag_load_test.loadtest.run_comparison:compare_main"
-rag-model-server = "rag_load_test.entrypoints.model_server:main"
-rag-served-models = "rag_load_test.entrypoints.served_models:main"
-rag-export-openvino = "rag_load_test.entrypoints.export_openvino:main"
-rag-fetch-corpus = "rag_load_test.entrypoints.fetch_corpus:main"
-rag-deploy = "rag_load_test.deploy.cli:main"
+rag-serve = "rag_load_test.entrypoints.rag_serve:main"
+rag-ingest = "rag_load_test.entrypoints.rag_ingest:main"
+rag-compare = "rag_load_test.loadtest.rag_compare:compare_main"
+rag-model-server = "rag_load_test.entrypoints.rag_model_server:main"
+rag-served-models = "rag_load_test.entrypoints.rag_served_models:main"
+rag-export-openvino = "rag_load_test.entrypoints.rag_export_openvino:main"
+rag-fetch-corpus = "rag_load_test.entrypoints.rag_fetch_corpus:main"
+rag-deploy = "rag_load_test.deploy.rag_deploy:main"
 rag-fake-domino = "fake_domino.server:main"
 # TEMPORARY, with the emulation.
 rag-domino-emulation = "fake_domino.emulation.server:main"

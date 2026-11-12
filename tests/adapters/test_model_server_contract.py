@@ -1,6 +1,6 @@
 """The model server's side of the API formats: its answers, and the rerank round trip.
 
-Everything here is pure: no HTTP, no server. ``test_model_server.py`` tests the
+Everything here is pure: no HTTP, no server. ``test_rag_model_server.py`` tests the
 wire on top of it.
 """
 

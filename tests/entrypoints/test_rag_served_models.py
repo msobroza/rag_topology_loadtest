@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from rag_load_test.config.settings import RagSettings
-from rag_load_test.entrypoints.served_models import main, served_model_assignments
+from rag_load_test.entrypoints.rag_served_models import main, served_model_assignments
 from repo_paths import REPO_ROOT
 
 ROOT = REPO_ROOT

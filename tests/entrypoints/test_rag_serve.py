@@ -14,8 +14,8 @@ from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
 from rag_load_test.domain.ports import BaseReranker
-from rag_load_test.entrypoints import workflow_api as api
-from rag_load_test.entrypoints.workflow_api import create_app, main, traced
+from rag_load_test.entrypoints import rag_serve as api
+from rag_load_test.entrypoints.rag_serve import create_app, main, traced
 
 TOPOLOGY = "split-all"  # with every backend fake: the label, not the transport
 RUN_LABEL = "split-all-test-tier"

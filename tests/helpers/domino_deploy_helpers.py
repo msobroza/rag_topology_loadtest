@@ -1,6 +1,6 @@
 """Helpers and constants shared by the rag-deploy tests over the fake Domino.
 
-Imported by the ``test_domino_*.py`` files and ``test_rag_deploy_cli.py``. The
+Imported by the ``test_domino_*.py`` files and ``test_rag_deploy.py``. The
 CLI tests' fixtures are in ``domino_deploy_fixtures.py``.
 """
 

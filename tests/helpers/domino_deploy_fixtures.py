@@ -1,7 +1,7 @@
 """Fixtures of the ``rag-deploy`` CLI tests: ``main`` run in a fake Workspace.
 
 Loaded by ``pytest_plugins = ["domino_deploy_fixtures"]`` (never imported by
-name, so pytest can rewrite its asserts) in ``test_rag_deploy_cli.py`` and
+name, so pytest can rewrite its asserts) in ``test_rag_deploy.py`` and
 ``test_domino_deploy_dry_run.py``.
 """
 
@@ -14,7 +14,7 @@ import pytest
 from starlette.types import ASGIApp
 
 from domino_deploy_helpers import ENV_1, PROXY, RunMain
-from rag_load_test.deploy.cli import main
+from rag_load_test.deploy.rag_deploy import main
 
 
 @pytest.fixture

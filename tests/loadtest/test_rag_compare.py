@@ -1,4 +1,4 @@
-"""Tests for ``rag-compare`` (``rag_load_test.loadtest.run_comparison``)."""
+"""Tests for ``rag-compare`` (``rag_load_test.loadtest.rag_compare``)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.loadtest.request_plans import (
-    write_target_record,
-)
-from rag_load_test.loadtest.run_comparison import (
+from rag_load_test.loadtest.rag_compare import (
     RowStats,
     compare_main,
     load_stats,
     render_markdown,
+)
+from rag_load_test.loadtest.request_plans import (
+    write_target_record,
 )
 from repo_paths import REPO_ROOT
 

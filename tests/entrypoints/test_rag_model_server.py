@@ -22,7 +22,7 @@ from rag_load_test.config.settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.model_api import ApiEndpoint
 from rag_load_test.domain.passages import ScoredPassage
-from rag_load_test.entrypoints.model_server import create_model_server, main
+from rag_load_test.entrypoints.rag_model_server import create_model_server, main
 
 EMBED_ALIAS = "snowflake-arctic-embed-l-v2.0"  # RagSettings().embedding_api_model
 RERANK_ALIAS = "crossencoder-camembert-base-mmarcoFR"  # RagSettings().rerank_api_model
@@ -206,11 +206,11 @@ async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
 def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, object] = {}
     monkeypatch.setattr(
-        "rag_load_test.entrypoints.model_server.create_model_server",
+        "rag_load_test.entrypoints.rag_model_server.create_model_server",
         lambda role, ports: role,
     )
     monkeypatch.setattr(
-        "rag_load_test.entrypoints.model_server.uvicorn.run",
+        "rag_load_test.entrypoints.rag_model_server.uvicorn.run",
         lambda app, host, port: calls.update(app=app, host=host, port=port),
     )
     assert main(["--serve", "embedder", "--port", "8012"]) == 0
