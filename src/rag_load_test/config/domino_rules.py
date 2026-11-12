@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ..domain.model_api import DOMINO_RUN_TOKEN
-from .settings import RagSettings
+from ..domain.api_endpoint import DOMINO_RUN_TOKEN
+from .rag_settings import RagSettings
 
 
 def apply_domino_rules(settings: RagSettings) -> RagSettings:

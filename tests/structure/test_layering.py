@@ -28,7 +28,7 @@ def imported_layers(path: Path) -> list[tuple[int, str]]:
 
     Example::
 
-        imported_layers(PACKAGE / "config" / "settings.py")   # [(21, "domain")]
+        imported_layers(PACKAGE / "config" / "rag_settings.py")   # [(21, "domain")]
     """
     layer = path.parent.name
     found = []

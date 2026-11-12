@@ -4,7 +4,7 @@ Embedding speaks OpenAI's embeddings format, rerank Cohere's rerank format and
 generation OpenAI's chat format. These classes are the project's own contract:
 the endpoint adapters build and read them, the model server answers in them and
 the load test sends them. The format names and the ``/v3`` routes are in
-``domain/model_api.py``.
+``domain/api_endpoint.py``.
 
 Example:
     >>> CohereRerankRequest(model="r", query="q", documents=["a"]).to_wire()

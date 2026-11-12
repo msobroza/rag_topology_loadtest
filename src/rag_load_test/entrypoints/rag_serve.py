@@ -33,7 +33,7 @@ from ..adapters.rag_ports import RagPorts
 from ..adapters.shared.json_log import log_json
 from ..application.workflow import RagWorkflow
 from ..config.domino_rules import apply_domino_rules
-from ..config.settings import RagSettings
+from ..config.rag_settings import RagSettings
 from ..domain.errors import RagDependencyError
 from ..domain.passages import RagMode, ScoredPassage
 from ..domain.ports import RagDependencies

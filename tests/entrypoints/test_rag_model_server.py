@@ -18,9 +18,9 @@ from rag_load_test.adapters.model_api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.domain.api_endpoint import ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.model_api import ApiEndpoint
 from rag_load_test.domain.passages import ScoredPassage
 from rag_load_test.entrypoints.rag_model_server import create_model_server, main
 

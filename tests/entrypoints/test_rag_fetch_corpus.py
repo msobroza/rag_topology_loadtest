@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from rag_load_test.adapters.corpora.catalog import CORPORA
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.entrypoints.rag_fetch_corpus import main
 
 QUEBEC = CORPORA["quebec-insurance"]

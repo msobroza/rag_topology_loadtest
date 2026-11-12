@@ -16,7 +16,7 @@ from rag_load_test.adapters.local_models.local_model import (
 )
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.chroma_store import ChromaVectorStore
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage
 from sentence_transformers_fakes import (

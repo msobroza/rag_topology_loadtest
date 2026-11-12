@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Callable
 import pytest
 
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.ports import RagDependencies
 
 

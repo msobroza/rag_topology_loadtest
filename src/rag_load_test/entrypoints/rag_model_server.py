@@ -3,7 +3,7 @@
 Like an OVMS app it serves ONE model per process: ``--serve embedder`` exposes
 ``POST /v3/embeddings`` (OpenAI's embeddings format), ``--serve reranker``
 exposes ``POST /v3/rerank`` (Cohere's rerank format). Both answer
-``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/model_api.py``
+``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/api_endpoint.py``
 and bodies from the API format modules the ``api`` adapters speak; like OVMS, a
 request for any model but this server's alias is a 404. The workflow app cannot
 tell the two servers apart, so ``RAG_EMBEDDING_API_URL`` / ``RAG_RERANK_API_URL``
@@ -36,8 +36,8 @@ from ..adapters.model_api.model_server_contract import (
     rerank_response_for,
 )
 from ..adapters.rag_ports import RagPorts
-from ..config.settings import RagSettings
-from ..domain.model_api import (
+from ..config.rag_settings import RagSettings
+from ..domain.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,

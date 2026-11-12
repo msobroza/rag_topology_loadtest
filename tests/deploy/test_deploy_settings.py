@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from domino_deploy_helpers import DEPLOY_YAML
 from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.settings import (
+from rag_load_test.deploy.deploy_settings import (
     AppSettings,
     Autoscaling,
     DeploySettings,

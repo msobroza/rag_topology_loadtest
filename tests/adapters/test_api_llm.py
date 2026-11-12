@@ -10,8 +10,8 @@ import pytest
 from model_api_fakes import HttpClients, ScriptedRoute, endpoint_client
 from rag_load_test.adapters.model_api.api_llm import ApiLLM
 from rag_load_test.adapters.model_api.openai_chat_format import OpenAIChatFormat
+from rag_load_test.domain.api_endpoint import ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.model_api import ApiEndpoint
 from rag_load_test.domain.ports import BaseLLM
 
 URL = "https://gateway.test/v1/chat/completions"

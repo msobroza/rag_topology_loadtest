@@ -24,7 +24,7 @@ from ..adapters.local_models.openvino_export import (
     export_embedder,
     export_reranker,
 )
-from ..config.settings import RagSettings
+from ..config.rag_settings import RagSettings
 
 PROG = "rag-export-openvino"
 ROLES = ("embedder", "reranker")

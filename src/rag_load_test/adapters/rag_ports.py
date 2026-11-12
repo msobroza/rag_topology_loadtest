@@ -33,7 +33,7 @@ from typing import NamedTuple, TypedDict, TypeVar, Unpack, cast
 import httpx
 
 from ..application.ingest import ingest
-from ..config.settings import RagSettings
+from ..config.rag_settings import RagSettings
 from ..domain.corpus import chunk, synthetic_corpus
 from ..domain.errors import RagDependencyError, describe_error
 from ..domain.ports import (

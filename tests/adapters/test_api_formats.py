@@ -21,7 +21,7 @@ from rag_load_test.adapters.model_api.openai_chat_format import OpenAIChatFormat
 from rag_load_test.adapters.model_api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
-from rag_load_test.domain.model_api import (
+from rag_load_test.domain.api_endpoint import (
     EmbeddingApiFormat,
     GenerationApiFormat,
     RerankApiFormat,

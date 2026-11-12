@@ -19,8 +19,8 @@ from http import HTTPStatus
 
 import httpx
 
+from ...domain.api_endpoint import ApiEndpoint
 from ...domain.errors import RagDependencyError
-from ...domain.model_api import ApiEndpoint
 from ..shared.http_policy import HttpPolicy
 from ..shared.json_post import RetryingJsonPost, describe_malformed
 from .bearer_token import BearerToken

@@ -31,7 +31,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from ..domain.model_api import (
+from ..domain.api_endpoint import (
     ApiEndpoint,
     EmbeddingApiFormat,
     GenerationApiFormat,

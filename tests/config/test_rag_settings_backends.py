@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.passages import ScoredPassage
 
 

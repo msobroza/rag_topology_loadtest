@@ -23,8 +23,8 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
+from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.corpus import chunk, synthetic_corpus, synthetic_questions
-from ..domain.model_api import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.passages import STAGES
 from ..domain.standard_formats import CohereRerankRequest, OpenAIEmbeddingsRequest
 

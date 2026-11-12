@@ -17,7 +17,7 @@ from typing import NamedTuple
 
 import httpx
 
-from ...domain.model_api import ApiEndpoint
+from ...domain.api_endpoint import ApiEndpoint
 from ..shared.http_policy import HttpPolicy
 from .api_embedder import ApiEmbedder
 from .api_endpoint_client import ApiEndpointClient

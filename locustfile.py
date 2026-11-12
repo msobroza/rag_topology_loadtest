@@ -22,7 +22,7 @@ from typing import Any
 
 from locust import FastHttpUser, LoadTestShape, between, events, task
 
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.loadtest.request_plans import (
     STAGE_REQUEST_TYPE,
     RequestPlan,

@@ -18,8 +18,8 @@ from model_api_fakes import (
 )
 from rag_load_test.adapters.model_api.api_endpoint_client import ApiEndpointClient
 from rag_load_test.adapters.shared.http_policy import HttpPolicy
+from rag_load_test.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.model_api import DOMINO_RUN_TOKEN, ApiEndpoint
 from rag_load_test.domain.standard_formats import CohereRerankResponse
 
 URL = "http://models.test:8001/v3/rerank"

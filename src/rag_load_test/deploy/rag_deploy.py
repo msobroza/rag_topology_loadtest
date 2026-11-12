@@ -1,7 +1,7 @@
 """rag-deploy: publish a topology's Apps on Domino 6.2 and show their status.
 
 What to publish is decided in ``publish.py`` and with which settings in
-``settings.py`` (from ``deploy.yaml``); the calls to Domino's Apps API are in
+``deploy_settings.py`` (from ``deploy.yaml``); the calls to Domino's Apps API are in
 ``apps_client.py``, and where a running App answers in ``endpoint_url.py``. The
 model server Apps are published first, then the workflow App with their URLs.
 
@@ -28,9 +28,9 @@ from fake_domino.state import FakeDominoApps
 
 from .app_id_cache import APP_ID_CACHE_FILE, AppIdCache
 from .apps_client import DominoAppsClient, DominoDeployError
+from .deploy_settings import DeploySettings, deploy_file
 from .endpoint_url import endpoint_url
 from .publish import CONFIGURATION_TYPES, deploy, launch_script_in, require_app
-from .settings import DeploySettings, deploy_file
 from .status import print_status
 
 DRY_RUN_PROJECT_ID = "dry-run-project"

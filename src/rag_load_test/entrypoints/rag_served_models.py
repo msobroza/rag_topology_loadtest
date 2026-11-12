@@ -14,7 +14,7 @@ import argparse
 import shlex
 from collections.abc import Sequence
 
-from ..config.settings import RagSettings
+from ..config.rag_settings import RagSettings
 
 
 def served_model_assignments(settings: RagSettings) -> list[str]:

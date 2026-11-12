@@ -15,7 +15,7 @@ from rag_load_test.application.workflow import (
     merge_timings,
     required_lexical_search,
 )
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
 from rag_load_test.domain.passages import STAGES, Passage, ScoredPassage
 from rag_load_test.domain.ports import (

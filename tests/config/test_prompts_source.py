@@ -11,7 +11,7 @@ from rag_load_test.config.prompts_source import (
     prompts_path,
     prompts_source,
 )
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 
 
 def test_prompts_path_is_the_packaged_file_by_default(

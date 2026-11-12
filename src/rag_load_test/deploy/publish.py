@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Literal
 
-from ..domain.model_api import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
+from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.topology import Topology
 from .apps_client import (
     DominoApp,
@@ -20,8 +20,7 @@ from .apps_client import (
     DominoDeployError,
     wait_until_running,
 )
-from .endpoint_url import endpoint_url
-from .settings import (
+from .deploy_settings import (
     AppKind,
     AppPart,
     AppSettings,
@@ -31,6 +30,7 @@ from .settings import (
     refuse_placeholders,
     refuse_secrets,
 )
+from .endpoint_url import endpoint_url
 
 LAUNCH_SCRIPT = "domino/app.sh"  # relative to the repository root
 # An Agent is an App whose configurationType is AISYSTEM: the only API-level

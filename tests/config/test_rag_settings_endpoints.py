@@ -7,8 +7,8 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.config.settings import RagSettings
-from rag_load_test.domain.model_api import ApiEndpoint
+from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.domain.api_endpoint import ApiEndpoint
 
 SettingsFactory = Callable[..., RagSettings]
 EMBED_URL = "http://embedder:8002/v3/embeddings"

@@ -56,7 +56,7 @@ src/rag_load_test/
   domain/           no I/O, no framework; imports no other layer
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
     ports.py        the async ports (abstract base classes: BaseEmbedder, BaseReranker, BaseVectorStore, BaseLexicalSearch, BaseLLM) and RagDependencies
-    model_api.py    ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
+    api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
     errors.py       RagDependencyError, describe_error
     prompts.py      RagPrompts: system prompt + user template -> chat messages
@@ -69,7 +69,7 @@ src/rag_load_test/
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
     ingest.py       embed passages in batches and upsert them
   config/           imports domain only
-    settings.py     RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
+    rag_settings.py RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     prompts_source.py  the settings source that reads the prompts YAML
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
@@ -115,7 +115,7 @@ src/rag_load_test/
     request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
     rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
   deploy/           rag-deploy on Domino 6.2
-    settings.py     DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
+    deploy_settings.py  DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
     publish.py      which Apps a topology needs, their entry scripts, App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
     app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
@@ -396,7 +396,7 @@ with a one-line usage error, not a traceback.
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 
-Every tunable is a field of `RagSettings` in `config/settings.py`; adapters get
+Every tunable is a field of `RagSettings` in `config/rag_settings.py`; adapters get
 the values as constructor arguments from `adapters/rag_ports.py`. Locust's rerank
 users send `RAG_TOP_K_RETRIEVE` documents with `top_n=RAG_TOP_K_RERANK`, like the
 workflow. Sources win in this order: constructor arguments, environment, `.env`,
@@ -619,7 +619,7 @@ compose with `--env-file`:
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
 
 The served models (source id and alias) are pinned once, by the `RagSettings`
-defaults in `config/settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
+defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
 `antoinelouis/crossencoder-camembert-base-mmarcoFR` / `crossencoder-camembert-base-mmarcoFR`, `RAG_EMBEDDING_MODEL` /
 `RAG_EMBEDDING_API_MODEL` = `Snowflake/snowflake-arctic-embed-l-v2.0` / `snowflake-arctic-embed-l-v2.0`).
 `rag-served-models` prints them, `RAG_*` overrides included, as shell
@@ -661,7 +661,7 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
 **API formats.** OVMS speaks the `cohere` rerank format on `/v3/rerank` and the
 `openai` embeddings format on `/v3/embeddings`, so the workflow calls it through
 the generic endpoint adapters of `adapters/model_api/`, with the full routes as
-URLs. The routes are wire-contract constants in `domain/model_api.py`; the
+URLs. The routes are wire-contract constants in `domain/api_endpoint.py`; the
 FastAPI model server answers on the same ones.
 
 | Adapter | Request | Response |
@@ -681,7 +681,7 @@ request (one text embedded, one document scored), not a probe of
 **Bumping OVMS**: change `ovms/versions.env` only, re-run `make ovms-export`
 (the exporter is fetched from the new tag), rebuild the `ovms` Domino image and
 refill the models Dataset. **Changing a served model**: change its default in
-`config/settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
+`config/rag_settings.py` only, then re-run `make ovms-export`, rebuild the `rag` Domino
 image (it pre-downloads the source ids) and refill the models Dataset.
 
 ## Deploying on Domino 6.2

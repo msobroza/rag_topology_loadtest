@@ -1,7 +1,7 @@
 """The server side of our model servers: their answers, in the API formats' shapes.
 
 The FastAPI model server answers on OpenVINO Model Server's routes (the
-``MODEL_SERVER_*`` constants of ``domain/model_api.py``) in the same formats the
+``MODEL_SERVER_*`` constants of ``domain/api_endpoint.py``) in the same formats the
 ``api`` adapters speak: OpenAI's embeddings shape and Cohere's rerank shape. It
 reads requests with the standards' own models (``OpenAIEmbeddingsRequest``,
 ``CohereRerankRequest`` of ``domain/standard_formats.py``), so client and server

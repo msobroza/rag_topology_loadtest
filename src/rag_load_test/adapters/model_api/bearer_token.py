@@ -18,8 +18,8 @@ from http import HTTPStatus
 
 import httpx
 
+from ...domain.api_endpoint import DOMINO_RUN_TOKEN
 from ...domain.errors import RagDependencyError, describe_error
-from ...domain.model_api import DOMINO_RUN_TOKEN
 from ..shared.http_policy import HttpPolicy
 
 _TOKEN_COMPONENT = "domino_access_token"

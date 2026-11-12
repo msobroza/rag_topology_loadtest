@@ -18,8 +18,8 @@ from rag_load_test.adapters.model_api.api_embedder import ApiEmbedder
 from rag_load_test.adapters.model_api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
+from rag_load_test.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.model_api import DOMINO_RUN_TOKEN, ApiEndpoint
 from rag_load_test.domain.ports import BaseEmbedder
 
 URL = "http://models.test:8002/v3/embeddings"

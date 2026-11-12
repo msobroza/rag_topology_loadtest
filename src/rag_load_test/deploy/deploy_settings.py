@@ -25,7 +25,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from ..domain.model_api import DOMINO_RUN_TOKEN
+from ..domain.api_endpoint import DOMINO_RUN_TOKEN
 from ..domain.topology import Topology
 from .apps_client import DominoDeployError, WaitLimits
 

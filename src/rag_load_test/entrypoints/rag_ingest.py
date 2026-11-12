@@ -82,7 +82,7 @@ async def _ingest_through(
 
 def _configured_ports() -> RagPorts:
     from ..adapters.rag_ports import RagPorts
-    from ..config.settings import RagSettings
+    from ..config.rag_settings import RagSettings
 
     settings = RagSettings()
     if settings.vector_store_backend == "fake":

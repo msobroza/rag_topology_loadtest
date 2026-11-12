@@ -16,7 +16,7 @@ from rag_load_test.adapters.model_api.api_embedder import ApiEmbedder
 from rag_load_test.adapters.model_api.api_llm import ApiLLM
 from rag_load_test.adapters.model_api.api_reranker import ApiReranker
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.config.settings import RagSettings
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
 

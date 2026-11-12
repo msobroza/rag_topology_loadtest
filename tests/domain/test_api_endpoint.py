@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rag_load_test.domain.model_api import (
+from rag_load_test.domain.api_endpoint import (
     DOMINO_RUN_TOKEN,
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,

@@ -1,5 +1,5 @@
 """Tests of ``rag_load_test.deploy`` below ``cli.main``: the topology's Apps,
-entry scripts, ``deploy`` and the launch script. Settings: test_domino_deploy_settings.
+entry scripts, ``deploy`` and the launch script. Settings: test_deploy_settings.
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ from domino_deploy_helpers import (
 )
 from fake_domino.state import FakeDominoApps
 from rag_load_test.deploy.apps_client import DominoDeployError
+from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.publish import (
     apps_for_topology,
     deploy,
     entry_script,
     launch_script_in,
 )
-from rag_load_test.deploy.settings import DeploySettings
 
 
 @pytest.mark.parametrize(
