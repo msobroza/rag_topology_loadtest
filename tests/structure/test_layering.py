@@ -1,8 +1,9 @@
-"""The layer rule, read from the source with ``ast``: domain imports no other layer;
-application and config import only domain (and themselves). And the mock rule:
-``fake_domino`` imports nothing from ``rag_load_test``, and only ``deploy/rag_deploy.py``
-(``--dry-run``) imports ``fake_domino``; the mock's own tests, in
-``tests/fake_domino/``, import nothing from ``rag_load_test`` either."""
+"""The import rule, read from the source with ``ast``: what each of the seven
+packages of ``rag_load_test`` may import (the table in the README's "Where a file
+goes"). And the mock rule: ``fake_domino`` imports nothing from ``rag_load_test``,
+and only ``deploy/rag_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
+mock's own tests, in ``tests/fake_domino/``, import nothing from ``rag_load_test``
+either."""
 
 from __future__ import annotations
 
@@ -16,52 +17,129 @@ from repo_paths import REPO_ROOT
 PACKAGE = REPO_ROOT / "src" / "rag_load_test"
 FAKE_DOMINO = PACKAGE.parent / "fake_domino"
 FAKE_DOMINO_IMPORTERS = {Path("deploy") / "rag_deploy.py"}  # relative to PACKAGE
-ALLOWED_LAYERS: dict[str, set[str]] = {
+# Package -> the packages of rag_load_test its modules may import.
+MAY_IMPORT: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
     "config": {"config", "domain"},
+    "adapters": {"adapters", "domain"},
+    "entrypoints": {"adapters", "application", "config", "domain"},
+    "deploy": {"deploy", "domain"},
+    "loadtest": {"loadtest", "domain"},
+}
+# The named exceptions: one module each, allowed more than its package.
+ALSO_MAY_IMPORT: dict[str, set[str]] = {
+    "rag_load_test.adapters.rag_ports": {"config", "application"},  # builds the ports
 }
 
 
-def imported_layers(path: Path) -> list[tuple[int, str]]:
-    """``(line, sub-package)`` for every ``rag_load_test`` import in ``path``.
+def module_name(path: Path) -> str:
+    """The dotted name of the module at ``path``, a file under ``src/``.
 
     Example::
 
-        imported_layers(PACKAGE / "config" / "rag_settings.py")   # [(21, "domain")]
+        module_name(PACKAGE / "domain" / "ports.py")   # "rag_load_test.domain.ports"
     """
-    layer = path.parent.name
+    parts = path.relative_to(PACKAGE.parent).with_suffix("").parts
+    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+def imported_packages(module: str, source: str) -> list[tuple[int, str]]:
+    """``(line, package)`` for every import of a package of ``rag_load_test``.
+
+    Relative imports are resolved against ``module``, at any depth.
+
+    Example::
+
+        imported_packages("rag_load_test.adapters.model_api.api_llm",
+                          "from ...domain.ports import BaseLLM")   # [(1, "domain")]
+    """
+    home = module.split(".")[:-1]  # the package a relative import starts from
     found = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import):
-            modules = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.level == 1:
-            modules = [f"rag_load_test.{layer}"]  # its own sub-package
-        elif isinstance(node, ast.ImportFrom) and node.level == 2:
-            # ``from ..x import y`` names layer x; ``from .. import x`` names x itself.
-            names = [node.module] if node.module else [a.name for a in node.names]
-            modules = [f"rag_load_test.{name}" for name in names]
-        elif isinstance(node, ast.ImportFrom):
-            modules = [node.module or ""]
-        else:
-            continue
-        for module in modules:
-            parts = module.split(".")
-            if parts[0] == "rag_load_test" and len(parts) > 1 and parts[1]:
+    for node in ast.walk(ast.parse(source)):
+        for imported in _imported_modules(node, home):
+            parts = imported.split(".")
+            if parts[0] == "rag_load_test" and len(parts) > 1:
                 found.append((node.lineno, parts[1]))
     return found
 
 
-@pytest.mark.parametrize("layer", sorted(ALLOWED_LAYERS))
-def test_layer_imports_only_the_layers_it_may(layer: str) -> None:
-    offending = [
-        f"{path.relative_to(PACKAGE)}:{line} imports rag_load_test.{imported}"
-        for path in sorted((PACKAGE / layer).glob("*.py"))
-        for line, imported in imported_layers(path)
-        if imported not in ALLOWED_LAYERS[layer]
+def _imported_modules(node: ast.AST, home: list[str]) -> list[str]:
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if not isinstance(node, ast.ImportFrom):
+        return []
+    if node.level == 0:
+        return [node.module or ""]
+    base = home[: len(home) - node.level + 1]
+    if node.module:  # ``from ..x import y`` imports x
+        return [".".join([*base, node.module])]
+    return [
+        ".".join([*base, alias.name]) for alias in node.names
+    ]  # ``from .. import x``
+
+
+def forbidden_imports(module: str, source: str) -> list[str]:
+    """What ``module`` imports from a package the table does not allow it.
+
+    Example::
+
+        forbidden_imports("rag_load_test.domain.passages",
+                          "from ..adapters import rag_ports")
+        # ["rag_load_test.domain.passages:1 imports rag_load_test.adapters"]
+    """
+    package = module.split(".")[1]
+    allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
+    return [
+        f"{module}:{line} imports rag_load_test.{imported}"
+        for line, imported in imported_packages(module, source)
+        if imported not in allowed
     ]
-    allowed = ", ".join(sorted(ALLOWED_LAYERS[layer]))
-    assert not offending, f"{layer} may import only {allowed}: {offending}"
+
+
+def test_the_import_reader_on_literal_sources() -> None:
+    nested = "rag_load_test.adapters.model_api.api_llm"
+    assert imported_packages(nested, "from ...domain.ports import BaseLLM") == [
+        (1, "domain")
+    ]
+    assert imported_packages(nested, "from ..http.json_post import x") == [
+        (1, "adapters")
+    ]
+    assert imported_packages(nested, "from ... import config") == [(1, "config")]
+    assert imported_packages(nested, "import rag_load_test.deploy.status") == [
+        (1, "deploy")
+    ]
+    assert imported_packages(nested, "import httpx\nfrom http import HTTPStatus") == []
+
+
+def test_the_import_table_on_literal_sources() -> None:
+    assert forbidden_imports(
+        "rag_load_test.domain.passages", "from ..adapters import rag_ports"
+    ) == ["rag_load_test.domain.passages:1 imports rag_load_test.adapters"]
+    assert forbidden_imports(
+        "rag_load_test.loadtest.request_plans", "\nfrom ..config import rag_settings"
+    ) == ["rag_load_test.loadtest.request_plans:2 imports rag_load_test.config"]
+    ports = "from ..config.rag_settings import RagSettings"
+    assert forbidden_imports("rag_load_test.adapters.rag_ports", ports) == []
+    assert forbidden_imports("rag_load_test.adapters.json_log", ports) != []
+
+
+def test_the_table_names_every_package_of_the_product() -> None:
+    packages = {path.parent.name for path in PACKAGE.glob("*/__init__.py")}
+    assert packages == set(MAY_IMPORT)
+
+
+@pytest.mark.parametrize("package", sorted(MAY_IMPORT))
+def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
+    offending = [
+        offence
+        for path in sorted((PACKAGE / package).rglob("*.py"))
+        for offence in forbidden_imports(
+            module_name(path), path.read_text(encoding="utf-8")
+        )
+    ]
+    allowed = ", ".join(sorted(MAY_IMPORT[package]))
+    assert not offending, f"{package} may import only {allowed}: {offending}"
 
 
 def absolute_imports(path: Path, package: str) -> list[tuple[int, str]]:

@@ -50,10 +50,58 @@ text provides.
 
 ## Code layout
 
+### Where a file goes
+
+The tree is three applications over one shared domain. The domain
+(`domain/`) is the language all three use: no I/O, no framework.
+
+| Application | What it is | Where it lives |
+| --- | --- | --- |
+| RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `entrypoints/` |
+| deploy tool | what publishes the Apps of a Topology (`rag-deploy`) | one package, `deploy/` |
+| load-test client | what drives a target and compares runs (Locust, `rag-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, where Locust looks for it |
+
+1. **Imports.** A package imports only what this table allows.
+
+   | Package | May import |
+   | --- | --- |
+   | `domain` | `domain` |
+   | `application`, `config` | itself and `domain` |
+   | `adapters` | `adapters` and `domain`; `rag_ports.py` alone, which builds the ports, may also import `config` and `application` |
+   | `entrypoints` | `adapters`, `application`, `config`, `domain` |
+   | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
+   | `loadtest` | `loadtest` and `domain` |
+
+2. **Commands.** A command lives in its own application, in a module named
+   exactly after it with hyphens as underscores: the RAG system's six in
+   `entrypoints/` (`rag-serve` is `entrypoints/rag_serve.py`), `rag-deploy` in
+   `deploy/rag_deploy.py`, `rag-compare` in `loadtest/rag_compare.py`.
+3. **One name, one module.** No two modules share a file name. A settings module
+   is named after its settings class (`rag_settings.py`, `deploy_settings.py`);
+   a domain module that holds a glossary term of [CONTEXT.md](CONTEXT.md) is
+   named after it (`topology.py`, `backends.py`, `run_label.py`,
+   `api_endpoint.py`).
+4. **Adapters.** One package per Backend of the model components
+   (`local_models/` for `local`, `model_api/` for `api`, `fakes/` for `fake`,
+   the fake store included), one for the vector store (`vector_store/`), one per
+   outside source (`corpora/`), and one module that builds them all from the
+   settings (`rag_ports.py`). What every adapter that calls out shares is in
+   `http/`; a module that fits none of these sits at the root (`no_reranker.py`,
+   `json_log.py`).
+5. **The tree below** lists every package and module of `src/rag_load_test/`; a
+   new module gets a line.
+
+`tests/structure/test_layering.py` checks rule 1 for every package;
+`tests/structure/test_placement.py` checks rule 2, the file names of rule 3 and
+rule 5. The fake Domino (`src/fake_domino/`) is a test double, not part of the
+product, and the rule does not apply to it.
+
+### The tree
+
 ```text
 src/rag_load_test/
   __init__.py       package docstring, __version__
-  domain/           no I/O, no framework; imports no other layer
+  domain/           no I/O, no framework; imports no other package
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
     ports.py        the async ports (abstract base classes: BaseEmbedder, BaseReranker, BaseVectorStore, BaseLexicalSearch, BaseLLM) and RagDependencies
     api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
@@ -70,21 +118,22 @@ src/rag_load_test/
   application/      use cases over the ports; imports domain only
     workflow.py     RagWorkflow (LangGraph graph with timed nodes)
     ingest.py       embed passages in batches and upsert them
-  config/           imports domain only
+  config/           the settings; imports domain only
     rag_settings.py RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     prompts_source.py  the settings source that reads the prompts YAML
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
-  adapters/         one subfolder per kind of outside system
+  adapters/         the outside systems behind the ports, grouped by rule 4
     rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
                     (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
-    local_models/   models loaded in this process
+    local_models/   the `local` backend: models loaded in this process
       sentence_transformer_models.py  SentenceTransformerEmbedder, CrossEncoderReranker, the model thread pool
       local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
+      model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
       cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
-    model_api/      models behind an endpoint (the `api` backends), spoken to in an API format
+    model_api/      the `api` backend: models behind an endpoint, spoken to in an API format
       api_format_bases.py  what an API format is: a request body builder and an answer reader, no HTTP (the shapes are in domain/standard_formats.py)
       openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
       cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
@@ -96,27 +145,30 @@ src/rag_load_test/
       api_reranker.py  ApiReranker
       api_llm.py      ApiLLM
       endpoint_adapters.py  builds the api embedder, reranker and LLM of one endpoint, each with its own BearerToken
-    vector_store/
-      elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
-      chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
-    fakes/          the `fake` backends
+    fakes/          the `fake` backend
       fake_models.py  FakeEmbedder, FakeReranker, FakeLLM
       in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-    http/
+    vector_store/   the vector store
+      elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+      chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
+    corpora/        an outside source: the public corpora rag-fetch-corpus downloads
+      catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
+      download.py   download a corpus's files under one HttpPolicy and convert them
+      conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
+      jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
+    http/           what every adapter that calls out shares
       http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
       json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
-    no_reranker.py  NoReranker: keeps retrieval order (RAG_RERANK_BACKEND=none)
+    no_reranker.py  NoReranker: the `none` rerank backend, retrieval order kept
     json_log.py     log_json: the one log format
-  entrypoints/      processes: FastAPI apps and CLIs
+  entrypoints/      the RAG system's commands: FastAPI apps and CLIs
     rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
     rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
     rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
-  loadtest/
-    request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
-    rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
-  deploy/           rag-deploy on Domino 6.2
+    rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
+  deploy/           the deploy tool: rag-deploy on Domino 6.2
     deploy_settings.py  DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
     publish.py      which Apps a topology needs, their entry scripts, App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
@@ -124,6 +176,9 @@ src/rag_load_test/
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
     rag_deploy.py   rag-deploy: the parser, url, --dry-run
     apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
+  loadtest/         the load-test client, with locustfile.py
+    request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
+    rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
                     It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
                     tests/structure/test_layering.py)
@@ -139,10 +194,10 @@ locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` find
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
 domino/             app.sh (one entry point, role from RAG_ROLE), Dockerfile (targets `rag` and `ovms`)
-tests/              pytest: no model weights, no network, no Elasticsearch; one folder per layer of src/
+tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
   domain/ application/ config/ adapters/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
   scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
-  structure/        the layering and code-shape rules, read from the source with ast
+  structure/        the import, placement and code-shape rules, read from the source with ast
   fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
   emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
   helpers/          named fakes, fixtures and REPO_ROOT shared by several test files (on pytest's path)

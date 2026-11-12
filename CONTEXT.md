@@ -4,6 +4,22 @@ One text RAG workflow, deployed in several topologies on Domino, and a Locust su
 
 ## Language
 
+### Applications
+
+The code is three applications over one shared domain; the README's "Where a file goes" places each.
+
+**RAG system**:
+What runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export.
+_Avoid_: the app, the service, the product (the product is all three applications)
+
+**Deploy tool**:
+What publishes the Apps of a topology on Domino: `rag-deploy`.
+_Avoid_: deployer, the CLI
+
+**Load-test client**:
+What drives a target and compares runs: the Locust file and `rag-compare`.
+_Avoid_: load tester, the client, Locust (that is the tool it runs on)
+
 ### Deployment shape
 
 **Topology**:
