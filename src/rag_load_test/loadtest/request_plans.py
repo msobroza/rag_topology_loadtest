@@ -1,121 +1,31 @@
-"""Client side of the load test: every Locust user decision, and ``rag-compare``.
+"""What a load-test user sends: the request pool, and one plan per request.
 
-Values in, decisions out: the run's configuration, what each user sends, what a
-response becomes in the statistics (a failure, or STAGE rows), and the target
-record. ``locustfile.py`` only does Locust I/O around these, so they are tested
-with plain calls and without gevent monkey-patching the interpreter.
+The questions come from ``RAG_LOADTEST_QUESTIONS_FILE`` when it is set (what
+``rag-fetch-corpus`` writes, or plain text), else they are synthetic; a request
+to a model server carries what the workflow app's stage would send. Values in,
+plans out: ``locustfile.py`` only does the Locust I/O around them, so they are
+tested with plain calls and without gevent monkey-patching the interpreter.
 
 Example:
-    >>> pool = build_request_pool(config.question_count, settings.top_k_retrieve,
+    >>> pool = build_request_pool(settings.question_count, settings.top_k_retrieve,
     ...                           settings.top_k_rerank,
-    ...                           questions_file=config.questions_file)
+    ...                           questions_file=settings.questions_file)
     >>> plan = plan_rag_request("/query", pool, rng)
-    >>> verdict = judge_response(plan.path, resp.status_code, resp.text or "")
 """
 
 from __future__ import annotations
 
 import json
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from http import HTTPStatus
 from pathlib import Path
-from typing import Any
 
 from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.corpus import chunk, synthetic_corpus, synthetic_questions
-from ..domain.passages import STAGES
 from ..domain.standard_formats import CohereRerankRequest, OpenAIEmbeddingsRequest
 
-# --- configuration: the environment, read once ---------------------------------
-
-LOAD_TARGETS: tuple[str, ...] = ("rag", "rerank", "embeddings")
-QUESTIONS_FILE_VAR = "RAG_LOADTEST_QUESTIONS_FILE"
-
-
-@dataclass(frozen=True)
-class LoadTestConfig:
-    """Everything a run reads from its environment, validated up front."""
-
-    target: str
-    query_weight: int
-    retrieve_weight: int
-    step_shape: bool
-    auth_headers: Mapping[str, str]
-    question_count: int  # distinct synthetic questions the users pick from
-    questions_file: Path | None = None  # replaces the synthetic questions when set
-
-
-def read_loadtest_config(env: Mapping[str, str]) -> LoadTestConfig:
-    """Read and validate the ``RAG_LOADTEST_*`` knobs (and Domino auth) once.
-
-    Defaults: target ``rag``, query weight 1, retrieve weight 3, 50 questions;
-    ``RAG_LOADTEST_SHAPE=step`` turns on the step shape;
-    ``RAG_LOADTEST_QUESTIONS_FILE`` (unset or "" for none) names a file of
-    questions to ask instead of the synthetic ones. Domino auth is
-    ``RAG_LOADTEST_BEARER_TOKEN`` as a bearer token, else ``DOMINO_API_KEY``.
-
-    Args:
-        env: The environment to read, usually ``os.environ``.
-
-    Returns:
-        The validated configuration.
-
-    Raises:
-        ValueError: If ``RAG_LOADTEST_TARGET`` is not one of ``LOAD_TARGETS``, a
-            weight or the question count is not an integer, or the question
-            count is below 1.
-
-    Example:
-        >>> read_loadtest_config(os.environ).target  # "rag" unless overridden
-        'rag'
-    """
-    target = env.get("RAG_LOADTEST_TARGET", "rag")
-    if target not in LOAD_TARGETS:
-        allowed = ", ".join(LOAD_TARGETS)
-        raise ValueError(f"RAG_LOADTEST_TARGET={target!r}; expected one of {allowed}")
-    return LoadTestConfig(
-        target=target,
-        query_weight=_task_weight(env, "RAG_LOADTEST_QUERY_WEIGHT", 1),
-        retrieve_weight=_task_weight(env, "RAG_LOADTEST_RETRIEVE_WEIGHT", 3),
-        step_shape=env.get("RAG_LOADTEST_SHAPE") == "step",
-        auth_headers=_auth_headers(env),
-        question_count=_question_count(env),
-        questions_file=(
-            Path(env[QUESTIONS_FILE_VAR]) if env.get(QUESTIONS_FILE_VAR) else None
-        ),
-    )
-
-
-def _task_weight(env: Mapping[str, str], variable: str, default: int) -> int:
-    raw = env.get(variable)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        raise ValueError(f"{variable}={raw!r}; expected an integer") from None
-
-
-def _question_count(env: Mapping[str, str]) -> int:
-    count = _task_weight(env, "RAG_LOADTEST_QUESTIONS", 50)
-    if count < 1:
-        raw = env["RAG_LOADTEST_QUESTIONS"]
-        raise ValueError(f"RAG_LOADTEST_QUESTIONS={raw!r}; expected at least 1")
-    return count
-
-
-# Domino auth for callers outside a run: a bearer token wins over an API key.
-def _auth_headers(env: Mapping[str, str]) -> dict[str, str]:
-    if env.get("RAG_LOADTEST_BEARER_TOKEN"):
-        return {"Authorization": f"Bearer {env['RAG_LOADTEST_BEARER_TOKEN']}"}
-    if env.get("DOMINO_API_KEY"):
-        return {"X-Domino-Api-Key": env["DOMINO_API_KEY"]}
-    return {}
-
-
-# --- what to send ---------------------------------------------------------------
+QUESTIONS_FILE_VAR = "RAG_LOADTEST_QUESTIONS_FILE"  # named in the reader's errors
 
 
 @dataclass(frozen=True)
@@ -297,122 +207,3 @@ def plan_embeddings_request(
     request = OpenAIEmbeddingsRequest(model=alias, input=[question])
     path = MODEL_SERVER_EMBEDDINGS_PATH
     return RequestPlan(path, request.to_wire(), path)
-
-
-# --- what to record -------------------------------------------------------------
-
-# The request type of STAGE rows, used both when firing them and by rag-compare.
-STAGE_REQUEST_TYPE = "STAGE"
-
-
-@dataclass(frozen=True)
-class ResponseVerdict:
-    """What one response becomes in the statistics: a failure, or STAGE rows.
-
-    The STAGE rows are ``(name, ms)`` pairs to fire.
-    """
-
-    failure: str | None
-    stage_rows: tuple[tuple[str, float], ...] = ()
-
-
-def judge_response(endpoint: str, status: int, body_text: str) -> ResponseVerdict:
-    """Decide how a response is recorded; only a 200 with a JSON object succeeds.
-
-    Args:
-        endpoint: The path requested; it prefixes each STAGE row name.
-        status: The HTTP status of the response.
-        body_text: The response body; failure messages quote its first 200
-            characters.
-
-    Returns:
-        A failure message, or no failure and one STAGE row per stage timed above
-        zero, in ``STAGES`` order (``total`` excluded); none when ``timings_ms``
-        is missing or malformed.
-
-    Example:
-        >>> judge_response("/query", 200, '{"timings_ms": {"embed": 4}}').stage_rows
-        (('/query:embed', 4.0),)
-    """
-    if status != HTTPStatus.OK:
-        return ResponseVerdict(failure=f"HTTP {status}: {body_text[:200]}")
-    try:
-        body = json.loads(body_text)
-    except ValueError:
-        body = None
-    if not isinstance(body, dict):
-        message = f"HTTP 200 but the body is not a JSON object: {body_text[:200]}"
-        return ResponseVerdict(failure=message)
-    return ResponseVerdict(failure=None, stage_rows=_stage_rows(endpoint, body))
-
-
-# One row per stage timed above zero, in ``STAGES`` order (``total`` excluded);
-# none when ``timings_ms`` is missing or malformed.
-def _stage_rows(
-    endpoint: str, body: Mapping[str, Any]
-) -> tuple[tuple[str, float], ...]:
-    try:
-        timings_ms = {str(k): float(v) for k, v in body["timings_ms"].items()}
-    except (AttributeError, KeyError, TypeError, ValueError):
-        return ()
-    return tuple(
-        (f"{endpoint}:{s}", timings_ms[s]) for s in STAGES if timings_ms.get(s, 0) > 0
-    )
-
-
-# --- the target record: what the target said about itself during a run -------
-
-
-def target_pair(headers: Mapping[str, str] | None) -> tuple[str, str] | None:
-    """Return the ``(topology, run label)`` a response reported in its headers.
-
-    A response that reported neither is ``None``: a proxy's error page or a
-    connection error is not the target speaking, and counting it would make one
-    configuration look like two.
-
-    Args:
-        headers: The response headers (``X-RAG-Topology``, ``X-RAG-Run-Label``);
-            ``None`` when there were none.
-
-    Returns:
-        The pair, ``""`` for the one header missing, or ``None`` when both are.
-
-    Example:
-        >>> target_pair({"X-RAG-Topology": "monolith"})
-        ('monolith', '')
-    """
-    headers = headers or {}
-    topology, run_label = headers.get("X-RAG-Topology"), headers.get("X-RAG-Run-Label")
-    if topology is None and run_label is None:
-        return None
-    return topology or "", run_label or ""
-
-
-def write_target_record(
-    csv_prefix: str | None, target: str, counts: Mapping[tuple[str, str], int]
-) -> None:
-    """Write ``<csv_prefix>_target.json``, most responses first.
-
-    Nothing is written without ``--csv``. Model servers send no topology headers,
-    so their ``seen`` is empty: it is left empty for any target but ``rag``.
-
-    Args:
-        csv_prefix: Locust's ``--csv`` prefix; ``None`` or ``""`` writes nothing.
-        target: The run's ``RAG_LOADTEST_TARGET``.
-        counts: Responses per ``(topology, run label)``; ties are ordered by the
-            pair.
-
-    Example:
-        >>> counts = Counter({("monolith", "m"): 3})
-        >>> write_target_record("results/monolith", "rag", counts)
-    """
-    if not csv_prefix:
-        return
-    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    seen = [
-        {"topology": topology, "run_label": label, "responses": n}
-        for (topology, label), n in ordered
-        if target == "rag"
-    ]
-    document = {"target": target, "seen": seen}
-    Path(f"{csv_prefix}_target.json").write_text(json.dumps(document, indent=2))

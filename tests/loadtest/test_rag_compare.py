@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -16,12 +15,11 @@ from rag_load_test.loadtest.rag_compare import (
     load_stats,
     render_markdown,
 )
-from rag_load_test.loadtest.request_plans import (
+from rag_load_test.loadtest.target_record import (
+    read_target_record,
     write_target_record,
 )
-from repo_paths import REPO_ROOT
 
-LOCUSTFILE = REPO_ROOT / "locustfile.py"
 STATS_HEADER = [
     "Type",
     "Name",
@@ -46,8 +44,6 @@ STATS_HEADER = [
     "99.99%",
     "100%",
 ]
-BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
-
 
 # --- rag-compare ---
 
@@ -148,7 +144,7 @@ def test_compare_warns_when_a_run_saw_more_than_one_pair(tmp_path: Path) -> None
     _target_json(split, "rag", ("split-all", "a", 60), ("split-reranker", "b", 40))
     markdown = render_markdown(
         {"split-all": load_stats(split)},
-        {"split-all": json.loads(Path(f"{split}_target.json").read_text())},
+        {"split-all": read_target_record(Path(f"{split}_target.json"))},
     )
     intro = (
         "Runs: split-all (topology `split-all`, run label `a`; "
@@ -170,3 +166,16 @@ def test_compare_lists_a_model_server_run_by_name_alone(tmp_path: Path) -> None:
     assert compare_main([str(ovms), "--out", str(out)]) == 0
     text = out.read_text(encoding="utf-8")
     assert "Runs: ovms-rerank. Δp95 is relative to `ovms-rerank`." in text.splitlines()
+
+
+def test_compare_refuses_a_malformed_target_record_naming_its_file(
+    tmp_path: Path,
+) -> None:
+    monolith = _stats_csv(tmp_path / "monolith", *MONOLITH)
+    record = Path(f"{monolith}_target.json")
+    record.write_text('{"target": "rag", "seen": "everything"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected a target record") as caught:
+        compare_main([str(monolith)])
+
+    assert str(caught.value).startswith(f"{record}: seen: ")

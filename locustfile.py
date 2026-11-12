@@ -1,49 +1,48 @@
 """Locust users for ``make loadtest`` (RAG service) and ``make loadtest-models``.
 
-A thin adapter: what to send, what a response becomes in the statistics and the
-target record are decided in ``rag_load_test.loadtest.request_plans``; this file
-does the I/O.
+A thin adapter: the run's configuration is ``LoadTestSettings``, and what to
+send, what a response becomes in the statistics and the target record are
+decided in ``rag_load_test.loadtest`` (``request_plans``, ``response_checks``,
+``target_record``); this file does the I/O and reads nothing else.
 ``RAG_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
 model server directly. Rerank requests carry ``RAG_TOP_K_RETRIEVE`` documents and
 ``RAG_TOP_K_RERANK`` as ``top_n``, like the workflow; ``RAG_LOADTEST_QUESTIONS``
 sets how many distinct synthetic questions the users ask, unless
 ``RAG_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask instead (what
-``rag-fetch-corpus`` writes, or plain text). ``RAG_LOADTEST_SHAPE=step`` enables
-the 5 -> 10 -> 20 -> 40 user ramp.
+``rag-fetch-corpus`` writes, or plain text). Each user waits
+``RAG_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests;
+``RAG_LOADTEST_SHAPE=step`` steps through ``RAG_LOADTEST_STEP_USERS`` users,
+``RAG_LOADTEST_STEP_SECONDS`` each.
 """
 
 from __future__ import annotations
 
-import os
 import random
 from collections import Counter
 from typing import Any
 
 from locust import FastHttpUser, LoadTestShape, between, events, task
 
-from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.loadtest.loadtest_settings import LoadTestSettings
 from rag_load_test.loadtest.request_plans import (
-    STAGE_REQUEST_TYPE,
     RequestPlan,
     build_request_pool,
-    judge_response,
     plan_embeddings_request,
     plan_rag_request,
     plan_rerank_request,
-    read_loadtest_config,
-    target_pair,
-    write_target_record,
 )
+from rag_load_test.loadtest.response_checks import STAGE_REQUEST_TYPE, judge_response
+from rag_load_test.loadtest.target_record import target_pair, write_target_record
 
-CONFIG = read_loadtest_config(os.environ)
-SETTINGS = RagSettings()
+SETTINGS = LoadTestSettings()
 POOL = build_request_pool(
-    CONFIG.question_count,
+    SETTINGS.question_count,
     SETTINGS.top_k_retrieve,
     SETTINGS.top_k_rerank,
-    questions_file=CONFIG.questions_file,
+    questions_file=SETTINGS.questions_file,
 )
+WAIT_TIME = between(SETTINGS.wait_min_s, SETTINGS.wait_max_s)
 RNG = random.Random()
 # Responses per (topology, run label) for the target record; one process, one run.
 RESPONSES_SEEN: Counter[tuple[str, str]] = Counter()
@@ -62,7 +61,7 @@ def send(user: FastHttpUser, plan: RequestPlan) -> None:
     with user.client.post(
         plan.path,
         json=plan.payload,
-        headers=dict(CONFIG.auth_headers),
+        headers=SETTINGS.auth_headers,
         name=plan.stats_name,
         catch_response=True,
     ) as resp:
@@ -86,17 +85,17 @@ def send(user: FastHttpUser, plan: RequestPlan) -> None:
 
 
 class RagUser(FastHttpUser):
-    """POST /query and /retrieve with random questions, weighted by the config."""
+    """POST /query and /retrieve with random questions, weighted by the settings."""
 
-    abstract = CONFIG.target != "rag"
-    wait_time = between(0.2, 1.0)
+    abstract = SETTINGS.target != "rag"
+    wait_time = WAIT_TIME
 
-    @task(CONFIG.query_weight)
+    @task(SETTINGS.query_weight)
     def query(self) -> None:
         """Send one random question to ``/query``."""
         send(self, plan_rag_request("/query", POOL, RNG))
 
-    @task(CONFIG.retrieve_weight)
+    @task(SETTINGS.retrieve_weight)
     def retrieve(self) -> None:
         """Send one random question to ``/retrieve``."""
         send(self, plan_rag_request("/retrieve", POOL, RNG))
@@ -105,8 +104,8 @@ class RagUser(FastHttpUser):
 class RerankUser(FastHttpUser):
     """POST /v3/rerank with the workflow's candidate count and top_n."""
 
-    abstract = CONFIG.target != "rerank"
-    wait_time = between(0.2, 1.0)
+    abstract = SETTINGS.target != "rerank"
+    wait_time = WAIT_TIME
 
     @task
     def rerank(self) -> None:
@@ -117,8 +116,8 @@ class RerankUser(FastHttpUser):
 class EmbeddingsUser(FastHttpUser):
     """POST /v3/embeddings with one question, like the workflow's embed stage."""
 
-    abstract = CONFIG.target != "embeddings"
-    wait_time = between(0.2, 1.0)
+    abstract = SETTINGS.target != "embeddings"
+    wait_time = WAIT_TIME
 
     @task
     def embed(self) -> None:
@@ -126,11 +125,11 @@ class EmbeddingsUser(FastHttpUser):
         send(self, plan_embeddings_request(SETTINGS.embedding_api_model, POOL, RNG))
 
 
-if CONFIG.step_shape:
-    STEP_USERS, STEP_SECONDS = (5, 10, 20, 40), 60
+if SETTINGS.step_shape:
+    STEP_USERS, STEP_SECONDS = SETTINGS.step_users, SETTINGS.step_seconds
 
     class StepLoadShape(LoadTestShape):  # locust picks up shape classes defined here
-        """Ramp through 5, 10, 20 then 40 users, one step every 60 seconds."""
+        """Ramp through ``RAG_LOADTEST_STEP_USERS``, one step per ``_STEP_SECONDS``."""
 
         def tick(self) -> tuple[int, float] | None:
             """Return the step's users and spawn rate, or ``None`` after the last step.
@@ -154,4 +153,4 @@ def write_target_record_on_stop(environment: Any, **_kwargs: Any) -> None:
         **_kwargs: The rest of the ``test_stop`` event's arguments, unused.
     """
     csv_prefix = getattr(environment.parsed_options, "csv_prefix", None)
-    write_target_record(csv_prefix, CONFIG.target, RESPONSES_SEEN)
+    write_target_record(csv_prefix, SETTINGS.target, RESPONSES_SEEN)

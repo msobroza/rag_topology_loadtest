@@ -70,7 +70,7 @@ The tree is three applications over one shared domain. The domain
    | `adapters` | `adapters` and `domain`; `rag_ports.py` alone, which builds the ports, may also import `config` and `application` |
    | `entrypoints` | `adapters`, `application`, `config`, `domain` |
    | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
-   | `loadtest` | `loadtest` and `domain` |
+   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the four `RAG_*` values a load test sends |
 
 2. **Commands.** A command lives in its own application, in a module named
    exactly after it with hyphens as underscores: the RAG system's six in
@@ -91,7 +91,8 @@ The tree is three applications over one shared domain. The domain
 5. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
 
-`tests/structure/test_layering.py` checks rule 1 for every package;
+`tests/structure/test_layering.py` checks rule 1 for every package, and that
+`locustfile.py` imports only the `loadtest` package;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3 and
 rule 5. The fake Domino (`src/fake_domino/`) is a test double, not part of the
 product, and the rule does not apply to it.
@@ -177,7 +178,10 @@ src/rag_load_test/
     rag_deploy.py   rag-deploy: the parser, url, --dry-run
     apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
   loadtest/         the load-test client, with locustfile.py
-    request_plans.py  locust-free helpers (config, auth headers, request pool and plans, verdicts, target record)
+    loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four RAG_* values a model-server request carries, Domino auth
+    request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
+    response_checks.py  what to record: a response becomes a failure or STAGE rows
+    target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
     rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
                     It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
@@ -286,8 +290,12 @@ App URL).
 | Knob | Effect |
 | --- | --- |
 | `USERS`, `SPAWN_RATE`, `RUN_TIME` | Makefile variables passed to `locust -u -r -t` |
-| `RAG_LOADTEST_QUERY_WEIGHT` / `RAG_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3` |
-| `RAG_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more) |
+| `RAG_LOADTEST_TARGET` | the user class: `rag` (default), `rerank` or `embeddings` |
+| `RAG_LOADTEST_QUERY_WEIGHT` / `RAG_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3`; a whole number of 0 or more |
+| `RAG_LOADTEST_WAIT_MIN_S` / `RAG_LOADTEST_WAIT_MAX_S` | each user waits a random time in this range between requests, default `0.2` / `1.0` s |
+| `RAG_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more); any other value but unset is refused |
+| `RAG_LOADTEST_STEP_USERS` / `RAG_LOADTEST_STEP_SECONDS` | the steps of the step shape, default `5,10,20,40` / `60` |
+| `RAG_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
 | `RAG_LOADTEST_BEARER_TOKEN` | sent as `Authorization: Bearer ...` (Domino run token) |
 | `DOMINO_API_KEY` | sent as `X-Domino-Api-Key` (from outside Domino) |
 
@@ -448,8 +456,11 @@ with a one-line usage error, not a traceback.
 | `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token (an API key set to `domino`) |
 | `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
+| `RAG_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
-| `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights and the step shape |
+| `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
+| `RAG_LOADTEST_WAIT_MIN_S`, `RAG_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
+| `RAG_LOADTEST_STEP_USERS`, `RAG_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `RAG_LOADTEST_SHAPE=step` |
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 

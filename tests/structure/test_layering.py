@@ -30,7 +30,10 @@ MAY_IMPORT: dict[str, set[str]] = {
 # The named exceptions: one module each, allowed more than its package.
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
     "rag_load_test.adapters.rag_ports": {"config", "application"},  # builds the ports
+    # For the defaults of the four RAG_* values a load test sends, nothing else.
+    "rag_load_test.loadtest.loadtest_settings": {"config"},
 }
+LOCUSTFILE = REPO_ROOT / "locustfile.py"  # the load-test client's file, outside src
 
 
 def module_name(path: Path) -> str:
@@ -122,6 +125,8 @@ def test_the_import_table_on_literal_sources() -> None:
     ports = "from ..config.rag_settings import RagSettings"
     assert forbidden_imports("rag_load_test.adapters.rag_ports", ports) == []
     assert forbidden_imports("rag_load_test.adapters.json_log", ports) != []
+    settings = "from ..config.rag_settings import RagSettings"
+    assert forbidden_imports("rag_load_test.loadtest.loadtest_settings", settings) == []
 
 
 def test_the_table_names_every_package_of_the_product() -> None:
@@ -140,6 +145,19 @@ def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
     ]
     allowed = ", ".join(sorted(MAY_IMPORT[package]))
     assert not offending, f"{package} may import only {allowed}: {offending}"
+
+
+def test_the_locustfile_reads_only_the_load_test_client() -> None:
+    imported = absolute_imports(LOCUSTFILE, "rag_load_test")
+    offending = [
+        f"locustfile.py:{line} imports {module}"
+        for line, module in imported
+        if not module.startswith("rag_load_test.loadtest.")
+    ]
+    assert imported, "the locustfile imports nothing from rag_load_test: wrong file?"
+    assert (
+        not offending
+    ), f"the locustfile may import only the loadtest package: {offending}"
 
 
 def absolute_imports(path: Path, package: str) -> list[tuple[int, str]]:

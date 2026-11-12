@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from .request_plans import STAGE_REQUEST_TYPE
+from .response_checks import STAGE_REQUEST_TYPE
+from .target_record import RECORD_SUFFIX, TargetRecord, read_target_record
 
 # --- rag-compare: locust *_stats.csv files -> one markdown table per row ------
 
@@ -69,15 +68,15 @@ def _number(cell: str) -> float:
 
 def render_markdown(
     runs: Mapping[str, Mapping[str, RowStats]],
-    targets: Mapping[str, Any] | None = None,
+    targets: Mapping[str, TargetRecord] | None = None,
 ) -> str:
     """Render one table per row key across all runs; Δp95 is relative to the first run.
 
     Args:
         runs: The stats of each run by row key, keyed by run name; the first run
             is the baseline.
-        targets: Maps a run name to its parsed ``_target.json``, when it has one;
-            ``None`` when no run has one.
+        targets: Maps a run name to its target record, when it has one; ``None``
+            when no run has one.
 
     Returns:
         The markdown: a title, the run list with the topology and run label each
@@ -109,12 +108,14 @@ def render_markdown(
 
 # The run list, with the topology and run label each run saw, then a warning
 # for any run that saw more than one pair (its numbers mix configurations).
-def _intro_lines(labels: Sequence[str], targets: Mapping[str, Any]) -> list[str]:
+def _intro_lines(
+    labels: Sequence[str], targets: Mapping[str, TargetRecord]
+) -> list[str]:
     titles, warnings = [], []
     for label in labels:
-        seen = targets.get(label, {}).get("seen", [])
+        seen = targets[label].seen if label in targets else []
         pairs = "; ".join(
-            f"topology `{s['topology']}`, run label `{s['run_label']}`" for s in seen
+            f"topology `{s.topology}`, run label `{s.run_label}`" for s in seen
         )
         titles.append(f"{label} ({pairs})" if pairs else label)
         if len(seen) > 1:
@@ -167,6 +168,10 @@ def compare_main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         The exit status, 0, after printing the markdown or writing it to ``--out``.
+
+    Raises:
+        ValueError: If a ``_target.json`` is not a target record; the message
+            names the file.
     """
     parser = argparse.ArgumentParser(
         prog="rag-compare", description="Compare locust runs."
@@ -177,16 +182,18 @@ def compare_main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     runs = {p.name: load_stats(p) for p in args.prefixes}
-    record_files = {p.name: Path(f"{p}_target.json") for p in args.prefixes}
-    targets = {
-        name: json.loads(path.read_text(encoding="utf-8"))
-        for name, path in record_files.items()
-        if path.exists()
-    }
-    markdown = render_markdown(runs, targets)
+    markdown = render_markdown(runs, _target_records(args.prefixes))
     if args.out is None:
         print(markdown)
     else:
         args.out.write_text(markdown, encoding="utf-8")
         print(f"wrote {args.out}", file=sys.stderr)
     return 0
+
+
+def _target_records(prefixes: Sequence[Path]) -> dict[str, TargetRecord]:
+    # Each run's target record by run name; a run that left none is skipped.
+    records = {
+        p.name: read_target_record(Path(f"{p}{RECORD_SUFFIX}")) for p in prefixes
+    }
+    return {name: record for name, record in records.items() if record is not None}
