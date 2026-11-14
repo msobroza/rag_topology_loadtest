@@ -13,111 +13,30 @@ import json
 import re
 import shutil
 import subprocess
-from functools import cache
 from pathlib import Path
-from typing import Any
 
-import hcl2
 import pytest
 import yaml
-from hcl2.utils import SerializationOptions
+from emulation_terraform import (
+    FILE_CALL,
+    IAP_RANGE,
+    LABELLED_TYPES,
+    PLACEHOLDER,
+    PLACEMENT_SAMPLE,
+    SCRIPTS,
+    SETUP_SH,
+    TF_DIR,
+    heredoc,
+    locals_,
+    render,
+    resources,
+    template_calls,
+    terraform,
+    tf_sources,
+    variables,
+)
 
 from repo_paths import REPO_ROOT
-
-TF_DIR = REPO_ROOT / "emulation" / "terraform"
-SCRIPTS = TF_DIR / "scripts"
-SETUP_SH = REPO_ROOT / "emulation" / "cloudshell" / "setup.sh"
-OPTIONS = SerializationOptions(
-    with_comments=False, explicit_blocks=False, strip_string_quotes=True
-)
-IAP_RANGE = "35.235.240.0/20"
-# Every resource type used here that takes labels.
-LABELLED_TYPES = (
-    "google_compute_instance",
-    "google_compute_address",
-    "google_secret_manager_secret",
-)
-FILE_CALL = re.compile(r'(?:templatefile|file)\("\$\{path\.module\}/([^"]+)"')
-TEMPLATE_CALL = re.compile(
-    r'templatefile\("\$\{path\.module\}/(?P<path>[^"]+)", \{\n(?P<body>.*?)\n\s*\}\)',
-    re.S,
-)
-PLACEHOLDER = re.compile(r"(?<!\$)\$\{([^}]*)\}")
-# The contract's example, rendered into the Workspace script in place of the real one.
-PLACEMENT_SAMPLE = {
-    "ssh": {"user": "ubuntu", "key": "/home/ubuntu/.ssh/id_emulation"},
-    "app_port": 8888,
-    "tiers": [
-        {
-            "id": "cpu-8",
-            "cores": 8,
-            "memory_gib": 32,
-            "default": True,
-            "machines": ["10.10.0.21", "10.10.0.22", "10.10.0.23"],
-        }
-    ],
-}
-DUMMIES = {
-    "placement_json": json.dumps(PLACEMENT_SAMPLE),
-    "pool_addresses": "10.10.0.21 10.10.0.22 10.10.0.23",
-    "domino_port": "8899",
-}
-
-
-@cache
-def terraform() -> dict[str, list[Any]]:
-    """Every ``.tf`` file parsed, each top-level key's entries concatenated."""
-    merged: dict[str, list[Any]] = {}
-    for path in sorted(TF_DIR.glob("*.tf")):
-        parsed = hcl2.loads(
-            path.read_text(encoding="utf-8"), serialization_options=OPTIONS
-        )
-        for key, entries in parsed.items():
-            merged.setdefault(key, []).extend(entries)
-    return merged
-
-
-def resources(kind: str) -> dict[str, dict[str, Any]]:
-    """``{name: body}`` of every resource of ``kind``."""
-    found: dict[str, dict[str, Any]] = {}
-    for entry in terraform().get("resource", []):
-        found.update(entry.get(kind, {}))
-    return found
-
-
-def locals_() -> dict[str, Any]:
-    merged: dict[str, Any] = {}
-    for block in terraform()["locals"]:
-        merged.update(block)
-    return merged
-
-
-def variables() -> dict[str, dict[str, Any]]:
-    return {
-        name: body for entry in terraform()["variable"] for name, body in entry.items()
-    }
-
-
-def tf_sources() -> str:
-    return "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(TF_DIR.glob("*.tf"))
-    )
-
-
-def template_calls() -> dict[str, set[str]]:
-    """``{template file: names of the variables passed to it}``."""
-    return {
-        match["path"]: set(re.findall(r"^\s*(\w+)\s*=", match["body"], re.M))
-        for match in TEMPLATE_CALL.finditer(tf_sources())
-    }
-
-
-def render(template: str) -> str:
-    """``scripts/common.sh`` then the template, placeholders given dummy values."""
-    text = (TF_DIR / template).read_text(encoding="utf-8")
-    rendered = PLACEHOLDER.sub(lambda m: DUMMIES.get(m[1], f"dummy-{m[1]}"), text)
-    rendered = rendered.replace("$${", "${").replace("%%{", "%{")
-    return (SCRIPTS / "common.sh").read_text(encoding="utf-8") + "\n" + rendered
 
 
 def test_every_tf_file_parses_and_names_the_backend_and_providers() -> None:
@@ -203,23 +122,29 @@ def test_the_fake_domino_runs_with_the_contracts_command_line() -> None:
     assert locals_()["domino_port"] == 8899
 
 
-def heredoc(script: str, marker: str) -> str:
-    return script.split(f"<<'{marker}'\n", 1)[1].split(f"\n{marker}\n", 1)[0]
-
-
 def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
     example = (REPO_ROOT / "deploy.example.yaml").read_text(encoding="utf-8")
     documented = set(re.findall(r"^[ #]*(\w+):", example, re.M))
     assert set(deploy) <= documented
     assert set(deploy["defaults"]) <= documented
-    assert set(deploy["defaults"]["settings"]) == {"RAG_ES_URL"}
+    assert set(deploy["defaults"]["settings"]) == {
+        "RAG_ES_URL",
+        "RAG_OPENVINO_MODELS_DIR",
+        "RAG_OVMS_MODELS_DIR",
+    }
 
 
 def test_the_workspace_shell_sets_only_variables_the_project_reads() -> None:
     shell = heredoc(render("scripts/workspace.sh.tftpl"), "SHELLENV")
     exported = set(re.findall(r"^export (\w+)=", shell, re.M))
-    assert exported == {"DOMINO_API_PROXY", "DOMINO_PROJECT_ID", "RAG_ES_URL", "PATH"}
+    assert exported == {
+        "DOMINO_API_PROXY",
+        "DOMINO_PROJECT_ID",
+        "RAG_ES_URL",
+        "RAG_OPENVINO_MODELS_DIR",
+        "PATH",
+    }
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck absent")
@@ -268,8 +193,11 @@ def test_each_template_gets_exactly_the_variables_it_uses(template: str) -> None
 
 @pytest.mark.parametrize("template", sorted(template_calls()))
 def test_each_rendered_startup_script_parses_with_bash(template: str) -> None:
+    # Only the template is rendered by Terraform: common.sh is read with file(), so a
+    # "%{" there is curl's -w format, not a directive.
+    source = (TF_DIR / template).read_text(encoding="utf-8")
+    assert not re.search(r"(?<!%)%\{", source), "directives are not rendered here"
     script = render(template)
-    assert "%{" not in script, "template directives are not rendered by this test"
     result = subprocess.run(
         ["bash", "-n"], input=script, text=True, capture_output=True
     )

@@ -260,3 +260,38 @@ variable "environment_id" {
     error_message = "environment_id must be letters, digits, '.', '_' or '-'."
   }
 }
+
+variable "cache_bucket" {
+  description = <<-EOT
+    The cache bucket that outlives the machines (exported models, index snapshots,
+    result archives); deleted by destroy. "" = "<project_id>-<name>-cache".
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cache_bucket == "" || can(regex("^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$", var.cache_bucket))
+    error_message = "cache_bucket must be \"\" or a bucket name: 3-63 lowercase letters, digits, '.', '_' or '-'."
+  }
+}
+
+variable "dataset_path" {
+  description = "The folder on the Workspace and every pool machine that stands in for a Domino Dataset: the exported models live in it, as on Domino."
+  type        = string
+  default     = "/domino/datasets/local/emulation"
+
+  validation {
+    condition     = can(regex("^/[A-Za-z0-9._/-]+[A-Za-z0-9._-]$", var.dataset_path))
+    error_message = "dataset_path must be an absolute path without spaces or a trailing slash."
+  }
+}
+
+variable "spot" {
+  description = <<-EOT
+    true = the pool and Elasticsearch machines are Spot VMs: cheaper, but Google may
+    take one back at any time (it is then deleted). The Workspace machine is never Spot.
+    false when the zone has no Spot capacity.
+  EOT
+  type        = bool
+  default     = true
+}

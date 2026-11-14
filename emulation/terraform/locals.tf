@@ -42,4 +42,7 @@ locals {
 
   # The secrets the Workspace machine reads at boot (Secret Manager secret ids).
   ssh_key_secret = "${var.name}-ssh-key"
+
+  # Bucket names are global: the project id makes the default unique.
+  cache_bucket = var.cache_bucket == "" ? "${var.project_id}-${var.name}-cache" : var.cache_bucket
 }

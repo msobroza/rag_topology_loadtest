@@ -7,6 +7,7 @@ locals {
     "iap.googleapis.com",           # SSH and port forwards without public addresses
     "iam.googleapis.com",           # the machines' service accounts
     "secretmanager.googleapis.com", # the SSH key and the Project environment variables
+    "storage.googleapis.com",       # the cache bucket (storage.tf)
   ]
 }
 
