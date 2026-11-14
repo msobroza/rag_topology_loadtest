@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import importlib.util
 import json
 from pathlib import Path
@@ -9,8 +10,10 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
+from locust.stats import PERCENTILES_TO_REPORT, RequestStats, StatsCSV
 
 from loadtest_settings_helpers import clear_loadtest_variables
+from rag_load_test.loadtest.rag_compare import load_stats
 from rag_load_test.loadtest.request_plans import RequestPlan
 from repo_paths import REPO_ROOT
 
@@ -204,3 +207,66 @@ def test_stop_listener_writes_the_target_record_beside_the_csv(
         "seen": [{"topology": "monolith", "run_label": "mono", "responses": 2}],
     }
     locustfile.write_target_record_on_stop(SimpleNamespace(parsed_options=None))
+
+
+# --- the stats file holds the finished run ----------------------------------------
+
+
+def locust_writes_its_stats_file(prefix: Path, stats: RequestStats) -> None:
+    """What Locust's own writer leaves on disk at one of its once-a-second writes."""
+    environment = SimpleNamespace(stats=stats)
+    with Path(f"{prefix}_stats.csv").open("w") as handle:
+        StatsCSV(environment, PERCENTILES_TO_REPORT).requests_csv(csv.writer(handle))
+
+
+def test_stop_listener_rewrites_the_stats_file_with_the_last_second(
+    locustfile: ModuleType, tmp_path: Path
+) -> None:
+    prefix, stats = tmp_path / "monolith", RequestStats()
+    stats.log_request("POST", "/query", 10, 100)
+    stats.log_request("POST", "/query", 20, 100)
+    locust_writes_its_stats_file(prefix, stats)  # its last write before the run ends
+    stats.log_request("POST", "/query", 30, 100)  # answered after that write
+    stats.log_request("POST", "/query", 40, 100)
+    stats.log_error("POST", "/query", "HTTP 503: down")
+    assert load_stats(prefix)["POST /query"].requests == 2  # what rag-compare saw
+
+    options = SimpleNamespace(csv_prefix=str(prefix))
+    environment = SimpleNamespace(parsed_options=options, stats=stats)
+    locustfile.write_final_stats_on_stop(environment)
+
+    final = load_stats(prefix)
+    assert (final["POST /query"].requests, final["POST /query"].failures) == (4, 1)
+    assert final["Aggregated"].requests == 4
+    assert final["POST /query"].p50 == stats.get("/query", "POST").median_response_time
+
+
+def test_the_rewritten_stats_file_has_the_columns_locust_writes(
+    locustfile: ModuleType, tmp_path: Path
+) -> None:
+    prefix, stats = tmp_path / "monolith", RequestStats()
+    stats.log_request("POST", "/retrieve", 12, 100)
+    locust_writes_its_stats_file(prefix, stats)
+    written_by_locust = Path(f"{prefix}_stats.csv").read_text()
+
+    options = SimpleNamespace(csv_prefix=str(prefix))
+    locustfile.write_final_stats_on_stop(
+        SimpleNamespace(parsed_options=options, stats=stats)
+    )
+
+    # Same statistics, so the same bytes: header, rows and line endings.
+    assert Path(f"{prefix}_stats.csv").read_text() == written_by_locust
+
+
+@pytest.mark.parametrize("options", [None, SimpleNamespace(csv_prefix=None)])
+def test_no_stats_file_is_written_without_csv(
+    locustfile: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    options: SimpleNamespace | None,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    locustfile.write_final_stats_on_stop(SimpleNamespace(parsed_options=options))
+
+    assert list(tmp_path.iterdir()) == []
