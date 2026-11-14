@@ -1,6 +1,6 @@
 """One open port of each kind: everything a workflow run needs.
 
-``adapters/rag_ports.py`` builds it from the settings; the workflow and the
+``composition/composition_root.py`` builds it from the settings; the workflow and the
 ingestion use it. The ports themselves are the ``base_*.py`` modules of the
 adapters' component packages, the only part of the adapters the application
 imports.

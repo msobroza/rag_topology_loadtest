@@ -57,7 +57,7 @@ The tree is three applications over one shared domain. The domain
 
 | Application | What it is | Where it lives |
 | --- | --- | --- |
-| RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `infrastructure/`, `entrypoints/` |
+| RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `infrastructure/`, `composition/`, `entrypoints/` |
 | deploy tool | what publishes the Apps of a Topology (`rag-deploy`) | one package, `deploy/` |
 | load-test client | what drives a target and compares runs (Locust, `rag-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, where Locust looks for it |
 
@@ -68,9 +68,10 @@ The tree is three applications over one shared domain. The domain
    | `domain` | `domain` |
    | `application` | itself, `domain`, and the ports of the adapters (`adapters/<component>/base_<component>.py`), nothing else of them |
    | `config` | itself and `domain` |
-   | `adapters` | `adapters`, `infrastructure` and `domain`, and a port only `domain`; `rag_ports.py` alone, which builds the ports, may also import `config` and `application` |
+   | `adapters` | `adapters`, `infrastructure` and `domain`, and a port only `domain` |
    | `infrastructure` | itself and `domain` |
-   | `entrypoints` | `adapters`, `application`, `config`, `domain`, `infrastructure` |
+   | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
+   | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
    | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the four `RAG_*` values a load test sends |
 
@@ -92,15 +93,25 @@ The tree is three applications over one shared domain. The domain
    implements no port is not an adapter and lives in `infrastructure/`: what
    the `api` implementations share (`endpoint/`), what the `local` ones share
    (`local_models/`), `http/`, the corpora `rag-fetch-corpus` downloads
-   (`corpora/`), `json_log.py` and `fake_text.py`. `rag_ports.py` is the one
-   module that builds the implementations from the settings.
-5. **The tree below** lists every package and module of `src/rag_load_test/`; a
+   (`corpora/`), `json_log.py` and `fake_text.py`. Building the implementations
+   from the settings is not an adapter either: that is `composition/`, rule 5.
+5. **Composition.** `composition/` is the composition root, the only code that
+   reads the settings to build an adapter. Each job has one module:
+   `resource_scope.py` opens each thing once and closes them all together;
+   `http_resources.py` and `local_model_resources.py` hold what the
+   implementations share; one factory per port (`embedder_factory.py`,
+   `reranker_factory.py`, `vector_store_factory.py`, `llm_factory.py`) maps
+   each Backend value to what opens it, so a new Backend is one method and one
+   entry in one factory; `composition_root.py` wires them and gives each
+   command what it asks for.
+6. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, and that
 `locustfile.py` imports only the `loadtest` package;
-`tests/structure/test_placement.py` checks rule 2, the file names of rule 3, the
-component layout of rule 4 and rule 5. The fake Domino (`src/fake_domino/`) is a
+`tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
+rule 4 (only component packages in `adapters/`, their layout, and no port
+implemented anywhere else) and rule 6. The fake Domino (`src/fake_domino/`) is a
 test double, not part of the product, and the rule does not apply to it.
 
 ### The tree
@@ -131,9 +142,8 @@ src/rag_load_test/
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     prompts_source.py  the settings source that reads the prompts YAML
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
-  adapters/         the outside systems behind the ports, grouped by rule 4
-    rag_ports.py    RagPorts, the composition root: settings in, ready ports out; owns the thread budget and pool, HTTP client, bearer token and their shutdown
-                    (adapters take sizes, timeouts and names as constructor arguments; only rag_ports.py reads settings)
+  adapters/         the ports and their implementations, nothing else (rule 4)
+                    (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
     embedder/       the embedder
       base_embedder.py  BaseEmbedder, the port
       local/        RAG_EMBEDDING_BACKEND=local
@@ -198,6 +208,16 @@ src/rag_load_test/
       jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
     fake_text.py    tokenize, cosine: the text helpers the fake implementations share
     json_log.py     log_json: the one log format
+  composition/      the composition root: builds the adapters from the settings (rule 5)
+    composition_root.py  CompositionRoot: settings in, ready ports out; what each command asks for
+    resource_scope.py  ResourceScope: each resource opened once, all closed together
+    http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source
+    local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
+    base_port_factory.py  BasePortFactory: the supplied port, else the one its Backend names, opened once
+    embedder_factory.py  EmbedderFactory: local, api, fake
+    reranker_factory.py  RerankerFactory: local, api, fake, none
+    vector_store_factory.py  VectorStoreFactory: elasticsearch, chroma, fake (seeded)
+    llm_factory.py  LLMFactory: api, fake
   entrypoints/      the RAG system's commands: FastAPI apps and CLIs
     rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
     rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
@@ -235,7 +255,7 @@ docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS e
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
 domino/             app.sh (one entry point, role from RAG_ROLE), Dockerfile (targets `rag` and `ovms`)
 tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
-  domain/ application/ config/ adapters/ infrastructure/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
+  domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
   scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
   structure/        the import, placement and code-shape rules, read from the source with ast
   fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
@@ -501,7 +521,7 @@ with a one-line usage error, not a traceback.
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 
 Every tunable is a field of `RagSettings` in `config/rag_settings.py`; adapters get
-the values as constructor arguments from `adapters/rag_ports.py`. Locust's rerank
+the values as constructor arguments from the `composition/` package. Locust's rerank
 users send `RAG_TOP_K_RETRIEVE` documents with `top_n=RAG_TOP_K_RERANK`, like the
 workflow. Sources win in this order: constructor arguments, environment, `.env`,
 then the prompts YAML. An invalid backend, topology, retrieval mode or runtime

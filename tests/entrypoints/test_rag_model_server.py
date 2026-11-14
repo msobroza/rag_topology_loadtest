@@ -18,10 +18,10 @@ from rag_load_test.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
 from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.reranker.api.api_reranker import ApiReranker
 from rag_load_test.adapters.reranker.api.cohere_rerank_format import CohereRerankFormat
 from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.api_endpoint import ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
@@ -56,15 +56,15 @@ def api_embedder(client: httpx.AsyncClient, alias: str) -> ApiEmbedder:
 
 @pytest.fixture
 def embedder_app(settings_factory: Callable[..., RagSettings]):
-    ports = RagPorts(settings_factory(), embedder=FakeEmbedder(dim=4))
-    with TestClient(create_model_server("embedder", ports)) as client:
+    composition = CompositionRoot(settings_factory(), embedder=FakeEmbedder(dim=4))
+    with TestClient(create_model_server("embedder", composition)) as client:
         yield client
 
 
 @pytest.fixture
 def reranker_app(settings_factory: Callable[..., RagSettings]):
-    ports = RagPorts(settings_factory(), reranker=FakeReranker())
-    with TestClient(create_model_server("reranker", ports)) as client:
+    composition = CompositionRoot(settings_factory(), reranker=FakeReranker())
+    with TestClient(create_model_server("reranker", composition)) as client:
         yield client
 
 
@@ -142,10 +142,10 @@ async def test_api_adapters_work_against_the_fastapi_server(
 ) -> None:
     """The contract test: the workflow's ``api`` adapters cannot tell the servers apart."""
     reranker_app = create_model_server(
-        "reranker", RagPorts(settings_factory(), reranker=FakeReranker())
+        "reranker", CompositionRoot(settings_factory(), reranker=FakeReranker())
     )
     embedder_app = create_model_server(
-        "embedder", RagPorts(settings_factory(), embedder=FakeEmbedder(dim=4))
+        "embedder", CompositionRoot(settings_factory(), embedder=FakeEmbedder(dim=4))
     )
     with TestClient(reranker_app), TestClient(embedder_app):  # run the lifespans
         rerank_client = httpx.AsyncClient(
@@ -182,10 +182,10 @@ async def test_api_adapters_with_a_wrong_alias_fail_fast_on_404(
         sent.append(request.url.path)
 
     reranker_app = create_model_server(
-        "reranker", RagPorts(settings_factory(), reranker=FakeReranker())
+        "reranker", CompositionRoot(settings_factory(), reranker=FakeReranker())
     )
     embedder_app = create_model_server(
-        "embedder", RagPorts(settings_factory(), embedder=FakeEmbedder(dim=4))
+        "embedder", CompositionRoot(settings_factory(), embedder=FakeEmbedder(dim=4))
     )
     with TestClient(reranker_app), TestClient(embedder_app):  # run the lifespans
         for app, call in [
@@ -219,7 +219,7 @@ def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None
     calls: dict[str, object] = {}
     monkeypatch.setattr(
         "rag_load_test.entrypoints.rag_model_server.create_model_server",
-        lambda role, ports: role,
+        lambda role, composition: role,
     )
     monkeypatch.setattr(
         "rag_load_test.entrypoints.rag_model_server.uvicorn.run",
@@ -233,8 +233,8 @@ def test_model_server_answers_under_the_domino_prefix(
     monkeypatch: pytest.MonkeyPatch, settings_factory: Callable[..., RagSettings]
 ) -> None:
     monkeypatch.setenv("DOMINO_RUN_HOST_PATH", "/apps/abc123")
-    ports = RagPorts(settings_factory(), reranker=FakeReranker())
-    with TestClient(create_model_server("reranker", ports)) as client:
+    composition = CompositionRoot(settings_factory(), reranker=FakeReranker())
+    with TestClient(create_model_server("reranker", composition)) as client:
         assert (
             client.get(
                 "/apps/abc123/v3/models/crossencoder-camembert-base-mmarcoFR"

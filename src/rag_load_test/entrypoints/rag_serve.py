@@ -9,7 +9,8 @@ prefix Domino serves the app under, so the app answers with or without the
 prefix on the wire and needs no proxy in front (unlike OVMS).
 
 Example:
-    >>> uvicorn.run(create_app(RagPorts(RagSettings())), host="0.0.0.0", port=8888)
+    >>> app = create_app(CompositionRoot(RagSettings()))
+    >>> uvicorn.run(app, host="0.0.0.0", port=8888)
 """
 
 from __future__ import annotations
@@ -29,9 +30,9 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from ..adapters.rag_ports import RagPorts
 from ..application.rag_dependencies import RagDependencies
 from ..application.workflow import RagWorkflow
+from ..composition.composition_root import CompositionRoot
 from ..config.domino_rules import apply_domino_rules
 from ..config.rag_settings import RagSettings
 from ..domain.errors import RagDependencyError
@@ -138,23 +139,23 @@ async def readiness(deps: RagDependencies) -> list[ReadyCheck]:
     return checks
 
 
-# The handlers read what the factory left on ``app.state``: ``ports`` from the
+# The handlers read what the factory left on ``app.state``: ``composition`` from the
 # start, ``deps`` and ``run`` once the lifespan has opened the ports.
 routes = APIRouter()
 
 
-def create_app(ports: RagPorts) -> FastAPI:
-    """Build the workflow app over the ports; they open and close with its lifespan.
+def create_app(composition: CompositionRoot) -> FastAPI:
+    """Build the workflow app; its ports open and close with the app's lifespan.
 
     Args:
-        ports: The ports the app serves with; their settings also name the
-            topology and run label stamped on every response.
+        composition: Builds the ports the app serves with; its settings also name
+            the topology and run label stamped on every response.
 
     Returns:
         The app, its routes answering under ``DOMINO_RUN_HOST_PATH`` and at the root.
 
     Example:
-        >>> with TestClient(create_app(RagPorts(fake_settings))) as client:
+        >>> with TestClient(create_app(CompositionRoot(fake_settings))) as client:
         ...     client.post("/query", json={"question": "vacation days?"})
     """
     app = FastAPI(
@@ -162,7 +163,7 @@ def create_app(ports: RagPorts) -> FastAPI:
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),
         lifespan=_lifespan,
     )
-    app.state.ports = ports
+    app.state.composition = composition
     app.middleware("http")(_stamp_headers)
     app.exception_handler(RagDependencyError)(_dependency_error)
     app.include_router(routes)
@@ -171,10 +172,10 @@ def create_app(ports: RagPorts) -> FastAPI:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    ports: RagPorts = app.state.ports
-    settings = ports.settings
-    async with ports:
-        deps = await ports.workflow_dependencies()
+    composition: CompositionRoot = app.state.composition
+    settings = composition.settings
+    async with composition:
+        deps = await composition.workflow_dependencies()
         app.state.deps = deps
         app.state.run = traced(
             RagWorkflow(deps, settings.workflow_parameters()).run,
@@ -191,7 +192,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def _settings(request: Request) -> RagSettings:
-    return request.app.state.ports.settings
+    return request.app.state.composition.settings
 
 
 async def _stamp_headers(request: Request, call_next: Callable[..., Any]) -> Any:
@@ -327,5 +328,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    uvicorn.run(create_app(RagPorts(settings)), host=args.host, port=args.port)
+    uvicorn.run(create_app(CompositionRoot(settings)), host=args.host, port=args.port)
     return 0

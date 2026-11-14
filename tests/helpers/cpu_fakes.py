@@ -1,4 +1,4 @@
-"""A named fake for ``BaseCpuCounter``, shared by the CPU-count and ``RagPorts`` tests."""
+"""A named fake for ``BaseCpuCounter``, shared by the CPU-count and ``CompositionRoot`` tests."""
 
 from __future__ import annotations
 

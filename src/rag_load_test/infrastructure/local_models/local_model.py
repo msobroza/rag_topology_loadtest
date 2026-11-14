@@ -2,9 +2,9 @@
 
 ``openvino`` loads the model's exported folder when there is one, else the
 Hugging Face id (which sentence-transformers would convert in memory on every
-load). ``RagPorts`` never lets it come to that: it exports a missing folder first
-(``model_provisioning.py``). ``torch`` always loads the id. Describing a model
-reads nothing but whether the folder exists.
+load). ``LocalModelResources`` never lets it come to that: it exports a missing
+folder first (``model_provisioning.py``). ``torch`` always loads the id.
+Describing a model reads nothing but whether the folder exists.
 
 Example:
     >>> model = local_model("org/name", runtime="openvino", models_dir="models/ov")

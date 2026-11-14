@@ -20,8 +20,8 @@ from ..application.ingest import ingest
 from ..domain.corpus import SourceDocument, chunk, synthetic_corpus
 from ..domain.passages import Passage
 
-if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_ports
-    from ..adapters.rag_ports import RagPorts
+if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_composition
+    from ..composition.composition_root import CompositionRoot
 
 
 def load_jsonl(path: Path) -> list[SourceDocument]:
@@ -71,17 +71,17 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _ingest_through(
-    ports: RagPorts, passages: Sequence[Passage], batch_size: int
+    composition: CompositionRoot, passages: Sequence[Passage], batch_size: int
 ) -> dict[str, object]:
-    async with ports:
-        embedder, store = await ports.ingest_ports()
+    async with composition:
+        embedder, store = await composition.ingest_ports()
         count = await ingest(passages, embedder, store, batch_size=batch_size)
         _, stored = await store.ready()
     return {"passages": count, "embedder": embedder.model_name, "store": stored}
 
 
-def _configured_ports() -> RagPorts:
-    from ..adapters.rag_ports import RagPorts
+def _configured_composition() -> CompositionRoot:
+    from ..composition.composition_root import CompositionRoot
     from ..config.rag_settings import RagSettings
 
     settings = RagSettings()
@@ -90,10 +90,12 @@ def _configured_ports() -> RagPorts:
             "rag-ingest: RAG_VECTOR_STORE_BACKEND='fake' is seeded when the app starts "
             "and keeps nothing between processes; ingest needs 'elasticsearch'"
         )
-    return RagPorts(settings)
+    return CompositionRoot(settings)
 
 
-def main(argv: Sequence[str] | None = None, *, ports: RagPorts | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None, *, composition: CompositionRoot | None = None
+) -> int:
     """Run ``rag-ingest``: chunk, embed and upsert a corpus, then print one JSON line.
 
     The summary line is the ``ingest_done`` event: the document count, the passage
@@ -101,18 +103,18 @@ def main(argv: Sequence[str] | None = None, *, ports: RagPorts | None = None) ->
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
-        ports: The ports to ingest through; ``None`` builds them from the
-            ``RAG_*`` settings, which refuses the ``fake`` vector store.
+        composition: Builds the ports to ingest through; ``None`` builds one from
+            the ``RAG_*`` settings, which refuses the ``fake`` vector store.
 
     Returns:
         The exit status, 0.
 
     Example:
-        >>> main(["--synthetic", "200"])                     # ports from RAG_* settings
-        >>> main(["--corpus", "docs.jsonl"], ports=RagPorts(settings))
+        >>> main(["--synthetic", "200"])                     # built from RAG_* settings
+        >>> main(["--corpus", "docs.jsonl"], composition=CompositionRoot(settings))
     """
     args = _parser().parse_args(argv)
-    ports = ports or _configured_ports()
+    composition = composition or _configured_composition()
     docs = (
         load_jsonl(args.corpus)
         if args.corpus
@@ -125,6 +127,6 @@ def main(argv: Sequence[str] | None = None, *, ports: RagPorts | None = None) ->
             d, chunk_words=args.chunk_words, overlap_words=args.overlap_words
         )
     ]
-    summary = asyncio.run(_ingest_through(ports, passages, args.batch_size))
+    summary = asyncio.run(_ingest_through(composition, passages, args.batch_size))
     print(json.dumps({"event": "ingest_done", "documents": len(docs), **summary}))
     return 0
