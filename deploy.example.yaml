@@ -80,4 +80,4 @@ apps:
     kind: app
     # hardware_tier_id: <a tier with 16 cores>
     # settings:
-    #   RAG_MODEL_WORKERS: "2"
+    #   RAG_MODEL_WORKERS: "2"  # torch runtime only; openvino runs one call at a time

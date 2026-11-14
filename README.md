@@ -503,7 +503,7 @@ with a one-line usage error, not a traceback.
 | `RAG_TOP_K_RERANK` | `5` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
 | `RAG_SYSTEM_PROMPT` / `RAG_USER_PROMPT` | from `prompts.yaml` | override one prompt; the user template must hold `{context}` and `{question}` |
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
-| `RAG_MODEL_WORKERS` | `4` | at most this many in-process inference calls at once (fewer on a small CPU budget) |
+| `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
@@ -555,12 +555,19 @@ read any more:
 virtual CPUs: `RAG_MODEL_CPUS` if positive; on Domino, the `cores` of the run's
 hardware tier from `GET $DOMINO_API_PROXY/api/hardwaretiers/v1/hardwaretiers/$DOMINO_HARDWARE_TIER_ID`
 (a 403 without `ViewHardwareTiers` only logs a warning); otherwise the
-container's CPUs (`joblib.cpu_count()`, which honours the cgroup quota). Whole
-CPUs are split as `workers = min(RAG_MODEL_WORKERS, cpus)` and
-`threads = cpus // workers` per call (8 CPUs: 4 workers x 2 threads), each model
-call running inside a threadpoolctl scope of that size. Autoscaled Apps start
-more pods of the same tier, so every new process works its budget out again; the
-result is one `thread_budget` JSON log line.
+container's CPUs (`joblib.cpu_count()`, which honours the cgroup quota). How
+the whole CPUs are used depends on `RAG_LOCAL_MODEL_RUNTIME`. Under `openvino`
+one model call runs at a time and each model uses every CPU (8 CPUs: 1 worker x
+8 threads): an OpenVINO model fixes its threads when it loads and holds one
+inference request, so a second call on it while one runs fails with `Infer
+Request is busy`. Under `torch` the CPUs are split as
+`workers = min(RAG_MODEL_WORKERS, cpus)` and `threads = cpus // workers` per
+call (8 CPUs: 4 workers x 2 threads), each model call running inside a
+threadpoolctl scope of that size. A non-zero `RAG_EMBEDDING_THREADS` or
+`RAG_RERANK_THREADS` replaces that model's threads under either runtime.
+Autoscaled Apps start more pods of the same tier, so every new process works its
+budget out again; the result is one `thread_budget` JSON log line, which names
+the runtime.
 
 ## Retrieval, stores and model endpoints
 

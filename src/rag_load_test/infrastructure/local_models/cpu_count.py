@@ -10,7 +10,8 @@ first that answers wins; ``LocalModelResources`` decides the order.
 Example:
     >>> counters = [FixedCpus(0), DominoHardwareTierCpus(http, proxy, tier, policy),
     ...             ContainerCpus()]
-    >>> budget = await work_out_thread_budget(counters, max_workers=4)
+    >>> budget = await work_out_thread_budget(counters, max_workers=4,
+    ...                                       runtime="openvino")
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from ...domain.backends import LocalModelRuntime
 from ...domain.errors import describe_error
 from ...domain.thread_budget import ThreadBudget, plan_thread_budget
 from ..http.http_policy import HttpPolicy
@@ -194,6 +196,7 @@ async def work_out_thread_budget(
     counters: Sequence[BaseCpuCounter],
     *,
     max_workers: int,
+    runtime: LocalModelRuntime,
     embedder_threads: int = 0,
     reranker_threads: int = 0,
 ) -> ThreadBudget:
@@ -201,7 +204,9 @@ async def work_out_thread_budget(
 
     Args:
         counters: The CPU sources, asked in order; the first answer wins.
-        max_workers: Upper bound on model calls running at once.
+        max_workers: Upper bound on model calls running at once under ``torch``;
+            ``openvino`` always runs one.
+        runtime: What runs the models: ``torch`` or ``openvino``.
         embedder_threads: Native threads per embed call; 0 takes the computed share.
         reranker_threads: Native threads per rerank call; 0 takes the computed
             share.
@@ -210,13 +215,18 @@ async def work_out_thread_budget(
         The workers and per-call threads.
 
     Example:
-        >>> await work_out_thread_budget([FixedCpus(8)], max_workers=4)
+        >>> await work_out_thread_budget([FixedCpus(8)], max_workers=4,
+        ...                              runtime="torch")
         ThreadBudget(workers=4, embedder_threads=2, reranker_threads=2)
+        >>> await work_out_thread_budget([FixedCpus(8)], max_workers=4,
+        ...                              runtime="openvino")
+        ThreadBudget(workers=1, embedder_threads=8, reranker_threads=8)
     """
     cpus, source = await first_cpu_count(counters)
     budget = plan_thread_budget(
         cpus,
         max_workers=max_workers,
+        runtime=runtime,
         embedder_threads=embedder_threads,
         reranker_threads=reranker_threads,
     )
@@ -225,6 +235,7 @@ async def work_out_thread_budget(
         event="thread_budget",
         cpus=cpus,
         source=source,
+        runtime=runtime,
         workers=budget.workers,
         embedder_threads=budget.embedder_threads,
         reranker_threads=budget.reranker_threads,

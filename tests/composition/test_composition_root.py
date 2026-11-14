@@ -386,6 +386,7 @@ async def test_local_model_scopes_carry_the_thread_budget(
         "event": "thread_budget",
         "cpus": 8,
         "source": "container",
+        "runtime": "torch",
         "workers": 4,
         "embedder_threads": 2,
         "reranker_threads": 2,
