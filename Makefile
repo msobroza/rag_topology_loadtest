@@ -1,6 +1,6 @@
 # rag_load_test — developer tasks (run from this directory)
 .DEFAULT_GOAL := help
-.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test ingest serve model-server loadtest loadtest-models compare ovms-export infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run
+.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test ingest serve model-server loadtest loadtest-models compare ovms-export openvino-export infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run
 
 # A .venv in this directory is used without activating it; without one, commands
 # come from the PATH as usual. Two lines because make 3.81 (macOS) looks a recipe's
@@ -81,6 +81,9 @@ compare: ## Compare all runs found under results/ into results/comparison.md
 
 ovms-export: ## Export reranker + embedder to ovms/models (needs HF access)
 	./ovms/export_models.sh
+
+openvino-export: ## Convert the in-process reranker + embedder to OpenVINO under models/openvino (needs HF access)
+	$(BIN)rag-export-openvino
 
 deploy: ## On Domino: publish (or redeploy) every App of the topology (settings in deploy.yaml)
 	$(BIN)rag-deploy deploy all

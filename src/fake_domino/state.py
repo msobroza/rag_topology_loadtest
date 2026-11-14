@@ -1,8 +1,10 @@
 """The fake Domino's state: its Apps and versions, and the scripted behaviours.
 
-What a new version's instance reports is scripted, one status per GET of the App
-(a behaviour), so a test or a dry run can watch ``rag-deploy`` wait. The routes
-in ``apps_routes.py`` and ``stand_ins.py`` read and change this state.
+What a new version's instance reports is decided by an ``BaseInstanceScheduler``
+(``instances.py``): by default scripted, one status per GET of the App (a
+behaviour), so a test or a dry run can watch ``rag-deploy`` wait. The routes in
+``apps_routes.py`` and ``stand_ins.py`` read and change this state, all of it in
+memory.
 
 Example:
     >>> FakeDominoApps.from_behaviour("slow")  # Queued ... then Running
@@ -11,7 +13,6 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import NamedTuple
 
 from .api_shapes import (
@@ -20,6 +21,17 @@ from .api_shapes import (
     AppVersionCreationRequest,
     AppVersionResponse,
 )
+from .instances import (
+    BaseInstanceScheduler,
+    FakeApp,
+    FakeVersion,
+    ScriptedInstances,
+    VersionRefusedError,
+    instance_id,
+)
+
+FAKE_OWNER = "fake-owner"  # the fake's one user, who owns every App
+FAKE_PROJECT_NAME = "fake-project"  # the name of every App's project
 
 # --- Behaviours: what a new version's instance reports, one status per GET ---
 
@@ -52,23 +64,8 @@ FAKE_DOMINO_BEHAVIOURS: dict[str, FakeBehaviour] = {
 }
 
 
-@dataclass
-class _FakeVersion:
-    id: str
-    request: AppVersionCreationRequest
-    gets: int = 0  # GETs of the App that reported this version
-
-
-@dataclass
-class _FakeApp:
-    id: str
-    request: AppCreationRequest
-    versions: list[_FakeVersion]
-    stale_gets_left: int = 0
-
-
 class FakeDominoApps:
-    """The fake's state: its Apps, its scripted statuses and what it received.
+    """The fake's state: its Apps, what their instances report, what it received.
 
     Args:
         statuses: What a new version's instance reports, one per GET of the App
@@ -76,6 +73,8 @@ class FakeDominoApps:
         stale_gets: GETs after a new version that still report the previous one
             as current and Running.
         forbidden: Whether every Apps API call answers 403.
+        scheduler: Decides what instances report instead of ``statuses`` and
+            ``stale_gets``; None scripts them (``ScriptedInstances``).
 
     Example:
         >>> create_fake_domino(FakeDominoApps(["Pending", "Running"], stale_gets=2))
@@ -87,20 +86,25 @@ class FakeDominoApps:
         *,
         stale_gets: int = 0,
         forbidden: bool = False,
+        scheduler: BaseInstanceScheduler | None = None,
     ) -> None:
-        self.statuses, self.stale_gets = list(statuses), stale_gets
-        self.forbidden = forbidden
-        self.apps: dict[str, _FakeApp] = {}
+        self.statuses, self.forbidden = list(statuses), forbidden
+        self.scheduler = scheduler or ScriptedInstances(statuses, stale_gets)
+        self.apps: dict[str, FakeApp] = {}
         self.received: list[tuple[str, str]] = []  # (method, path), in order
         self.creates: list[AppCreationRequest] = []
         self.new_versions: list[tuple[str, AppVersionCreationRequest]] = []
 
     @classmethod
-    def from_behaviour(cls, name: str) -> FakeDominoApps:
+    def from_behaviour(
+        cls, name: str, *, scheduler: BaseInstanceScheduler | None = None
+    ) -> FakeDominoApps:
         """Build the state for one of ``FAKE_DOMINO_BEHAVIOURS``.
 
         Args:
             name: A key of ``FAKE_DOMINO_BEHAVIOURS``, e.g. ``"fails"``.
+            scheduler: Replaces the behaviour's statuses; only ``forbidden``
+                then changes anything.
 
         Returns:
             A fresh state scripted with that behaviour's statuses.
@@ -114,9 +118,10 @@ class FakeDominoApps:
                 f"{', '.join(FAKE_DOMINO_BEHAVIOURS)}"
             )
         behaviour = FAKE_DOMINO_BEHAVIOURS[name]
-        return cls(behaviour.statuses, forbidden=behaviour.forbidden)
+        forbidden = behaviour.forbidden
+        return cls(behaviour.statuses, forbidden=forbidden, scheduler=scheduler)
 
-    def add_app(self, request: AppCreationRequest) -> _FakeApp:
+    def add_app(self, request: AppCreationRequest) -> FakeApp:
         """Store an App with its first version, e.g. to set up a test.
 
         Args:
@@ -124,23 +129,40 @@ class FakeDominoApps:
 
         Returns:
             The stored App, with id ``app-<n>``.
+
+        Raises:
+            VersionRefusedError: If the scheduler refuses the version; the App
+                is then not stored.
         """
         app_id = f"app-{len(self.apps) + 1}"
-        version = _FakeVersion(f"{app_id}-v1", request.version)
-        self.apps[app_id] = _FakeApp(app_id, request, [version])
-        return self.apps[app_id]
+        version = FakeVersion(f"{app_id}-v1", request.version)
+        app = self.apps[app_id] = FakeApp(app_id, request, [version])
+        try:
+            self.scheduler.version_added(app)
+        except VersionRefusedError:
+            del self.apps[app_id]
+            raise
+        return app
 
-    def add_version(self, app: _FakeApp, request: AppVersionCreationRequest) -> None:
-        """Append a version to ``app``, which then reports it after ``stale_gets``.
+    def add_version(self, app: FakeApp, request: AppVersionCreationRequest) -> None:
+        """Append a version to ``app``; it becomes the current one.
 
         Args:
             app: The App that gets the version.
             request: The new version's create request.
-        """
-        app.versions.append(_FakeVersion(f"{app.id}-v{len(app.versions) + 1}", request))
-        app.stale_gets_left = self.stale_gets
 
-    def current(self, app: _FakeApp) -> AppVersionResponse:
+        Raises:
+            VersionRefusedError: If the scheduler refuses the version; it is
+                then not stored.
+        """
+        app.versions.append(FakeVersion(f"{app.id}-v{len(app.versions) + 1}", request))
+        try:
+            self.scheduler.version_added(app)
+        except VersionRefusedError:
+            app.versions.pop()
+            raise
+
+    def current(self, app: FakeApp) -> AppVersionResponse:
         """Show ``app``'s current version as a list or a create shows it (not a GET).
 
         Args:
@@ -149,28 +171,22 @@ class FakeDominoApps:
         Returns:
             The latest version, its instance at the status the next GET reports.
         """
-        version = app.versions[-1]
-        return _version_response(version, self._status(version))
+        return _version_response(*self.scheduler.shown(app))
 
-    def poll(self, app: _FakeApp) -> AppVersionResponse:
+    def poll(self, app: FakeApp) -> AppVersionResponse:
         """Report what one GET of ``app`` shows as its current version.
 
         Args:
             app: The App being fetched.
 
         Returns:
-            The previous version as Running while stale GETs remain; otherwise
-            the latest version, moved one status along.
+            What the scheduler shows: scripted, the previous version as Running
+            while stale GETs remain, otherwise the latest moved one status along.
         """
-        if app.stale_gets_left:  # a redeploy Domino has not switched to yet
-            app.stale_gets_left -= 1
-            return _version_response(app.versions[-2], "Running")
-        version = app.versions[-1]
-        version.gets += 1
-        return _version_response(version, self._status(version, offset=-1))
+        return _version_response(*self.scheduler.polled(app))
 
     def instances(
-        self, app: _FakeApp, version_id: str
+        self, app: FakeApp, version_id: str
     ) -> list[AppInstanceSummaryResponse] | None:
         """List a version's instances, as its last GET showed.
 
@@ -188,25 +204,22 @@ class FakeDominoApps:
         if version_id not in (version.id for version in app.versions):
             return None
         version = app.versions[-1]
-        status = self._status(version, offset=-1 if version.gets else 0)
+        status = self.scheduler.last_status(app)
         if version.id != version_id or status is None:
             return []
         return [_instance(version, status)]
 
-    def version_of_instance(self, instance_id: str) -> _FakeVersion | None:
-        """Find the version whose instance is ``instance_id``.
+    def instance_owner(self, instance: str) -> tuple[FakeApp, FakeVersion] | None:
+        """Find the App and version whose instance is ``instance``.
 
         Args:
-            instance_id: An instance id, e.g. ``"app-1-v1-i"``.
+            instance: An instance id, e.g. ``"app-1-v1-i"``.
 
         Returns:
-            That version, or None if no App has it.
+            That App and version, or None if no App has it.
         """
-        versions = (v for app in self.apps.values() for v in app.versions)
-        return next((v for v in versions if _instance_id(v) == instance_id), None)
-
-    def _status(self, version: _FakeVersion, offset: int = 0) -> str | None:
-        return self.statuses[min(version.gets + offset, len(self.statuses) - 1)]
+        owners = ((a, v) for a in self.apps.values() for v in a.versions)
+        return next((o for o in owners if instance_id(o[1]) == instance), None)
 
 
 _VERSION_DEFAULTS: dict[str, object] = {
@@ -220,17 +233,13 @@ _VERSION_DEFAULTS: dict[str, object] = {
 }
 
 
-def _instance_id(version: _FakeVersion) -> str:
-    return f"{version.id}-i"
-
-
-def _instance(version: _FakeVersion, status: str) -> AppInstanceSummaryResponse:
+def _instance(version: FakeVersion, status: str) -> AppInstanceSummaryResponse:
     return AppInstanceSummaryResponse(
-        id=_instance_id(version), createdAt=0, status=status
+        id=instance_id(version), createdAt=0, status=status
     )
 
 
-def _version_response(version: _FakeVersion, status: str | None) -> AppVersionResponse:
+def _version_response(version: FakeVersion, status: str | None) -> AppVersionResponse:
     instance = _instance(version, status) if status is not None else None
     fields = version.request.model_dump(exclude_none=True)
     return AppVersionResponse.model_validate(

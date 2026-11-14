@@ -3,7 +3,8 @@
 Transcribed from the Domino 6.2 Platform API reference, so it shows what
 ``rag-deploy`` expects of Domino, not what a live Domino does. Used three ways:
 its ``/docs`` page documents the API, ``rag-fake-domino`` serves it locally, and
-``rag-deploy --dry-run`` runs the real deploy code against it in-process.
+``rag-deploy --dry-run`` runs the real deploy code against it in-process. An
+extension may build on ``create_fake_domino`` through its keyword arguments.
 
 Example:
     >>> main(["--behaviour", "slow"])  # then open http://localhost:8899/docs
@@ -13,16 +14,18 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Awaitable, Callable, Sequence
+from http import HTTPStatus
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.testclient import TestClient
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Lifespan
 
 from .api_shapes import FailureEnvelopeV1
 from .apps_routes import APPS_API_PATH, _apps_router, _state
+from .instances import VersionRefusedError
 from .stand_ins import _stand_ins_router, _tiers_router
 from .state import FAKE_DOMINO_BEHAVIOURS, FakeDominoApps
 
@@ -45,13 +48,30 @@ async def _record_and_forbid(
     return await call_next(request)
 
 
-def create_fake_domino(apps: FakeDominoApps | None = None) -> FastAPI:
+async def _version_refused(_request: Request, exc: Exception) -> Response:
+    # A version the scheduler refuses, answered in Domino's failure shape.
+    status = getattr(exc, "status", HTTPStatus.BAD_REQUEST)
+    body = FailureEnvelopeV1(errors=[str(exc)], requestId="fake-request")
+    return JSONResponse(body.model_dump(), status_code=status)
+
+
+def create_fake_domino(
+    apps: FakeDominoApps | None = None,
+    *,
+    routers: Sequence[APIRouter] = (),
+    lifespan: Lifespan[FastAPI] | None = None,
+    about: str = "",
+) -> FastAPI:
     """Build the fake Domino over ``apps``.
 
     Its Swagger description lists every behaviour of ``FAKE_DOMINO_BEHAVIOURS``.
+    The keyword arguments let an extension serve more.
 
     Args:
         apps: The state it serves; None takes a fresh one that ``starts``.
+        routers: Served before the fake's own, so a path both serve is theirs.
+        lifespan: Runs around the app's life (start-up and shutdown).
+        about: Appended to the Swagger description.
 
     Returns:
         The FastAPI app.
@@ -62,15 +82,14 @@ def create_fake_domino(apps: FakeDominoApps | None = None) -> FastAPI:
     behaviours = [
         f"- `{name}`: {b.description}" for name, b in FAKE_DOMINO_BEHAVIOURS.items()
     ]
-    description = "\n".join(
-        [_ABOUT, "", "Behaviours (`--behaviour`):", "", *behaviours]
-    )
-    fake = FastAPI(title="Fake Domino 6.2 Apps API", description=description)
+    sections = [_ABOUT, "Behaviours (`--behaviour`):", "\n".join(behaviours), about]
+    description = "\n\n".join(section for section in sections if section)
+    fake = FastAPI(title="Fake Domino 6.2", description=description, lifespan=lifespan)
     fake.state.fake_domino_apps = apps or FakeDominoApps()
     fake.middleware("http")(_record_and_forbid)
-    fake.include_router(_apps_router)
-    fake.include_router(_tiers_router)
-    fake.include_router(_stand_ins_router)
+    fake.add_exception_handler(VersionRefusedError, _version_refused)
+    for router in (*routers, _apps_router, _tiers_router, _stand_ins_router):
+        fake.include_router(router)
     return fake
 
 

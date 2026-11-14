@@ -13,8 +13,8 @@ from collections.abc import AsyncIterator, Callable
 import pytest
 
 from rag_load_test.adapters.rag_ports import RagPorts
-from rag_load_test.config.settings import RagSettings
-from rag_load_test.domain.ports import RagDependencies
+from rag_load_test.application.rag_dependencies import RagDependencies
+from rag_load_test.config.rag_settings import RagSettings
 
 
 @pytest.fixture
@@ -31,9 +31,9 @@ def settings_factory() -> Callable[..., RagSettings]:
 def fake_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
     """Every backend set to ``fake``: no weights, no network, no Elasticsearch."""
     return settings_factory(
-        embedder_backend="fake",
-        reranker_backend="fake",
-        llm_backend="fake",
+        embedding_backend="fake",
+        rerank_backend="fake",
+        generation_backend="fake",
         vector_store_backend="fake",
     )
 

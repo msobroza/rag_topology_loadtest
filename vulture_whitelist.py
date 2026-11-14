@@ -17,8 +17,16 @@ settings_customise_sources
 # httpx: a BaseTransport subclass answers through handle_request (fake_domino).
 handle_request
 
+# elasticsearch-py: async_bulk calls client.bulk by name (FakeAsyncElasticsearch
+# in tests/adapters/test_elasticsearch_store.py).
+bulk
+
 # LangGraph: a RagState key, written and read by the nodes as a string key.
 query_embedding
+
+# pydantic: the wire field OpenAIEmbeddingsRequest.input, sent and read as JSON
+# (the model server reads it as body.input; vulture may not tie the two).
+input
 
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.

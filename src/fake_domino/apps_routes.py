@@ -1,7 +1,8 @@
 """The fake's Domino 6.2 beta Apps API routes, under ``/api/apps/beta/apps``.
 
-List, create, add a version, get (each GET moves an instance one status along)
-and list a version's instances, over the ``FakeDominoApps`` in the app's state.
+List, create, add a version, get (each GET moves an instance one status along,
+as the state's ``BaseInstanceScheduler`` decides) and list a version's instances,
+over the ``FakeDominoApps`` in the app's state. Routes and shapes are Domino's.
 
 Example:
     >>> fake.include_router(_apps_router)  # as create_fake_domino does
@@ -23,7 +24,8 @@ from .api_shapes import (
     ListAppsResponse,
     PaginatedMetadataV1,
 )
-from .state import FakeDominoApps, _FakeApp
+from .instances import FakeApp
+from .state import FAKE_OWNER, FAKE_PROJECT_NAME, FakeDominoApps
 
 APPS_API_PATH = "/api/apps/beta/apps"
 
@@ -40,11 +42,11 @@ _APP_DEFAULTS: dict[str, object] = {
 
 
 def _app_response(
-    app: _FakeApp, request: Request, version: AppVersionResponse
+    app: FakeApp, request: Request, version: AppVersionResponse
 ) -> AppResponse:
     fields = app.request.model_dump(exclude_none=True, exclude={"version"})
-    project = {"id": app.request.projectId, "name": "fake-project"}
-    owner = {"ownerId": "fake-owner", "ownerUsername": "fake-owner"}
+    project = {"id": app.request.projectId, "name": FAKE_PROJECT_NAME}
+    owner = {"ownerId": FAKE_OWNER, "ownerUsername": FAKE_OWNER}
     url = f"{str(request.base_url).rstrip('/')}/apps/{app.id}"
     return AppResponse.model_validate(
         {**_APP_DEFAULTS, **fields, "id": app.id, "url": url}
@@ -72,7 +74,7 @@ def _state(request: Request) -> FakeDominoApps:
 FakeState = Annotated[FakeDominoApps, Depends(_state)]
 
 
-def _find_app(apps: FakeDominoApps, app_id: str) -> _FakeApp:
+def _find_app(apps: FakeDominoApps, app_id: str) -> FakeApp:
     if app_id not in apps.apps:
         raise HTTPException(404, f"no App {app_id}")
     return apps.apps[app_id]
@@ -163,6 +165,8 @@ def create_app_version(
 @_apps_router.get("/{appId}")
 def get_app(apps: FakeState, request: Request, appId: str) -> AppResponse:
     """Get one App; each GET moves its instance one status along.
+
+    A supplied instance scheduler decides what each GET reports instead.
 
     Args:
         apps: The fake's state.

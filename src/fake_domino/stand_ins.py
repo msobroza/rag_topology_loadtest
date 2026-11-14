@@ -1,8 +1,10 @@
 """What the fake serves besides the Apps API: hardware tiers and two stand-ins.
 
-``/api/hardwaretiers/v1/hardwaretiers/{id}`` (any id is a tier), ``/access-token``
-(the token service of a Domino run) and an App instance's ``/readyz``, so
-``rag-deploy status`` has something to read without Domino.
+``/api/hardwaretiers/v1/hardwaretiers/{id}`` (any id is a tier of a fixed size),
+``/access-token`` (the token service of a Domino run, documented to answer the
+raw token as plain text) and an App instance's ``/readyz`` on its legacy URL
+(``readyz_stand_in``, no credential checked), so ``rag-deploy status`` has
+something to read without Domino.
 
 Example:
     >>> fake.include_router(_tiers_router)  # as create_fake_domino does
@@ -11,16 +13,21 @@ Example:
 from __future__ import annotations
 
 import shlex
+from http import HTTPStatus
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .api_shapes import HardwareTierEnvelopeV1
 from .apps_routes import FakeState
+from .instances import FakeVersion
 
 HARDWARE_TIERS_PATH = "/api/hardwaretiers/v1/hardwaretiers"
-FAKE_TIER_CORES = 4.0  # every hardware tier the fake describes has this many cores
+LEGACY_INSTANCE_PATH = "/{owner}/{project}/r/notebookSession/{instanceId}"
 FAKE_RUN_TOKEN = "fake-run-token"
+# Every hardware tier the fake describes has this size.
+FAKE_TIER_CORES = 4.0
+FAKE_TIER_MEMORY_GIB = 16.0
 
 _tiers_router = APIRouter(
     prefix=HARDWARE_TIERS_PATH, tags=["Hardware tiers (Domino 6.2 API)"]
@@ -38,10 +45,33 @@ def get_hardware_tier(hardwareTierId: str) -> HardwareTierEnvelopeV1:
     Returns:
         The tier, with 16 GiB of memory and every flag false.
     """
-    memory = {"value": 16, "units": "GiB"}
-    resources = {"cores": FAKE_TIER_CORES, "memory": memory}
-    flags = dict.fromkeys(_TIER_FLAGS, False)
-    tier = {"id": hardwareTierId, "name": hardwareTierId, "flags": flags}
+    return tier_envelope(
+        hardwareTierId, FAKE_TIER_CORES, FAKE_TIER_MEMORY_GIB, is_default=False
+    )
+
+
+def tier_envelope(
+    tier_id: str, cores: float, memory_gib: float, *, is_default: bool
+) -> HardwareTierEnvelopeV1:
+    """Describe a hardware tier in the 6.2 API's shape.
+
+    Args:
+        tier_id: The tier's id, also used as its name.
+        cores: Its CPU cores.
+        memory_gib: Its memory, in GiB.
+        is_default: Its ``isDefault`` flag; every other flag is false.
+
+    Returns:
+        The response body carrying the tier.
+
+    Example:
+        >>> tier_envelope("cpu-8", 8, 32, is_default=True).hardwareTier.id
+        'cpu-8'
+    """
+    memory = {"value": memory_gib, "units": "GiB"}
+    resources = {"cores": cores, "memory": memory}
+    flags = dict.fromkeys(_TIER_FLAGS, False) | {"isDefault": is_default}
+    tier = {"id": tier_id, "name": tier_id, "flags": flags}
     return HardwareTierEnvelopeV1.model_validate(
         {"hardwareTier": tier | _TIER_DEFAULTS | {"resources": resources | _SHARED}}
         | {"metadata": {"notices": [], "requestId": "fake-request"}}
@@ -69,26 +99,41 @@ def access_token() -> str:
     return FAKE_RUN_TOKEN
 
 
-@_stand_ins_router.get("/{owner}/{project}/r/notebookSession/{instanceId}/readyz")
+@_stand_ins_router.get(f"{LEGACY_INSTANCE_PATH}/readyz")
 def app_readyz(apps: FakeState, instanceId: str) -> JSONResponse:
-    """Answer as an App instance would, run headers from its entry script.
-
-    The ``X-RAG-Topology`` and ``X-RAG-Run-Label`` headers carry the values the
-    instance's version exports as ``RAG_TOPOLOGY`` and ``RAG_RUN_LABEL``.
+    """Answer ``/readyz`` as an App instance would (no credential is checked).
 
     Args:
         apps: The fake's state.
-        instanceId: The instance that answers.
+        instanceId: The instance that answers, e.g. ``"app-1-v1-i"``.
 
     Returns:
-        A ready status with one passing check, and the run headers.
+        What ``readyz_stand_in`` answers for the instance's version.
 
     Raises:
         HTTPException: 404 if no version has that instance.
     """
-    version = apps.version_of_instance(instanceId)
-    if version is None:
-        raise HTTPException(404, f"no App instance {instanceId}")
+    owned = apps.instance_owner(instanceId)
+    if owned is None:
+        raise HTTPException(HTTPStatus.NOT_FOUND, f"no App instance {instanceId}")
+    return readyz_stand_in(owned[1])
+
+
+def readyz_stand_in(version: FakeVersion) -> JSONResponse:
+    """Answer ``/readyz`` as the App would, run headers from its entry script.
+
+    The ``X-RAG-Topology`` and ``X-RAG-Run-Label`` headers carry the values the
+    version exports as ``RAG_TOPOLOGY`` and ``RAG_RUN_LABEL``.
+
+    Args:
+        version: The App version whose instance answers.
+
+    Returns:
+        A ready status with one passing check, and the run headers.
+
+    Example:
+        >>> readyz_stand_in(apps.apps["app-1"].versions[-1])
+    """
     exported = _exported(version.request.entryScript or "")
     headers = {key: exported[name] for key, name in _RUN_HEADERS if name in exported}
     return JSONResponse({"status": "ready", "checks": [_FAKE_CHECK]}, headers=headers)

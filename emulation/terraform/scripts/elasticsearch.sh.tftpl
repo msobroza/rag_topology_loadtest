@@ -1,0 +1,46 @@
+# --- The Elasticsearch machine: one node in Docker, reachable inside the network ---
+# Rendered by Terraform (machines.tf) after scripts/common.sh. In this template
+# Terraform substitutes dollar-brace expressions, so the bash below never uses
+# braces after a dollar sign. Security is off, as in docker-compose.yml: the
+# firewall lets only the Workspace and pool machines reach port 9200.
+
+ES_IMAGE='${es_image}'
+ES_HEAP='${es_heap}'
+DATA_DIR=/var/lib/rag-emulation/elasticsearch
+# A changed image or heap re-creates the container; the index stays in DATA_DIR.
+CONFIG="$ES_IMAGE heap=$ES_HEAP"
+
+run_elasticsearch() {
+  local current
+  current=$(docker inspect --format '{{ index .Config.Labels "rag-emulation.config" }}' elasticsearch 2>/dev/null || true)
+  if [ "$current" = "$CONFIG" ]; then
+    docker start elasticsearch >/dev/null
+    return 0
+  fi
+  docker rm -f elasticsearch >/dev/null 2>&1 || true
+  docker run -d --name elasticsearch --restart always \
+    --label "rag-emulation.config=$CONFIG" \
+    -p 9200:9200 \
+    --ulimit nofile=65535:65535 \
+    -e discovery.type=single-node \
+    -e xpack.security.enabled=false \
+    -e "ES_JAVA_OPTS=-Xms$ES_HEAP -Xmx$ES_HEAP" \
+    -v "$DATA_DIR:/usr/share/elasticsearch/data" \
+    "$ES_IMAGE" >/dev/null
+}
+
+apt_install docker.io curl ca-certificates
+systemctl enable --now docker
+
+# Elasticsearch's bootstrap check; persisted for the next boot.
+printf 'vm.max_map_count=1048576\n' >/etc/sysctl.d/90-rag-emulation-elasticsearch.conf
+sysctl -q -w vm.max_map_count=1048576
+
+# The image runs as uid 1000, group 0.
+install -d -m 770 -o 1000 -g 0 "$DATA_DIR"
+retry 5 20 timeout 900 docker pull --quiet "$ES_IMAGE"
+run_elasticsearch
+wait_for_http http://localhost:9200/_cluster/health 60
+
+guest_attribute startup "done"
+log "elasticsearch ready"

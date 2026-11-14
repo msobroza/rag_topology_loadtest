@@ -36,13 +36,16 @@ RUN pip install --no-cache-dir uv \
         "/opt/rag_load_test[loadtest,domino]"
 ENV PATH=/opt/rag-venv/bin:$PATH
 
-# Pre-download the two HF models so app start-up needs no network. The source ids
-# come from the installed package's settings defaults (the one served-model pin),
-# so this step cannot drift from what the apps load. HF_HOME is world-readable
-# because the build runs as root but Domino runs apps as ubuntu.
+# Download the two HF models and convert them to OpenVINO, so app start-up needs
+# no network and no conversion. rag-export-openvino takes the source ids from the
+# installed package's settings defaults (the one served-model pin), so this step
+# cannot drift from what the apps load. The download stays in HF_HOME, so
+# RAG_LOCAL_MODEL_RUNTIME=torch also starts offline. Both folders are
+# world-readable because the build runs as root but Domino runs apps as ubuntu.
 ENV HF_HOME=/opt/hf-cache
-RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; from rag_load_test.config.settings import RagSettings; s = RagSettings(_env_file=None); SentenceTransformer(s.embedder_model); CrossEncoder(s.reranker_model)" \
-    && chmod -R a+rX /opt/hf-cache
+ENV RAG_OPENVINO_MODELS_DIR=/opt/rag-models/openvino
+RUN rag-export-openvino \
+    && chmod -R a+rX /opt/hf-cache /opt/rag-models
 ENV HF_HUB_OFFLINE=1
 
 USER ubuntu

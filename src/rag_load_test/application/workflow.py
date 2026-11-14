@@ -1,9 +1,13 @@
 """The LangGraph workflow (``embed -> retrieve -> rerank -> generate``).
 
 ``RagWorkflow`` sees only ports, so the same graph runs in every topology; which
-adapters sit behind them is ``RagPorts``' business. Retrieval sizes and prompts
-come in as one ``WorkflowParameters``. Each node records its wall time in
-``timings_ms`` (a LangGraph reducer merges the per-stage keys).
+adapters sit behind them is ``RagPorts``' business. Retrieval mode, sizes and
+prompts come in as one ``WorkflowParameters``. Each node records its wall time
+in ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
+
+The retrieve stage finds candidates by vector (``dense``), by words
+(``lexical``), or both at once, fused by reciprocal rank (``hybrid``). A lexical
+workflow needs no vector, so its graph starts at retrieve and ``embed`` is 0 ms.
 
 Example:
     >>> async with RagPorts(settings) as ports:
@@ -14,15 +18,18 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from ..adapters.vector_store.base_vector_store import BaseLexicalSearch
 from ..domain.passages import STAGES, RagMode, RagResult, ScoredPassage
-from ..domain.ports import RagDependencies
+from ..domain.rank_fusion import reciprocal_rank_fusion
 from ..domain.workflow_parameters import WorkflowParameters
+from .rag_dependencies import RagDependencies
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:
@@ -48,6 +55,10 @@ class RagState(TypedDict, total=False):
     reranked: list[ScoredPassage]
     answer: str | None
     timings_ms: Annotated[dict[str, float], merge_timings]
+
+
+# The retrieve stage's search for one retrieval mode: state in, candidates out.
+CandidateFinder = Callable[[RagState], Awaitable[list[ScoredPassage]]]
 
 
 class Node(Protocol):
@@ -88,25 +99,60 @@ def timed(stage: str, node: Node) -> Node:
     return run
 
 
+def required_lexical_search(
+    search: BaseLexicalSearch | None, mode: str
+) -> BaseLexicalSearch:
+    """Return the lexical search a lexical or hybrid workflow needs, or refuse.
+
+    Args:
+        search: The store's lexical search; None when the store ranks no text.
+        mode: The retrieval mode that needs it, named in the error.
+
+    Returns:
+        ``search``, known not to be None.
+
+    Raises:
+        ValueError: ``search`` is None.
+
+    Example:
+        >>> required_lexical_search(deps.lexical_search, "hybrid")
+    """
+    if search is not None:
+        return search
+    raise ValueError(
+        f"retrieval_mode={mode!r} needs a store that ranks text, but the vector "
+        "store ranks no text: set RAG_VECTOR_STORE_BACKEND=elasticsearch, or "
+        "RAG_RETRIEVAL_MODE=dense"
+    )
+
+
 class RagWorkflow:
     """A compiled graph over ``RagDependencies``; build once, ``run`` per request.
 
     Args:
         deps: The ports the nodes call.
-        parameters: Retrieval sizes and prompts.
+        parameters: Retrieval mode, sizes and prompts.
+
+    Raises:
+        ValueError: The retrieval mode is ``lexical`` or ``hybrid`` and
+            ``deps.lexical_search`` is None.
     """
 
     def __init__(self, deps: RagDependencies, parameters: WorkflowParameters) -> None:
         self.deps, self.parameters = deps, parameters
+        self._find_candidates = self._candidate_finder()
         # ty 0.0.100 does not match a TypedDict class against LangGraph's
         # TypedDictLike protocol (its __required_keys__); mypy accepts it.
         builder = StateGraph(RagState)  # ty: ignore[invalid-argument-type]
-        builder.add_node("embed", timed("embed", self._embed))
         builder.add_node("retrieve", timed("retrieve", self._retrieve))
         builder.add_node("rerank", timed("rerank", self._rerank))
         builder.add_node("generate", timed("generate", self._generate))
-        builder.add_edge(START, "embed")
-        builder.add_edge("embed", "retrieve")
+        if parameters.retrieval_mode == "lexical":  # no vector to compute
+            builder.add_edge(START, "retrieve")
+        else:
+            builder.add_node("embed", timed("embed", self._embed))
+            builder.add_edge(START, "embed")
+            builder.add_edge("embed", "retrieve")
         builder.add_edge("retrieve", "rerank")
         builder.add_conditional_edges(
             "rerank",
@@ -142,14 +188,38 @@ class RagWorkflow:
         )
 
     async def _embed(self, state: RagState) -> dict[str, Any]:
-        [vector] = await self.deps.embedder.embed([state["question"]])
+        query = self.parameters.query_prefix + state["question"]
+        [vector] = await self.deps.embedder.embed([query])
         return {"query_embedding": vector}
 
     async def _retrieve(self, state: RagState) -> dict[str, Any]:
-        hits = await self.deps.vector_store.query(
-            state["query_embedding"], self.parameters.top_k_retrieve
-        )
-        return {"candidates": hits}
+        return {"candidates": await self._find_candidates(state)}
+
+    # Chosen once at construction, so a lexical or hybrid workflow over a store
+    # that ranks no text fails at start-up, not on its first request.
+    def _candidate_finder(self) -> CandidateFinder:
+        store, top_k = self.deps.vector_store, self.parameters.top_k_retrieve
+        mode, rrf_k = self.parameters.retrieval_mode, self.parameters.rrf_k
+
+        async def dense(state: RagState) -> list[ScoredPassage]:
+            return await store.query(state["query_embedding"], top_k)
+
+        if mode == "dense":
+            return dense
+        search = required_lexical_search(self.deps.lexical_search, mode)
+
+        async def lexical(state: RagState) -> list[ScoredPassage]:
+            return await search.lexical_query(state["question"], top_k)
+
+        if mode == "lexical":
+            return lexical
+
+        async def hybrid(state: RagState) -> list[ScoredPassage]:
+            # Both legs at once, each asked for top_k, fused back to top_k.
+            rankings = await asyncio.gather(dense(state), lexical(state))
+            return reciprocal_rank_fusion(rankings, k=rrf_k, top_k=top_k)
+
+        return hybrid
 
     async def _rerank(self, state: RagState) -> dict[str, Any]:
         reranked = await self.deps.reranker.rerank(
@@ -160,4 +230,4 @@ class RagWorkflow:
     async def _generate(self, state: RagState) -> dict[str, Any]:
         prompts = self.parameters.prompts
         messages = prompts.messages(state["question"], state["reranked"])
-        return {"answer": await self.deps.chat_model.generate(messages)}
+        return {"answer": await self.deps.llm.generate(messages)}

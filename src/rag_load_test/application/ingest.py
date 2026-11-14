@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ..adapters.embedder.base_embedder import BaseEmbedder
+from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..domain.passages import Passage
-from ..domain.ports import EmbedderPort, VectorStorePort
 
 
 async def ingest(
     passages: Sequence[Passage],
-    embedder: EmbedderPort,
-    store: VectorStorePort,
+    embedder: BaseEmbedder,
+    store: BaseVectorStore,
     *,
     batch_size: int = 64,
 ) -> int:
