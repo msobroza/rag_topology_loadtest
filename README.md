@@ -341,7 +341,11 @@ make compare                          # results/comparison.md
 (defaults `USERS=20 SPAWN_RATE=5 RUN_TIME=2m`) with the `locustfile.py` of this
 directory and writes `results/<RUN_NAME>_stats.csv`, `_failures.csv` and
 `.html`. `HOST` is the service base URL without a trailing slash (on Domino: the
-App URL).
+App URL). Locust rewrites the stats file once a second and not again as it shuts
+down, so `locustfile.py` rewrites it once more when the run stops:
+`_stats.csv`, which `rag-compare` reads, holds the whole run, its last second
+included. `_failures.csv` is Locust's own and may lack a failure of that last
+second; the failure count in `_stats.csv` and the HTML report have it.
 
 | Knob | Effect |
 | --- | --- |

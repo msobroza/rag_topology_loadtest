@@ -13,16 +13,20 @@ sets how many distinct synthetic questions the users ask, unless
 ``rag-fetch-corpus`` writes, or plain text). Each user waits
 ``RAG_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests;
 ``RAG_LOADTEST_SHAPE=step`` steps through ``RAG_LOADTEST_STEP_USERS`` users,
-``RAG_LOADTEST_STEP_SECONDS`` each.
+``RAG_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written
+and its statistics file is rewritten with the final numbers.
 """
 
 from __future__ import annotations
 
+import csv
 import random
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from locust import FastHttpUser, LoadTestShape, between, events, task
+from locust import stats as locust_stats
 
 from rag_load_test.loadtest.loadtest_settings import LoadTestSettings
 from rag_load_test.loadtest.request_plans import (
@@ -154,3 +158,31 @@ def write_target_record_on_stop(environment: Any, **_kwargs: Any) -> None:
     """
     csv_prefix = getattr(environment.parsed_options, "csv_prefix", None)
     write_target_record(csv_prefix, SETTINGS.target, RESPONSES_SEEN)
+
+
+@events.test_stop.add_listener
+def write_final_stats_on_stop(environment: Any, **_kwargs: Any) -> None:
+    """Rewrite ``<--csv prefix>_stats.csv`` with the finished run's statistics.
+
+    Locust rewrites that file once a second while it runs and only closes it as
+    it shuts down (``StatsCSVFileWriter`` in Locust 2.47). A run that ends between
+    two writes, as one stopped by ``--run-time`` does, would leave its last
+    partial second out of the file ``rag-compare`` reads. Every user has stopped
+    when ``test_stop`` fires, so the statistics are final here. Nothing is
+    written without ``--csv``.
+
+    Args:
+        environment: The Locust environment, for its statistics and its parsed
+            ``--csv`` prefix.
+        **_kwargs: The rest of the ``test_stop`` event's arguments, unused.
+    """
+    csv_prefix = getattr(environment.parsed_options, "csv_prefix", None)
+    if not csv_prefix:
+        return
+    final = locust_stats.StatsCSV(environment, locust_stats.PERCENTILES_TO_REPORT)
+    # Opened as Locust opens it and written by Locust's own writer: the same
+    # columns and line endings, so if Locust writes once more before it exits,
+    # it writes these same rows over these. Its handle holds nothing unwritten:
+    # each of its writes ends with a truncate, which flushes.
+    with Path(f"{csv_prefix}_stats.csv").open("w") as handle:
+        final.requests_csv(csv.writer(handle))
