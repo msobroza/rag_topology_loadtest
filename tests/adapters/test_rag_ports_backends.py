@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.local_models.local_model import (
-    exported_model_dir,
-    local_model,
-)
 from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage
+from rag_load_test.infrastructure.local_models.local_model import (
+    exported_model_dir,
+    local_model,
+)
 from sentence_transformers_fakes import (
     FakeSentenceTransformersModule,
     fake_openvino_modules,

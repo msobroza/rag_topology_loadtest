@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.local_models.openvino_export import (
-    OpenVinoUnavailableError,
-)
 from rag_load_test.entrypoints import rag_export_openvino
 from rag_load_test.entrypoints.rag_export_openvino import main
+from rag_load_test.infrastructure.local_models.openvino_export import (
+    OpenVinoUnavailableError,
+)
 
 DEFAULT_EMBEDDER = "Snowflake/snowflake-arctic-embed-l-v2.0"
 DEFAULT_RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"

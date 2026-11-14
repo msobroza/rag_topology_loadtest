@@ -12,15 +12,18 @@ from pathlib import Path
 import httpx
 import pytest
 
-from rag_load_test.adapters.corpora.catalog import CORPORA, CorpusDefinition
-from rag_load_test.adapters.corpora.conversion import (
+from rag_load_test.infrastructure.corpora.catalog import CORPORA, CorpusDefinition
+from rag_load_test.infrastructure.corpora.conversion import (
     CorpusFormatError,
     corpus_questions,
     reference_documents,
 )
-from rag_load_test.adapters.corpora.download import CorpusDownloader, CorpusFetchError
-from rag_load_test.adapters.corpora.jsonl_files import write_jsonl_atomically
-from rag_load_test.adapters.http.http_policy import HttpPolicy
+from rag_load_test.infrastructure.corpora.download import (
+    CorpusDownloader,
+    CorpusFetchError,
+)
+from rag_load_test.infrastructure.corpora.jsonl_files import write_jsonl_atomically
+from rag_load_test.infrastructure.http.http_policy import HttpPolicy
 
 BASE = "https://corpus.test/raw"
 TINY = CorpusDefinition(

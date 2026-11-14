@@ -19,14 +19,14 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import get_args
 
-from ..adapters.local_models.local_model import exported_model_dir
-from ..adapters.local_models.openvino_export import (
+from ..config.rag_settings import RagSettings
+from ..domain.roles import ModelServerPart
+from ..infrastructure.local_models.local_model import exported_model_dir
+from ..infrastructure.local_models.openvino_export import (
     OpenVinoUnavailableError,
     export_embedder,
     export_reranker,
 )
-from ..config.rag_settings import RagSettings
-from ..domain.roles import ModelServerPart
 
 PROG = "rag-export-openvino"
 PARTS: tuple[ModelServerPart, ...] = get_args(ModelServerPart)  # embedder, reranker

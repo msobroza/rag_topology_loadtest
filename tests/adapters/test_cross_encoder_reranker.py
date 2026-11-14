@@ -15,10 +15,10 @@ from local_model_fakes import (
     RecordingScope,
     scored_passages,
 )
-from rag_load_test.adapters.local_models.local_model import LocalModel
 from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
     CrossEncoderReranker,
 )
+from rag_load_test.infrastructure.local_models.local_model import LocalModel
 
 pytest_plugins = ["local_model_fixtures"]
 

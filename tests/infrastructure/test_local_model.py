@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.local_models.local_model import (
+from rag_load_test.infrastructure.local_models.local_model import (
     LocalModel,
     exported_model_dir,
     local_model,

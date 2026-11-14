@@ -20,16 +20,16 @@ from pathlib import Path
 
 import httpx
 
-from ..adapters.corpora.catalog import CORPORA, CorpusDefinition
-from ..adapters.corpora.conversion import CorpusFormatError
-from ..adapters.corpora.download import (
+from ..config.rag_settings import RagSettings
+from ..infrastructure.corpora.catalog import CORPORA, CorpusDefinition
+from ..infrastructure.corpora.conversion import CorpusFormatError
+from ..infrastructure.corpora.download import (
     CorpusDownloader,
     CorpusFetchError,
     FetchedCorpus,
 )
-from ..adapters.corpora.jsonl_files import write_jsonl_atomically
-from ..adapters.http.http_policy import HttpPolicy
-from ..config.rag_settings import RagSettings
+from ..infrastructure.corpora.jsonl_files import write_jsonl_atomically
+from ..infrastructure.http.http_policy import HttpPolicy
 
 CORPUS_FILE, QUESTIONS_FILE = "corpus.jsonl", "questions.jsonl"
 

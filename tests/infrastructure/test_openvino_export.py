@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.adapters.local_models.openvino_export import (
+from rag_load_test.infrastructure.local_models.openvino_export import (
     OpenVinoUnavailableError,
     export_embedder,
     export_reranker,

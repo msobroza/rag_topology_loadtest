@@ -9,9 +9,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from rag_load_test.adapters.corpora.catalog import CORPORA
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.entrypoints.rag_fetch_corpus import main
+from rag_load_test.infrastructure.corpora.catalog import CORPORA
 
 QUEBEC = CORPORA["quebec-insurance"]
 A25_PATH, AMF_PATH = QUEBEC.reference_paths[0], QUEBEC.reference_paths[1]

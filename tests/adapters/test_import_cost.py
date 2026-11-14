@@ -18,17 +18,17 @@ HEAVY_MODULES = (
 ADAPTER_MODULES = (
     "rag_load_test.adapters.embedder.local.sentence_transformer_embedder",
     "rag_load_test.adapters.reranker.local.cross_encoder_reranker",
-    "rag_load_test.adapters.local_models.model_pool",
+    "rag_load_test.infrastructure.local_models.model_pool",
     "rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store",
     "rag_load_test.adapters.vector_store.chroma.chroma_store",
     "rag_load_test.adapters.embedder.api.api_embedder",
     "rag_load_test.adapters.reranker.api.api_reranker",
     "rag_load_test.adapters.llm.api.api_llm",
     "rag_load_test.adapters.reranker.none.no_reranker",
-    "rag_load_test.adapters.local_models.local_model",
-    "rag_load_test.adapters.local_models.openvino_export",
-    "rag_load_test.adapters.local_models.native_threads",
-    "rag_load_test.adapters.local_models.cpu_count",
+    "rag_load_test.infrastructure.local_models.local_model",
+    "rag_load_test.infrastructure.local_models.openvino_export",
+    "rag_load_test.infrastructure.local_models.native_threads",
+    "rag_load_test.infrastructure.local_models.cpu_count",
 )
 
 

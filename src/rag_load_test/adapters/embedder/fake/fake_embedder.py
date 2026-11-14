@@ -14,7 +14,7 @@ import hashlib
 import math
 from collections.abc import Sequence
 
-from ...fake_text import tokenize
+from ....infrastructure.fake_text import tokenize
 from ..base_embedder import BaseEmbedder
 
 

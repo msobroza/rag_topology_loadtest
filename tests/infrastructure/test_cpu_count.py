@@ -9,8 +9,8 @@ import httpx
 import pytest
 
 from cpu_fakes import FakeCpuCounter
-from rag_load_test.adapters.http.http_policy import HttpPolicy
-from rag_load_test.adapters.local_models.cpu_count import (
+from rag_load_test.infrastructure.http.http_policy import HttpPolicy
+from rag_load_test.infrastructure.local_models.cpu_count import (
     ContainerCpus,
     DominoHardwareTierCpus,
     FixedCpus,

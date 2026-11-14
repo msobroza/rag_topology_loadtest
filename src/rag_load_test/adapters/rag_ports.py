@@ -38,27 +38,33 @@ from ..config.rag_settings import RagSettings
 from ..domain.corpus import chunk, synthetic_corpus
 from ..domain.errors import RagDependencyError, describe_error
 from ..domain.thread_budget import ThreadBudget
-from .embedder.api.api_embedder import open_api_embedder
-from .embedder.base_embedder import BaseEmbedder
-from .embedder.fake.fake_embedder import FakeEmbedder
-from .embedder.local.sentence_transformer_embedder import SentenceTransformerEmbedder
-from .endpoint.open_endpoint_client import RunTokenSource
-from .http.http_policy import HttpPolicy
-from .llm.api.api_llm import open_api_llm
-from .llm.base_llm import BaseLLM
-from .llm.fake.fake_llm import FakeLLM
-from .local_models.cpu_count import (
+from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
+from ..infrastructure.http.http_policy import HttpPolicy
+from ..infrastructure.local_models.cpu_count import (
     BaseCpuCounter,
     ContainerCpus,
     DominoHardwareTierCpus,
     FixedCpus,
     work_out_thread_budget,
 )
-from .local_models.local_model import LocalModel
-from .local_models.model_pool import model_executor
-from .local_models.model_provisioning import Exporter, provision_local_model
-from .local_models.native_threads import settle_torch_thread
-from .local_models.openvino_export import export_embedder, export_reranker
+from ..infrastructure.local_models.local_model import LocalModel
+from ..infrastructure.local_models.model_pool import model_executor
+from ..infrastructure.local_models.model_provisioning import (
+    Exporter,
+    provision_local_model,
+)
+from ..infrastructure.local_models.native_threads import settle_torch_thread
+from ..infrastructure.local_models.openvino_export import (
+    export_embedder,
+    export_reranker,
+)
+from .embedder.api.api_embedder import open_api_embedder
+from .embedder.base_embedder import BaseEmbedder
+from .embedder.fake.fake_embedder import FakeEmbedder
+from .embedder.local.sentence_transformer_embedder import SentenceTransformerEmbedder
+from .llm.api.api_llm import open_api_llm
+from .llm.base_llm import BaseLLM
+from .llm.fake.fake_llm import FakeLLM
 from .reranker.api.api_reranker import open_api_reranker
 from .reranker.base_reranker import BaseReranker
 from .reranker.fake.fake_reranker import FakeReranker

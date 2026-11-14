@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from local_model_fakes import FakeLoadingModule
-from rag_load_test.adapters.local_models.model_pool import model_executor
+from rag_load_test.infrastructure.local_models.model_pool import model_executor
 
 
 @pytest.fixture

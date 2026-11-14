@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ....domain.passages import ScoredPassage, top_by_score
-from ...fake_text import tokenize
+from ....infrastructure.fake_text import tokenize
 from ..base_reranker import BaseReranker
 
 

@@ -23,8 +23,9 @@ MAY_IMPORT: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
     "config": {"config", "domain"},
-    "adapters": {"adapters", "domain"},
-    "entrypoints": {"adapters", "application", "config", "domain"},
+    "adapters": {"adapters", "infrastructure", "domain"},
+    "infrastructure": {"infrastructure", "domain"},
+    "entrypoints": {"adapters", "application", "config", "domain", "infrastructure"},
     "deploy": {"deploy", "domain"},
     "loadtest": {"loadtest", "domain"},
 }
@@ -154,7 +155,7 @@ def test_the_import_table_on_literal_sources() -> None:
     ]
     ports = "from ..config.rag_settings import RagSettings"
     assert forbidden_imports("rag_load_test.adapters.rag_ports", ports) == []
-    assert forbidden_imports("rag_load_test.adapters.json_log", ports) != []
+    assert forbidden_imports("rag_load_test.infrastructure.json_log", ports) != []
     settings = "from ..config.rag_settings import RagSettings"
     assert forbidden_imports("rag_load_test.loadtest.loadtest_settings", settings) == []
 
