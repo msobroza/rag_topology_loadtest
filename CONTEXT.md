@@ -143,6 +143,10 @@ _Avoid_: fake Domino (that is the Apps API stand-in alone), mini Domino
 One cloud VM of the emulation.
 _Avoid_: instance, node, server
 
+**Cache bucket**:
+Where the emulation keeps what outlives its machines: the exported models, the index snapshots, the result archives.
+_Avoid_: cache (alone), state bucket (that is Terraform's)
+
 ### Workflow
 
 **Stage**:

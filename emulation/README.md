@@ -30,32 +30,43 @@ tier over SSH and proxies every call to it. Terraform never creates an App.
  |             +------> <name>-es (n2-standard-4) <-----+                     |
  |                      Elasticsearch 9.0.0 in Docker, :9200                  |
  +----------------------------------------------------------------------------+
+        |  each machine's service account: roles/storage.objectUser on it only
+        v
+  bucket <project id>-<name>-cache: exported models, index snapshots, results
+
+  Spot (spot = true): the pool machines and Elasticsearch. Never the Workspace.
 ```
 
 ## What gets created
 
 | Resource | Default | Why |
 |---|---|---|
-| APIs | Compute Engine, IAP, IAM, Secret Manager | left enabled on destroy |
+| APIs | Compute Engine, IAP, IAM, Secret Manager, Cloud Storage | left enabled on destroy |
 | Network, subnet, router, Cloud NAT | `10.10.0.0/24` in `europe-west1` | outbound internet (apt, pip, the Hugging Face Hub, GitHub, Docker images, an LLM API) without public addresses |
 | Firewall rules | IAP range `35.235.240.0/20` to ports 22, 8899, 8089; Workspace to pool on 22 and 8888; pool to Workspace on 8899; Workspace and pool to Elasticsearch on 9200 | nothing else gets in |
 | Workspace machine | `n2-standard-8`, 50 GB | the emulated Domino on 8899 and the Workspace (Locust runs here) |
-| Elasticsearch machine | `n2-standard-4`, 50 GB, heap 4g | single node, security off, data on its disk |
-| Pool machines | tier `cpu-8`: 3 x `n2-standard-8`, 50 GB each | one App per machine: the workflow, a reranker, an embedder |
+| Elasticsearch machine | `n2-standard-4`, 50 GB, heap 4g, Spot | single node, security off, data on its disk |
+| Pool machines | tier `cpu-8`: 3 x `n2-standard-8`, 50 GB each, Spot | one App per machine: the workflow, a reranker, an embedder |
 | Two reserved internal addresses | Workspace and Elasticsearch | stable `deploy.yaml` |
-| Three service accounts | no project role | the Workspace's may read two secrets |
+| Three service accounts | no project role; `roles/storage.objectUser` on the cache bucket only, and for Elasticsearch's `roles/storage.legacyBucketReader` on it too | the Workspace's may read two secrets |
+| Cache bucket `<project id>-<name>-cache` | private (uniform access, public access prevention), in the region | what outlives the machines (see "The cache bucket"); `destroy` deletes it |
 | Secret `<name>-ssh-key` | ED25519 private key | the emulated Domino's key to the pool machines |
 
 Every machine runs Ubuntu 22.04 LTS, **deletes itself after `max_run_hours`
 (default 8)** and carries the label `rag-emulation=<name>`, as do its disk, the
-addresses and the secret.
+addresses, the secret and the cache bucket. With `spot = true` (the default) the
+pool and Elasticsearch machines are Spot VMs (see "Spot machines").
 
 **Cost at the default sizes (approximate, europe-west1, on-demand):** an
 `n2-standard-8` is about $0.43/h and an `n2-standard-4` about half that, so four
 8-vCPU machines and one 4-vCPU machine come to about **$1.95/h**; disks (250 GB
 balanced), Cloud NAT and its traffic add roughly $0.10/h. About **$16 for an
-8-hour day**. Check the current prices before relying on these numbers. Budget
-alerts do not cap Compute Engine spend: the self-deletion does.
+8-hour day**. These are on-demand prices: with `spot = true` the pool and
+Elasticsearch machines are billed at Spot prices instead, which Google states are
+60 to 91% below on-demand and which vary; only the Workspace machine stays at the
+on-demand price. The cache bucket holds a few GB of Standard storage. Check the
+current prices before relying on these numbers. Budget alerts do not cap Compute
+Engine spend: the self-deletion does.
 
 ## Steps
 
@@ -104,21 +115,44 @@ exported too). `deploy.yaml` is already written for this emulation; edit it as o
 Domino (topology, per-App blocks), or override with `RAG_DEPLOY_TOPOLOGY` and
 `RAG_DEPLOY_MODEL_SERVER`.
 
+The first sitting builds the index and exports the models, then keeps both in the
+cache bucket:
+
 ```bash
 make -C emulation corpus               # the French corpus: rag-fetch-corpus quebec-insurance, then rag-ingest with the french analyzer
 make -C emulation ingest               # or: the synthetic English corpus (one corpus per index: pick one)
 make -C emulation deploy               # rag-deploy deploy all, through the emulated Domino
+make -C emulation corpus-save models-save   # once the Apps are up: the index snapshot, every machine's exported models
+```
+
+A later sitting, on fresh machines, restores the index instead of building it. The
+models are already on the machines: each one restored them from the bucket at boot.
+
+```bash
+make -C emulation corpus-restore       # in place of corpus: the corpus's files, then the index from its snapshot
+make -C emulation deploy
 make -C emulation status               # each App's status and URL, then the workflow's /readyz
 make -C emulation loadtest RUN_NAME=split-all             # through the emulated Domino's proxy
 make -C emulation app-machines                            # which pool machine runs the workflow
 make -C emulation loadtest-direct APP_HOST=<address> RUN_NAME=split-all-direct   # bypassing the proxy
 make compare
+make -C emulation results-save         # results/ as one archive in the bucket; prints its gs:// URL
+make -C emulation cache-status         # the bucket's objects, then the index snapshots
+```
+
+To bring the archive to Cloud Shell:
+
+```bash
+gcloud storage cp gs://<bucket>/results/<UTC time>.tar.gz .
 ```
 
 Every call to an App passes the emulated Domino's proxy, a single Python process; the run
-that bypasses it shows the proxy's share of the numbers (ADR 0001). The first
-start of each App is slow: it installs its dependencies and downloads and converts
-its models (the embedder is 2.3 GB).
+that bypasses it shows the proxy's share of the numbers (ADR 0001). In the first
+sitting the first start of each App is slow: it downloads and converts its models
+(the embedder is 2.3 GB). Every App keeps its models in the machine's dataset folder
+(`dataset_path`, standing in for a Domino Dataset), which `models-save` caches. Each
+pool machine installs the Apps' dependencies once at boot, the same two `uv`
+commands as `domino/app.sh`, so an App's own install only reads uv's cache.
 
 From Cloud Shell, `make -C emulation tunnel-domino` forwards `localhost:8899` to
 the emulated Domino (Swagger at `/docs`, via Cloud Shell's web preview) and
@@ -131,8 +165,9 @@ the emulated Domino (Swagger at `/docs`, via Cloud Shell's web preview) and
 make -C emulation destroy
 ```
 
-The state bucket stays (delete it with `gcloud storage rm -r gs://<bucket>` when
-done for good), and so does the optional `project_env_secret`, which is yours.
+The cache bucket goes, with everything in it. The state bucket stays (delete it
+with `gcloud storage rm -r gs://<bucket>` when done for good), and so does the
+optional `project_env_secret`, which is yours.
 
 ## A real app behind the emulated Domino, on one machine
 
@@ -191,16 +226,60 @@ are removed, or whether the prefix is stripped: there the emulated Domino follow
 API's rules (bearer token or API key, `401`), and its Swagger page says which is
 which.
 
+## The cache bucket
+
+The bucket outlives the machines, so that a later sitting starts in minutes instead
+of exporting the models and embedding the corpus again. It holds:
+
+- `models/openvino/<folder>.tar` and `models/ovms-models.tar`: the exported models,
+  one uncompressed tar per folder of the dataset folder. `models-save` uploads them
+  from the Workspace and, over SSH, from every pool machine; `ovms-models` only once
+  it holds both OVMS configs. At boot each pool machine restores every model, the
+  Workspace the OpenVINO ones (what `rag-ingest` loads); a folder already on the
+  machine is left alone.
+- `elasticsearch/`: Elasticsearch's index snapshots, written and read by
+  Elasticsearch itself (a `gcs` repository, with the Elasticsearch machine's service
+  account). A snapshot's name carries the corpus, the analyzer and the embedder
+  (`quebec-insurance-french-snowflake-snowflake-arctic-embed-l-v2.0`): an index is
+  only valid for the embedder and the analyzer it was built with, so a change of
+  either misses the cache and `corpus-restore` says to build and save it.
+- `results/<UTC time>.tar.gz`: the archives `results-save` uploads.
+
+Models are keyed by folder name, not by how they were exported. `models-save` keeps
+an object the bucket already has. After a change to the export recipe of the same
+model, replace them with `make -C emulation models-save FORCE=1`, or empty the
+prefix first: `gcloud storage rm -r gs://<bucket>/models`. A bucket error fails the
+boot (`make ready` says `failed`); an empty bucket is the first sitting's normal
+state. `make -C emulation destroy` deletes the bucket with everything in it.
+
+## Spot machines
+
+With `spot = true` (the default) the pool machines and the Elasticsearch machine are
+Spot VMs. Google can take one back at any time; it is then deleted, as at the end of
+`max_run_hours`. The Workspace machine is never Spot: it holds the results and the
+emulated Domino's state. When a machine is gone:
+
+1. `make -C emulation plan apply` creates it again.
+2. A pool machine: it comes back with a new address; follow the instruction about
+   `placement.json` below, then deploy the App again. Its models come back from the
+   bucket at boot.
+3. The Elasticsearch machine: its address is reserved, but its index is gone:
+   `make -C emulation corpus-restore`.
+
+When the zone has no Spot capacity, set `spot = false` in `terraform.tfvars`, then
+`plan` and `apply`.
+
 ## The 8-hour self-deletion and Terraform's state
 
 After `max_run_hours` Compute Engine deletes each machine; Terraform is not told.
-The network, NAT, firewall, addresses, service accounts and secret remain (they
-cost next to nothing; the NAT gateway a little). The next `plan` shows the
-machines as to be created again: `make -C emulation plan apply` brings back fresh
-machines with fresh disks, so the Elasticsearch index, the Workspace's results
-and `deploy.yaml` edits are gone, and the Apps must be deployed again. Copy
-`results/` off the Workspace before the deadline (`gcloud compute scp
---tunnel-through-iap`). `destroy` works at any time, with or without the machines.
+The network, NAT, firewall, addresses, service accounts, secret and cache bucket
+remain (they cost next to nothing; the NAT gateway a little). The next `plan` shows
+the machines as to be created again: `make -C emulation plan apply` brings back
+fresh machines with fresh disks, so the Workspace's results and `deploy.yaml` edits
+are gone, and the Apps must be deployed again. The index and the models come back
+from the cache bucket (`corpus-restore`; the models at boot) if they were saved.
+Save `results/` before the deadline (`make -C emulation results-save`).
+`destroy` works at any time, with or without the machines.
 
 A startup script runs at every boot. A pool machine re-created alone gets a new
 address: re-apply, then reboot the Workspace machine (or run `sudo
@@ -213,7 +292,12 @@ Only `project_id` and `git_ref` are required; `terraform/variables.tf` describes
 each one and `terraform/terraform.tfvars.example` lists them with their defaults.
 `hardware_tiers` maps each tier id to `{machine_type, count, default, disk_gb}`,
 with exactly one default tier; the cores and memory the emulated Domino reports for a
-tier come from its machine type.
+tier come from its machine type. `spot` (default `true`) makes the pool and
+Elasticsearch machines Spot VMs. `cache_bucket` names the cache bucket (default `""`:
+`<project_id>-<name>-cache`). `dataset_path` (default
+`/domino/datasets/local/emulation`) is the folder on the Workspace and every pool
+machine that stands in for a Domino Dataset: the Apps and the Workspace's ingestion
+keep their exported models in it.
 
 ## Not verified
 
@@ -244,6 +328,20 @@ Nothing here has been applied. In particular:
   127.0.0.1 only, not `::1`) and the emulated Domino's proxy under load.
 - The time until every machine is ready, and whether 50 GB per pool machine is
   enough for every model-server choice.
+- The Spot scheduling arguments (`provisioning_model = "SPOT"`, `preemptible`,
+  `automatic_restart = false`) together with `max_run_duration` and
+  `instance_termination_action = "DELETE"`.
+- The cache bucket and its grants: `roles/storage.objectUser` for each service
+  account, and `roles/storage.legacyBucketReader` for Elasticsearch's (Elastic asks
+  for "Writer" access to a snapshot bucket); whether the two are enough for its
+  `gcs` repository.
+- Upload and download through Cloud Storage's XML API, and the JSON API's listing,
+  with the metadata server's token; the boot's wait for the new grant.
+- Elasticsearch's `gcs` repository using the machine's service account from inside
+  its Docker container, and the snapshot and restore calls of `index_snapshot.sh`.
+- The pool machines' dependency warm-up, and `uv venv` over the virtualenv it left.
+- Every timing: the restore at boot, `corpus-restore`, an App's start from the
+  warmed cache, and how much a later sitting gains.
 
 ## Removing the emulation
 

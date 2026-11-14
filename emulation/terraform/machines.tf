@@ -60,8 +60,12 @@ resource "google_compute_instance" "elasticsearch" {
     scopes = ["cloud-platform"]
   }
 
+  # var.spot: a Spot machine Google takes back is deleted; nothing on it is lost
+  # that the cache bucket cannot give back (README, "Spot machines").
   scheduling {
-    provisioning_model          = "STANDARD"
+    provisioning_model          = var.spot ? "SPOT" : "STANDARD"
+    preemptible                 = var.spot
+    automatic_restart           = !var.spot
     instance_termination_action = "DELETE"
     max_run_duration {
       seconds = local.max_run_seconds
@@ -80,7 +84,13 @@ resource "google_compute_instance" "elasticsearch" {
     ])
   }
 
-  depends_on = [google_compute_router_nat.emulation]
+  # The grant on the cache bucket exists before the machine boots (it still takes
+  # minutes to apply: the startup script retries its first bucket call).
+  depends_on = [
+    google_compute_router_nat.emulation,
+    google_storage_bucket_iam_member.cache_users,
+    google_storage_bucket_iam_member.elasticsearch_reads_cache_bucket,
+  ]
 }
 
 resource "google_compute_instance" "pool" {
@@ -111,8 +121,12 @@ resource "google_compute_instance" "pool" {
     scopes = ["cloud-platform"]
   }
 
+  # var.spot: a Spot machine Google takes back is deleted; nothing on it is lost
+  # that the cache bucket cannot give back (README, "Spot machines").
   scheduling {
-    provisioning_model          = "STANDARD"
+    provisioning_model          = var.spot ? "SPOT" : "STANDARD"
+    preemptible                 = var.spot
+    automatic_restart           = !var.spot
     instance_termination_action = "DELETE"
     max_run_duration {
       seconds = local.max_run_seconds
@@ -134,11 +148,18 @@ resource "google_compute_instance" "pool" {
         ovms_bundle_path  = var.ovms_bundle_path
         workspace_address = local.workspace_address
         domino_port       = local.domino_port
+        cache_bucket      = google_storage_bucket.cache.name
+        dataset_path      = var.dataset_path
       }),
     ])
   }
 
-  depends_on = [google_compute_router_nat.emulation]
+  # The grant on the cache bucket exists before the machine boots (it still takes
+  # minutes to apply: the startup script retries its first bucket call).
+  depends_on = [
+    google_compute_router_nat.emulation,
+    google_storage_bucket_iam_member.cache_users,
+  ]
 }
 
 resource "google_compute_instance" "workspace" {
@@ -168,6 +189,8 @@ resource "google_compute_instance" "workspace" {
     scopes = ["cloud-platform"]
   }
 
+  # Never Spot, whatever var.spot says: this machine holds the results and the
+  # emulated Domino's state (which App runs where), and losing it ends the sitting.
   scheduling {
     provisioning_model          = "STANDARD"
     instance_termination_action = "DELETE"
@@ -194,13 +217,15 @@ resource "google_compute_instance" "workspace" {
         config_dir         = local.config_dir
         placement_json     = jsonencode(local.placement)
         pool_addresses     = join(" ", flatten([for tier in local.placement.tiers : tier.machines]))
-        domino_port       = local.domino_port
+        domino_port        = local.domino_port
         workspace_address  = local.workspace_address
         es_url             = "http://${local.elasticsearch_address}:9200"
         default_tier       = local.default_tier
         environment_id     = var.environment_id
         ovms_bundle_path   = var.ovms_bundle_path
         domino_project_id  = var.domino_project_id
+        cache_bucket       = google_storage_bucket.cache.name
+        dataset_path       = var.dataset_path
       }),
     ])
   }
@@ -210,5 +235,6 @@ resource "google_compute_instance" "workspace" {
     google_secret_manager_secret_version.ssh_key,
     google_secret_manager_secret_iam_member.workspace_reads_ssh_key,
     google_secret_manager_secret_iam_member.workspace_reads_project_env,
+    google_storage_bucket_iam_member.cache_users,
   ]
 }

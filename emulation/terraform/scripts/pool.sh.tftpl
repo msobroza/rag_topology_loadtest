@@ -10,6 +10,8 @@ UV_VERSION='${uv_version}'
 OVMS_BUNDLE='${ovms_bundle_path}'
 WORKSPACE_ADDRESS='${workspace_address}'
 DOMINO_PORT='${domino_port}'
+CACHE_BUCKET='${cache_bucket}'
+DATASET_PATH='${dataset_path}'
 
 # fetch_ovms_bundle: the OVMS binary tarball the cloned ref pins (ovms/versions.env),
 # fetched again only when that pin changes. deploy.yaml's ovms_bundle names it.
@@ -24,11 +26,24 @@ fetch_ovms_bundle() {
   printf '%s\n' "$url" >"$OVMS_BUNDLE.url"
 }
 
+# warm_app_dependencies: app.sh's install_project, run once at boot. app.sh runs
+# these two commands at every App start; done here they fill uv's cache, so an
+# App's own install takes seconds. ".[domino]" because an Agent's launch script asks
+# for that extra (RAG_BOOTSTRAP_EXTRAS) and it is a superset of the plain install.
+warm_app_dependencies() {
+  retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv "$HOME/rag-venv" --python "$(cat .python-version)"' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python "$HOME/rag-venv/bin/python" ".[domino]"' _ "$REPO_PATH"
+}
+
 ensure_ubuntu_user
 # libxml2 is what app.sh's OVMS bootstrap would apt-get; installed here, it is ready.
 apt_install git curl socat python3 ca-certificates libxml2
 install_uv "$UV_VERSION"
 sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
+# The models an earlier sitting exported, into the folder deploy.yaml points the Apps at.
+write_cache_config "$CACHE_BUCKET" "$DATASET_PATH"
+restore_cached_models "$CACHE_BUCKET" "$CACHE_MODELS_PREFIX" "$DATASET_PATH"
+warm_app_dependencies
 fetch_ovms_bundle
 
 # Domino's sidecar on localhost:8899 (run token, Domino API) is the fake Domino on

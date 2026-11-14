@@ -14,6 +14,12 @@ git_ref = "main"
 # repo_url       = "https://github.com/msobroza/rag_topology_loadtest.git"
 # repo_path      = "/repos/rag_topology_loadtest"
 # uv_version     = "0.8.0"
+# spot           = true   # the pool and Elasticsearch machines are Spot VMs (never the Workspace)
+
+# The bucket that outlives the machines ("" = "<project_id>-<name>-cache"), and the
+# folder on every machine that stands in for a Domino Dataset (the exported models).
+# cache_bucket = ""
+# dataset_path = "/domino/datasets/local/emulation"
 
 # workspace_machine_type = "n2-standard-8"   # fake Domino + Workspace + Locust
 # workspace_disk_gb      = 50

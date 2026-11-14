@@ -1,5 +1,6 @@
 # One service account per kind of machine, with no project-wide role: only the
-# Workspace's may read secrets, and only the emulation's own (see secrets.tf).
+# Workspace's may read secrets, and only the emulation's own (see secrets.tf); each
+# may use the cache bucket, and only that bucket (see storage.tf).
 
 resource "google_service_account" "workspace" {
   account_id   = "${var.name}-ws"

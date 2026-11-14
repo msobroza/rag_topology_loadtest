@@ -40,6 +40,11 @@ output "elasticsearch_url" {
   value       = "http://${local.elasticsearch_address}:9200"
 }
 
+output "cache_bucket" {
+  description = "The bucket that outlives the machines: exported models, index snapshots, result archives."
+  value       = google_storage_bucket.cache.name
+}
+
 output "pool_machines" {
   description = "Each hardware tier's machines: name => internal address."
   value       = { for key, machine in google_compute_instance.pool : machine.name => machine.network_interface[0].network_ip }

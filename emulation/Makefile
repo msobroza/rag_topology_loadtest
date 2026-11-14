@@ -1,9 +1,11 @@
 # The emulation's tasks, apart from the project's own: run `make -C emulation <target>`
 # from the repository root, or `make <target>` in this folder. See README.md here.
 #   In Cloud Shell: setup, init, plan, apply, ready, ssh, tunnel-domino, tunnel-locust, destroy
-#   On the Workspace machine: ingest, deploy, status, loadtest, app-machines, loadtest-direct
+#   On the Workspace machine: ingest, corpus-files, corpus, deploy, status, loadtest,
+#     app-machines, loadtest-direct, and the cache bucket's corpus-save, corpus-restore,
+#     models-save, results-save, cache-status
 .DEFAULT_GOAL := help
-.PHONY: help setup init plan apply ready ssh tunnel-domino tunnel-locust destroy ingest corpus deploy status loadtest app-machines loadtest-direct
+.PHONY: help setup init plan apply ready ssh tunnel-domino tunnel-locust destroy ingest corpus-files corpus corpus-save corpus-restore deploy status loadtest app-machines loadtest-direct models-save results-save cache-status
 
 TF ?= terraform -chdir=terraform
 BUCKET ?=
@@ -18,6 +20,12 @@ CORPUS_DIR = $(abspath ../data/$(CORPUS))
 # Once `make corpus` has run, Locust asks that corpus's questions, not the
 # synthetic English ones.
 QUESTIONS = $(if $(wildcard $(CORPUS_DIR)/questions.jsonl),RAG_LOADTEST_QUESTIONS_FILE=$(CORPUS_DIR)/questions.jsonl)
+# An index snapshot is named after its corpus and analyzer (index_snapshot.sh adds the embedder).
+SNAPSHOT_PREFIX = $(CORPUS)-$(CORPUS_ANALYZER)
+# FORCE=1: models-save replaces the models the cache bucket already has.
+FORCE ?=
+# The pool machines' addresses, one per line, from the emulated Domino's placement file.
+POOL_MACHINES = python3 -c 'import json, sys; [print(m) for t in json.load(open(sys.argv[1]))["tiers"] for m in t["machines"]]' $(PLACEMENT)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -55,9 +63,17 @@ destroy: ## Delete everything Terraform created (the state bucket stays)
 ingest: ## Workspace: index the synthetic English corpus into the emulation's Elasticsearch (the project's make ingest)
 	$(MAKE) -C .. ingest
 
-corpus: ## Workspace: fetch a French corpus and index it instead (one corpus per index: this or ingest): make corpus CORPUS=quebec-insurance
+corpus-files: ## Workspace: fetch a corpus's files (its questions.jsonl included) without indexing it: make corpus-files CORPUS=quebec-insurance
 	cd .. && rag-fetch-corpus $(CORPUS) --out $(CORPUS_DIR)
+
+corpus: corpus-files ## Workspace: fetch a French corpus and index it instead (one corpus per index: this or ingest): make corpus CORPUS=quebec-insurance
 	cd .. && RAG_ES_TEXT_ANALYZER=$(CORPUS_ANALYZER) rag-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
+
+corpus-save: ## Workspace: snapshot the index into the cache bucket, named after corpus, analyzer and embedder
+	./machine/index_snapshot.sh save "$(SNAPSHOT_PREFIX)"
+
+corpus-restore: corpus-files ## Workspace: the index back from the cache bucket, in place of make corpus
+	./machine/index_snapshot.sh restore "$(SNAPSHOT_PREFIX)"
 
 deploy: ## Workspace: publish every App through the fake Domino (the project's make deploy)
 	$(MAKE) -C .. deploy
@@ -69,7 +85,7 @@ loadtest: ## Workspace: Locust through the fake Domino's proxy: make loadtest RU
 	$(QUESTIONS) $(MAKE) -C .. loadtest-domino RUN_NAME=$(RUN_NAME)
 
 app-machines: ## Workspace: what answers /readyz on port 8888 of each pool machine
-	@python3 -c 'import json, sys; [print(m) for t in json.load(open(sys.argv[1]))["tiers"] for m in t["machines"]]' $(PLACEMENT) \
+	@$(POOL_MACHINES) \
 		| while read -r machine; do \
 			printf '%s: ' "$$machine"; curl -s --max-time 3 "http://$$machine:8888/readyz" || printf 'no App'; echo; \
 		done
@@ -77,3 +93,20 @@ app-machines: ## Workspace: what answers /readyz on port 8888 of each pool machi
 loadtest-direct: ## Workspace: Locust straight at the workflow App, bypassing the proxy: make loadtest-direct APP_HOST=<address> RUN_NAME=split-all-direct
 	@test -n "$(APP_HOST)" || { echo "APP_HOST=<the workflow App's machine (make app-machines)> is required" >&2; exit 1; }
 	$(QUESTIONS) $(MAKE) -C .. loadtest HOST=http://$(APP_HOST):8888 RUN_NAME=$(RUN_NAME)
+
+# The clone has the same path on every machine, and the Workspace's ~/.ssh/config
+# knows the pool machines.
+models-save: ## Workspace: upload this machine's and every pool machine's exported models (FORCE=1 replaces)
+	FORCE=$(FORCE) ./machine/cache_bucket.sh models-save
+	@$(POOL_MACHINES) \
+		| while read -r machine; do \
+			echo "$$machine:"; \
+			ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$$machine" "FORCE=$(FORCE) $(CURDIR)/machine/cache_bucket.sh models-save" || exit 1; \
+		done
+
+results-save: ## Workspace: upload results/ to the cache bucket as one archive and print its gs:// URL
+	./machine/cache_bucket.sh results-save $(abspath ../results)
+
+cache-status: ## Workspace: the cache bucket's objects, then the index snapshots
+	./machine/cache_bucket.sh status
+	./machine/index_snapshot.sh list
