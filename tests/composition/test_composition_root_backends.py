@@ -3,6 +3,7 @@ right adapter out; the ``api`` backends are in ``test_composition_root_api.py``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from collections.abc import Callable
@@ -10,11 +11,16 @@ from pathlib import Path
 
 import pytest
 
+from cpu_fakes import FakeCpuCounter
+from local_model_fakes import FakeOneRequestModule
+from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
+    SentenceTransformerEmbedder,
+)
 from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.passages import Passage
+from rag_load_test.domain.passages import Passage, ScoredPassage
 from rag_load_test.infrastructure.local_models.local_model import (
     exported_model_dir,
     local_model,
@@ -111,12 +117,14 @@ def provisioned_lines(caplog: pytest.LogCaptureFixture) -> list[dict[str, object
     return [line for line in lines if line["event"] == "local_model_provisioned"]
 
 
-@pytest.mark.parametrize("runtime", ["openvino", "torch"])
+# 4 CPUs: openvino gives each model all 4 threads, torch 1 per call over 4 workers.
+@pytest.mark.parametrize(("runtime", "threads"), [("openvino", 4), ("torch", 1)])
 async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
     settings_factory: SettingsFactory,
     fake_weights: FakeSentenceTransformersModule,
     tmp_path: Path,
     runtime: str,
+    threads: int,
 ) -> None:
     settings = local_settings(
         settings_factory, local_model_runtime=runtime, openvino_models_dir=str(tmp_path)
@@ -128,9 +136,8 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
         await composition.local_embedder()
         await composition.local_reranker()
 
-    # 4 CPUs over 4 workers: one thread per call, for both models.
     described = local_model(settings.embedding_model, runtime=runtime, models_dir="")
-    assert fake_weights.load_arguments == [described.load_arguments(1)] * 2
+    assert fake_weights.load_arguments == [described.load_arguments(threads)] * 2
     assert fake_weights.saved == []
 
 
@@ -253,3 +260,87 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
     assert "sentence-transformers[openvino]" in str(raised.value)
     assert fake_weights.loaded == []
     assert list(tmp_path.iterdir()) == []
+
+
+# --- openvino: one model call at a time -------------------------------------------
+
+
+def exported_settings(
+    settings_factory: SettingsFactory, models_dir: Path
+) -> RagSettings:
+    """Default settings (openvino, 4 workers), both models exported already."""
+    settings = settings_factory(
+        vector_store_backend="fake",
+        generation_backend="fake",
+        openvino_models_dir=str(models_dir),
+    )
+    for folder in folders(settings, models_dir):
+        folder.mkdir()
+    return settings
+
+
+@pytest.fixture
+def one_request_weights(monkeypatch: pytest.MonkeyPatch) -> FakeOneRequestModule:
+    module = FakeOneRequestModule()
+    monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+    return module
+
+
+@pytest.mark.usefixtures("one_request_weights")
+async def test_openvino_runs_one_call_on_every_cpu_and_logs_the_runtime(
+    settings_factory: SettingsFactory,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = exported_settings(settings_factory, tmp_path)
+    container = FakeCpuCounter(8, "container")
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        async with CompositionRoot(settings, container_cpus=container) as composition:
+            embedder = await composition.local_embedder()
+
+    [line] = [
+        json.loads(r.message) for r in caplog.records if "thread_budget" in r.message
+    ]
+    assert line == {
+        "event": "thread_budget",
+        "cpus": 8,
+        "source": "container",
+        "runtime": "openvino",
+        "workers": 1,
+        "embedder_threads": 8,
+        "reranker_threads": 8,
+    }
+    assert isinstance(embedder, SentenceTransformerEmbedder)
+    assert embedder.scope.threads == 8
+
+
+# Regression: under openvino, calls on one model overlapping on the shared pool
+# raised "Infer Request is busy" (837 times, 98% of requests failed, GCP load
+# test of 2026-11-14).
+@pytest.mark.usefixtures("one_request_weights")
+async def test_concurrent_openvino_embeds_never_overlap_on_one_model(
+    settings_factory: SettingsFactory, tmp_path: Path
+) -> None:
+    settings = exported_settings(settings_factory, tmp_path)
+    container = FakeCpuCounter(8, "container")
+    async with CompositionRoot(settings, container_cpus=container) as composition:
+        embedder = await composition.local_embedder()
+        vectors = await asyncio.gather(*(embedder.embed([f"q{i}"]) for i in range(4)))
+
+    assert vectors == [[[1.0, 0.0]]] * 4
+
+
+@pytest.mark.usefixtures("one_request_weights")
+async def test_concurrent_openvino_reranks_never_overlap_on_one_model(
+    settings_factory: SettingsFactory, tmp_path: Path
+) -> None:
+    settings = exported_settings(settings_factory, tmp_path)
+    container = FakeCpuCounter(8, "container")
+    passages = [ScoredPassage(id="p1", text="vacation", retrieval_score=0.5)]
+    async with CompositionRoot(settings, container_cpus=container) as composition:
+        reranker = await composition.local_reranker()
+        ranked = await asyncio.gather(
+            *(reranker.rerank(f"q{i}", passages, top_n=1) for i in range(4))
+        )
+
+    assert [[p.id for p in result] for result in ranked] == [["p1"]] * 4

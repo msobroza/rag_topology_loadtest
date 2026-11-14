@@ -46,9 +46,9 @@ class LocalModelResources:
             chain answers.
 
     Example:
-        >>> budget = await local_models.thread_budget()
+        >>> budget = await local_models.thread_budget()  # openvino, 8 CPUs
         >>> budget.workers
-        4
+        1
     """
 
     def __init__(
@@ -68,8 +68,9 @@ class LocalModelResources:
             The workers and the threads of each model.
 
         Example:
-            >>> (await local_models.thread_budget()).embedder_threads
-            2
+            >>> budget = await local_models.thread_budget()  # openvino, 8 CPUs
+            >>> budget.embedder_threads
+            8
         """
         return await self._scope.once("thread_budget", OWNED, self._work_out_budget)
 
@@ -128,6 +129,7 @@ class LocalModelResources:
         return await work_out_thread_budget(
             [*counters, self._container_cpus],
             max_workers=settings.model_workers,
+            runtime=settings.local_model_runtime,
             embedder_threads=settings.embedding_threads,
             reranker_threads=settings.rerank_threads,
         )

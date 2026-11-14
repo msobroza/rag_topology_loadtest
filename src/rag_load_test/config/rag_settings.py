@@ -170,8 +170,10 @@ class RagSettings(BaseSettings):
     # without a folder there is downloaded and converted into it the first time
     # it loads; rag-export-openvino fills it ahead of time.
     openvino_models_dir: str = "models/openvino"
-    model_workers: int = Field(default=4, ge=1)  # inference calls running at once, max
-    # Virtual CPUs split between workers (domain/thread_budget.py): 0 = find
+    # Model calls running at once, max, under torch only; openvino runs one call
+    # at a time on every CPU (domain/thread_budget.py).
+    model_workers: int = Field(default=4, ge=1)
+    # Virtual CPUs the model calls share (domain/thread_budget.py): 0 = find
     # out; > 0 wins over every other count.
     model_cpus: float = Field(default=0, ge=0)
 
