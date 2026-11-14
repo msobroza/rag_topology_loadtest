@@ -160,7 +160,7 @@ class RagSettings(BaseSettings):
     retrieval_mode: RetrievalMode = DEFAULT_RETRIEVAL_MODE  # dense | lexical | hybrid
     hybrid_rrf_k: int = Field(default=60, ge=1)  # rank constant of the hybrid fusion
     top_k_retrieve: int = Field(default=20, ge=1)  # candidates from the store
-    top_k_rerank: int = Field(default=5, ge=1)  # passages kept and sent to the LLM
+    top_k_rerank: int = Field(default=10, ge=1)  # passages kept and sent to the LLM
     system_prompt: str
     user_prompt: str  # holds {context} and {question}
 
