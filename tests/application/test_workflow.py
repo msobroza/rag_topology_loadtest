@@ -30,14 +30,14 @@ from rag_load_test.domain.workflow_parameters import WorkflowParameters
 
 VACATION_QUESTION = synthetic_questions(1)[0]
 TIMING_KEYS = {*STAGES, "total"}
-DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 5
+DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 
 
 def workflow_parameters(**overrides: object) -> WorkflowParameters:
-    """Dense retrieval of 20, 5 kept, no query prefix; ``overrides`` win."""
+    """Dense retrieval of 20, 10 kept, no query prefix; ``overrides`` win."""
     values: dict[str, object] = {
         "top_k_retrieve": 20,
-        "top_k_rerank": 5,
+        "top_k_rerank": 10,
         "prompts": RagPrompts(system="s", user="{question} {context}"),
         "retrieval_mode": "dense",
         "rrf_k": 60,
@@ -114,8 +114,8 @@ async def test_no_reranker_keeps_retrieval_order(
 
     [vector] = await deps.embedder.embed([VACATION_QUESTION])
     expected = await deps.vector_store.query(vector, DEFAULT_TOP_K_RETRIEVE)
-    first_five = [p.id for p in expected[:5]]
-    assert [p.id for p in result.passages] == first_five
+    first_kept = [p.id for p in expected[:DEFAULT_TOP_K_RERANK]]
+    assert [p.id for p in result.passages] == first_kept
     assert all(p.rerank_score is None for p in result.passages)
 
 
@@ -302,7 +302,7 @@ async def test_every_retrieval_mode_answers_over_the_fake_store(
 
     result = await workflow.run("How many vacation days do employees accrue?")
 
-    assert len(result.passages) == 5
+    assert len(result.passages) == DEFAULT_TOP_K_RERANK
     assert "vacation" in result.passages[0].text.lower()
     assert result.answer is not None
 

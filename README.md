@@ -32,7 +32,7 @@ flowchart LR
     L[Locust] -->|POST /query, /retrieve| API[FastAPI · rag-serve]
     API --> E["embed<br/>(BaseEmbedder: in-process, or an endpoint in the openai embeddings format)"]
     E --> R["retrieve<br/>(BaseVectorStore: Elasticsearch or Chroma; dense, lexical or hybrid; RAG_TOP_K_RETRIEVE=20)"]
-    R --> K["rerank<br/>(BaseReranker: in-process, or an endpoint in the cohere rerank format; RAG_TOP_K_RERANK=5)"]
+    R --> K["rerank<br/>(BaseReranker: in-process, or an endpoint in the cohere rerank format; RAG_TOP_K_RERANK=10)"]
     K -->|mode = query| G["generate<br/>(BaseLLM: an endpoint in the openai chat format)"]
     K -->|mode = retrieve| Z([response + timings_ms])
     G --> Z
@@ -504,7 +504,7 @@ with a one-line usage error, not a traceback.
 | `RAG_ES_TEXT_ANALYZER` | `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `RAG_DOMINO_TRACING` | `false` | wrap the workflow run with Domino `add_tracing` |
 | `RAG_TOP_K_RETRIEVE` | `20` | candidates from the vector store (>= 1) |
-| `RAG_TOP_K_RERANK` | `5` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
+| `RAG_TOP_K_RERANK` | `10` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
 | `RAG_SYSTEM_PROMPT` / `RAG_USER_PROMPT` | from `prompts.yaml` | override one prompt; the user template must hold `{context}` and `{question}` |
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
 | `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |

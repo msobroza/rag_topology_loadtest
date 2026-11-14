@@ -32,7 +32,7 @@ def _no_prompt_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
-    assert (s.top_k_retrieve, s.top_k_rerank) == (20, 5)
+    assert (s.top_k_retrieve, s.top_k_rerank) == (20, 10)
     assert s.es_index == "rag_passages"
     assert (s.embedding_batch_size, s.rerank_batch_size) == (64, 32)
     assert s.model_workers == 4
