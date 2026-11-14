@@ -16,11 +16,11 @@ from model_api_fakes import (
     endpoint_client,
     token_text,
 )
-from rag_load_test.adapters.endpoint.api_endpoint_client import ApiEndpointClient
-from rag_load_test.adapters.http.http_policy import HttpPolicy
 from rag_load_test.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.standard_formats import CohereRerankResponse
+from rag_load_test.infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
+from rag_load_test.infrastructure.http.http_policy import HttpPolicy
 
 URL = "http://models.test:8001/v3/rerank"
 MODEL = "bge-reranker-base"

@@ -12,8 +12,8 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.application.rag_dependencies import RagDependencies
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 
 
@@ -41,5 +41,5 @@ def fake_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
 @pytest.fixture
 async def fake_deps(fake_settings: RagSettings) -> AsyncIterator[RagDependencies]:
     """The four fake ports, opened from settings over the seeded in-memory store."""
-    async with RagPorts(fake_settings) as ports:
-        yield await ports.workflow_dependencies()
+    async with CompositionRoot(fake_settings) as composition:
+        yield await composition.workflow_dependencies()

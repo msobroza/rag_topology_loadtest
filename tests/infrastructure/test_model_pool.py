@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from rag_load_test.adapters.local_models.model_pool import model_executor
+from rag_load_test.infrastructure.local_models.model_pool import model_executor
 
 
 def test_model_executor_runs_the_given_number_of_workers() -> None:

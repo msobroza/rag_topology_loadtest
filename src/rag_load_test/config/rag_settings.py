@@ -15,7 +15,7 @@ Example:
     >>> settings = RagSettings(_env_file=None, rerank_backend="fake")  # in tests
 
 Every tunable is a field here, so one ``RAG_*`` variable changes it; adapters
-receive the values from ``adapters/rag_ports.py`` and never read this module. The
+receive the values from the ``composition`` package and never read this module. The
 prompts come from a YAML file, the lowest-priority source (see
 ``prompts_source.py``).
 """
@@ -96,7 +96,7 @@ class RagSettings(BaseSettings):
 
     # --- embedding -------------------------------------------------------------------
     # None until resolve_topology fills it from the topology; never None after, so
-    # the annotation stays non-optional for rag_ports.py. validate_default=False:
+    # the annotation stays non-optional for the factories. validate_default=False:
     # pydantic-settings would reject the placeholder; the cast satisfies pydantic's
     # typing, which wants an unvalidated default to match the annotation.
     embedding_backend: EmbeddingBackend = Field(

@@ -20,7 +20,7 @@ from local_model_fakes import (
 from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
-from rag_load_test.adapters.local_models.local_model import LocalModel
+from rag_load_test.infrastructure.local_models.local_model import LocalModel
 
 pytest_plugins = ["local_model_fixtures"]
 

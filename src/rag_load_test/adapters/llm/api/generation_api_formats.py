@@ -10,7 +10,7 @@ Example:
 
 from __future__ import annotations
 
-from ...endpoint.api_format_lookup import lookup_api_format
+from ....infrastructure.endpoint.api_format_lookup import lookup_api_format
 from .base_generation_api_format import BaseGenerationApiFormat
 from .openai_chat_format import OpenAIChatFormat
 

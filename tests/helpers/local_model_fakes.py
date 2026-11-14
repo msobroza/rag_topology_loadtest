@@ -12,9 +12,9 @@ from collections.abc import Callable
 from types import ModuleType
 from typing import Any
 
-from rag_load_test.adapters.local_models.local_model import LocalModel
-from rag_load_test.adapters.local_models.native_threads import NativeThreadScope
 from rag_load_test.domain.passages import ScoredPassage
+from rag_load_test.infrastructure.local_models.local_model import LocalModel
+from rag_load_test.infrastructure.local_models.native_threads import NativeThreadScope
 
 
 class RecordingScope(NativeThreadScope):

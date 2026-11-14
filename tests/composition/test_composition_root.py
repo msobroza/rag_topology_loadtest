@@ -1,4 +1,4 @@
-"""``RagPorts``: settings in, ready ports out, every resource released on exit."""
+"""``CompositionRoot``: settings in, ready ports out, every resource released on exit."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import 
     SentenceTransformerEmbedder,
 )
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
 from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
     CrossEncoderReranker,
@@ -27,6 +26,7 @@ from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store impor
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
@@ -46,7 +46,7 @@ def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersMod
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
     # Under the default openvino runtime a first start exports each model into
     # RAG_OPENVINO_MODELS_DIR; these tests are about the ports, so the models load
-    # by id. The runtimes and the export: test_rag_ports_backends.py.
+    # by id. The runtimes and the export: test_composition_root_backends.py.
     monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
     return module
 
@@ -68,8 +68,8 @@ class ClosingRecorderTransport(httpx.MockTransport):
 async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
     fake_settings: RagSettings,
 ) -> None:
-    async with RagPorts(fake_settings) as ports:
-        deps = await ports.workflow_dependencies()
+    async with CompositionRoot(fake_settings) as composition:
+        deps = await composition.workflow_dependencies()
 
         assert isinstance(deps.embedder, FakeEmbedder)
         assert isinstance(deps.vector_store, InMemoryVectorStore)
@@ -81,13 +81,13 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
 
 
 async def test_ports_open_once_and_are_reused(fake_settings: RagSettings) -> None:
-    async with RagPorts(fake_settings) as ports:
-        first = await ports.workflow_dependencies()
-        second = await ports.workflow_dependencies()
+    async with CompositionRoot(fake_settings) as composition:
+        first = await composition.workflow_dependencies()
+        second = await composition.workflow_dependencies()
 
         assert second.embedder is first.embedder
         assert second.vector_store is first.vector_store
-        assert (await ports.ingest_ports()).vector_store is first.vector_store
+        assert (await composition.ingest_ports()).vector_store is first.vector_store
 
 
 # --- backends -------------------------------------------------------------------------
@@ -97,8 +97,10 @@ async def test_none_rerank_backend_keeps_retrieval_order(
     settings_factory: SettingsFactory, fake_settings: RagSettings
 ) -> None:
     settings = fake_settings.model_copy(update={"rerank_backend": "none"})
-    async with RagPorts(settings) as ports:
-        assert isinstance((await ports.workflow_dependencies()).reranker, NoReranker)
+    async with CompositionRoot(settings) as composition:
+        assert isinstance(
+            (await composition.workflow_dependencies()).reranker, NoReranker
+        )
 
 
 async def test_each_model_server_endpoint_fetches_its_own_domino_token(
@@ -129,13 +131,13 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
         embedding_api_url=EMBED_URL,
         rerank_api_url=RERANK_URL,
     )
-    ports = RagPorts(
+    composition = CompositionRoot(
         settings,
         vector_store=InMemoryVectorStore(),
         transport=httpx.MockTransport(model_servers),
     )
-    async with ports:
-        deps = await ports.workflow_dependencies()
+    async with composition:
+        deps = await composition.workflow_dependencies()
         assert await deps.embedder.embed(["q"]) == [[1.0, 0.0]]
         candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
         [ranked] = await deps.reranker.rerank("q", [candidate], 1)
@@ -165,13 +167,13 @@ async def test_api_embedder_batches_and_retries_as_configured(
         http_retries=0,
         embedding_api_url=EMBED_URL,
     )
-    ports = RagPorts(
+    composition = CompositionRoot(
         settings,
         vector_store=InMemoryVectorStore(),
         transport=httpx.MockTransport(busy_then_ok),
     )
-    async with ports:
-        embedder, _ = await ports.ingest_ports()
+    async with composition:
+        embedder, _ = await composition.ingest_ports()
         assert await embedder.embed(["a", "b"]) == [[1.0], [1.0]]
         with pytest.raises(RagDependencyError, match="HTTP 503"):
             await embedder.embed(["c"])
@@ -184,9 +186,9 @@ async def test_local_models_use_the_configured_batch_sizes(
 ) -> None:
     settings = settings_factory(embedding_batch_size=16, rerank_batch_size=8)
     candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
-    async with RagPorts(settings) as ports:
-        await (await ports.local_embedder()).embed(["hello"])
-        await (await ports.local_reranker()).rerank("q", [candidate], 1)
+    async with CompositionRoot(settings) as composition:
+        await (await composition.local_embedder()).embed(["hello"])
+        await (await composition.local_reranker()).rerank("q", [candidate], 1)
 
     assert fake_weights.batch_sizes == [("encode", 16), ("predict", 8)]
 
@@ -197,8 +199,8 @@ async def test_elasticsearch_store_uses_the_configured_index(
     settings = settings_factory(
         embedding_backend="fake", es_url=UNREACHABLE_ES, es_index="passages_v2"
     )
-    async with RagPorts(settings) as ports:
-        store = (await ports.ingest_ports()).vector_store
+    async with CompositionRoot(settings) as composition:
+        store = (await composition.ingest_ports()).vector_store
         assert isinstance(store, ElasticsearchVectorStore)
         assert store.index == "passages_v2"
 
@@ -207,8 +209,8 @@ async def test_fake_store_is_seeded_with_the_configured_document_count(
     fake_settings: RagSettings,
 ) -> None:
     settings = fake_settings.model_copy(update={"fake_store_seed_documents": 12})
-    async with RagPorts(settings) as ports:
-        store = (await ports.ingest_ports()).vector_store
+    async with CompositionRoot(settings) as composition:
+        store = (await composition.ingest_ports()).vector_store
         assert await store.count() == 12
 
 
@@ -216,8 +218,8 @@ async def test_elasticsearch_store_opens_without_the_network(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(embedding_backend="fake", es_url=UNREACHABLE_ES)
-    async with RagPorts(settings) as ports:
-        store = (await ports.ingest_ports()).vector_store
+    async with CompositionRoot(settings) as composition:
+        store = (await composition.ingest_ports()).vector_store
         assert isinstance(store, ElasticsearchVectorStore)
 
 
@@ -231,9 +233,11 @@ async def test_the_llm_opens_before_any_weights_load(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api generation
-    async with RagPorts(with_an_unknown_generation_format(settings)) as ports:
+    async with CompositionRoot(
+        with_an_unknown_generation_format(settings)
+    ) as composition:
         with pytest.raises(RagDependencyError, match="llm unavailable"):
-            await ports.workflow_dependencies()
+            await composition.workflow_dependencies()
 
     assert (
         fake_weights.loaded == []
@@ -247,21 +251,21 @@ async def test_ingest_ports_leave_the_llm_shut(
     fake_settings: RagSettings,
 ) -> None:
     settings = with_an_unknown_generation_format(fake_settings)
-    async with RagPorts(settings) as ports:
-        _, store = await ports.ingest_ports()  # the LLM is never opened
+    async with CompositionRoot(settings) as composition:
+        _, store = await composition.ingest_ports()  # the LLM is never opened
         assert await store.count() == 200  # the default seed size
 
         expected = "llm unavailable: could not open backend 'api'"
         with pytest.raises(RagDependencyError, match=expected):
-            await ports.workflow_dependencies()
+            await composition.workflow_dependencies()
 
 
 async def test_ingest_ports_load_only_the_embedder_weights(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = settings_factory(es_url=UNREACHABLE_ES)  # local embedder and reranker
-    async with RagPorts(settings) as ports:
-        await ports.ingest_ports()
+    async with CompositionRoot(settings) as composition:
+        await composition.ingest_ports()
 
     assert fake_weights.loaded == [EMBEDDER_WEIGHTS]
 
@@ -272,36 +276,38 @@ async def test_local_models_ignore_the_configured_backend(
     settings = settings_factory(  # both backends api
         topology="split-all", embedding_api_url=EMBED_URL, rerank_api_url=RERANK_URL
     )
-    async with RagPorts(settings) as ports:
-        embedder = await ports.local_embedder()
+    async with CompositionRoot(settings) as composition:
+        embedder = await composition.local_embedder()
 
         assert isinstance(embedder, SentenceTransformerEmbedder)
         assert await embedder.embed(["hello"]) == [[1.0, 0.0]]
         assert fake_weights.loaded == [EMBEDDER_WEIGHTS]
-        assert isinstance(await ports.local_reranker(), CrossEncoderReranker)
+        assert isinstance(await composition.local_reranker(), CrossEncoderReranker)
 
 
-# --- ports handed in ------------------------------------------------------------------
+# --- ports handed in ------------------------------------------------------------------------
 
 
 async def test_a_supplied_port_is_used_as_given(fake_settings: RagSettings) -> None:
     embedder, empty_store = FakeEmbedder(dim=4), InMemoryVectorStore()
-    ports = RagPorts(fake_settings, embedder=embedder, vector_store=empty_store)
-    async with ports:
-        deps = await ports.workflow_dependencies()
+    composition = CompositionRoot(
+        fake_settings, embedder=embedder, vector_store=empty_store
+    )
+    async with composition:
+        deps = await composition.workflow_dependencies()
 
         assert deps.embedder is embedder
         assert deps.vector_store is empty_store
         assert await empty_store.count() == 0  # a supplied store is never seeded
-        assert await ports.local_embedder() is embedder
+        assert await composition.local_embedder() is embedder
 
 
 async def test_fake_store_is_seeded_with_the_supplied_embedder(
     fake_settings: RagSettings,
 ) -> None:
     embedder = FakeEmbedder(dim=4)
-    async with RagPorts(fake_settings, embedder=embedder) as ports:
-        store = (await ports.ingest_ports()).vector_store
+    async with CompositionRoot(fake_settings, embedder=embedder) as composition:
+        store = (await composition.ingest_ports()).vector_store
         # A store seeded by any other embedder would hold 16-wide vectors and raise.
         hits = await store.query(embedder.embed_text("vacation days"), top_k=3)
 
@@ -314,9 +320,11 @@ async def test_fake_store_is_seeded_with_the_supplied_embedder(
 async def test_ports_cannot_be_requested_outside_the_block(
     fake_settings: RagSettings,
 ) -> None:
-    ports = RagPorts(fake_settings)
-    with pytest.raises(RuntimeError, match=r"outside 'async with RagPorts\(\.\.\.\)'"):
-        await ports.workflow_dependencies()
+    composition = CompositionRoot(fake_settings)
+    with pytest.raises(
+        RuntimeError, match=r"outside 'async with CompositionRoot\(\.\.\.\)'"
+    ):
+        await composition.workflow_dependencies()
 
 
 async def test_leaving_the_block_releases_the_pool_and_the_http_client(
@@ -326,9 +334,11 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
     settings = settings_factory(
         topology="split-reranker", rerank_api_url=RERANK_URL, generation_backend="fake"
     )
-    ports = RagPorts(settings, vector_store=InMemoryVectorStore(), transport=transport)
-    async with ports:
-        deps = await ports.workflow_dependencies()
+    composition = CompositionRoot(
+        settings, vector_store=InMemoryVectorStore(), transport=transport
+    )
+    async with composition:
+        deps = await composition.workflow_dependencies()
         assert not transport.closed
 
     assert transport.closed
@@ -340,7 +350,7 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
 
 
 def thread_budget_line(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
-    """The one ``thread_budget`` JSON line RagPorts logged."""
+    """The one ``thread_budget`` JSON line CompositionRoot logged."""
     lines = [
         json.loads(r.message) for r in caplog.records if "thread_budget" in r.message
     ]
@@ -349,10 +359,13 @@ def thread_budget_line(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
 
 
 async def open_local_models(
-    ports: RagPorts,
+    composition: CompositionRoot,
 ) -> tuple[SentenceTransformerEmbedder, CrossEncoderReranker]:
-    async with ports:
-        embedder, reranker = await ports.local_embedder(), await ports.local_reranker()
+    async with composition:
+        embedder, reranker = (
+            await composition.local_embedder(),
+            await composition.local_reranker(),
+        )
     assert isinstance(embedder, SentenceTransformerEmbedder)
     assert isinstance(reranker, CrossEncoderReranker)
     return embedder, reranker
@@ -364,9 +377,9 @@ async def test_local_model_scopes_carry_the_thread_budget(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     container = FakeCpuCounter(8, "container")
-    ports = RagPorts(settings_factory(), container_cpus=container)
+    composition = CompositionRoot(settings_factory(), container_cpus=container)
     with caplog.at_level("INFO", logger="rag_load_test"):
-        embedder, reranker = await open_local_models(ports)
+        embedder, reranker = await open_local_models(composition)
 
     assert (embedder.scope.threads, reranker.scope.threads) == (2, 2)
     assert thread_budget_line(caplog) == {
@@ -383,8 +396,10 @@ async def test_a_thread_override_replaces_one_share(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = settings_factory(embedding_threads=1)
-    ports = RagPorts(settings, container_cpus=FakeCpuCounter(8, "container"))
-    embedder, reranker = await open_local_models(ports)
+    composition = CompositionRoot(
+        settings, container_cpus=FakeCpuCounter(8, "container")
+    )
+    embedder, reranker = await open_local_models(composition)
 
     assert (embedder.scope.threads, reranker.scope.threads) == (1, 2)
 
@@ -398,9 +413,11 @@ async def test_model_cpus_win_over_every_counter(
     settings = settings_factory(
         model_cpus=3, domino_api_proxy="http://proxy", domino_hardware_tier_id="t"
     )
-    ports = RagPorts(settings, container_cpus=container)  # no transport: no HTTP
+    composition = CompositionRoot(
+        settings, container_cpus=container
+    )  # no transport: no HTTP
     with caplog.at_level("INFO", logger="rag_load_test"):
-        await open_local_models(ports)
+        await open_local_models(composition)
 
     line = thread_budget_line(caplog)
     assert (line["source"], line["cpus"], line["workers"]) == ("RAG_MODEL_CPUS", 3, 3)
@@ -424,9 +441,11 @@ async def test_on_domino_the_hardware_tier_is_asked(
         domino_api_proxy="http://proxy", domino_hardware_tier_id="tier-9"
     )
     transport = httpx.MockTransport(domino)
-    ports = RagPorts(settings, container_cpus=container, transport=transport)
+    composition = CompositionRoot(
+        settings, container_cpus=container, transport=transport
+    )
     with caplog.at_level("INFO", logger="rag_load_test"):
-        embedder, _ = await open_local_models(ports)
+        embedder, _ = await open_local_models(composition)
 
     assert asked == ["/api/hardwaretiers/v1/hardwaretiers/tier-9"]
     line = thread_budget_line(caplog)
@@ -450,8 +469,10 @@ async def test_when_the_tier_cannot_say_the_container_answers(
         domino_api_proxy="http://proxy", domino_hardware_tier_id="tier-9"
     )
     transport = httpx.MockTransport(forbidden)
-    ports = RagPorts(settings, container_cpus=container, transport=transport)
-    embedder, _ = await open_local_models(ports)
+    composition = CompositionRoot(
+        settings, container_cpus=container, transport=transport
+    )
+    embedder, _ = await open_local_models(composition)
 
     assert container.asked == 1
     assert embedder.scope.threads == 1
@@ -461,7 +482,7 @@ async def test_fake_models_never_work_out_a_budget(
     fake_settings: RagSettings,
 ) -> None:
     container = FakeCpuCounter(8, "container")
-    async with RagPorts(fake_settings, container_cpus=container) as ports:
-        await ports.workflow_dependencies()
+    async with CompositionRoot(fake_settings, container_cpus=container) as composition:
+        await composition.workflow_dependencies()
 
     assert container.asked == 0

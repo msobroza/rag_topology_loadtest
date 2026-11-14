@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
-from rag_load_test.adapters.fake_text import cosine
+from rag_load_test.infrastructure.fake_text import cosine
 
 
 async def test_fake_embedder_is_deterministic_unit_norm_and_topical() -> None:

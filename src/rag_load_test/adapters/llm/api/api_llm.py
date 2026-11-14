@@ -12,9 +12,12 @@ import httpx
 from pydantic import ValidationError
 
 from ....domain.api_endpoint import ApiEndpoint
-from ...endpoint.api_endpoint_client import ApiEndpointClient
-from ...endpoint.open_endpoint_client import RunTokenSource, open_endpoint_client
-from ...http.http_policy import HttpPolicy
+from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
+from ....infrastructure.endpoint.open_endpoint_client import (
+    RunTokenSource,
+    open_endpoint_client,
+)
+from ....infrastructure.http.http_policy import HttpPolicy
 from ..base_llm import BaseLLM
 from .base_generation_api_format import BaseGenerationApiFormat
 from .generation_api_formats import generation_api_format

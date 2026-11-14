@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.reranker.base_reranker import BaseReranker
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
@@ -81,7 +81,7 @@ def client_for(
     )
 
     def make(**doubles: Any) -> TestClient:
-        return TestClient(create_app(RagPorts(settings, **doubles)))
+        return TestClient(create_app(CompositionRoot(settings, **doubles)))
 
     return make
 
@@ -121,7 +121,7 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
 def test_unset_run_label_reports_the_default_run_label(
     fake_settings: RagSettings,
 ) -> None:
-    with TestClient(create_app(RagPorts(fake_settings))) as test_client:
+    with TestClient(create_app(CompositionRoot(fake_settings))) as test_client:
         response = test_client.post("/retrieve", json={"question": QUESTION})
 
     default = "monolith+embedding=fake+rerank=fake+store=fake+generation=fake"
@@ -287,7 +287,7 @@ def test_traced_without_sdk_returns_function_unchanged(
 def test_main_parses_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
     sentinel_app = object()
     runs: list[tuple[Any, dict[str, Any]]] = []
-    monkeypatch.setattr(api, "create_app", lambda ports: sentinel_app)
+    monkeypatch.setattr(api, "create_app", lambda composition: sentinel_app)
     monkeypatch.setattr(api.uvicorn, "run", lambda app, **kw: runs.append((app, kw)))
 
     assert main(["--host", "127.0.0.1", "--port", "9999"]) == 0
@@ -297,7 +297,7 @@ def test_main_parses_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> None:
     runs: list[dict[str, Any]] = []
-    monkeypatch.setattr(api, "create_app", lambda ports: object())
+    monkeypatch.setattr(api, "create_app", lambda composition: object())
     monkeypatch.setattr(api.uvicorn, "run", lambda app, **kw: runs.append(kw))
 
     assert main([]) == 0
@@ -305,11 +305,11 @@ def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> No
     assert runs == [{"host": "0.0.0.0", "port": 8888}]
 
 
-def _capture_served_ports(monkeypatch: pytest.MonkeyPatch) -> list[RagPorts]:
-    served: list[RagPorts] = []
+def _capture_served_ports(monkeypatch: pytest.MonkeyPatch) -> list[CompositionRoot]:
+    served: list[CompositionRoot] = []
 
-    def record(ports: RagPorts) -> object:
-        served.append(ports)
+    def record(composition: CompositionRoot) -> object:
+        served.append(composition)
         return object()
 
     monkeypatch.setattr(api, "create_app", record)
@@ -380,7 +380,7 @@ def test_routes_answer_with_and_without_the_domino_prefix(
 ) -> None:
     """FastAPI serves under DOMINO_RUN_HOST_PATH itself; no proxy layer needed."""
     monkeypatch.setenv("DOMINO_RUN_HOST_PATH", "/apps/abc123")
-    app = create_app(RagPorts(fake_settings))
+    app = create_app(CompositionRoot(fake_settings))
     with TestClient(app) as client:
         assert client.get("/apps/abc123/healthz").status_code == 200
         assert client.get("/healthz").status_code == 200

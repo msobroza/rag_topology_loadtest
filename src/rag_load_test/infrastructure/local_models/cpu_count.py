@@ -5,7 +5,7 @@ credential-free ``DOMINO_API_PROXY``; the tier's ``resources.cores`` (the
 Kubernetes CPU request, possibly fractional) comes from the Hardware Tiers API.
 Outside Domino, ``joblib.cpu_count()`` reads the container's CPU quota and
 affinity, which ``os.cpu_count()`` ignores. Counters are asked in order and the
-first that answers wins; ``RagPorts`` decides the order.
+first that answers wins; ``LocalModelResources`` decides the order.
 
 Example:
     >>> counters = [FixedCpus(0), DominoHardwareTierCpus(http, proxy, tier, policy),
@@ -170,7 +170,7 @@ async def first_cpu_count(counters: Sequence[BaseCpuCounter]) -> tuple[float, st
     """Ask the counters in order and return the first answer.
 
     Args:
-        counters: The CPU sources, asked in order (``RagPorts`` decides it).
+        counters: The CPU sources, asked in order (``LocalModelResources`` decides it).
 
     Returns:
         ``(cpus, source name)`` from the first counter that answers.

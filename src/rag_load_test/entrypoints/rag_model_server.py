@@ -32,7 +32,7 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from ..adapters.rag_ports import RagPorts
+from ..composition.composition_root import CompositionRoot
 from ..config.rag_settings import RagSettings
 from ..domain.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
@@ -55,14 +55,14 @@ UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not fou
 
 
 # The handlers read what the factory left on ``app.state``: ``part``, ``alias``
-# and ``ports`` from the start, the served model once the lifespan has loaded it.
+# and ``composition`` from the start, the served model once the lifespan has loaded it.
 common_routes = APIRouter()
 embedder_routes = APIRouter()
 reranker_routes = APIRouter()
 
 
-def create_model_server(part: ModelServerPart, ports: RagPorts) -> FastAPI:
-    """Build the server for one model over the ports; it always serves the local model.
+def create_model_server(part: ModelServerPart, composition: CompositionRoot) -> FastAPI:
+    """Build the server for one model; it always serves the local model.
 
     The served name is the alias the clients send (``RAG_EMBEDDING_API_MODEL`` /
     ``RAG_RERANK_API_MODEL``); the weights come from ``RAG_EMBEDDING_MODEL`` /
@@ -70,21 +70,22 @@ def create_model_server(part: ModelServerPart, ports: RagPorts) -> FastAPI:
 
     Args:
         part: The one model this process serves, and so its one inference route.
-        ports: Builds the in-process model when the lifespan starts.
+        composition: Builds the in-process model when the lifespan starts.
 
     Returns:
         The app, its routes answering under ``DOMINO_RUN_HOST_PATH`` and at the root.
 
     Example:
-        >>> create_model_server("reranker", RagPorts(settings, reranker=FakeReranker()))
+        >>> composition = CompositionRoot(settings, reranker=FakeReranker())
+        >>> create_model_server("reranker", composition)
     """
     app = FastAPI(
         title=f"rag-model-server ({part})",
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),  # Domino's prefix
         lifespan=_lifespan,
     )
-    app.state.part, app.state.ports = part, ports
-    app.state.alias = _served_alias(part, ports.settings)
+    app.state.part, app.state.composition = part, composition
+    app.state.alias = _served_alias(part, composition.settings)
     app.include_router(common_routes)
     app.include_router(embedder_routes if part == "embedder" else reranker_routes)
     return app
@@ -98,12 +99,12 @@ def _served_alias(part: ModelServerPart, settings: RagSettings) -> str:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    ports: RagPorts = app.state.ports
-    async with ports:
+    composition: CompositionRoot = app.state.composition
+    async with composition:
         if app.state.part == "embedder":
-            app.state.embedder = await ports.local_embedder()
+            app.state.embedder = await composition.local_embedder()
         else:
-            app.state.reranker = await ports.local_reranker()
+            app.state.reranker = await composition.local_reranker()
         yield
 
 
@@ -266,7 +267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run ``rag-model-server --serve embedder|reranker [--host H] [--port P]``.
 
     Serves the one model with uvicorn, on 0.0.0.0:8888 unless told otherwise, with
-    ports built from the ``RAG_*`` settings.
+    a composition root built from the ``RAG_*`` settings.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -282,6 +283,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    ports = RagPorts(RagSettings())
-    uvicorn.run(create_model_server(args.serve, ports), host=args.host, port=args.port)
+    composition = CompositionRoot(RagSettings())
+    uvicorn.run(
+        create_model_server(args.serve, composition), host=args.host, port=args.port
+    )
     return 0

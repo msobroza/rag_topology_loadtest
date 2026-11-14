@@ -15,9 +15,9 @@ from collections.abc import Sequence
 from concurrent.futures import Executor
 from typing import Any
 
-from ...local_models.local_model import LocalModel
-from ...local_models.model_pool import run_blocking
-from ...local_models.native_threads import NativeThreadScope
+from ....infrastructure.local_models.local_model import LocalModel
+from ....infrastructure.local_models.model_pool import run_blocking
+from ....infrastructure.local_models.native_threads import NativeThreadScope
 from ..base_embedder import BaseEmbedder
 
 

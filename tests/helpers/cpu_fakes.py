@@ -1,8 +1,8 @@
-"""A named fake for ``BaseCpuCounter``, shared by the CPU-count and ``RagPorts`` tests."""
+"""A named fake for ``BaseCpuCounter``, shared by the CPU-count and ``CompositionRoot`` tests."""
 
 from __future__ import annotations
 
-from rag_load_test.adapters.local_models.cpu_count import BaseCpuCounter
+from rag_load_test.infrastructure.local_models.cpu_count import BaseCpuCounter
 
 
 class FakeCpuCounter(BaseCpuCounter):

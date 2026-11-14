@@ -15,9 +15,12 @@ from pydantic import ValidationError
 
 from ....domain.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError, describe_error
-from ...endpoint.api_endpoint_client import ApiEndpointClient
-from ...endpoint.open_endpoint_client import RunTokenSource, open_endpoint_client
-from ...http.http_policy import HttpPolicy
+from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
+from ....infrastructure.endpoint.open_endpoint_client import (
+    RunTokenSource,
+    open_endpoint_client,
+)
+from ....infrastructure.http.http_policy import HttpPolicy
 from ..base_embedder import BaseEmbedder
 from .base_embedding_api_format import BaseEmbeddingApiFormat
 from .embedding_api_formats import embedding_api_format

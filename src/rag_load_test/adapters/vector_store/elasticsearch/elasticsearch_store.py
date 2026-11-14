@@ -1,7 +1,7 @@
 """The Elasticsearch vector store (LangChain's ``AsyncElasticsearchStore``).
 
 The heavy import lives inside ``open`` so importing this module stays cheap. The
-index name comes from the caller (``RAG_ES_INDEX`` via ``RagPorts``).
+index name comes from the caller (``RAG_ES_INDEX`` via ``CompositionRoot``).
 
 This adapter creates a missing index itself, just before the first write, from
 the mapping LangChain's own retrieval strategy produces (its

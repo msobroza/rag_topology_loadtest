@@ -1,7 +1,7 @@
 """The LangGraph workflow (``embed -> retrieve -> rerank -> generate``).
 
 ``RagWorkflow`` sees only ports, so the same graph runs in every topology; which
-adapters sit behind them is ``RagPorts``' business. Retrieval mode, sizes and
+adapters sit behind them is the composition root's business. Retrieval mode, sizes and
 prompts come in as one ``WorkflowParameters``. Each node records its wall time
 in ``timings_ms`` (a LangGraph reducer merges the per-stage keys).
 
@@ -10,8 +10,8 @@ The retrieve stage finds candidates by vector (``dense``), by words
 workflow needs no vector, so its graph starts at retrieve and ``embed`` is 0 ms.
 
 Example:
-    >>> async with RagPorts(settings) as ports:
-    ...     deps = await ports.workflow_dependencies()
+    >>> async with CompositionRoot(settings) as composition:
+    ...     deps = await composition.workflow_dependencies()
     ...     workflow = RagWorkflow(deps, settings.workflow_parameters())
     ...     result = await workflow.run("How many vacation days?", mode="retrieve")
 """

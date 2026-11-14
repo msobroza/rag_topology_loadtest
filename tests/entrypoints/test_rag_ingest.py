@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import (
     TOPICS,
@@ -65,9 +65,9 @@ def test_load_jsonl_names_the_offending_line(
 def test_main_ingests_the_synthetic_corpus_and_prints_one_summary_line(
     fake_settings: RagSettings, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
+    composition = CompositionRoot(fake_settings, vector_store=InMemoryVectorStore())
 
-    assert main(["--synthetic", "3"], ports=ports) == 0
+    assert main(["--synthetic", "3"], composition=composition) == 0
 
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1
@@ -86,9 +86,9 @@ def test_main_chunks_a_corpus_file(
     short = json.dumps({"id": "b", "title": "B", "text": "short"})
     path = _jsonl(tmp_path / "docs.jsonl", _record(text=" ".join(["w"] * 30)), short)
     opts = ["--chunk-words", "20", "--overlap-words", "5"]
-    ports = RagPorts(fake_settings, vector_store=InMemoryVectorStore())
+    composition = CompositionRoot(fake_settings, vector_store=InMemoryVectorStore())
 
-    assert main(["--corpus", str(path), *opts], ports=ports) == 0
+    assert main(["--corpus", str(path), *opts], composition=composition) == 0
 
     summary = json.loads(capsys.readouterr().out)
     assert (summary["event"], summary["documents"]) == ("ingest_done", 2)

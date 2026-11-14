@@ -17,9 +17,9 @@ from concurrent.futures import Executor
 from typing import Any
 
 from ....domain.passages import ScoredPassage, top_by_score
-from ...local_models.local_model import LocalModel
-from ...local_models.model_pool import run_blocking
-from ...local_models.native_threads import NativeThreadScope
+from ....infrastructure.local_models.local_model import LocalModel
+from ....infrastructure.local_models.model_pool import run_blocking
+from ....infrastructure.local_models.native_threads import NativeThreadScope
 from ..base_reranker import BaseReranker
 
 

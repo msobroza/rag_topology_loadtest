@@ -1,5 +1,5 @@
-"""``RagPorts`` over Chroma and the in-process model runtimes. Settings in, the
-right adapter out; the ``api`` backends are in ``test_rag_ports_api.py``."""
+"""``CompositionRoot`` over Chroma and the in-process model runtimes. Settings in, the
+right adapter out; the ``api`` backends are in ``test_composition_root_api.py``."""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.adapters.local_models.local_model import (
-    exported_model_dir,
-    local_model,
-)
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import Passage
+from rag_load_test.infrastructure.local_models.local_model import (
+    exported_model_dir,
+    local_model,
+)
 from sentence_transformers_fakes import (
     FakeSentenceTransformersModule,
     fake_openvino_modules,
@@ -40,8 +40,8 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
         chroma_collection="passages_under_test",
     )
 
-    async with RagPorts(settings) as ports:
-        embedder, store = await ports.ingest_ports()
+    async with CompositionRoot(settings) as composition:
+        embedder, store = await composition.ingest_ports()
         passage = Passage(id="p1", text="Employees accrue vacation days")
         await store.upsert([passage], await embedder.embed([passage.text]))
 
@@ -64,8 +64,8 @@ async def test_the_chroma_backend_gives_the_workflow_no_lexical_search(
         chroma_path=str(tmp_path / "chroma"),
     )
 
-    async with RagPorts(settings) as ports:
-        deps = await ports.workflow_dependencies()
+    async with CompositionRoot(settings) as composition:
+        deps = await composition.workflow_dependencies()
 
         assert isinstance(deps.vector_store, ChromaVectorStore)
         assert deps.lexical_search is None  # open-source Chroma ranks no text
@@ -124,9 +124,9 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
     for folder in folders(settings, tmp_path):
         folder.mkdir()  # exported already: nothing to provision
 
-    async with RagPorts(settings) as ports:
-        await ports.local_embedder()
-        await ports.local_reranker()
+    async with CompositionRoot(settings) as composition:
+        await composition.local_embedder()
+        await composition.local_reranker()
 
     # 4 CPUs over 4 workers: one thread per call, for both models.
     described = local_model(settings.embedding_model, runtime=runtime, models_dir="")
@@ -144,9 +144,9 @@ async def test_a_first_openvino_start_exports_each_model_then_loads_its_folder(
     embedder_dir, reranker_dir = folders(settings, tmp_path)
 
     with caplog.at_level("INFO", logger="rag_load_test"):
-        async with RagPorts(settings) as ports:
-            embedder = await ports.local_embedder()
-            await ports.local_reranker()
+        async with CompositionRoot(settings) as composition:
+            embedder = await composition.local_embedder()
+            await composition.local_reranker()
             assert await embedder.ready() == (True, settings.embedding_model)
 
     assert fake_weights.loaded == [
@@ -178,8 +178,8 @@ async def test_a_later_openvino_start_loads_the_folder_without_exporting(
     embedder_dir, _ = folders(settings, tmp_path)
 
     for _start in range(2):
-        async with RagPorts(settings) as ports:
-            await ports.local_embedder()
+        async with CompositionRoot(settings) as composition:
+            await composition.local_embedder()
 
     assert fake_weights.loaded == [
         f"embedder:{settings.embedding_model}",
@@ -200,9 +200,9 @@ async def test_the_torch_runtime_never_exports_and_ignores_an_exported_folder(
     embedder_dir, _ = folders(settings, tmp_path)
     embedder_dir.mkdir()
 
-    async with RagPorts(settings) as ports:
-        await ports.local_embedder()
-        await ports.local_reranker()
+    async with CompositionRoot(settings) as composition:
+        await composition.local_embedder()
+        await composition.local_reranker()
 
     assert fake_weights.loaded == [
         f"embedder:{settings.embedding_model}",
@@ -222,9 +222,9 @@ async def test_a_failed_export_names_the_model_and_folder_and_leaves_no_folder(
     settings = local_settings(settings_factory, openvino_models_dir=str(models))
     _, reranker_dir = folders(settings, models)
 
-    async with RagPorts(settings) as ports:
+    async with CompositionRoot(settings) as composition:
         with pytest.raises(RagDependencyError) as raised:
-            await ports.local_reranker()
+            await composition.local_reranker()
 
     message = str(raised.value)
     assert message.startswith("local_reranker unavailable")
@@ -245,9 +245,9 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
     settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
     embedder_dir, _ = folders(settings, tmp_path)
 
-    async with RagPorts(settings) as ports:
+    async with CompositionRoot(settings) as composition:
         with pytest.raises(RagDependencyError) as raised:
-            await ports.local_embedder()
+            await composition.local_embedder()
 
     assert str(embedder_dir) in str(raised.value)
     assert "sentence-transformers[openvino]" in str(raised.value)

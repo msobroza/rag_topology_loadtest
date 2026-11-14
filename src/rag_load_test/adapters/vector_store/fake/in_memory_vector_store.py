@@ -14,7 +14,7 @@ import re
 from collections.abc import Sequence
 
 from ....domain.passages import Passage, ScoredPassage
-from ...fake_text import cosine
+from ....infrastructure.fake_text import cosine
 from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
 
 _WORD = re.compile(r"\w+")

@@ -3,9 +3,10 @@
 Four checks, each a pure function shown failing on a literal input first:
 every command of the product lives in a module named after it, in its
 application's package; the README's module tree lists every package and module
-of ``rag_load_test`` and nothing else; no two modules share a file name; each
-component of the adapters has its port in ``base_<component>.py`` and one
-directory per Backend, each holding one implementation of the port. The
+of ``rag_load_test`` and nothing else; no two modules share a file name; the
+adapters hold only the component packages, each with its port in
+``base_<component>.py`` and one directory per Backend holding one implementation
+of the port, and no port is implemented anywhere else. The
 fake Domino is not the product: its commands and modules are outside the rule.
 """
 
@@ -246,7 +247,7 @@ def test_no_two_modules_of_the_product_share_a_file_name() -> None:
     assert shared_file_names(modules) == {}
 
 
-# --- adapters: one package per component, one directory per Backend ----------------
+# --- adapters: only ports and their implementations, one package per component ------
 
 ADAPTERS = PACKAGE / "adapters"
 # Component package -> its port classes, and the Backend values that name its
@@ -301,6 +302,12 @@ def component_problems(
         if (component / f"base_{name}.py").is_file()
         else [f"{name}: no base_{name}.py"]
     )
+    expected_files = {"__init__.py", f"base_{name}.py"}
+    problems += [
+        f"{name}/{path.name} is neither the port nor a Backend directory"
+        for path in sorted(component.glob("*.py"))
+        if path.name not in expected_files
+    ]
     directories = {path.parent.name for path in component.glob("*/__init__.py")}
     problems += [f"{name}: no {b}/ directory" for b in backends if b not in directories]
     problems += [
@@ -327,6 +334,7 @@ def test_the_component_layout_on_a_literal_package(tmp_path: Path) -> None:
         "api/__init__.py": "",
         "api/a.py": "class A(BaseEmbedder): ...\nclass B(base_embedder.BaseEmbedder): ...",
         "gpu/__init__.py": "",
+        "http_helpers.py": "def get(): ...",
     }
     for name, source in sources.items():
         (tmp_path / "embedder" / name).parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +343,7 @@ def test_the_component_layout_on_a_literal_package(tmp_path: Path) -> None:
     assert component_problems(
         tmp_path / "embedder", {"BaseEmbedder"}, ("local", "api", "fake")
     ) == [
+        "embedder/http_helpers.py is neither the port nor a Backend directory",
         "embedder: no fake/ directory",
         "embedder/gpu/ is not a Backend",
         "embedder/api/ implements the port 2 times: ['A', 'B']",
@@ -355,10 +364,42 @@ def test_each_component_has_its_port_and_one_directory_per_backend() -> None:
 
 def test_every_port_implementation_lives_in_its_component() -> None:
     misplaced = [
-        f"{path.relative_to(ADAPTERS)}: {cls}"
+        f"{path.relative_to(PACKAGE)}: {cls}"
         for name, (ports, _) in COMPONENTS.items()
-        for path in sorted(ADAPTERS.rglob("*.py"))
-        if path.relative_to(ADAPTERS).parts[0] != name
+        for path in sorted(PACKAGE.rglob("*.py"))
+        if path.relative_to(PACKAGE).parts[:2] != ("adapters", name)
         for cls in port_implementations(path.read_text(encoding="utf-8"), ports)
     ]
     assert misplaced == []
+
+
+def not_adapters(adapters: Path, components: Iterable[str]) -> list[str]:
+    """What sits directly in ``adapters/`` and is not a component package.
+
+    Only ports and their implementations are adapters: code that implements no
+    port belongs to ``infrastructure/``, and what builds the adapters from the
+    settings to ``composition/``.
+
+    Example::
+
+        not_adapters(ADAPTERS, COMPONENTS)   # [] when only the components are there
+    """
+    allowed = {*components, "__init__.py", "__pycache__"}
+    return sorted(path.name for path in adapters.iterdir() if path.name not in allowed)
+
+
+def test_the_adapters_rule_on_a_literal_package(tmp_path: Path) -> None:
+    for name in ("embedder", "http", "reranker"):
+        (tmp_path / name).mkdir()
+    for name in ("__init__.py", "json_log.py", "rag_ports.py"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+
+    assert not_adapters(tmp_path, ["embedder", "reranker"]) == [
+        "http",
+        "json_log.py",
+        "rag_ports.py",
+    ]
+
+
+def test_adapters_holds_only_the_component_packages() -> None:
+    assert not_adapters(ADAPTERS, COMPONENTS) == []

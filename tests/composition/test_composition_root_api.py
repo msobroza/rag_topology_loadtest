@@ -1,4 +1,4 @@
-"""``RagPorts``: each backend of each model component opens the right adapter, and
+"""``CompositionRoot``: each backend of each model component opens the right adapter, and
 the ``api`` backends call their endpoint with its URL, key, model and policy."""
 
 from __future__ import annotations
@@ -13,13 +13,13 @@ from rag_load_test.adapters.embedder.api.api_embedder import ApiEmbedder
 from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
 from rag_load_test.adapters.llm.api.api_llm import ApiLLM
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.rag_ports import RagPorts
 from rag_load_test.adapters.reranker.api.api_reranker import ApiReranker
 from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
 from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
+from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.domain.passages import ScoredPassage
@@ -87,8 +87,10 @@ async def test_each_embedding_backend_opens_its_adapter(
         **(EVERYTHING_FAKE | {"embedding_backend": backend}),
         embedding_api_url=EMBED_URL,
     )
-    async with RagPorts(settings, vector_store=InMemoryVectorStore()) as ports:
-        assert isinstance((await ports.workflow_dependencies()).embedder, adapter)
+    async with CompositionRoot(
+        settings, vector_store=InMemoryVectorStore()
+    ) as composition:
+        assert isinstance((await composition.workflow_dependencies()).embedder, adapter)
 
 
 @pytest.mark.parametrize(
@@ -101,8 +103,8 @@ async def test_each_rerank_backend_opens_its_adapter(
     settings = settings_factory(
         **(EVERYTHING_FAKE | {"rerank_backend": backend}), rerank_api_url=RERANK_URL
     )
-    async with RagPorts(settings) as ports:
-        assert isinstance((await ports.workflow_dependencies()).reranker, adapter)
+    async with CompositionRoot(settings) as composition:
+        assert isinstance((await composition.workflow_dependencies()).reranker, adapter)
 
 
 @pytest.mark.parametrize(("backend", "adapter"), [("fake", FakeLLM), ("api", ApiLLM)])
@@ -110,8 +112,8 @@ async def test_each_generation_backend_opens_its_adapter(
     settings_factory: SettingsFactory, backend: str, adapter: type
 ) -> None:
     settings = settings_factory(**(EVERYTHING_FAKE | {"generation_backend": backend}))
-    async with RagPorts(settings) as ports:
-        assert isinstance((await ports.workflow_dependencies()).llm, adapter)
+    async with CompositionRoot(settings) as composition:
+        assert isinstance((await composition.workflow_dependencies()).llm, adapter)
 
 
 # --- the api backends on the wire --------------------------------------------------
@@ -130,9 +132,11 @@ async def test_the_api_embedder_calls_its_endpoint(
         http_timeout_s=4.5,
     )
     transport = httpx.MockTransport(routes)
-    ports = RagPorts(settings, vector_store=InMemoryVectorStore(), transport=transport)
-    async with ports:
-        embedder, _ = await ports.ingest_ports()
+    composition = CompositionRoot(
+        settings, vector_store=InMemoryVectorStore(), transport=transport
+    )
+    async with composition:
+        embedder, _ = await composition.ingest_ports()
         assert await embedder.embed(["a", "b", "c"]) == [[1.0], [1.0], [1.0]]
 
     assert routes.sent() == [
@@ -152,8 +156,10 @@ async def test_the_api_reranker_calls_its_endpoint(
         rerank_api_model="rerank-v3.5",
         http_timeout_s=4.5,
     )
-    async with RagPorts(settings, transport=httpx.MockTransport(routes)) as ports:
-        reranker = (await ports.workflow_dependencies()).reranker
+    async with CompositionRoot(
+        settings, transport=httpx.MockTransport(routes)
+    ) as composition:
+        reranker = (await composition.workflow_dependencies()).reranker
         [best] = await reranker.rerank("vacation", candidates(), top_n=1)
 
     assert (best.id, best.rerank_score) == ("a", 0.9)
@@ -179,8 +185,10 @@ async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
         generation_timeout_s=90.0,
         http_timeout_s=4.5,
     )
-    async with RagPorts(settings, transport=httpx.MockTransport(routes)) as ports:
-        llm = (await ports.workflow_dependencies()).llm
+    async with CompositionRoot(
+        settings, transport=httpx.MockTransport(routes)
+    ) as composition:
+        llm = (await composition.workflow_dependencies()).llm
         messages = [{"role": "user", "content": "How many vacation days?"}]
         assert await llm.generate(messages) == "Twenty-five days."
 
@@ -202,8 +210,10 @@ async def test_the_generation_endpoint_keeps_the_shared_retries(
         http_retries=1,
         http_backoff_s=0.0,
     )
-    async with RagPorts(settings, transport=httpx.MockTransport(busy)) as ports:
-        llm = (await ports.workflow_dependencies()).llm
+    async with CompositionRoot(
+        settings, transport=httpx.MockTransport(busy)
+    ) as composition:
+        llm = (await composition.workflow_dependencies()).llm
         with pytest.raises(RagDependencyError, match="HTTP 503"):
             await llm.generate([{"role": "user", "content": "q"}])
 

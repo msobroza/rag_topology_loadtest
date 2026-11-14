@@ -1,4 +1,4 @@
-"""The import rule, read from the source with ``ast``: what each of the seven
+"""The import rule, read from the source with ``ast``: what each of the nine
 packages of ``rag_load_test`` may import (the table in the README's "Where a file
 goes"). And the mock rule: ``fake_domino`` imports nothing from ``rag_load_test``,
 and only ``deploy/rag_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
@@ -23,8 +23,26 @@ MAY_IMPORT: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
     "config": {"config", "domain"},
-    "adapters": {"adapters", "domain"},
-    "entrypoints": {"adapters", "application", "config", "domain"},
+    "adapters": {"adapters", "infrastructure", "domain"},
+    "infrastructure": {"infrastructure", "domain"},
+    # The composition root: the one package that builds the adapters, so the one
+    # that may import both them and the settings.
+    "composition": {
+        "composition",
+        "adapters",
+        "application",
+        "config",
+        "domain",
+        "infrastructure",
+    },
+    # A command gets its ports from the composition root, never from an adapter.
+    "entrypoints": {
+        "composition",
+        "application",
+        "config",
+        "domain",
+        "infrastructure",
+    },
     "deploy": {"deploy", "domain"},
     "loadtest": {"loadtest", "domain"},
 }
@@ -34,7 +52,6 @@ PORT_MODULE = re.compile(r"rag_load_test\.adapters\.(\w+)\.base_\1")
 MAY_IMPORT_PORTS = {"application"}
 # The named exceptions: one module each, allowed more than its package.
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
-    "rag_load_test.adapters.rag_ports": {"config", "application"},  # builds the ports
     # For the defaults of the four RAG_* values a load test sends, nothing else.
     "rag_load_test.loadtest.loadtest_settings": {"config"},
 }
@@ -108,7 +125,7 @@ def forbidden_imports(module: str, source: str) -> list[str]:
     Example::
 
         forbidden_imports("rag_load_test.domain.passages",
-                          "from ..adapters import rag_ports")
+                          "from ..adapters import embedder")
         # ["rag_load_test.domain.passages:1 imports rag_load_test.adapters"]
     """
     package = module.split(".")[1]
@@ -139,7 +156,7 @@ def test_the_import_reader_on_literal_sources() -> None:
 
 def test_the_import_table_on_literal_sources() -> None:
     assert forbidden_imports(
-        "rag_load_test.domain.passages", "from ..adapters import rag_ports"
+        "rag_load_test.domain.passages", "from ..adapters import embedder"
     ) == ["rag_load_test.domain.passages:1 imports rag_load_test.adapters"]
     assert forbidden_imports(
         "rag_load_test.loadtest.request_plans", "\nfrom ..config import rag_settings"
@@ -153,8 +170,15 @@ def test_the_import_table_on_literal_sources() -> None:
         "rag_load_test.adapters.embedder.fake.fake_embedder"
     ]
     ports = "from ..config.rag_settings import RagSettings"
-    assert forbidden_imports("rag_load_test.adapters.rag_ports", ports) == []
-    assert forbidden_imports("rag_load_test.adapters.json_log", ports) != []
+    root = "rag_load_test.composition.composition_root"
+    assert forbidden_imports(root, ports) == []
+    assert forbidden_imports("rag_load_test.infrastructure.json_log", ports) != []
+    absolute = "from rag_load_test.config.rag_settings import RagSettings"
+    port_module = "rag_load_test.adapters.embedder.base_embedder"
+    assert forbidden_imports(port_module, absolute) != []
+    adapter = "from ..adapters.embedder.fake.fake_embedder import FakeEmbedder"
+    assert forbidden_imports(root, adapter) == []
+    assert forbidden_imports("rag_load_test.entrypoints.rag_serve", adapter) != []
     settings = "from ..config.rag_settings import RagSettings"
     assert forbidden_imports("rag_load_test.loadtest.loadtest_settings", settings) == []
 

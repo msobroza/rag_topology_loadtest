@@ -9,7 +9,7 @@ download. ``rag-export-openvino`` still writes the same folders ahead of time.
 
 The export blocks for minutes, so it runs on the executor given, never on the
 event loop. No lock guards the folder: each App provisions on its own disk, and
-within one process ``RagPorts`` opens each model once, so no two writers ever
+within one process ``ResourceScope`` opens each model once, so no two writers ever
 share a folder. The export writes beside the folder and swaps it in at the end,
 so a failed or interrupted run leaves nothing a later start would trust.
 

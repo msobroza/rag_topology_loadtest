@@ -20,6 +20,24 @@ _Avoid_: deployer, the CLI
 What drives a target and compares runs: the Locust file and `rag-compare`.
 _Avoid_: load tester, the client, Locust (that is the tool it runs on)
 
+### Code structure
+
+**Port**:
+The abstract class one part of the workflow is used through: `BaseEmbedder`, `BaseReranker`, `BaseVectorStore` with `BaseLexicalSearch`, `BaseLLM`.
+_Avoid_: interface, protocol, and "ports" for what builds them (that is the composition root)
+
+**Adapter**:
+An implementation of a port, one per backend. Only ports and their implementations are adapters.
+_Avoid_: adapter for code that implements no port (that is infrastructure)
+
+**Infrastructure**:
+Technical code that implements no port: the HTTP client pieces, the local model runtime, the corpora download, the log format.
+_Avoid_: shared, utils, helpers
+
+**Composition root**:
+The one place that builds the adapters from the settings and owns what they share.
+_Avoid_: factory (a factory builds one port), container, wiring
+
 ### Deployment shape
 
 **Topology**:

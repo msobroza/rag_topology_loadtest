@@ -15,9 +15,12 @@ from pydantic import ValidationError
 from ....domain.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError, describe_error
 from ....domain.passages import ScoredPassage, top_by_score
-from ...endpoint.api_endpoint_client import ApiEndpointClient
-from ...endpoint.open_endpoint_client import RunTokenSource, open_endpoint_client
-from ...http.http_policy import HttpPolicy
+from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
+from ....infrastructure.endpoint.open_endpoint_client import (
+    RunTokenSource,
+    open_endpoint_client,
+)
+from ....infrastructure.http.http_policy import HttpPolicy
 from ..base_reranker import BaseReranker
 from .base_rerank_api_format import BaseRerankApiFormat
 from .rerank_api_formats import rerank_api_format
