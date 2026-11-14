@@ -252,6 +252,22 @@ prefix first: `gcloud storage rm -r gs://<bucket>/models`. A bucket error fails 
 boot (`make ready` says `failed`); an empty bucket is the first sitting's normal
 state. `make -C emulation destroy` deletes the bucket with everything in it.
 
+Measured on 14 November 2026, in two sittings on `split-all` with the French corpus
+(1,592 passages), Spot pool machines and a 4-CPU Workspace:
+
+| | First sitting (empty bucket) | Second sitting (fresh machines) |
+|---|---|---|
+| Every machine ready after `apply` | 2 min | 2 min |
+| The index | `corpus`: 20 min 15 s | `corpus-restore`: 3 s |
+| `deploy` of the three Apps | 1 min 47 s (the embedder's export: 50 s) | 56 s, no export |
+| From the end of `apply` to a workflow ready to measure | 23 min | 3 min 18 s |
+| `/retrieve`, 5 users, 2 minutes | 87 requests, 0.73/s, median 6.2 s | 87 requests, 0.73/s, median 6.3 s |
+
+`corpus-save` took 3 s and `models-save` 22 s (2.3 GB and 0.4 GB). At boot a pool
+machine restored both models in about 15 s and installed the dependencies in about
+20 s. Before this cache, on the same day, the first measurement came 18.5 minutes
+after `apply`, and the first deploy took about 7 minutes.
+
 ## Spot machines
 
 With `spot = true` (the default) the pool machines and the Elasticsearch machine are
@@ -328,20 +344,17 @@ Nothing here has been applied. In particular:
   127.0.0.1 only, not `::1`) and the emulated Domino's proxy under load.
 - The time until every machine is ready, and whether 50 GB per pool machine is
   enough for every model-server choice.
-- The Spot scheduling arguments (`provisioning_model = "SPOT"`, `preemptible`,
-  `automatic_restart = false`) together with `max_run_duration` and
-  `instance_termination_action = "DELETE"`.
-- The cache bucket and its grants: `roles/storage.objectUser` for each service
-  account, and `roles/storage.legacyBucketReader` for Elasticsearch's (Elastic asks
-  for "Writer" access to a snapshot bucket); whether the two are enough for its
-  `gcs` repository.
-- Upload and download through Cloud Storage's XML API, and the JSON API's listing,
-  with the metadata server's token; the boot's wait for the new grant.
-- Elasticsearch's `gcs` repository using the machine's service account from inside
-  its Docker container, and the snapshot and restore calls of `index_snapshot.sh`.
-- The pool machines' dependency warm-up, and `uv venv` over the virtualenv it left.
-- Every timing: the restore at boot, `corpus-restore`, an App's start from the
-  warmed cache, and how much a later sitting gains.
+- Of the cache bucket and the Spot machines (the rest ran on 14 November 2026, see
+  "The cache bucket"):
+  - a Spot machine taken back by Google, and the recovery steps of "Spot machines";
+  - the self-deletion of a Spot machine at the end of `max_run_hours` (the machines
+    of both sittings were deleted by hand), and an apply with `spot = false`;
+  - `models/ovms-models.tar`: no OVMS App was deployed, so no OVMS export was saved
+    or restored;
+  - `models-save FORCE=1`, and the boot's wait for a grant that has not applied yet
+    (the first bucket call succeeded at once);
+  - whether Elasticsearch's repository needs `roles/storage.legacyBucketReader`: it
+    worked with both roles, and was not tried with one.
 
 ## Removing the emulation
 
