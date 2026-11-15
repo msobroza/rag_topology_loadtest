@@ -3,8 +3,8 @@ through its HTTP API.
 
 Each model component has an ``http`` block: the timeout of one attempt, the
 retries after the first, and the backoff before the first retry. A value the
-block leaves out is the default shared by every component (``RAG_HTTP_TIMEOUT_S``,
-``RAG_HTTP_RETRIES``, ``RAG_HTTP_BACKOFF_S``); the packaged workflow file gives
+block leaves out is the default shared by every component (``RAG_HTTP__TIMEOUT_S``,
+``RAG_HTTP__RETRIES``, ``RAG_HTTP__BACKOFF_S``); the packaged workflow file gives
 the LLM its own longer timeout. The endpoints are one HTTP transport that answers
 in their place: it refuses the calls made about the question a set number of
 times, and records each with its read timeout and the moment it came.
@@ -40,7 +40,7 @@ URLS = {
     "llm": "http://llm-app.test/v3/chat/completions",
 }
 ALWAYS = 1_000  # more failures than any test lets a component attempt
-TODAYS_BACKOFFS = [0.2, 0.4]  # RAG_HTTP_BACKOFF_S, doubled before the 2nd retry
+TODAYS_BACKOFFS = [0.2, 0.4]  # RAG_HTTP__BACKOFF_S, doubled before the 2nd retry
 
 
 @dataclass(frozen=True)
@@ -140,8 +140,8 @@ def test_with_every_default_a_component_makes_three_attempts_in_todays_timeout(
     assert response.status_code == 503, response.text
     assert response.json()["error"] == f"{component}_unavailable"
     attempts = endpoints.at(URLS[component])
-    assert len(attempts) == 3  # the first attempt and RAG_HTTP_RETRIES=2
-    # RAG_HTTP_TIMEOUT_S, or the LLM's own timeout in the packaged file.
+    assert len(attempts) == 3  # the first attempt and RAG_HTTP__RETRIES=2
+    # RAG_HTTP__TIMEOUT_S, or the LLM's own timeout in the packaged file.
     assert {attempt.timeout_s for attempt in attempts} == {timeout_s}
     assert waited_at_least(attempts, TODAYS_BACKOFFS)
 
@@ -180,7 +180,7 @@ def test_the_components_of_one_app_are_each_called_with_their_own_values(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
         components__embedder__backend="served",
         components__embedder__served__url=URLS["embedder"],
         components__embedder__http={"timeout_s": 4.5},
@@ -209,7 +209,7 @@ def test_a_component_waits_its_own_backoff_before_a_retry(
     set_environment(
         monkeypatch,
         {
-            "RAG_HTTP_BACKOFF_S": "0",  # every other component retries at once
+            "RAG_HTTP__BACKOFF_S": "0",  # every other component retries at once
             "RAG_COMPONENTS__RERANKER__HTTP__RETRIES": "1",
             "RAG_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.25",
         },
@@ -238,9 +238,9 @@ def test_the_default_set_once_holds_for_every_value_a_component_leaves_out(
     set_environment(
         monkeypatch,
         {
-            "RAG_HTTP_TIMEOUT_S": "5",
-            "RAG_HTTP_RETRIES": "1",
-            "RAG_HTTP_BACKOFF_S": "0.25",
+            "RAG_HTTP__TIMEOUT_S": "5",
+            "RAG_HTTP__RETRIES": "1",
+            "RAG_HTTP__BACKOFF_S": "0.25",
         },
     )
     endpoints = FlakyModelEndpoints({URLS[component]: ALWAYS})

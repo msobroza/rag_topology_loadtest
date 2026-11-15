@@ -42,9 +42,9 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
 ) -> None:
     settings = settings_factory(
         components__embedder__backend="fake",
-        vector_store_backend="chroma",
-        chroma_path=str(tmp_path / "chroma"),
-        chroma_collection="passages_under_test",
+        components__vector_store__backend="chroma",
+        components__vector_store__chroma__path=str(tmp_path / "chroma"),
+        components__vector_store__chroma__collection="passages_under_test",
     )
 
     async with CompositionRoot(settings) as composition:
@@ -67,8 +67,8 @@ async def test_the_chroma_backend_gives_the_workflow_a_store_that_ranks_no_text(
         components__embedder__backend="fake",
         components__reranker__backend="fake",
         components__llm__backend="fake",
-        vector_store_backend="chroma",
-        chroma_path=str(tmp_path / "chroma"),
+        components__vector_store__backend="chroma",
+        components__vector_store__chroma__path=str(tmp_path / "chroma"),
     )
 
     async with CompositionRoot(settings) as composition:
@@ -103,10 +103,10 @@ def local_settings(
     once, for the thread budget's share.
     """
     return settings_factory(
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
         components__llm__backend="fake",
-        model_cpus=4,
-        calibration_budget_s=1e-9,
+        local_models__cpus=4,
+        calibration__budget_s=1e-9,
         **overrides,
     )
 
@@ -134,7 +134,9 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
     threads: int,
 ) -> None:
     settings = local_settings(
-        settings_factory, local_model_runtime=runtime, openvino_models_dir=str(tmp_path)
+        settings_factory,
+        local_models__runtime=runtime,
+        local_models__openvino_dir=str(tmp_path),
     )
     for folder in folders(settings, tmp_path):
         folder.mkdir()  # exported already: nothing to provision
@@ -156,7 +158,9 @@ async def test_a_first_openvino_start_exports_each_model_then_loads_its_folder(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
+    settings = local_settings(
+        settings_factory, local_models__openvino_dir=str(tmp_path)
+    )
     embedder_dir, reranker_dir = folders(settings, tmp_path)
 
     with caplog.at_level("INFO", logger="rag_load_test"):
@@ -197,7 +201,9 @@ async def test_a_later_openvino_start_loads_the_folder_without_exporting(
     fake_weights: FakeSentenceTransformersModule,
     tmp_path: Path,
 ) -> None:
-    settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
+    settings = local_settings(
+        settings_factory, local_models__openvino_dir=str(tmp_path)
+    )
     embedder_dir, _ = folders(settings, tmp_path)
 
     for _start in range(2):
@@ -218,7 +224,9 @@ async def test_the_torch_runtime_never_exports_and_ignores_an_exported_folder(
     tmp_path: Path,
 ) -> None:
     settings = local_settings(
-        settings_factory, local_model_runtime="torch", openvino_models_dir=str(tmp_path)
+        settings_factory,
+        local_models__runtime="torch",
+        local_models__openvino_dir=str(tmp_path),
     )
     embedder_dir, _ = folders(settings, tmp_path)
     embedder_dir.mkdir()
@@ -242,7 +250,7 @@ async def test_a_failed_export_names_the_model_and_folder_and_leaves_no_folder(
 ) -> None:
     fake_weights.save_error = OSError("No space left on device")
     models = tmp_path / "models"
-    settings = local_settings(settings_factory, openvino_models_dir=str(models))
+    settings = local_settings(settings_factory, local_models__openvino_dir=str(models))
     _, reranker_dir = folders(settings, models)
 
     async with CompositionRoot(settings) as composition:
@@ -267,7 +275,9 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "openvino", None)  # not installed
-    settings = local_settings(settings_factory, openvino_models_dir=str(tmp_path))
+    settings = local_settings(
+        settings_factory, local_models__openvino_dir=str(tmp_path)
+    )
     embedder_dir, _ = folders(settings, tmp_path)
 
     async with CompositionRoot(settings) as composition:
@@ -292,10 +302,10 @@ def exported_settings(
     the thread budget's share.
     """
     settings = settings_factory(
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
         components__llm__backend="fake",
-        openvino_models_dir=str(models_dir),
-        calibration_budget_s=1e-9,
+        local_models__openvino_dir=str(models_dir),
+        calibration__budget_s=1e-9,
     )
     for folder in folders(settings, models_dir):
         folder.mkdir()

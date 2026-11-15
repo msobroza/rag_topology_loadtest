@@ -29,12 +29,12 @@ EMBED_URL = "http://embedder.test/v3/embeddings"
 FAKE_REST = {
     "components__reranker__backend": "fake",
     "components__llm__backend": "fake",
-    "vector_store_backend": "fake",
+    "components__vector_store__backend": "fake",
 }
 # By id, with its threads pinned: no OpenVINO export and no calibration sample.
 IN_PROCESS = {
     "components__embedder__backend": "local",
-    "local_model_runtime": "torch",
+    "local_models__runtime": "torch",
     "components__embedder__local__threads": 1,
 }
 
@@ -77,7 +77,8 @@ def seeded_then_asked(
 
 def corpus_passages(settings: RagSettings) -> list[str]:
     """The passages the fake store is seeded with, as their texts."""
-    documents = synthetic_corpus(settings.fake_store_seed_documents)
+    seed_documents = settings.components["vector_store"].fake.seed_documents
+    documents = synthetic_corpus(seed_documents)
     return [passage.text for document in documents for passage in chunk(document)]
 
 

@@ -39,7 +39,7 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
         >>> served_model_assignments(RagSettings())[0]
         'RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR'
     """
-    components = settings.components
+    components = settings.model_components()
     reranker, embedder = components["reranker"], components["embedder"]
     values = {
         "RERANKER_SOURCE_MODEL": reranker.source_id,

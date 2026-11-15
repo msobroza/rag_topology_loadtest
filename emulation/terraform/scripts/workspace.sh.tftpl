@@ -86,8 +86,8 @@ defaults:
   environment_id: "${environment_id}"
   hardware_tier_id: "${default_tier}"
   settings:
-    RAG_ES_URL: "${es_url}"
-    RAG_OPENVINO_MODELS_DIR: "${dataset_path}/openvino"
+    RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: "${es_url}"
+    RAG_LOCAL_MODELS__OPENVINO_DIR: "${dataset_path}/openvino"
     RAG_OVMS_MODELS_DIR: "${dataset_path}/ovms-models"
 DEPLOY
 }
@@ -99,8 +99,8 @@ write_shell_environment() {
 # Written by the emulation's startup script at every boot; sourced by ~/.bashrc.
 export DOMINO_API_PROXY='http://localhost:${domino_port}'
 export DOMINO_PROJECT_ID='${domino_project_id}'
-export RAG_ES_URL='${es_url}'
-export RAG_OPENVINO_MODELS_DIR='${dataset_path}/openvino'
+export RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL='${es_url}'
+export RAG_LOCAL_MODELS__OPENVINO_DIR='${dataset_path}/openvino'
 export PATH="${repo_path}/.venv/bin:$PATH"
 while IFS= read -r line || [ -n "$line" ]; do
   case $line in '' | '#'*) continue ;; esac

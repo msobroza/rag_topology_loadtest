@@ -57,7 +57,8 @@ def exported_model_dir(models_dir: str, model_id: str) -> Path:
     """Return where a model's OpenVINO export lives.
 
     Args:
-        models_dir: The folder holding every export (``RAG_OPENVINO_MODELS_DIR``).
+        models_dir: The folder holding every export
+            (``RAG_LOCAL_MODELS__OPENVINO_DIR``).
         model_id: The model's Hugging Face id or path.
 
     Returns:

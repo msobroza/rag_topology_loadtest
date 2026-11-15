@@ -1,7 +1,7 @@
 """Give an in-process model its OpenVINO export on the first start that lacks it.
 
 Under the ``openvino`` runtime a model loads from its folder under the models
-directory (``RAG_OPENVINO_MODELS_DIR``). When that folder is missing, the start
+directory (``RAG_LOCAL_MODELS__OPENVINO_DIR``). When that folder is missing, the start
 downloads the model, converts it and saves it there (``export_embedder`` /
 ``export_reranker``), then loads the folder; every later start loads the folder
 directly. ``torch`` loads the id as before: the Hugging Face cache keeps its

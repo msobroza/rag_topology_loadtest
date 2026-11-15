@@ -1,7 +1,7 @@
 """The Elasticsearch vector store (LangChain's ``AsyncElasticsearchStore``).
 
 The heavy import lives inside ``open`` so importing this module stays cheap. The
-index name comes from the caller (``RAG_ES_INDEX`` via ``CompositionRoot``).
+index name comes from the caller (its ``elasticsearch`` block, via the composition).
 
 This adapter creates a missing index itself, just before the first write, from
 the mapping LangChain's own retrieval strategy produces (its
@@ -9,7 +9,7 @@ the mapping LangChain's own retrieval strategy produces (its
 given no embedding and no ``num_dimensions``, so its own creation raises
 "retrieval strategy requires embeddings". An existing index is left alone.
 
-The text analyzer (``RAG_ES_TEXT_ANALYZER``) is set when the index is created and
+The text analyzer (the block's ``text_analyzer``) is set when the index is made and
 an index keeps it. Any analyzer but ``standard`` is mapped on the text field, so
 indexing and the BM25 ``match`` of ``lexical_query`` both use it. With
 ``standard`` (or "") the text field is left unmapped: Elasticsearch's dynamic
@@ -71,7 +71,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
 
         Args:
             url: The Elasticsearch URL.
-            index: The index the passages live in (``RAG_ES_INDEX``).
+            index: The index the passages live in (``elasticsearch.index``).
             api_key: An Elasticsearch API key; "" connects without one.
             text_analyzer: The analyzer of the passages' text; "" or ``standard``
                 leaves Elasticsearch's default.

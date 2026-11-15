@@ -43,7 +43,6 @@ from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.rag_dependencies import RagDependencies
 from ..config.component_settings import (
-    VECTOR_STORE,
     ComponentSettings,
     EmbedderSettings,
     RerankerSettings,
@@ -107,7 +106,7 @@ class CompositionRoot:
         **supplied: object,
     ) -> None:
         self.settings = settings
-        self._components = settings.all_components()
+        self._components = settings.components
         self._scope = scope = ResourceScope("CompositionRoot")
         http = HttpResources(settings, scope, transport, on_domino=on_domino)
         self._local_models = local_models = LocalModelResources(
@@ -154,7 +153,7 @@ class CompositionRoot:
     async def ingest_ports(self, embedder: str | None = None) -> IngestPorts:
         """Open an embedder and the vector store, for ``rag-ingest``.
 
-        Nothing else opens.
+        Nothing else opens. The store is the one the workflow file declares.
 
         Args:
             embedder: The embedder component to embed with; None for the only
@@ -165,7 +164,8 @@ class CompositionRoot:
 
         Raises:
             ValueError: If ``embedder`` names no embedder, or none is named and
-                the file declares several.
+                the file declares several; or the file declares no vector
+                store, or several.
 
         Example:
             >>> embedder, store = await composition.ingest_ports()
@@ -281,5 +281,6 @@ class CompositionRoot:
         return await self._factory.open(EMBEDDER_OPENERS, name, component)
 
     async def _vector_store(self) -> BaseVectorStore:
-        store = self._typed(VECTOR_STORE, VectorStoreSettings)
-        return await self._factory.open(VECTOR_STORE_OPENERS, VECTOR_STORE, store)
+        name = self.settings.ingestion_store()
+        store = self._typed(name, VectorStoreSettings)
+        return await self._factory.open(VECTOR_STORE_OPENERS, name, store)

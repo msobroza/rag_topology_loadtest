@@ -97,7 +97,7 @@ def test_main_chunks_a_corpus_file(
 
 
 def test_main_refuses_the_fake_store(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RAG_VECTOR_STORE_BACKEND", "fake")
+    monkeypatch.setenv("RAG_COMPONENTS__VECTOR_STORE__BACKEND", "fake")
 
     with pytest.raises(SystemExit, match="seeded when the app starts"):
         main(["--synthetic", "1"])

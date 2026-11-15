@@ -2,10 +2,11 @@
 
 A test changes a value of the workflow file by the keyword its variable
 spells, lower-cased and without ``RAG_``: ``components__reranker__backend``
-for ``RAG_COMPONENTS__RERANKER__BACKEND``. ``settings_at_paths`` nests such
-keywords into the shape the settings take; ``settings_factory`` (conftest)
-calls it, and the settings merge what it gives into the workflow file, key by
-key, so a test names only what it changes.
+for ``RAG_COMPONENTS__RERANKER__BACKEND``, ``local_models__runtime`` for
+``RAG_LOCAL_MODELS__RUNTIME``. ``settings_at_paths`` nests such keywords into
+the shape the settings take; ``settings_factory`` (conftest) calls it, refuses
+a top-level key that is no setting, and the settings merge what it gives into
+the workflow file, key by key, so a test names only what it changes.
 
 Example::
 
@@ -23,7 +24,11 @@ FAKE_BACKENDS: dict[str, str] = {
     "components__embedder__backend": "fake",
     "components__reranker__backend": "fake",
     "components__llm__backend": "fake",
-    "vector_store_backend": "fake",
+    "components__vector_store__backend": "fake",
+}
+# The same, as the variables a process started by a test reads.
+FAKE_BACKEND_VARIABLES: dict[str, str] = {
+    f"RAG_{path.upper()}": value for path, value in FAKE_BACKENDS.items()
 }
 
 

@@ -1,7 +1,7 @@
 """How patiently an adapter calls another service.
 
-``HttpResources`` builds the default once from ``RAG_HTTP_TIMEOUT_S``,
-``RAG_HTTP_RETRIES`` and ``RAG_HTTP_BACKOFF_S``. A component on ``served`` or
+``HttpResources`` builds the default once from ``RAG_HTTP__TIMEOUT_S``,
+``RAG_HTTP__RETRIES`` and ``RAG_HTTP__BACKOFF_S``. A component on ``served`` or
 ``api`` is called under its own: the values of its ``http`` block, such as
 ``RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S``, and the default's for each it leaves
 out.

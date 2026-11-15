@@ -171,7 +171,8 @@ def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:
     store = ScriptedStore([], [])
 
     assert required_lexical_search(store, "hybrid") is store
-    with pytest.raises(ValueError, match="RAG_VECTOR_STORE_BACKEND=elasticsearch"):
+    backend = "RAG_COMPONENTS__VECTOR_STORE__BACKEND"
+    with pytest.raises(ValueError, match=rf"to elasticsearch \({backend} for the one"):
         required_lexical_search(DenseOnlyStore(), "lexical")
 
 

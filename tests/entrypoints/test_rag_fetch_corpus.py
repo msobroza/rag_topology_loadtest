@@ -38,7 +38,7 @@ def serve(files: Mapping[str, str | int]) -> httpx.MockTransport:
 
 @pytest.fixture
 def quiet_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
-    return settings_factory(http_retries=0, http_backoff_s=0.0)
+    return settings_factory(http__retries=0, http__backoff_s=0.0)
 
 
 def test_fetch_writes_both_files_and_prints_a_summary_and_the_licence(

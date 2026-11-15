@@ -20,7 +20,7 @@ from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
 from ..config.rag_settings import RagSettings
 from ..domain.registry import Registry
-from .openers.component_openers import OPENERS_BY_TYPE, VECTOR_STORE_OPENERS
+from .openers.component_openers import OPENERS_BY_TYPE
 
 # The API formats of each model component type, by the type its settings name.
 _API_FORMATS_BY_TYPE: dict[str, Registry[Any]] = {
@@ -34,8 +34,8 @@ def check_registered_names(settings: RagSettings) -> None:
     """Refuse a backend that has no opener, or an API format nobody registered.
 
     Every component is checked, whether the command opens it or not, the
-    vector store included, and every ``api`` block, whatever the component's
-    backend.
+    vector store included, and every model's ``api`` block, whatever the
+    component's backend.
 
     Args:
         settings: The settings a command is about to open components from.
@@ -51,13 +51,12 @@ def check_registered_names(settings: RagSettings) -> None:
         ValueError: RAG_COMPONENTS__LLM__API__API_FORMAT: unknown generation ...
     """
     variable_of = RagSettings.variable_of
-    for name, model in settings.components.items():
+    for name, component in settings.components.items():
         backend = variable_of("components", name, "backend")
-        _check(OPENERS_BY_TYPE[model.type], model.backend, backend)
+        _check(OPENERS_BY_TYPE[component.type], component.backend, backend)
+    for name, model in settings.model_components().items():
         api_format = variable_of("components", name, "api", "api_format")
         _check(_API_FORMATS_BY_TYPE[model.type], model.api.api_format, api_format)
-    store = settings.vector_store_backend
-    _check(VECTOR_STORE_OPENERS, store, variable_of("vector_store_backend"))
 
 
 def _check(registry: Registry[Any], value: str, variable: str) -> None:

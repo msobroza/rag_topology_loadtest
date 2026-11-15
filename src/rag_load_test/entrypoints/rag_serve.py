@@ -98,7 +98,7 @@ def traced(fn: Callable[..., Any], *, enabled: bool) -> Callable[..., Any]:
 
     Args:
         fn: The callable to trace, recorded as the ``rag_query`` span.
-        enabled: Whether tracing is asked for (``RAG_DOMINO_TRACING``).
+        enabled: Whether tracing is asked for (``RAG_DOMINO__TRACING``).
 
     Returns:
         The traced callable, or ``fn`` itself when tracing is off or the SDK is
@@ -108,7 +108,7 @@ def traced(fn: Callable[..., Any], *, enabled: bool) -> Callable[..., Any]:
         return fn
     add_tracing = find_add_tracing()
     if add_tracing is None:
-        logger.warning("RAG_DOMINO_TRACING is on but dominodatalab[agents] is missing")
+        logger.warning("RAG_DOMINO__TRACING is on but dominodatalab[agents] is missing")
         return fn
     return add_tracing(name="rag_query", autolog_frameworks=["langchain"])(fn)
 
@@ -231,7 +231,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         deps = await composition.workflow_dependencies()
         app.state.deps = deps
         workflow = build_workflow(settings.graph, deps.components())
-        app.state.run = traced(workflow.run, enabled=settings.domino_tracing)
+        app.state.run = traced(workflow.run, enabled=settings.domino.tracing)
         log_json(
             event="rag_startup",
             topology=settings.topology,

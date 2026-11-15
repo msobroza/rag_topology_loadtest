@@ -33,11 +33,12 @@ def test_defaults_of_the_new_options(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
     assert s.components["llm"].api.temperature == 0.0
-    assert (s.local_model_runtime, s.openvino_models_dir) == (
+    assert (s.local_models.runtime, s.local_models.openvino_dir) == (
         "openvino",
         "models/openvino",
     )
-    assert (s.chroma_url, s.chroma_path, s.chroma_collection) == (
+    chroma = s.components["vector_store"].chroma
+    assert (chroma.url, chroma.path, chroma.collection) == (
         "",
         "chroma",
         "rag_passages",
@@ -51,14 +52,14 @@ def test_the_new_options_read_rag_prefixed_variables(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("RAG_COMPONENTS__LLM__API__TEMPERATURE", "0.7")
-    monkeypatch.setenv("RAG_VECTOR_STORE_BACKEND", "fake")
-    monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
+    monkeypatch.setenv("RAG_COMPONENTS__VECTOR_STORE__BACKEND", "fake")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
 
     s = settings_factory()
 
     assert s.components["llm"].api.temperature == 0.7
-    assert s.vector_store_backend == "fake"
-    assert s.local_model_runtime == "torch"
+    assert s.components["vector_store"].backend == "fake"
+    assert s.local_models.runtime == "torch"
 
 
 # --- validation ------------------------------------------------------------------
@@ -69,8 +70,7 @@ def test_the_new_options_read_rag_prefixed_variables(
     [
         ("components__llm__api__temperature", -0.1),
         ("components__llm__api__temperature", 2.1),
-        ("local_model_runtime", "onnx"),
-        ("vector_store_backend", "qdrant"),
+        ("local_models__runtime", "onnx"),
     ],
 )
 def test_an_out_of_range_option_is_refused_at_construction(
@@ -97,7 +97,9 @@ def test_a_text_ranking_mode_on_chroma_is_left_to_the_retrieve_stage(
     settings_factory: SettingsFactory, mode: str
 ) -> None:
     # One refusal only, the retrieve stage's when the graph is built at start-up.
-    s = settings_factory(graph=rag_graph(mode), vector_store_backend="chroma")
+    s = settings_factory(
+        graph=rag_graph(mode), components__vector_store__backend="chroma"
+    )
 
     assert s.graph.stages["retrieve"].stage_settings["retrieval_mode"] == mode
 
@@ -105,7 +107,9 @@ def test_a_text_ranking_mode_on_chroma_is_left_to_the_retrieve_stage(
 def test_the_retrieval_mode_and_the_store_name_the_run(
     settings_factory: SettingsFactory,
 ) -> None:
-    s = settings_factory(vector_store_backend="fake", graph=rag_graph("lexical"))
+    s = settings_factory(
+        components__vector_store__backend="fake", graph=rag_graph("lexical")
+    )
 
     assert s.run_label == "monolith+store=fake+retrieval=lexical"
 

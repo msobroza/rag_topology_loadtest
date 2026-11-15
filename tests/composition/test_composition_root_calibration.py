@@ -33,12 +33,12 @@ def four_cpu_settings(
 ) -> RagSettings:
     """torch, 4 CPUs, 1 worker, every Backend fake: the share is 4 threads."""
     return settings_factory(
-        local_model_runtime="torch",
-        model_cpus=4,
-        model_workers=1,
+        local_models__runtime="torch",
+        local_models__cpus=4,
+        local_models__workers=1,
         components__embedder__backend="fake",
         components__reranker__backend="fake",
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
         components__llm__backend="fake",
         **overrides,
     )
@@ -113,7 +113,7 @@ async def test_the_budget_and_rounds_come_from_the_settings(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = four_cpu_settings(
-        settings_factory, calibration_budget_s=1e-9, calibration_rounds=3
+        settings_factory, calibration__budget_s=1e-9, calibration__rounds=3
     )
     calibration = await calibration_of("reranker", settings)
 

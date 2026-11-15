@@ -18,7 +18,7 @@ dependencies = [
     "langchain-elasticsearch>=1.0",
     "elasticsearch[async]>=8.13",  # aiohttp node for AsyncElasticsearchStore
     # [openvino] is the default runtime of the in-process models
-    # (RAG_LOCAL_MODEL_RUNTIME) and what rag-export-openvino needs. Its
+    # (RAG_LOCAL_MODELS__RUNTIME) and what rag-export-openvino needs. Its
     # optimum-intel accepts transformers < 5.6 only, so pip keeps transformers and
     # huggingface-hub at the versions it supports.
     "sentence-transformers[openvino]>=6.2",
@@ -35,7 +35,7 @@ dependencies = [
 # emulation"): what rag-domino-emulation needs beyond the project itself. Its
 # proxy signs the identity token Domino passes to an App (RS256).
 emulation = ["pyjwt>=2.8", "cryptography>=42"]
-# RAG_VECTOR_STORE_BACKEND=chroma (embedded on disk, or a Chroma server).
+# RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma (embedded on disk, or a Chroma server).
 chroma = ["chromadb>=1.0"]
 # Driving the load test (locust monkey-patches gevent at import; keep it optional).
 loadtest = ["locust>=2.29"]

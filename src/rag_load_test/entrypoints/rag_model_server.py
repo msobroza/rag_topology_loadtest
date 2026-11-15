@@ -109,7 +109,7 @@ def create_model_server(name: str, composition: CompositionRoot) -> FastAPI:
             f"no component {name!r} a model server can serve; expected an "
             f"embedder or a reranker of the workflow file: {', '.join(servable)}"
         )
-    component = composition.settings.components[name]
+    component = composition.settings.model_components()[name]
     app = FastAPI(
         title=f"rag-model-server ({name})",
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),  # Domino's prefix

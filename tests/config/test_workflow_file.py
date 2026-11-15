@@ -49,10 +49,10 @@ def test_the_file_a_variable_names_comes_first(
 
 def test_the_source_reads_the_files_top_level_keys(tmp_path: Path) -> None:
     path = tmp_path / "workflow.yaml"
-    path.write_text("es_index: passages\ngraph: {stages: {}}\n", encoding="utf-8")
+    path.write_text("http: {retries: 0}\ngraph: {stages: {}}\n", encoding="utf-8")
 
     assert workflow_file_source(RagSettings, path)() == {
-        "es_index": "passages",
+        "http": {"retries": 0},
         "graph": {"stages": {}},
     }
 
@@ -77,10 +77,9 @@ def test_the_source_refuses_a_key_that_is_no_setting_naming_it(
 
 
 def test_unknown_keys_are_those_no_field_is_named_after() -> None:
-    assert unknown_keys(["graph", "zeta", "es_index", "alpha"], RagSettings) == [
-        "alpha",
-        "zeta",
-    ]
+    keys = ["graph", "zeta", "es_index", "local_models", "alpha"]
+
+    assert unknown_keys(keys, RagSettings) == ["alpha", "es_index", "zeta"]
 
 
 def test_a_declared_alias_is_read_from_the_file_alone(tmp_path: Path) -> None:

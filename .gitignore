@@ -44,8 +44,8 @@ deploy.env
 deploy.yaml
 .rag-deploy-cache.json
 
-# Written at run time by the defaults: the OpenVINO exports (RAG_OPENVINO_MODELS_DIR)
-# and the embedded Chroma store (RAG_CHROMA_PATH).
+# Written at run time by the defaults: the OpenVINO exports (RAG_LOCAL_MODELS__OPENVINO_DIR)
+# and the embedded Chroma store (RAG_COMPONENTS__VECTOR_STORE__CHROMA__PATH).
 /models/
 /chroma/
 

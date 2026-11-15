@@ -96,7 +96,7 @@ def test_a_component_of_any_name_is_exported_by_its_type_from_its_source_id(
 def test_models_dir_option_beats_the_setting(
     exports: RecordingExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_OPENVINO_MODELS_DIR", "from-env")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__OPENVINO_DIR", "from-env")
 
     main(["--only", "reranker", "--models-dir", "from-flag"])
 
@@ -108,7 +108,7 @@ def test_settings_overrides_pick_the_models_and_folder(
 ) -> None:
     monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__SOURCE_ID", "org/embed")
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SOURCE_ID", "org/rerank")
-    monkeypatch.setenv("RAG_OPENVINO_MODELS_DIR", "from-env")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__OPENVINO_DIR", "from-env")
 
     main([])
 

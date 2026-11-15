@@ -83,13 +83,13 @@ def test_a_component_of_any_name_is_checked_by_its_type(
 
 
 def test_a_store_backend_without_an_opener_is_refused(
-    fake_settings: RagSettings,
+    settings_factory: Callable[..., RagSettings],
 ) -> None:
-    # model_copy keeps a name the flat settings would refuse themselves.
-    settings = fake_settings.model_copy(update={"vector_store_backend": "gpu"})
+    # The settings keep any name: the registry of openers is what refuses it.
+    settings = settings_factory(components__vector_store__backend="gpu")
     known = "'chroma', 'elasticsearch', 'fake'"
     message = (
-        "RAG_VECTOR_STORE_BACKEND: unknown vector_store backend 'gpu' "
+        "RAG_COMPONENTS__VECTOR_STORE__BACKEND: unknown vector_store backend 'gpu' "
         f"(expected one of: {known})"
     )
 

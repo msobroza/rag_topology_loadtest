@@ -4,20 +4,25 @@
 # setting, and each value is overridden by the variable its path names, its
 # levels joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5 or
 # RAG_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
-# set it by its path, such as RAG_COMPONENTS__LLM__API__API_KEY.
+# set it by its path, such as RAG_COMPONENTS__LLM__API__API_KEY or
+# RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
 #
-# The vector store is not declared here yet: a stage calls it as vector_store,
-# and RAG_VECTOR_STORE_BACKEND and the RAG_ES_* / RAG_CHROMA_* variables set it.
+# What the components share is four more top-level blocks, left out here, so
+# each takes its defaults (the README lists them): local_models (runtime:
+# openvino | torch, openvino_dir, workers, cpus), calibration (budget_s,
+# rounds), http (timeout_s, retries, backoff_s: the default of every
+# component's own http block) and domino (token_url, token_ttl_s, tracing).
+# For example RAG_LOCAL_MODELS__RUNTIME=torch or RAG_HTTP__RETRIES=0.
 components:
-  # Each component is of the type of its name (embedder, reranker or llm)
-  # unless `type` names it, and states its backend. A model's source_id is its
-  # Hugging Face id or a folder; its alias, the name a model server serves it
-  # under, is the last part of the source_id unless `alias` says otherwise.
-  # The settings of one backend sit in a block named after it (local, served,
-  # api): served is a model server of ours, api an endpoint we do not run.
-  # How patiently a served or api component is called is its http block:
-  # timeout_s, retries and backoff_s, each left out being the default every
-  # component shares (RAG_HTTP_TIMEOUT_S, RAG_HTTP_RETRIES, RAG_HTTP_BACKOFF_S).
+  # Each component is of the type of its name (embedder, reranker, llm or
+  # vector_store) unless `type` names it, and states its backend. A model's
+  # source_id is its Hugging Face id or a folder; its alias, the name a model
+  # server serves it under, is the last part of the source_id unless `alias`
+  # says otherwise. The settings of one backend sit in a block named after it
+  # (local, served, api): served is a model server of ours, api an endpoint we
+  # do not run. How patiently a served or api component is called is its http
+  # block: timeout_s, retries and backoff_s, each left out being the default
+  # every component shares (the top-level http block).
   embedder:
     # local | served | api | fake; RAG_TOPOLOGY=split-all moves it to served
     backend: local
@@ -35,6 +40,13 @@ components:
       model: gpt-4o-mini
     http:
       timeout_s: 120 # an answer takes longer than a model-server call
+  vector_store:
+    # elasticsearch | chroma | fake (in memory, seeded with the synthetic
+    # corpus when it opens); one block per backend
+    backend: elasticsearch
+    elasticsearch:
+      url: http://localhost:9200 # http://user:password@host:9200 for basic auth
+      index: rag_passages
 
 graph:
   # Each stage is an instance of the stage type of its name, unless `type`

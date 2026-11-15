@@ -22,11 +22,12 @@ def written(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def test_the_packaged_file_declares_the_rags_three_components_in_order() -> None:
+def test_the_packaged_file_declares_the_rags_four_components_in_order() -> None:
     assert read_workflow_components(PACKAGED_WORKFLOW) == {
         "embedder": WorkflowComponent(type="embedder", backend="local"),
         "reranker": WorkflowComponent(type="reranker", backend="local"),
         "llm": WorkflowComponent(type="llm", backend="api"),
+        "vector_store": WorkflowComponent(type="vector_store", backend="elasticsearch"),
     }
 
 

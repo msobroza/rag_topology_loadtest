@@ -67,7 +67,7 @@ corpus-files: ## Workspace: fetch a corpus's files (its questions.jsonl included
 	cd .. && rag-fetch-corpus $(CORPUS) --out $(CORPUS_DIR)
 
 corpus: corpus-files ## Workspace: fetch a French corpus and index it instead (one corpus per index: this or ingest): make corpus CORPUS=quebec-insurance
-	cd .. && RAG_ES_TEXT_ANALYZER=$(CORPUS_ANALYZER) rag-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
+	cd .. && RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER=$(CORPUS_ANALYZER) rag-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
 
 corpus-save: ## Workspace: snapshot the index into the cache bucket, named after corpus, analyzer and embedder
 	./machine/index_snapshot.sh save "$(SNAPSHOT_PREFIX)"

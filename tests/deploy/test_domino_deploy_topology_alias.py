@@ -215,7 +215,7 @@ def test_a_row_naming_a_component_the_workflow_file_lacks_is_refused() -> None:
     assert refusal(FakeDominoApps(), settings) == (
         "topology alias 'typo' in deploy.yaml names 'rerankr', which the workflow "
         f"file '{PACKAGED_WORKFLOW}' does not declare: a row names components of "
-        "that file ('embedder', 'reranker', 'llm')"
+        "that file ('embedder', 'reranker', 'llm', 'vector_store')"
     )
 
 
@@ -257,7 +257,7 @@ def test_an_apps_block_of_no_app_is_refused() -> None:
     assert refusal(FakeDominoApps(), settings) == (
         "apps.orchestrator in deploy.yaml is no App: an apps block is keyed by "
         "workflow or by a component of the workflow file "
-        f"'{PACKAGED_WORKFLOW}' ('embedder', 'reranker', 'llm')"
+        f"'{PACKAGED_WORKFLOW}' ('embedder', 'reranker', 'llm', 'vector_store')"
     )
 
 

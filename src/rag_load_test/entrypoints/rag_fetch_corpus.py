@@ -85,9 +85,9 @@ def main(
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
-        settings: Source of the timeout, retries and backoff
-            (``RAG_HTTP_TIMEOUT_S``, ``_RETRIES``, ``_BACKOFF_S``); ``None`` reads
-            the ``RAG_*`` environment.
+        settings: Source of the timeout, retries and backoff, its ``http``
+            block (``RAG_HTTP__TIMEOUT_S``, ``__RETRIES``, ``__BACKOFF_S``);
+            ``None`` reads the ``RAG_*`` environment.
         transport: The HTTP transport; ``None`` uses the network. Tests pass an
             ``httpx.MockTransport``.
 
@@ -100,9 +100,8 @@ def main(
     """
     args = _parser().parse_args(argv)
     settings = settings or RagSettings()
-    policy = HttpPolicy(
-        settings.http_timeout_s, settings.http_retries, settings.http_backoff_s
-    )
+    http = settings.http
+    policy = HttpPolicy(http.timeout_s, http.retries, http.backoff_s)
     corpus = CORPORA[args.corpus]
     with httpx.Client(transport=transport, follow_redirects=True) as client:
         try:

@@ -75,8 +75,9 @@ def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSea
         return store
     raise ValueError(
         f"retrieval_mode={mode!r} needs a store that ranks text, but the vector "
-        "store ranks no text: set RAG_VECTOR_STORE_BACKEND=elasticsearch, or the "
-        "retrieve stage's retrieval_mode to dense"
+        "store ranks no text: set the backend of the vector store it calls to "
+        "elasticsearch (RAG_COMPONENTS__VECTOR_STORE__BACKEND for the one named "
+        "vector_store), or the retrieve stage's retrieval_mode to dense"
     )
 
 

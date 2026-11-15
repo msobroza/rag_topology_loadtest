@@ -2,6 +2,14 @@
 #   docker compose --env-file ovms/versions.env up -d
 # Elasticsearch: single node, security off (dev only). OVMS: model repository
 # produced by ovms/export_models.sh, mounted read-only.
+# The workflow app finds each service through the workflow file (its components
+# block), or through the variable a value's path names:
+#   elasticsearch  components.vector_store.elasticsearch.url, the packaged file's
+#                  http://localhost:9200 (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
+#   ovms-reranker  components.reranker.served.url with backend: served
+#                  (RAG_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank)
+#   ovms-embedder  components.embedder.served.url with backend: served
+#                  (RAG_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings)
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0

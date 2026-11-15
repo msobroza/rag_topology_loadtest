@@ -1,7 +1,7 @@
 """What the in-process models share: the thread budget, the pool and their files.
 
 The thread budget comes from the first CPU counter that answers
-(``RAG_MODEL_CPUS``, the Domino tier, the container; see
+(``RAG_LOCAL_MODELS__CPUS``, the Domino tier, the container; see
 ``infrastructure/local_models/cpu_count.py``). The pool is created on first need
 and shut down with the scope. Under the ``openvino`` runtime a model whose
 folder is missing is exported there first, on the pool, since it takes minutes
@@ -52,8 +52,9 @@ class LocalModelResources:
     runs the models, and the budget and rounds every calibration runs under.
 
     Args:
-        settings: The CPU, worker and thread counts, the runtime and its folder,
-            the calibration budget and rounds.
+        settings: The CPUs and workers, the runtime and its folder (its
+            ``local_models`` block), the calibration budget and rounds (its
+            ``calibration`` block).
         scope: Opens the budget and the pool once and shuts the pool down.
         http: The shared HTTP client, for the Domino hardware tier lookup.
         container_cpus: Counts the container's CPUs when nothing earlier in the
@@ -74,10 +75,11 @@ class LocalModelResources:
     ) -> None:
         self._settings, self._scope, self._http = settings, scope, http
         self._container_cpus = container_cpus
-        self.runtime = settings.local_model_runtime  # openvino or torch
+        self.runtime = settings.local_models.runtime  # openvino or torch
         # Every CPU-bound stage is calibrated under the same budget and rounds.
+        calibration = settings.calibration
         self.calibration_limits = CalibrationLimits(
-            budget_s=settings.calibration_budget_s, rounds=settings.calibration_rounds
+            budget_s=calibration.budget_s, rounds=calibration.rounds
         )
 
     async def thread_budget(self) -> ThreadBudget:
@@ -137,11 +139,11 @@ class LocalModelResources:
         Example:
             >>> await local_models.local_model("org/rerank", export_reranker)
         """
-        settings = self._settings
+        local_models = self._settings.local_models
         return await provision_local_model(
             model_id,
-            runtime=settings.local_model_runtime,
-            models_dir=settings.openvino_models_dir,
+            runtime=local_models.runtime,
+            models_dir=local_models.openvino_dir,
             export=export,
             executor=await self.model_pool(),
         )
@@ -154,26 +156,24 @@ class LocalModelResources:
         return pool
 
     async def _work_out_unpinned_budget(self) -> UnpinnedBudget:
-        settings = self._settings
+        local_models = self._settings.local_models
         cpus, _source = await first_cpu_count(await self._cpu_counters())
         budget = plan_thread_budget(
-            cpus,
-            max_workers=settings.model_workers,
-            runtime=settings.local_model_runtime,
+            cpus, max_workers=local_models.workers, runtime=local_models.runtime
         )
         return UnpinnedBudget(cpus, budget)
 
     async def _work_out_budget(self) -> ThreadBudget:
-        settings = self._settings
+        local_models = self._settings.local_models
         return await work_out_thread_budget(
             await self._cpu_counters(),
-            max_workers=settings.model_workers,
-            runtime=settings.local_model_runtime,
+            max_workers=local_models.workers,
+            runtime=local_models.runtime,
         )
 
     async def _cpu_counters(self) -> list[BaseCpuCounter]:
         settings = self._settings
-        counters: list[BaseCpuCounter] = [FixedCpus(settings.model_cpus)]
+        counters: list[BaseCpuCounter] = [FixedCpus(settings.local_models.cpus)]
         if settings.domino_api_proxy and settings.domino_hardware_tier_id:
             counters.append(
                 DominoHardwareTierCpus(

@@ -57,7 +57,7 @@ deps: ## deptry: no missing, unused or transitive dependency
 test: ## Run the test suite (no model weights, no network)
 	$(BIN)pytest
 
-ingest: ## Index the synthetic corpus into Elasticsearch (RAG_ES_URL)
+ingest: ## Index the synthetic corpus into Elasticsearch (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
 	$(BIN)rag-ingest --synthetic 200
 
 serve: ## Run the FastAPI service with the current RAG_* environment

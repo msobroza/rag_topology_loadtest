@@ -28,7 +28,7 @@ async def test_the_workflow_opens_the_components_its_stages_call_llm_first(
     settings = settings_factory(
         components__reranker__backend="none",
         components__llm__backend="fake",
-        es_url=UNREACHABLE_ES,
+        components__vector_store__elasticsearch__url=UNREACHABLE_ES,
         graph=rag_graph("lexical"),
     )
     async with CompositionRoot(settings) as composition:

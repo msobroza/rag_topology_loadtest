@@ -99,12 +99,14 @@ def _configured_composition(
         settings = RagSettings()
         check_registered_names(settings)
         settings.ingestion_embedder(embedder)
+        store = settings.ingestion_store()
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
-    if settings.vector_store_backend == "fake":
+    if settings.components[store].backend == "fake":
+        backend = RagSettings.variable_of("components", store, "backend")
         raise SystemExit(
-            "rag-ingest: RAG_VECTOR_STORE_BACKEND='fake' is seeded when the app starts "
-            "and keeps nothing between processes; ingest needs 'elasticsearch'"
+            f"rag-ingest: {backend}='fake' is seeded when the app starts and "
+            "keeps nothing between processes; ingest needs 'elasticsearch'"
         )
     return CompositionRoot(settings)
 
@@ -121,8 +123,9 @@ def main(
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
         composition: Builds the ports to ingest through; ``None`` builds one from
             the ``RAG_*`` settings, which refuses the ``fake`` vector store; a
-            settings mistake, an unknown backend or API format and an
-            embedder that cannot be told included, exits as a usage error.
+            settings mistake, an unknown backend or API format, and an
+            embedder or a vector store that cannot be told included, exits as
+            a usage error.
 
     Returns:
         The exit status, 0.

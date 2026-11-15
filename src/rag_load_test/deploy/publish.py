@@ -47,7 +47,7 @@ LAUNCH_SCRIPT = "domino/app.sh"  # relative to the repository root
 CONFIGURATION_TYPES: dict[AppKind, str] = {"app": "STANDARD", "agent": "AISYSTEM"}
 # Exported by an Agent unless its settings set them: Domino tracing, and the
 # [domino] extra that brings its library.
-AGENT_EXPORTS = {"RAG_DOMINO_TRACING": "1", "RAG_BOOTSTRAP_EXTRAS": "domino"}
+AGENT_EXPORTS = {"RAG_DOMINO__TRACING": "1", "RAG_BOOTSTRAP_EXTRAS": "domino"}
 
 
 def launch_script_in(directory: str) -> str:

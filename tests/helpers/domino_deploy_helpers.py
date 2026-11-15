@@ -30,7 +30,7 @@ BOOTSTRAP_AND_EXEC = (
     "export RAG_BOOTSTRAP=1\nexec bash '/repos/rag topology/domino/app.sh'"
 )
 # What an Agent (the workflow App by default) exports before RAG_BOOTSTRAP.
-AGENT_EXPORTS = "export RAG_DOMINO_TRACING=1\nexport RAG_BOOTSTRAP_EXTRAS=domino\n"
+AGENT_EXPORTS = "export RAG_DOMINO__TRACING=1\nexport RAG_BOOTSTRAP_EXTRAS=domino\n"
 # What the monolith alias's workflow App exports after its Role and topology:
 # the backend of each component the alias names, and the run label.
 MONOLITH_EXPORTS = (

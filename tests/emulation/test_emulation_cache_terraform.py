@@ -123,7 +123,7 @@ def test_every_app_keeps_its_models_under_the_dataset_path() -> None:
     openvino, ovms = common_constant("DATASET_OPENVINO"), common_constant(
         "DATASET_OVMS"
     )
-    assert settings["RAG_OPENVINO_MODELS_DIR"] == f"{DATASET_PATH}/{openvino}"
+    assert settings["RAG_LOCAL_MODELS__OPENVINO_DIR"] == f"{DATASET_PATH}/{openvino}"
     assert settings["RAG_OVMS_MODELS_DIR"] == f"{DATASET_PATH}/{ovms}"
 
 
@@ -131,7 +131,7 @@ def test_the_workspace_shell_ingests_with_the_dataset_folder() -> None:
     shell = heredoc(render("scripts/workspace.sh.tftpl"), "SHELLENV")
     openvino = common_constant("DATASET_OPENVINO")
 
-    assert f"export RAG_OPENVINO_MODELS_DIR='{DATASET_PATH}/{openvino}'" in shell
+    assert f"export RAG_LOCAL_MODELS__OPENVINO_DIR='{DATASET_PATH}/{openvino}'" in shell
 
 
 def test_the_dataset_path_default_is_a_domino_dataset_folder() -> None:

@@ -3,10 +3,11 @@
 # own snapshot API and its built-in `gcs` repository type (emulation/README.md, "The
 # cache bucket"). No credential is configured: on Compute Engine the repository uses
 # the Elasticsearch machine's service account. Run from the Workspace's clone:
-#   index_snapshot.sh save <prefix>      snapshot RAG_ES_INDEX as <prefix>-<embedder>
-#   index_snapshot.sh restore <prefix>   replace RAG_ES_INDEX with that snapshot
+#   index_snapshot.sh save <prefix>      snapshot the index as <prefix>-<embedder>
+#   index_snapshot.sh restore <prefix>   replace the index with that snapshot
 #   index_snapshot.sh list               each snapshot's name, state, end time and metadata
-# Reads RAG_ES_URL (required), RAG_ES_INDEX (default rag_passages) and the bucket
+# Reads RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL (required),
+# RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX (default rag_passages) and the bucket
 # from /etc/rag-emulation/cache.env (RAG_EMULATION_CACHE_ENV names another, for tests).
 set -euo pipefail
 
@@ -24,9 +25,10 @@ SNAPSHOT_BASE_PATH=elasticsearch
 # curl's status for an Elasticsearch 404 (curl's own codes stop at 99).
 ES_NOT_FOUND=100
 
-[ -n "${RAG_ES_URL:-}" ] \
-  || die "RAG_ES_URL is not set; expected Elasticsearch's URL (http://<address>:9200), as the Workspace's shell exports it"
-RAG_ES_INDEX=${RAG_ES_INDEX:-rag_passages}
+ES_URL=${RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL:-}
+[ -n "$ES_URL" ] \
+  || die "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL is not set; expected Elasticsearch's URL (http://<address>:9200), as the Workspace's shell exports it"
+ES_INDEX=${RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX:-rag_passages}
 CACHE_BUCKET=$(cache_config_value CACHE_BUCKET)
 
 # es_call <method> <path> [json body]: Elasticsearch's answer on stdout for a 2xx,
@@ -37,7 +39,7 @@ es_call() {
   answer=$(mktemp)
   status=$(curl -sS --connect-timeout 10 --max-time 900 --retry 3 -X "$1" \
     -H 'Content-Type: application/json' ${3:+--data "$3"} \
-    -o "$answer" -w '%{http_code}' "$RAG_ES_URL$2") || true
+    -o "$answer" -w '%{http_code}' "$ES_URL$2") || true
   case $status in
     2??) cat "$answer"; rm -f "$answer" ;;
     404) rm -f "$answer"; return "$ES_NOT_FOUND" ;;
@@ -86,13 +88,13 @@ snapshot_name() {
 snapshot_request() {
   local commit passages
   commit=$(git -C "$HERE" rev-parse HEAD)
-  passages=$(es_require GET "/$RAG_ES_INDEX/_count" | json_field count)
+  passages=$(es_require GET "/$ES_INDEX/_count" | json_field count)
   python3 -c '
 import json, sys
 index, commit, passages = sys.argv[1:]
 metadata = {"commit": commit, "passages": int(passages)}
 print(json.dumps({"indices": index, "include_global_state": False, "metadata": metadata}))
-' "$RAG_ES_INDEX" "$commit" "$passages"
+' "$ES_INDEX" "$commit" "$passages"
 }
 
 save_snapshot() {
@@ -102,18 +104,18 @@ save_snapshot() {
   answer=$(es_require PUT "/_snapshot/$SNAPSHOT_REPOSITORY/$name?wait_for_completion=true" "$request")
   state=$(printf '%s' "$answer" | json_field snapshot.state) || state=unknown
   [ "$state" = SUCCESS ] || die "snapshot $name ended in state $state, expected SUCCESS; Elasticsearch answered: $answer"
-  echo "saved: snapshot $name of index $RAG_ES_INDEX in gs://$CACHE_BUCKET/$SNAPSHOT_BASE_PATH"
+  echo "saved: snapshot $name of index $ES_INDEX in gs://$CACHE_BUCKET/$SNAPSHOT_BASE_PATH"
 }
 
 restore_snapshot() {
   local name=$1 passages
   es_call GET "/_snapshot/$SNAPSHOT_REPOSITORY/$name" >/dev/null \
     || die "no snapshot $name in gs://$CACHE_BUCKET/$SNAPSHOT_BASE_PATH; make -C emulation corpus corpus-save creates it (same corpus, analyzer and embedder)"
-  es_delete_if_present "/$RAG_ES_INDEX"
+  es_delete_if_present "/$ES_INDEX"
   es_require POST "/_snapshot/$SNAPSHOT_REPOSITORY/$name/_restore?wait_for_completion=true" \
-    "{\"indices\": \"$RAG_ES_INDEX\", \"include_global_state\": false}" >/dev/null
-  passages=$(es_require GET "/$RAG_ES_INDEX/_count" | json_field count)
-  echo "restored: snapshot $name; index $RAG_ES_INDEX holds $passages passages"
+    "{\"indices\": \"$ES_INDEX\", \"include_global_state\": false}" >/dev/null
+  passages=$(es_require GET "/$ES_INDEX/_count" | json_field count)
+  echo "restored: snapshot $name; index $ES_INDEX holds $passages passages"
 }
 
 list_snapshots() {

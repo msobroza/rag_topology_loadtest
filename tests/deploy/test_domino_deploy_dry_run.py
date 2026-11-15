@@ -169,7 +169,8 @@ def test_dry_run_of_the_example_with_real_values_publishes_every_app(
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, err) == (0, "")
     assert out.startswith(deployed_lines(3))
-    assert "    export RAG_ES_URL=https://real:9200\n" in out
+    es_url = "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL"
+    assert f"    export {es_url}=https://real:9200\n" in out
     assert "  kind: agent (configurationType AISYSTEM)\n" in out
     # The example holds no revision: Domino keeps choosing it.
     assert out.count("  environmentRevisionId: (chosen by Domino)\n") == 3

@@ -28,7 +28,7 @@ USER root
 # from the project files Domino mounts into the run, and .env never enters the image.
 COPY pyproject.toml README.md .python-version /opt/rag_load_test/
 COPY src /opt/rag_load_test/src
-# [loadtest] adds locust; [domino] adds dominodatalab[agents] for RAG_DOMINO_TRACING=true.
+# [loadtest] adds locust; [domino] adds dominodatalab[agents] for RAG_DOMINO__TRACING=true.
 RUN pip install --no-cache-dir uv \
     && UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv /opt/rag-venv \
         --python "$(cat /opt/rag_load_test/.python-version)" \
@@ -40,10 +40,10 @@ ENV PATH=/opt/rag-venv/bin:$PATH
 # no network and no conversion. rag-export-openvino takes the source ids from the
 # installed package's workflow file (the one served-model pin), so this step
 # cannot drift from what the apps load. The download stays in HF_HOME, so
-# RAG_LOCAL_MODEL_RUNTIME=torch also starts offline. Both folders are
+# RAG_LOCAL_MODELS__RUNTIME=torch also starts offline. Both folders are
 # world-readable because the build runs as root but Domino runs apps as ubuntu.
 ENV HF_HOME=/opt/hf-cache
-ENV RAG_OPENVINO_MODELS_DIR=/opt/rag-models/openvino
+ENV RAG_LOCAL_MODELS__OPENVINO_DIR=/opt/rag-models/openvino
 RUN rag-export-openvino \
     && chmod -R a+rX /opt/hf-cache /opt/rag-models
 ENV HF_HUB_OFFLINE=1

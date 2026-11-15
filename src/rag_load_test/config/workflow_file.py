@@ -1,7 +1,9 @@
 """The workflow file: where it is found, and the settings source that reads it.
 
 Its top-level keys are settings of ``RagSettings``: the ``components`` and
-the ``graph`` blocks (ADR 0004). It is found as the deploy settings find
+the ``graph`` blocks (ADR 0004), and the blocks of what the components share
+(``local_models``, ``calibration``, ``http``, ``domino``). It is found as the
+deploy settings find
 theirs: the file ``RAG_WORKFLOW_FILE`` names, else ``workflow.yaml`` in the
 working directory, else the file that ships with this package, the RAG's.
 ``RagSettings`` puts the file below the environment and ``.env``, so a variable

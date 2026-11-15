@@ -58,7 +58,8 @@ def models_save(machine: FakeMachine, **env: str) -> str:
 
 
 def snapshot(machine: FakeMachine, *args: str) -> subprocess.CompletedProcess[str]:
-    return run_machine_script(machine, INDEX_SNAPSHOT_SH, *args, RAG_ES_URL=ES_URL)
+    env = {"RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL": ES_URL}
+    return run_machine_script(machine, INDEX_SNAPSHOT_SH, *args, **env)
 
 
 @pytest.mark.parametrize("script", MACHINE_SCRIPTS, ids=lambda p: p.name)
@@ -226,7 +227,7 @@ def test_index_snapshot_without_rag_es_url_names_it(machine: FakeMachine) -> Non
     result = run_machine_script(machine, INDEX_SNAPSHOT_SH, "list")
 
     assert result.returncode != 0
-    assert "RAG_ES_URL" in result.stderr
+    assert "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL" in result.stderr
     assert machine.es_calls() == []
 
 

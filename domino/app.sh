@@ -27,7 +27,7 @@
 # the project is uv-installed into $HOME/rag-venv first when `rag-served-models`
 # is not on PATH (the OVMS roles' bootstrap installs no project). The in-process
 # models (monolith, workflow, fastapi-*) export themselves into
-# RAG_OPENVINO_MODELS_DIR on their first start (RAG_LOCAL_MODEL_RUNTIME=openvino).
+# RAG_LOCAL_MODELS__OPENVINO_DIR on their first start (RAG_LOCAL_MODELS__RUNTIME=openvino).
 #
 # Both workflow app roles run `rag-serve --domino`: Python moves the embedder and
 # the reranker to the served backend from RAG_TOPOLOGY

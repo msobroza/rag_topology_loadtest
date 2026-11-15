@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from rag_graphs import rag_graph
+from rag_graphs import (
+    packaged_components,
+    packaged_graph,
+    rag_graph,
+    write_workflow_file,
+)
 from rag_load_test.config.component_settings import (
     ChromaSettings,
     ComponentHttpSettings,
@@ -24,6 +30,7 @@ from rag_load_test.config.component_settings import (
     typed_by_name,
 )
 from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from rag_load_test.domain.api_endpoint import ApiEndpoint
 
 SettingsFactory = Callable[..., RagSettings]
@@ -31,12 +38,12 @@ EMBED_URL = "http://embedder:8002/v3/embeddings"
 RERANK_URL = "http://reranker:8001/v3/rerank"
 
 
-def test_the_packaged_file_declares_the_rags_three_model_components(
+def test_the_packaged_file_declares_the_rags_three_models_and_its_store(
     settings_factory: SettingsFactory,
 ) -> None:
     components = settings_factory().components
 
-    assert list(components) == ["embedder", "reranker", "llm"]
+    assert list(components) == ["embedder", "reranker", "llm", "vector_store"]
     embedder = components["embedder"]
     assert (embedder.type, embedder.backend) == ("embedder", "local")
     assert embedder.source_id == "Snowflake/snowflake-arctic-embed-l-v2.0"
@@ -246,22 +253,45 @@ def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None
     assert unnamed.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "key", "rr")
 
 
-def test_the_vector_store_takes_a_components_shape_from_its_flat_variables(
+# --- the vector store ------------------------------------------------------------------
+
+
+def test_the_vector_store_is_a_component_of_the_packaged_file(
     settings_factory: SettingsFactory,
 ) -> None:
-    settings = settings_factory(
-        es_url="http://es:9200",
-        es_index="passages_v2",
-        es_api_key="es-key",
-        es_text_analyzer="french",
-        chroma_url="http://chroma:8000",
-        chroma_path="here",
-        chroma_collection="passages",
-        fake_store_seed_documents=12,
-    )
+    store = settings_factory().components["vector_store"]
 
-    store = settings.vector_store_component()
     assert (store.type, store.backend) == ("vector_store", "elasticsearch")
+    assert store.elasticsearch == ElasticsearchSettings(
+        url="http://localhost:9200", index="rag_passages"
+    )
+    assert store.elasticsearch.text_analyzer == "standard"
+    assert store.chroma == ChromaSettings(
+        url="", path="chroma", collection="rag_passages"
+    )
+    assert store.fake == FakeStoreSettings(seed_documents=200)
+
+
+def test_each_block_of_the_vector_store_is_read_by_its_path(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = "RAG_COMPONENTS__VECTOR_STORE__"
+    for path, value in {
+        "BACKEND": "chroma",
+        "ELASTICSEARCH__URL": "http://es:9200",
+        "ELASTICSEARCH__INDEX": "passages_v2",
+        "ELASTICSEARCH__API_KEY": "es-key",
+        "ELASTICSEARCH__TEXT_ANALYZER": "french",
+        "CHROMA__URL": "http://chroma:8000",
+        "CHROMA__PATH": "here",
+        "CHROMA__COLLECTION": "passages",
+        "FAKE__SEED_DOCUMENTS": "12",
+    }.items():
+        monkeypatch.setenv(prefix + path, value)
+
+    store = settings_factory().components["vector_store"]
+
+    assert store.backend == "chroma"
     assert store.elasticsearch == ElasticsearchSettings(
         url="http://es:9200",
         index="passages_v2",
@@ -272,3 +302,59 @@ def test_the_vector_store_takes_a_components_shape_from_its_flat_variables(
         url="http://chroma:8000", path="here", collection="passages"
     )
     assert store.fake == FakeStoreSettings(seed_documents=12)
+
+
+def test_a_block_the_vector_store_does_not_have_is_refused_naming_its_keys(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError) as refused:
+        settings_factory(components__vector_store__qdrant__url="http://q:6333")
+
+    message = str(refused.value)
+    assert "the 'vector_store' component type has no 'qdrant'" in message
+    assert "(backend, chroma, elasticsearch, fake, type)" in message
+
+
+def test_a_vector_store_of_another_name_states_its_type(
+    settings_factory: SettingsFactory,
+) -> None:
+    passages = {
+        "type": "vector_store",
+        "backend": "fake",
+        "fake": {"seed_documents": 5},
+    }
+
+    settings = settings_factory(components={"passages": passages})
+
+    assert settings.component_types()["passages"] == "vector_store"
+    assert settings.components["passages"].fake == FakeStoreSettings(seed_documents=5)
+
+
+def test_the_model_components_are_every_component_but_the_store(
+    settings_factory: SettingsFactory,
+) -> None:
+    models = settings_factory().model_components()
+
+    assert list(models) == ["embedder", "reranker", "llm"]
+
+
+def test_ingestion_fills_the_one_vector_store_the_file_declares(
+    settings_factory: SettingsFactory,
+) -> None:
+    assert settings_factory().ingestion_store() == "vector_store"
+    passages = {"type": "vector_store", "backend": "fake"}
+
+    with pytest.raises(ValueError, match=r"declares 2 .*'vector_store', 'passages'"):
+        settings_factory(components={"passages": passages}).ingestion_store()
+
+
+def test_ingestion_refuses_a_file_without_a_vector_store(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    components = packaged_components()
+    del components["vector_store"]
+    workflow = write_workflow_file(tmp_path / "w.yaml", packaged_graph(), components)
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+
+    with pytest.raises(ValueError, match=r"declares 0 \(its vector stores: none\)"):
+        settings_factory().ingestion_store()

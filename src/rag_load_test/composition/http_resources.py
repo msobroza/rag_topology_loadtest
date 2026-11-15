@@ -32,8 +32,9 @@ class HttpResources:
     """The shared HTTP client, the default HTTP policy and where run tokens come from.
 
     Args:
-        settings: The default timeout, retries and backoff, and the Domino
-            token URL.
+        settings: The default timeout, retries and backoff (its ``http``
+            block), and the Domino token's URL and lifetime (its ``domino``
+            block).
         scope: Opens the client once and closes it.
         transport: The client's transport; None for the real network (tests
             pass an ``httpx.MockTransport``).
@@ -55,12 +56,9 @@ class HttpResources:
     ) -> None:
         # Every component's default, and the policy of the calls that are no
         # component's, such as the Domino hardware-tier lookup.
-        self.policy = HttpPolicy(
-            settings.http_timeout_s, settings.http_retries, settings.http_backoff_s
-        )
-        self.run_tokens = RunTokenSource(
-            settings.domino_token_url, settings.domino_token_ttl_s
-        )
+        http, domino = settings.http, settings.domino
+        self.policy = HttpPolicy(http.timeout_s, http.retries, http.backoff_s)
+        self.run_tokens = RunTokenSource(domino.token_url, domino.token_ttl_s)
         # Off Domino a model server of ours takes no key.
         self._served_key = DOMINO_RUN_TOKEN if on_domino else ""
         self._scope = scope

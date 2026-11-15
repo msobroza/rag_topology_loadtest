@@ -77,7 +77,7 @@ def client_for(
         components__embedder__backend="fake",
         components__reranker__backend="fake",
         components__llm__backend="fake",
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
     )
 
     def make(**doubles: Any) -> TestClient:

@@ -122,11 +122,11 @@ def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
 
 
 def test_an_agent_keeps_the_tracing_and_extras_its_settings_set() -> None:
-    values = {"RAG_DOMINO_TRACING": "0", "RAG_BOOTSTRAP_EXTRAS": "domino,dev"}
+    values = {"RAG_DOMINO__TRACING": "0", "RAG_BOOTSTRAP_EXTRAS": "domino,dev"}
     settings = with_settings("workflow", values, topology="monolith")
     assert script("workflow", settings, {}) == (
         "export RAG_BOOTSTRAP_EXTRAS=domino,dev\n"
-        "export RAG_DOMINO_TRACING=0\n"
+        "export RAG_DOMINO__TRACING=0\n"
         "export RAG_ROLE=monolith\n"
         "export RAG_TOPOLOGY=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"

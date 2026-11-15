@@ -133,7 +133,7 @@ async def test_the_api_embedder_calls_its_endpoint(
         components__embedder__api__api_key="emb-key",
         components__embedder__api__model="bge-small",
         components__embedder__api__batch_size=2,
-        http_timeout_s=4.5,
+        http__timeout_s=4.5,
     )
     transport = httpx.MockTransport(routes)
     composition = CompositionRoot(
@@ -158,7 +158,7 @@ async def test_the_api_reranker_calls_its_endpoint(
         components__reranker__api__url=RERANK_URL,
         components__reranker__api__api_key="co-key",
         components__reranker__api__model="rerank-v3.5",
-        http_timeout_s=4.5,
+        http__timeout_s=4.5,
     )
     async with CompositionRoot(
         settings, transport=httpx.MockTransport(routes)
@@ -187,7 +187,7 @@ async def test_the_api_llm_calls_its_endpoint_with_its_own_timeout(
         components__llm__api__model="llama-3",
         components__llm__api__temperature=0.7,
         components__llm__http__timeout_s=90.0,
-        http_timeout_s=4.5,
+        http__timeout_s=4.5,
     )
     async with CompositionRoot(
         settings, transport=httpx.MockTransport(routes)
@@ -211,8 +211,8 @@ async def test_an_llm_that_sets_no_retries_keeps_the_default(
 
     settings = settings_factory(
         **(FAKE_BACKENDS | {"components__llm__backend": "api"}),
-        http_retries=1,
-        http_backoff_s=0.0,
+        http__retries=1,
+        http__backoff_s=0.0,
     )
     async with CompositionRoot(
         settings, transport=httpx.MockTransport(busy)
@@ -221,4 +221,4 @@ async def test_an_llm_that_sets_no_retries_keeps_the_default(
         with pytest.raises(RagDependencyError, match="HTTP 503"):
             await llm.generate([{"role": "user", "content": "q"}])
 
-    assert len(attempts) == 2  # the first attempt and http_retries=1
+    assert len(attempts) == 2  # the first attempt and http__retries=1

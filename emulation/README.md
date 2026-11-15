@@ -111,7 +111,8 @@ make -C emulation ssh           # gcloud compute ssh ubuntu@<name>-workspace ...
 
 The shell starts in the repository (`/repos/rag_topology_loadtest`, the same path
 on every machine) with the project's virtualenv on `PATH`, and with
-`DOMINO_API_PROXY=http://localhost:8899`, `DOMINO_PROJECT_ID` and `RAG_ES_URL`
+`DOMINO_API_PROXY=http://localhost:8899`, `DOMINO_PROJECT_ID` and
+`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
 set, as a Domino Workspace would have them (the Project environment variables are
 exported too). `deploy.yaml` is already written for this emulation; edit it as on
 Domino (topology, per-App blocks), or override with `RAG_DEPLOY_TOPOLOGY` and

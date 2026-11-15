@@ -41,9 +41,9 @@ def fake_weights(
         monkeypatch.setitem(sys.modules, name, fake)
     for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
         monkeypatch.delenv(name)
-    monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
-    monkeypatch.setenv("RAG_MODEL_CPUS", "2")
-    monkeypatch.setenv("RAG_MODEL_WORKERS", "1")  # so each share is 2 threads
+    monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__CPUS", "2")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__WORKERS", "1")  # so each share is 2 threads
     monkeypatch.chdir(tmp_path)
     return module
 
@@ -130,13 +130,13 @@ def test_the_comment_says_when_the_budget_cut_the_search_short(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("RAG_CALIBRATION_BUDGET_S", "1e-9")
+    monkeypatch.setenv("RAG_CALIBRATION__BUDGET_S", "1e-9")
 
     assert main(["--only", "reranker"]) == 0
 
     [comment, *assignments] = stdout_lines(capsys)
     assert "; tried 1 candidate in " in comment
-    assert comment.endswith(", cut short by RAG_CALIBRATION_BUDGET_S=1e-09")
+    assert comment.endswith(", cut short by RAG_CALIBRATION__BUDGET_S=1e-09")
     assert assignments == [
         "RAG_COMPONENTS__RERANKER__LOCAL__THREADS=2",
         "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE=20",
@@ -163,7 +163,7 @@ def test_a_bad_setting_is_one_stderr_line_naming_the_value(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("RAG_CALIBRATION_ROUNDS", "-4")
+    monkeypatch.setenv("RAG_CALIBRATION__ROUNDS", "-4")
 
     assert main([]) == 1
 
@@ -171,7 +171,7 @@ def test_a_bad_setting_is_one_stderr_line_naming_the_value(
     assert captured.out == ""
     [line] = captured.err.splitlines()
     assert line.startswith("rag-calibrate: cannot read the settings: ")
-    assert "calibration_rounds" in line
+    assert "calibration.rounds" in line
     assert "-4" in line
 
 
@@ -182,8 +182,8 @@ def test_a_model_that_cannot_be_provisioned_is_one_stderr_line(
     tmp_path: Path,
 ) -> None:
     fake_weights.save_error = OSError("No space left on device")
-    monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "openvino")
-    monkeypatch.setenv("RAG_OPENVINO_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "openvino")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__OPENVINO_DIR", str(tmp_path / "models"))
 
     assert main(["--only", "reranker"]) == 1
 

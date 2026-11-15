@@ -38,43 +38,52 @@ def local_threads(settings: RagSettings) -> tuple[int, int]:
 def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
-    assert s.es_index == "rag_passages"
-    assert s.model_workers == 4
-    assert (s.calibration_budget_s, s.calibration_rounds) == (90.0, 1)
-    assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (30.0, 2, 0.2)
-    assert s.domino_token_url == "http://localhost:8899/access-token"
-    assert s.domino_token_ttl_s == 240.0
-    assert s.fake_store_seed_documents == 200
+    store = s.components["vector_store"]
+    assert (store.elasticsearch.index, store.fake.seed_documents) == (
+        "rag_passages",
+        200,
+    )
+    assert s.local_models.workers == 4
+    assert (s.calibration.budget_s, s.calibration.rounds) == (90.0, 1)
+    assert (s.http.timeout_s, s.http.retries, s.http.backoff_s) == (30.0, 2, 0.2)
+    assert s.domino.token_url == "http://localhost:8899/access-token"
+    assert s.domino.token_ttl_s == 240.0
 
 
 def test_tunables_read_rag_prefixed_env(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env = {
-        "RAG_ES_INDEX": "passages_v2",
-        "RAG_MODEL_WORKERS": "2",
-        "RAG_HTTP_TIMEOUT_S": "5.5",
-        "RAG_HTTP_RETRIES": "0",
-        "RAG_HTTP_BACKOFF_S": "0.5",
-        "RAG_DOMINO_TOKEN_URL": "http://token.test/t",
-        "RAG_DOMINO_TOKEN_TTL_S": "60",
-        "RAG_FAKE_STORE_SEED_DOCUMENTS": "30",
-        "RAG_CALIBRATION_BUDGET_S": "12.5",
-        "RAG_CALIBRATION_ROUNDS": "3",
+        "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX": "passages_v2",
+        "RAG_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS": "30",
+        "RAG_LOCAL_MODELS__WORKERS": "2",
+        "RAG_HTTP__TIMEOUT_S": "5.5",
+        "RAG_HTTP__RETRIES": "0",
+        "RAG_HTTP__BACKOFF_S": "0.5",
+        "RAG_DOMINO__TOKEN_URL": "http://token.test/t",
+        "RAG_DOMINO__TOKEN_TTL_S": "60",
+        "RAG_CALIBRATION__BUDGET_S": "12.5",
+        "RAG_CALIBRATION__ROUNDS": "3",
     }
     for name, value in env.items():
         monkeypatch.setenv(name, value)
 
     s = settings_factory()
-    assert (s.es_index, s.model_workers) == ("passages_v2", 2)
-    assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (5.5, 0, 0.5)
-    assert (s.domino_token_url, s.domino_token_ttl_s) == ("http://token.test/t", 60.0)
-    assert s.fake_store_seed_documents == 30
-    assert (s.calibration_budget_s, s.calibration_rounds) == (12.5, 3)
+    store = s.components["vector_store"]
+    assert (store.elasticsearch.index, store.fake.seed_documents) == ("passages_v2", 30)
+    assert s.local_models.workers == 2
+    assert (s.http.timeout_s, s.http.retries, s.http.backoff_s) == (5.5, 0, 0.5)
+    assert (s.domino.token_url, s.domino.token_ttl_s) == ("http://token.test/t", 60.0)
+    assert (s.calibration.budget_s, s.calibration.rounds) == (12.5, 3)
 
 
 @pytest.mark.parametrize(
-    "field", ["components__reranker__local__calibration_passages", "model_workers"]
+    "field",
+    [
+        "components__reranker__local__calibration_passages",
+        "components__vector_store__fake__seed_documents",
+        "local_models__workers",
+    ],
 )
 def test_counts_below_one_are_rejected(
     settings_factory: SettingsFactory, field: str
@@ -136,7 +145,7 @@ def test_the_sources_win_in_their_order(
     graph["stages"]["rerank"]["top_k"] = 5
     workflow = write_workflow_file(tmp_path / "workflow.yaml", graph)
     with workflow.open("a", encoding="utf-8") as file:
-        file.write("es_index: from_the_file\n")
+        file.write("local_models: {openvino_dir: from_the_file}\n")
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
     dotenv = tmp_path / ".env"
     dotenv.write_text(
@@ -157,8 +166,9 @@ def test_the_sources_win_in_their_order(
     assert int(retrieve["rrf_k"]) == 64  # constructor > environment
     assert int(rerank["top_k"]) == 4  # environment > .env
     assert int(retrieve["top_k"]) == 8  # .env > the workflow file
-    assert s.es_index == "from_the_file"  # the workflow file > the class default
-    assert s.model_workers == 4  # the class default
+    # The workflow file > the class default, which keeps the block's other keys.
+    assert s.local_models.openvino_dir == "from_the_file"
+    assert s.local_models.workers == 4  # the class default
     assert retrieve["retrieval_mode"] == "dense"  # each source sets only its keys
 
 
@@ -191,7 +201,7 @@ def test_a_file_without_a_graph_is_refused_naming_it(
     tmp_path: Path,
 ) -> None:
     workflow = tmp_path / "workflow.yaml"
-    workflow.write_text("es_index: passages\n", encoding="utf-8")
+    workflow.write_text("http: {retries: 0}\n", encoding="utf-8")
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
 
     with pytest.raises(ValidationError, match="graph"):
@@ -208,21 +218,21 @@ def test_thread_budget_inputs_default_to_find_out(
     monkeypatch.delenv("DOMINO_HARDWARE_TIER_ID", raising=False)
 
     s = settings_factory()
-    assert (s.model_cpus, *local_threads(s)) == (0, 0, 0)
+    assert (s.local_models.cpus, *local_threads(s)) == (0, 0, 0)
     assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("", "")
 
 
 def test_thread_budget_inputs_read_rag_env_and_domino_variables(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_MODEL_CPUS", "2.5")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__CPUS", "2.5")
     monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS", "3")
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__LOCAL__THREADS", "1")
     monkeypatch.setenv("DOMINO_API_PROXY", "http://localhost:8899")
     monkeypatch.setenv("DOMINO_HARDWARE_TIER_ID", "small-k8s")
 
     s = settings_factory()
-    assert (s.model_cpus, *local_threads(s)) == (2.5, 3, 1)
+    assert (s.local_models.cpus, *local_threads(s)) == (2.5, 3, 1)
     assert s.domino_api_proxy == "http://localhost:8899"
     assert s.domino_hardware_tier_id == "small-k8s"
 
@@ -246,7 +256,7 @@ def test_domino_variables_can_be_passed_by_field_name(
 @pytest.mark.parametrize(
     "field",
     [
-        "model_cpus",
+        "local_models__cpus",
         "components__embedder__local__threads",
         "components__reranker__local__threads",
     ],
@@ -261,7 +271,7 @@ def test_negative_thread_budget_inputs_are_rejected(
 def test_each_value_names_the_variable_it_is_read_from() -> None:
     path = ("components", "reranker", "local", "threads")
     assert RagSettings.variable_of(*path) == "RAG_COMPONENTS__RERANKER__LOCAL__THREADS"
-    assert RagSettings.variable_of("model_cpus") == "RAG_MODEL_CPUS"
+    assert RagSettings.variable_of("local_models", "cpus") == "RAG_LOCAL_MODELS__CPUS"
     assert RagSettings.variable_of("domino_api_proxy") == "DOMINO_API_PROXY"
 
 

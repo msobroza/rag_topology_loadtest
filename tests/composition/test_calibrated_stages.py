@@ -59,10 +59,10 @@ def four_thread_settings(
 ) -> RagSettings:
     """torch, 4 CPUs, 1 worker: each model's share of the budget is 4 threads."""
     return settings_factory(
-        local_model_runtime="torch",
-        model_cpus=4,
-        model_workers=1,
-        vector_store_backend="fake",
+        local_models__runtime="torch",
+        local_models__cpus=4,
+        local_models__workers=1,
+        components__vector_store__backend="fake",
         components__llm__backend="fake",
         **overrides,
     )
@@ -170,7 +170,7 @@ async def test_the_calibration_limits_come_from_the_settings(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     settings = four_thread_settings(
-        settings_factory, calibration_budget_s=1e-9, calibration_rounds=3
+        settings_factory, calibration__budget_s=1e-9, calibration__rounds=3
     )
     reranker = await open_reranker(settings, caplog)
 

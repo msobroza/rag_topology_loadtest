@@ -18,14 +18,13 @@ import tomllib
 from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
-from typing import get_args
 
 from rag_load_test.composition.openers.component_openers import (
     EMBEDDER_OPENERS,
     LLM_OPENERS,
     RERANKER_OPENERS,
+    VECTOR_STORE_OPENERS,
 )
-from rag_load_test.domain.backends import VectorStoreBackend
 from repo_paths import REPO_ROOT
 
 PACKAGE = REPO_ROOT / "src" / "rag_load_test"
@@ -256,15 +255,14 @@ ADAPTERS = PACKAGE / "adapters"
 # serves both (the owner's decision: two directories would hold one class twice).
 SHARED_DIRECTORIES = {"served": "api"}
 # Component package -> its port classes, and the Backend values that name its
-# implementation directories: those registered for a model component's type,
-# and the vector store's closed set.
+# implementation directories: those registered for each component type.
 COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
     "embedder": ({"BaseEmbedder"}, EMBEDDER_OPENERS.names()),
     "reranker": ({"BaseReranker"}, RERANKER_OPENERS.names()),
     "llm": ({"BaseLLM"}, LLM_OPENERS.names()),
     "vector_store": (
         {"BaseVectorStore", "BaseLexicalSearch"},
-        get_args(VectorStoreBackend),
+        VECTOR_STORE_OPENERS.names(),
     ),
 }
 

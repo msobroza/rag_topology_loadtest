@@ -38,10 +38,11 @@ def test_a_component_has_its_own_values_and_the_default_for_the_rest(
 def test_the_default_is_set_once_for_every_component(
     settings_factory: SettingsFactory,
 ) -> None:
-    settings = settings_factory(http_timeout_s=5.0, http_retries=0, http_backoff_s=0.0)
+    settings = settings_factory(http={"timeout_s": 5.0, "retries": 0, "backoff_s": 0})
     http = HttpResources(settings, ResourceScope("test"))
 
-    policies = {name: http.policy_of(c) for name, c in settings.components.items()}
+    models = settings.model_components().items()
+    policies = {name: http.policy_of(c) for name, c in models}
 
     assert policies == {
         "embedder": HttpPolicy(timeout_s=5.0, retries=0, backoff_s=0.0),

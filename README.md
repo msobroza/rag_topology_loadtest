@@ -179,7 +179,7 @@ src/rag_load_test/
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
-    backends.py     the vector store's Backend names, the Runtime names, two defaults
+    backends.py     the Runtime names, and the default Backends the run label is measured against
     topology.py     the workflow app's topology rule: backends per topology (local or served), placed_backend; topology_that_moves_nothing, what the deploy tool tells it
     run_label.py    the run label: its default for a configuration, what a valid one is
     roles.py        the Role each App is published as (Role, AppPart, ModelServerKind), MODEL_SERVER_ROUTES: what a model server App can serve, and on which route
@@ -202,8 +202,9 @@ src/rag_load_test/
       is_query_mode.py  is_query_mode: whether the request goes on to generate
     ingest.py       embed passages in batches and upsert them
   config/           the settings; imports domain only
-    rag_settings.py RagSettings: the components and the graph of the workflow file, every other RAG_* variable and tunable (pydantic-settings, .env and workflow file aware)
-    component_settings.py  ComponentSettings and each type's (EmbedderSettings, ...): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api)
+    rag_settings.py RagSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology, the run label, Domino's own run variables (pydantic-settings, .env and workflow file aware)
+    component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
+    shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
     workflow.yaml   the workflow file that ships with the code: the RAG's components and graph, used when no other is found
     workflow_file.py  workflow_file (RAG_WORKFLOW_FILE, else ./workflow.yaml, else the packaged one), the settings source that reads it, declared_alias
   adapters/         the ports and their implementations, nothing else (rule 4)
@@ -240,11 +241,11 @@ src/rag_load_test/
         fake_llm.py  FakeLLM: an echo
     vector_store/   the vector store
       base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
-      elasticsearch/  RAG_VECTOR_STORE_BACKEND=elasticsearch
+      elasticsearch/  backend: elasticsearch
         elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
-      chroma/       RAG_VECTOR_STORE_BACKEND=chroma
+      chroma/       backend: chroma
         chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
-      fake/         RAG_VECTOR_STORE_BACKEND=fake
+      fake/         backend: fake
         in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
   infrastructure/   technical code that implements no port; imports itself and domain only
     endpoint/       what every api implementation shares, on the served and api backends
@@ -258,7 +259,7 @@ src/rag_load_test/
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
       stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate, keep the fastest
-      cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
+      cpu_count.py  where the CPU count comes from: RAG_LOCAL_MODELS__CPUS, the Domino hardware tier, the container
     http/           what every adapter that calls out shares
       http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
       json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
@@ -374,7 +375,7 @@ declares several), and upserts by passage id (idempotent); `rag-ingest --corpus 
 No Elasticsearch, model weights or generation API key at hand? Every backend has a `fake`:
 
 ```bash
-RAG_COMPONENTS__EMBEDDER__BACKEND=fake RAG_COMPONENTS__RERANKER__BACKEND=fake RAG_COMPONENTS__LLM__BACKEND=fake RAG_VECTOR_STORE_BACKEND=fake make serve
+RAG_COMPONENTS__EMBEDDER__BACKEND=fake RAG_COMPONENTS__RERANKER__BACKEND=fake RAG_COMPONENTS__LLM__BACKEND=fake RAG_COMPONENTS__VECTOR_STORE__BACKEND=fake make serve
 ```
 
 serves the same routes from an in-memory store seeded with the 200 synthetic
@@ -579,6 +580,9 @@ components:
     backend: api
     api: {url: https://api.openai.com/v1/chat/completions, api_format: openai, model: gpt-4o-mini}
     http: {timeout_s: 120}
+  vector_store:
+    backend: elasticsearch
+    elasticsearch: {url: "http://localhost:9200", index: rag_passages}
 graph:
   stages:
     embed:    {call: embedder}
@@ -593,35 +597,42 @@ graph:
 ```
 
 A component can take any name. Its type is the port it is used through,
-`embedder`, `reranker` or `llm`, and defaults to its name, so a second
-component of one type names it: `coarse: {type: reranker, backend: local,
-source_id: ...}`, which a second rerank stage calls with `call: coarse`. The
-vector store is not declared in the file yet: a stage calls it as
-`vector_store`, and the `RAG_VECTOR_STORE_BACKEND`, `RAG_ES_*` and
-`RAG_CHROMA_*` variables set it.
+`embedder`, `reranker`, `llm` or `vector_store`, and defaults to its name, so a
+second component of one type names it: `coarse: {type: reranker, backend:
+local, source_id: ...}`, which a second rerank stage calls with `call:
+coarse`. The vector store is a component like the models: its backend is named
+after its product, `elasticsearch` or `chroma`, or is `fake`, each with its
+block, and `rag-ingest` fills the one the file declares.
 
 | Component type | Key | In the packaged file | Meaning |
 | --- | --- | --- | --- |
-| every type | `backend` | `local`, `local`, `api` | how it runs, one of the openers registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. `RAG_TOPOLOGY` moves the components named `embedder` and `reranker` from `local` to `served` |
-| every type | `type` | not written: the component's name | `embedder` \| `reranker` \| `llm` |
-| every type | `source_id` | the two models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
-| every type | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
+| every type | `backend` | `local`, `local`, `api`, `elasticsearch` | how it runs, one of the openers registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. `RAG_TOPOLOGY` moves the components named `embedder` and `reranker` from `local` to `served` |
+| every type | `type` | not written: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` |
+| every model | `source_id` | the two models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
+| every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
 | `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
 | `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | passages per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_passages` |
 | `reranker` | `local.calibration_passages` | not written: `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
-| every type | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `rag-serve --domino` and no key elsewhere |
+| every model | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `rag-serve --domino` and no key elsewhere |
 | `embedder` | `served.batch_size` | not written: `64` | texts per model-server request (>= 1) |
 | `llm` | `served.temperature` | not written: `0` | sampling temperature, 0 to 2 |
-| every type | `api.url` | the LLM's: OpenAI's chat route | the full route of an endpoint we do not run, e.g. `https://api.cohere.com/v2/rerank`; required with the `api` backend |
-| every type | `api.api_format` | not written: `openai`, `cohere`, `openai` | the request and response shapes the route speaks |
-| every type | `api.model` | the LLM's: `gpt-4o-mini` | the model name sent; empty = the component's alias |
-| every type | `api.api_key` | never written | from the environment only: empty = no `Authorization` header; `domino` = the Domino run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a bearer token |
+| every model | `api.url` | the LLM's: OpenAI's chat route | the full route of an endpoint we do not run, e.g. `https://api.cohere.com/v2/rerank`; required with the `api` backend |
+| every model | `api.api_format` | not written: `openai`, `cohere`, `openai` | the request and response shapes the route speaks |
+| every model | `api.model` | the LLM's: `gpt-4o-mini` | the model name sent; empty = the component's alias |
+| every model | `api.api_key` | never written | from the environment only: empty = no `Authorization` header; `domino` = the Domino run's token from `domino.token_url`; anything else = a bearer token |
 | `embedder` | `api.batch_size` | not written: `64` | texts per endpoint request (>= 1) |
 | `llm` | `api.temperature` | not written: `0` | sampling temperature, 0 to 2 |
-| every type | `http.timeout_s` | the LLM's: `120`; not written for the others: `RAG_HTTP_TIMEOUT_S` (`30`) | timeout of one request to the component's endpoint on `served` or `api` (> 0), and of the Domino token fetched for it; the LLM's is longer, since an answer takes longer than a model-server call |
-| every type | `http.retries` | not written: `RAG_HTTP_RETRIES` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries the Domino run token; any other 4xx fails at once |
-| every type | `http.backoff_s` | not written: `RAG_HTTP_BACKOFF_S` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
+| every model | `http.timeout_s` | the LLM's: `120`; not written for the others: the top-level `http.timeout_s` (`30`) | timeout of one request to the component's endpoint on `served` or `api` (> 0), and of the Domino token fetched for it; the LLM's is longer, since an answer takes longer than a model-server call |
+| every model | `http.retries` | not written: the top-level `http.retries` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries the Domino run token; any other 4xx fails at once |
+| every model | `http.backoff_s` | not written: the top-level `http.backoff_s` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
+| `vector_store` | `elasticsearch.url` | `http://localhost:9200` | the cluster; `http://user:password@host:9200` for basic auth |
+| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages |
+| `vector_store` | `elasticsearch.api_key` | never written | from the environment only (`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`): an Elasticsearch API key, the alternative to basic auth; empty = none |
+| `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
+| `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
+| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`, `rag_passages` | the folder of the embedded Chroma store, and the collection holding the passages |
+| `vector_store` | `fake.seed_documents` | not written: `200` | synthetic documents seeded into the `fake` store when it opens (>= 1) |
 
 A key the type does not have, a block of a backend it does not have included
 (an LLM's `local`), is refused at start-up naming the key and the type's keys.
@@ -630,15 +641,47 @@ The `http` block says how patiently the workflow app calls a component on
 `served` or `api`. It belongs to the component, not to one backend: a
 topology that moves a component from `local` to `served` keeps it, and a
 component on another backend ignores it. Each value it leaves out is the
-default every component shares, `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES` and
-`RAG_HTTP_BACKOFF_S`, so setting one of these changes it for every component
-that does not set its own. With every default in place the embedder and the
-reranker wait 30 s per request and the LLM 120 s, and each makes up to three
-requests, 0.2 s then 0.4 s apart:
+default every component shares, the workflow file's top-level `http` block
+(`RAG_HTTP__TIMEOUT_S`, `RAG_HTTP__RETRIES`, `RAG_HTTP__BACKOFF_S`), so
+setting one of these changes it for every component that does not set its
+own. With every default in place the embedder and the reranker wait 30 s per
+request and the LLM 120 s, and each makes up to three requests, 0.2 s then
+0.4 s apart:
 
 ```bash
 RAG_COMPONENTS__LLM__HTTP__RETRIES=0 make serve   # the LLM: one request, no retry
-RAG_HTTP_RETRIES=0 make serve   # no retry for every component that sets none
+RAG_HTTP__RETRIES=0 make serve   # no retry for every component that sets none
+```
+
+What several components share is four more top-level blocks of the file, each
+named after what it is about. The packaged file writes none of them, so each
+value is the default below; a workflow file may write any of them, and a
+variable named by its path wins over the file:
+
+```yaml
+local_models: {runtime: openvino, openvino_dir: models/openvino, workers: 4, cpus: 0}
+calibration:  {budget_s: 90, rounds: 1}
+http:         {timeout_s: 30, retries: 2, backoff_s: 0.2}
+domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240, tracing: false}
+```
+
+| Block | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| `local_models` | `runtime` | `openvino` | what runs the in-process models, those of the components on `local`: `openvino` \| `torch` |
+| `local_models` | `openvino_dir` | `models/openvino` | where `rag-export-openvino` writes and the `openvino` runtime looks first, one folder per model |
+| `local_models` | `workers` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time (>= 1) |
+| `local_models` | `cpus` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
+| `calibration` | `budget_s` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
+| `calibration` | `rounds` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
+| `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the packaged LLM sets `120`); also the timeout of the hardware-tier lookup |
+| `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
+| `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
+| `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `rag-serve --domino`, and for an `api` key set to `domino` |
+| `domino` | `token_ttl_s` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
+| `domino` | `tracing` | `false` | wrap the workflow run with Domino `add_tracing` |
+
+```bash
+RAG_LOCAL_MODELS__RUNTIME=torch RAG_LOCAL_MODELS__CPUS=4 make serve
 ```
 
 | Stage | Setting | In the packaged file | Meaning |
@@ -735,31 +778,11 @@ before the app serves, with one line in the server's log.
 | --- | --- | --- |
 | `RAG_TOPOLOGY` | `monolith` | `monolith` \| `split-reranker` \| `split-all`; decides the backends of the components named `embedder` and `reranker` while the file gives them `local` (`local`/`local`, `local`/`served`, `served`/`served`); echoed as `topology` and `X-RAG-Topology` |
 | `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: the topology plus `+embedding=`, `+rerank=`, `+store=`, `+generation=` and `+retrieval=` for each choice off its default, in that order (e.g. `monolith+rerank=none`, `split-all+generation=fake`, `monolith+retrieval=hybrid`); letters, digits and `._+=:-`, 1 to 128 characters |
-| `RAG_LOCAL_MODEL_RUNTIME` | `openvino` | what runs the in-process models: `openvino` \| `torch` |
-| `RAG_OPENVINO_MODELS_DIR` | `models/openvino` | where `rag-export-openvino` writes and the `openvino` runtime looks first, one folder per model |
 | `RAG_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory and the packaged one (environment only, not `.env`) |
-| `RAG_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `RAG_COMPONENTS__RERANKER__LOCAL__THREADS` or `RAG_COMPONENTS__LLM__API__API_KEY` (see the workflow file above) |
+| `RAG_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `RAG_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_COMPONENTS__LLM__API__API_KEY` or `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `RAG_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `RAG_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
-| `RAG_VECTOR_STORE_BACKEND` | `elasticsearch` | `elasticsearch` \| `chroma` \| `fake` (in-memory, seeded with the synthetic corpus at start-up) |
-| `RAG_CHROMA_URL` | `` | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `RAG_CHROMA_PATH` |
-| `RAG_CHROMA_PATH` | `chroma` | folder of the embedded Chroma store |
-| `RAG_CHROMA_COLLECTION` | `rag_passages` | Chroma collection holding the passages |
-| `RAG_ES_URL` | `http://localhost:9200` | `http://user:password@host:9200` for basic auth |
-| `RAG_ES_API_KEY` | `` | Elasticsearch API key (alternative to basic auth) |
-| `RAG_ES_INDEX` | `rag_passages` | Elasticsearch index holding the passages |
-| `RAG_ES_TEXT_ANALYZER` | `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
-| `RAG_DOMINO_TRACING` | `false` | wrap the workflow run with Domino `add_tracing` |
-| `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
-| `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
-| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
-| `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
-| `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
-| `RAG_HTTP_TIMEOUT_S` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the packaged LLM sets `120`); also the timeout of the hardware-tier lookup |
-| `RAG_HTTP_RETRIES` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
-| `RAG_HTTP_BACKOFF_S` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
-| `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `rag-serve --domino`, and for an `api` key set to `domino` |
-| `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
-| `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
+| `RAG_LOCAL_MODELS__...`, `RAG_CALIBRATION__...`, `RAG_HTTP__...`, `RAG_DOMINO__...` | from the workflow file, else the defaults | one value of a block the components share, named by its path, such as `RAG_LOCAL_MODELS__CPUS` or `RAG_DOMINO__TRACING` (see the shared blocks above) |
+| `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | Domino's own run variables, not settings of ours: read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | `20`, `10` | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the defaults are the packaged workflow file's sizes, and the workflow app no longer reads either |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
@@ -769,9 +792,11 @@ before the app serves, with one line in the server's log.
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 
-Every tunable is a field of `RagSettings` in `config/rag_settings.py`, a
-setting of a component, or a setting of a stage of its graph; adapters get the
-values as constructor arguments from the `composition/` package. Sources win in
+Every tunable is a setting of a component, a setting the components share,
+or a setting of a stage of the graph, each read from the workflow file and its
+environment path; only the topology and the run label are flat. They are the
+fields of `RagSettings` in `config/rag_settings.py`; adapters get the values as
+constructor arguments from the `composition/` package. Sources win in
 the order the workflow file's section gives. An invalid topology, runtime or
 component type, a bad run label, a temperature outside 0 to 2, a component on
 the `served` or `api` backend whose URL (`served.url` or `api.url`, the block
@@ -814,24 +839,32 @@ any more by the workflow app:
 | `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | the components' aliases (`RAG_COMPONENTS__EMBEDDER__ALIAS`, `RAG_COMPONENTS__RERANKER__ALIAS`), the model name a `served` component sends |
 | `RAG_OVMS_AUTH` (one for both) | none: a `served` component is called with the run token under `rag-serve --domino` and with no key elsewhere |
 | a model server of ours on the `api` backend: `RAG_COMPONENTS__EMBEDDER__API__URL`, `RAG_COMPONENTS__RERANKER__API__URL`, their key defaulted to `domino` by `rag-serve --domino` | the `served` backend: `RAG_COMPONENTS__EMBEDDER__SERVED__URL`, `RAG_COMPONENTS__RERANKER__SERVED__URL`; `api` is an endpoint we do not run, and `--domino` no longer changes its key |
-| the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each `RAG_HTTP_*` when not written; the LLM's `120` is written in the packaged workflow file, and a workflow file that gives its LLM none calls it with `RAG_HTTP_TIMEOUT_S` |
+| the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each the top-level `http` block's when not written; the LLM's `120` is written in the packaged workflow file, and a workflow file that gives its LLM none calls it with `RAG_HTTP__TIMEOUT_S` |
 | `RAG_LLM_BACKEND` (`openai` \| `fake`) | `RAG_COMPONENTS__LLM__BACKEND` (`api` \| `fake`) |
+| `RAG_VECTOR_STORE_BACKEND` | the vector store component's `backend` (`RAG_COMPONENTS__VECTOR_STORE__BACKEND`) |
+| `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
+| `RAG_CHROMA_URL`, `RAG_CHROMA_PATH`, `RAG_CHROMA_COLLECTION` | its `chroma` block: `RAG_COMPONENTS__VECTOR_STORE__CHROMA__URL`, `__PATH`, `__COLLECTION` |
+| `RAG_FAKE_STORE_SEED_DOCUMENTS` | its `fake` block: `RAG_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS` |
+| `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `RAG_LOCAL_MODELS__RUNTIME`, `RAG_LOCAL_MODELS__OPENVINO_DIR`, `RAG_LOCAL_MODELS__WORKERS`, `RAG_LOCAL_MODELS__CPUS` |
+| `RAG_CALIBRATION_BUDGET_S`, `RAG_CALIBRATION_ROUNDS` | the `calibration` block: `RAG_CALIBRATION__BUDGET_S`, `RAG_CALIBRATION__ROUNDS` |
+| `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` | the top-level `http` block: `RAG_HTTP__TIMEOUT_S`, `RAG_HTTP__RETRIES`, `RAG_HTTP__BACKOFF_S` |
+| `RAG_DOMINO_TOKEN_URL`, `RAG_DOMINO_TOKEN_TTL_S`, `RAG_DOMINO_TRACING` | the `domino` block: `RAG_DOMINO__TOKEN_URL`, `RAG_DOMINO__TOKEN_TTL_S`, `RAG_DOMINO__TRACING` |
 | `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `RAG_COMPONENTS__LLM__API__MODEL`, `RAG_COMPONENTS__LLM__API__TEMPERATURE` |
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `RAG_COMPONENTS__LLM__API__URL` (the full route), `RAG_COMPONENTS__LLM__API__API_KEY` |
 | backends `ovms`, `openai`, `cohere` | backend `served` for a model server of ours (OVMS among them), `api` for an endpoint in an API format |
 | `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `api` block instead; the BM25 tunables have no replacement |
 
 **Thread budget.** When the first in-process model loads, the process counts its
-virtual CPUs: `RAG_MODEL_CPUS` if positive; on Domino, the `cores` of the run's
+virtual CPUs: `RAG_LOCAL_MODELS__CPUS` if positive; on Domino, the `cores` of the run's
 hardware tier from `GET $DOMINO_API_PROXY/api/hardwaretiers/v1/hardwaretiers/$DOMINO_HARDWARE_TIER_ID`
 (a 403 without `ViewHardwareTiers` only logs a warning); otherwise the
 container's CPUs (`joblib.cpu_count()`, which honours the cgroup quota). How
-the whole CPUs are used depends on `RAG_LOCAL_MODEL_RUNTIME`. Under `openvino`
+the whole CPUs are used depends on `RAG_LOCAL_MODELS__RUNTIME`. Under `openvino`
 one model call runs at a time and each model uses every CPU (8 CPUs: 1 worker x
 8 threads): an OpenVINO model fixes its threads when it loads and holds one
 inference request, so a second call on it while one runs fails with `Infer
 Request is busy`. Under `torch` the CPUs are split as
-`workers = min(RAG_MODEL_WORKERS, cpus)` and `threads = cpus // workers` per
+`workers = min(RAG_LOCAL_MODELS__WORKERS, cpus)` and `threads = cpus // workers` per
 call (8 CPUs: 4 workers x 2 threads), each model call running inside a
 threadpoolctl scope of that size. A non-zero `local.threads` of a component
 (`RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS`) replaces that model's threads under
@@ -850,8 +883,8 @@ embedder try the budget's share, then half of it, down to 1. The embedder's batc
 searched: a query is one text. Batch sizes are timed first, on the budget's
 share, then each smaller thread count with the best batch size: a load is the
 expensive part. Each candidate serves one untimed warm-up request, then
-`RAG_CALIBRATION_ROUNDS` timed ones, through the same adapter a real request
-uses. It costs start-up time, up to `RAG_CALIBRATION_BUDGET_S` per stage (plus
+`RAG_CALIBRATION__ROUNDS` timed ones, through the same adapter a real request
+uses. It costs start-up time, up to `RAG_CALIBRATION__BUDGET_S` per stage (plus
 the trial running when it runs out); no new App instance is needed. The result
 is one `stage_calibrated` JSON log line per stage: the choice, every trial and
 its seconds, the time spent, and whether the budget cut the search short.
@@ -876,17 +909,17 @@ calibration does not time them together.
 hardware tier that holds the models. It calibrates the component `--only`
 names, else every embedder and reranker of the workflow file, and loads each
 in-process model as an App would (the component's `source_id`,
-`RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, the thread budget),
+`RAG_LOCAL_MODELS__RUNTIME`, `RAG_LOCAL_MODELS__OPENVINO_DIR`, the thread budget),
 whatever its backend or the topology says. It
 searches every parameter, even one already pinned: revisiting it is the point.
-`RAG_CALIBRATION_BUDGET_S` and `RAG_CALIBRATION_ROUNDS` apply as set. Standard
+`RAG_CALIBRATION__BUDGET_S` and `RAG_CALIBRATION__ROUNDS` apply as set. Standard
 output holds only `.env` lines: one comment per component, then the
 environment paths of its `local` block that pin the choice. The logs go to
 standard error.
 
 ```bash
 make calibrate                                  # rag-calibrate: every embedder and reranker
-RAG_CALIBRATION_ROUNDS=3 RAG_CALIBRATION_BUDGET_S=600 rag-calibrate --only reranker
+RAG_CALIBRATION__ROUNDS=3 RAG_CALIBRATION__BUDGET_S=600 rag-calibrate --only reranker
 ```
 
 On a 2-CPU machine under `openvino` it printed this in 96 s (GCP sitting of
@@ -935,9 +968,9 @@ are refused at start-up.
 | `chroma` | cosine, HNSW | refused at start-up |
 | `fake` | brute-force cosine | a stand-in: passages ranked by how many distinct words they share with the question |
 
-**Chroma** (`RAG_VECTOR_STORE_BACKEND=chroma`, `pip install -e ".[chroma]"`).
-Embedded by default: a folder (`RAG_CHROMA_PATH`), no server to run, filled by
-`make ingest` like any store. `RAG_CHROMA_URL` points at a Chroma server instead.
+**Chroma** (`RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma`, `pip install -e ".[chroma]"`).
+Embedded by default: a folder (its `chroma.path`), no server to run, filled by
+`make ingest` like any store. Its `chroma.url` points at a Chroma server instead.
 Chroma serves dense retrieval only. Open-source Chroma filters text by substring
 but does not rank it (its ranked Search API is Chroma Cloud only), so a
 `lexical` or `hybrid` retrieve stage with `chroma` stops `rag-serve` at
@@ -975,9 +1008,9 @@ no table or list is edited.
 
 An `api` key is the same for every component: empty sends no `Authorization`
 header, `domino` sends the Domino run's token, anything else is sent as a
-bearer token. Every call times out (`RAG_HTTP_TIMEOUT_S`,
+bearer token. Every call times out (`RAG_HTTP__TIMEOUT_S`,
 `RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S` for generation) and is retried
-`RAG_HTTP_RETRIES` times on transport errors, 5xx and 429, and on 401 when it
+`RAG_HTTP__RETRIES` times on transport errors, 5xx and 429, and on 401 when it
 carries the run token (after the token is fetched again); any other 4xx fails
 at once. A `served` or `api` embedder or reranker reports ready in `/readyz`
 after one real minimal request to its endpoint, sent once without retry; on a
@@ -1030,11 +1063,13 @@ NLLP 2024: about 1,200 passages and 82 questions) and writes `DIR/corpus.jsonl`
 for `rag-ingest --corpus` and `DIR/questions.jsonl` for
 `RAG_LOADTEST_QUESTIONS_FILE`. Its source repository states no licence: research
 use, cite the paper, and commit none of it. With Elasticsearch, ingest it into
-an index created with `RAG_ES_TEXT_ANALYZER=french`.
+an index created with the `french` text analyzer.
 
 ```bash
 rag-fetch-corpus quebec-insurance --out data/quebec
-RAG_ES_INDEX=rag_quebec RAG_ES_TEXT_ANALYZER=french rag-ingest --corpus data/quebec/corpus.jsonl
+RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX=rag_quebec \
+  RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER=french \
+  rag-ingest --corpus data/quebec/corpus.jsonl
 RAG_LOADTEST_QUESTIONS_FILE=data/quebec/questions.jsonl make loadtest RUN_NAME=monolith-fr HOST=http://localhost:8888
 ```
 
@@ -1044,23 +1079,24 @@ RAG_LOADTEST_QUESTIONS_FILE=data/quebec/questions.jsonl make loadtest RUN_NAME=m
   created on the first `rag-ingest` with a dense-vector kNN mapping; documents
   hold `text`, `metadata` and the vector, and the `_id` is the passage id
   (`<doc id>:<chunk>`), so re-ingesting overwrites in place.
-* Auth: basic credentials inside `RAG_ES_URL` (`https://user:password@host:9200`)
-  or `RAG_ES_API_KEY`. Any Elasticsearch 8 or 9 cluster works; the compose file
+* Auth: basic credentials inside the `elasticsearch.url` of the vector store
+  (`https://user:password@host:9200`) or its `elasticsearch.api_key`, from the
+  environment only (`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`). Any Elasticsearch 8 or 9 cluster works; the compose file
   runs a single 9.0.0 node with security disabled, for development only.
 * Failures surface as `503 vector_store_unavailable`; `/readyz` reports
   `not_ready` while the index is missing or empty.
-* On Domino every workflow app points at one shared cluster (`RAG_ES_URL` in the
-  project's environment variables), so the corpus is ingested once. All
+* On Domino every workflow app points at one shared cluster (`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
+  in the project's environment variables), so the corpus is ingested once. All
   topologies embed with `snowflake-arctic-embed-l-v2.0` (in-process or its int8 OVMS
   export), so one index serves every run. Its vectors have 1024 dimensions: an
   index filled by an earlier embedder (384 for `bge-small-en-v1.5`) cannot take
-  them, so ingest into a new `RAG_ES_INDEX`.
+  them, so ingest into a new index (`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`).
 
 ## In-process models on OpenVINO
 
 The in-process embedder and reranker (the `local` backend, and what
 `rag-model-server` serves) run on OpenVINO by default
-(`RAG_LOCAL_MODEL_RUNTIME=openvino`); `torch` runs them on PyTorch as before.
+(`RAG_LOCAL_MODELS__RUNTIME=openvino`); `torch` runs them on PyTorch as before.
 Neither default model ships OpenVINO files on the Hub, so they are converted
 once:
 
@@ -1072,7 +1108,7 @@ rag-export-openvino --only reranker --models-dir /domino/datasets/local/<dataset
 `rag-export-openvino` converts the `source_id` of every embedder and reranker of
 the workflow file, or of the one `--only` names (`RAG_*` overrides honoured,
 such as `RAG_COMPONENTS__RERANKER__SOURCE_ID`), into one folder each under
-`RAG_OPENVINO_MODELS_DIR`, named after the last segment of the model id. A
+`RAG_LOCAL_MODELS__OPENVINO_DIR`, named after the last segment of the model id. A
 folder holds everything the model loads from, so it works with the network off.
 An export is written beside its target and swapped in at the end: a failed run
 leaves the previous export in place.
@@ -1165,7 +1201,7 @@ FastAPI model server answers on the same ones.
 
 Both map results back by `index` (an index outside the request, or a body that
 does not fit the shape, is a malformed response), never send a field as `null`,
-time out after `RAG_HTTP_TIMEOUT_S` (30 s) and retry `RAG_HTTP_RETRIES` (2)
+time out after `RAG_HTTP__TIMEOUT_S` (30 s) and retry `RAG_HTTP__RETRIES` (2)
 times on transport errors, 5xx and 429, and on 401 when the call carries the
 run token (the token is fetched again first); other 4xx fail immediately,
 including the 404 for a `model` that is not the server's alias. Readiness is one real minimal
@@ -1195,12 +1231,12 @@ of `deploy.example.yaml`.
 
 | Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
-| `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` (+ `RAG_ES_API_KEY`) | `rag` |
+| `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
 | `split-reranker` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | OVMS: `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `RAG_COMPONENTS__RERANKER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow + embedder | `workflow` | `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` | `rag` |
+| | **B** workflow + embedder | `workflow` | `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 | `split-all` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | as above | `ovms` / `rag` |
 | | **C** model server: embedder | `ovms-embedder` / `fastapi-embedder` | as above (FastAPI: weights from `RAG_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` | `rag` |
+| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 
 Both workflow app roles run `rag-serve --domino`. A role only defaults
 `RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and
@@ -1237,7 +1273,7 @@ set `RAG_OVMS_MODELS_DIR` there) and fill it from a Workspace with
 `./ovms/export_models.sh /mnt/data/ovms-models`, or upload the contents of a
 local `ovms/models/`. Apps inherit the project's Dataset mounts.
 
-**Elasticsearch and corpus.** Put `RAG_ES_URL` (and `RAG_ES_API_KEY`) of a cluster the
+**Elasticsearch and corpus.** Put `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (and `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) of a cluster the
 apps can reach in Project → Settings → Environment variables, then run `make ingest` once from a Workspace.
 
 **Publishing.** For each app (Apps → Publish): entry point
@@ -1288,7 +1324,7 @@ across the OVMS runs. Callers outside prefix every route with the App URL
 **Tracing and agent deployment.** Agent deployments use the same hosting as
 Apps (same `app.sh`, same `0.0.0.0:8888` rule) plus tracing through
 `add_tracing` from `dominodatalab[agents]` (the `[domino]` extra, in the `rag`
-image). With `RAG_DOMINO_TRACING=true` the workflow run behind both endpoints is
+image). With `RAG_DOMINO__TRACING=true` the workflow run behind both endpoints is
 wrapped with `add_tracing(name="rag_query", autolog_frameworks=["langchain"])`
 (`domino.aisystems.tracing`, falling back to `domino.agents.tracing`), so the
 LangGraph run and the generation call appear as traces; without the SDK the app logs
@@ -1318,7 +1354,7 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `401`/`403` from Locust | missing or expired `RAG_LOADTEST_BEARER_TOKEN` / `DOMINO_API_KEY`, or the app is not shared with that user |
 | `404` on `/query` | `HOST` lacks the App path prefix, or has a trailing slash |
 | `503 reranker_unavailable` / `embedder_unavailable` | model server app not ready (Dataset missing, wrong `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
-| `503 vector_store_unavailable` / `/readyz` not ready | `RAG_ES_URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
+| `503 vector_store_unavailable` / `/readyz` not ready | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
 | `rag-serve: error: ...` in a workflow app's log | a settings mistake: a `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL` missing for a component on the `served` backend, or an unknown backend or API format; the message names the variable and the fix |
 | `app.sh[...]: RAG_TOPOLOGY='...' is not served by this role` | the role and the topology disagree: `monolith` serves `monolith`, `workflow` serves `split-reranker` and `split-all` |
 | `app.sh[ovms-*]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `RAG_OVMS_MODELS_DIR` |
@@ -1367,7 +1403,7 @@ defaults:
   environment_id: env-123          # required: the compute environment's id (in its page's URL)
   environment_revision_id: rev-7   # optional: one build of env-123; "" = Domino chooses
   hardware_tier_id: small          # "" = the project's default tier
-  settings: {RAG_ES_URL: https://es.example:9200}
+  settings: {RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: https://es.example:9200}
 apps:
   workflow:
     kind: agent                    # the default for the workflow; model servers are apps
@@ -1380,7 +1416,7 @@ apps:
 
 `settings` are each App's environment variables (merged with the defaults', the
 App's winning; YAML numbers and booleans are exported as strings), for example
-`RAG_ES_URL`, `RAG_COMPONENTS__EMBEDDER__SOURCE_ID` / `RAG_COMPONENTS__RERANKER__SOURCE_ID` (a local folder such as
+`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__EMBEDDER__SOURCE_ID` / `RAG_COMPONENTS__RERANKER__SOURCE_ID` (a local folder such as
 `/domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0` works as well as a
 Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
 `/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
@@ -1392,7 +1428,7 @@ unless the settings set it. Secrets stay in
 Domino's project or user environment variables, because `settings` are written
 into the Apps' launch scripts. `rag-deploy` refuses, in any block, a setting
 whose name ends in `_API_KEY` (such as `RAG_COMPONENTS__LLM__API__API_KEY` or
-`RAG_ES_API_KEY`) unless its value is empty or `domino`, which names the run's
+`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) unless its value is empty or `domino`, which names the run's
 token and is not a secret. A misspelt key is refused with its name.
 
 **Topology aliases.** Where each component runs is a deployment matter, so the
@@ -1444,7 +1480,7 @@ to 128 characters). Each message names the value and what was expected.
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
 that field is the only API-level difference), `kind: app` with `STANDARD`. The
 workflow is an Agent unless told otherwise: its launch script also exports
-`RAG_DOMINO_TRACING=1` and `RAG_BOOTSTRAP_EXTRAS=domino` (unless its settings set
+`RAG_DOMINO__TRACING=1` and `RAG_BOOTSTRAP_EXTRAS=domino` (unless its settings set
 them), and `app.sh` then installs `.[domino]`, the extra that brings the tracing
 library. An existing App of the other kind is not converted: `rag-deploy` stops
 and says to delete it in Domino or change `kind`.
@@ -1595,7 +1631,7 @@ instance. Replace the placeholders once; the code itself does not change.
 | --- | --- |
 | `<domino-host>` | your Domino URL, e.g. `https://domino.example.com` |
 | `<registry>` | a registry Domino can pull environments from (only for step 1a) |
-| `RAG_ES_URL`, `RAG_ES_API_KEY` | project environment variables, every project |
+| `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY` | project environment variables, every project |
 | `RAG_COMPONENTS__LLM__API__API_KEY` (and `RAG_COMPONENTS__LLM__API__URL` for a gateway), or `RAG_COMPONENTS__LLM__BACKEND=fake` | project environment variables of the monolith and workflow projects |
 | `RAG_ROLE` | project environment variable, one value per project (see step 2) |
 | `RAG_COMPONENTS__RERANKER__SERVED__URL`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` | workflow project, set after step 5 publishes the model apps |
@@ -1623,14 +1659,14 @@ one project per app and set, in Project → Settings → Environment variables:
 
 | Project | `RAG_ROLE` | Environment | Other variables |
 | --- | --- | --- | --- |
-| `rag-monolith` | `monolith` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY` |
+| `rag-monolith` | `monolith` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY` |
 | `rag-ovms-reranker` | `ovms-reranker` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
 | `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
-| `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__RERANKER__SERVED__URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `RAG_RUN_LABEL` for a variant |
+| `rag-workflow` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__RERANKER__SERVED__URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `RAG_RUN_LABEL` for a variant |
 
-Skip the rows you do not test. Keep `RAG_DOMINO_TRACING` identical across projects
+Skip the rows you do not test. Keep `RAG_DOMINO__TRACING` identical across projects
 (unset, or `true` everywhere).
 
 **3. OVMS models Dataset (once, OVMS projects only).** In `rag-ovms-reranker`
@@ -1646,11 +1682,11 @@ project). DFS projects mount it at `/domino/datasets/local/ovms-models`: set
 `RAG_OVMS_MODELS_DIR` there. The FastAPI projects need no Dataset.
 
 **4. Index the corpus (once per Elasticsearch cluster).** From a Workspace in
-`rag-monolith` (`rag` environment, `RAG_ES_URL` set):
+`rag-monolith` (`rag` environment, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` set):
 
 ```bash
 make ingest                                         # 200 synthetic documents, local embedder
-curl -s "$RAG_ES_URL/rag_passages/_count"          # {"count":200,...}
+curl -s "$RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL/rag_passages/_count"   # {"count":200,...}
 ```
 
 Every app reads this one index; the serving embedder must be the one used here
@@ -1719,7 +1755,7 @@ them into a Dataset before stopping it.
 | remove generation latency | `RAG_COMPONENTS__LLM__BACKEND=fake` on the monolith and workflow projects |
 
 Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
-`RAG_DOMINO_TRACING` identical across the runs you compare.
+`RAG_DOMINO__TRACING` identical across the runs you compare.
 
 ## Development
 

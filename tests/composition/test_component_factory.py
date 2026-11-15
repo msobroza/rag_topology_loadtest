@@ -15,7 +15,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any
 
 import pytest
 
@@ -39,7 +39,6 @@ from rag_load_test.composition.openers.component_openers import (
 )
 from rag_load_test.composition.resource_scope import ResourceScope
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.backends import VectorStoreBackend
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.infrastructure.local_models.cpu_count import ContainerCpus
 from repo_paths import REPO_ROOT
@@ -49,7 +48,7 @@ OPENERS: dict[str, tuple[ComponentOpeners[Any, Any], tuple[str, ...]]] = {
     "embedder": (EMBEDDER_OPENERS, ("api", "fake", "local", "served")),
     "reranker": (RERANKER_OPENERS, ("api", "fake", "local", "none", "served")),
     "llm": (LLM_OPENERS, ("api", "fake", "served")),
-    "vector_store": (VECTOR_STORE_OPENERS, get_args(VectorStoreBackend)),
+    "vector_store": (VECTOR_STORE_OPENERS, ("chroma", "elasticsearch", "fake")),
 }
 
 
@@ -159,7 +158,8 @@ async def test_a_supplied_port_is_never_closed(
 ) -> None:
     # The elasticsearch opener closes the store it opens when the scope ends.
     settings = settings_factory(
-        components__embedder__backend="fake", vector_store_backend="elasticsearch"
+        components__embedder__backend="fake",
+        components__vector_store__backend="elasticsearch",
     )
     supplied = ClosingRecorderStore()
     async with CompositionRoot(settings, vector_store=supplied) as composition:
@@ -216,8 +216,8 @@ settings = RagSettings(
         "embedder": {"backend": "fake"},
         "reranker": {"backend": "reversed"},
         "llm": {"backend": "fake"},
+        "vector_store": {"backend": "fake"},
     },
-    vector_store_backend="fake",
     graph={"stages": {"retrieve": {"top_k": 5}, "rerank": {"top_k": 3}}},
 )
 with TestClient(create_app(CompositionRoot(settings))) as client:

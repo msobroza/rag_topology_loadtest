@@ -3,6 +3,8 @@
 A component takes any name and a stage calls it by that name: two rerankers of
 the workflow file, each on its own endpoint, are called by two rerank stages,
 each its own. The endpoints are an HTTP transport that answers in their place.
+The vector store is a component of the file too, its fake backend's seed size
+read from its block.
 """
 
 from __future__ import annotations
@@ -18,10 +20,11 @@ import yaml
 from fastapi.testclient import TestClient
 
 from rag_components import FAKE_BACKENDS
-from rag_graphs import packaged_graph
+from rag_graphs import packaged_components, packaged_graph, write_workflow_file
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW
+from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW, WORKFLOW_FILE_VARIABLE
+from rag_load_test.domain.corpus import chunk, synthetic_corpus
 from rag_load_test.entrypoints.rag_serve import create_app
 from repo_paths import REPO_ROOT
 
@@ -100,7 +103,7 @@ def test_the_packaged_file_builds_the_rag_from_its_three_model_components(
     monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__BACKEND", "fake")
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "fake")
     monkeypatch.setenv("RAG_COMPONENTS__LLM__BACKEND", "fake")
-    settings = settings_factory(vector_store_backend="fake")
+    settings = settings_factory(components__vector_store__backend="fake")
 
     with TestClient(create_app(CompositionRoot(settings))) as app:
         response = app.post("/query", json={"question": QUESTION})
@@ -110,6 +113,60 @@ def test_the_packaged_file_builds_the_rag_from_its_three_model_components(
     assert response.json()["answer"]
     checks = [check["name"] for check in ready.json()["checks"]]
     assert sorted(checks) == ["embedder", "reranker", "vector_store"]
+
+
+def passages_of(documents: int) -> int:
+    """How many passages the fake store holds once seeded with ``documents``."""
+    return sum(len(chunk(document)) for document in synthetic_corpus(documents))
+
+
+def write_file_with_store(
+    path: Path, monkeypatch: pytest.MonkeyPatch, name: str, store: dict[str, Any]
+) -> None:
+    """Write a workflow file of the packaged graph, every model on its fake, and ``store``.
+
+    The retrieve stage calls the store by ``name``; the file names it the file
+    to read.
+    """
+    models = {n: {**c, "backend": "fake"} for n, c in packaged_components().items()}
+    del models["vector_store"]
+    graph = packaged_graph()
+    graph["stages"]["retrieve"]["call"] = name
+    write_workflow_file(path, graph, {**models, name: store})
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(path))
+
+
+def test_the_vector_store_is_built_from_its_entry_in_the_workflow_file(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = {"backend": "fake", "fake": {"seed_documents": 3}}
+    write_file_with_store(
+        tmp_path / "workflow.yaml", monkeypatch, "vector_store", store
+    )
+
+    with TestClient(create_app(CompositionRoot(settings_factory()))) as app:
+        response = app.post("/retrieve", json={"question": QUESTION})
+        ready = app.get("/readyz").json()
+
+    assert response.status_code == 200, response.text
+    [check] = [c for c in ready["checks"] if c["name"] == "vector_store"]
+    assert check["detail"] == f"{passages_of(3)} passages in memory"
+
+
+def test_a_store_of_any_name_is_called_by_that_name_and_read_by_its_path(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = {"type": "vector_store", "backend": "fake", "fake": {"seed_documents": 3}}
+    write_file_with_store(tmp_path / "workflow.yaml", monkeypatch, "passages", store)
+    monkeypatch.setenv("RAG_COMPONENTS__PASSAGES__FAKE__SEED_DOCUMENTS", "5")
+
+    with TestClient(create_app(CompositionRoot(settings_factory()))) as app:
+        response = app.post("/retrieve", json={"question": QUESTION})
+        ready = app.get("/readyz").json()
+
+    assert response.status_code == 200, response.text
+    [check] = [c for c in ready["checks"] if c["name"] == "passages"]
+    assert check["detail"] == f"{passages_of(5)} passages in memory"
 
 
 def api_keys_in(node: object) -> list[str]:

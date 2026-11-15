@@ -129,8 +129,8 @@ def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     assert set(deploy) <= documented
     assert set(deploy["defaults"]) <= documented
     assert set(deploy["defaults"]["settings"]) == {
-        "RAG_ES_URL",
-        "RAG_OPENVINO_MODELS_DIR",
+        "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
+        "RAG_LOCAL_MODELS__OPENVINO_DIR",
         "RAG_OVMS_MODELS_DIR",
     }
 
@@ -149,8 +149,8 @@ def test_the_workspace_shell_sets_only_variables_the_project_reads() -> None:
     assert exported == {
         "DOMINO_API_PROXY",
         "DOMINO_PROJECT_ID",
-        "RAG_ES_URL",
-        "RAG_OPENVINO_MODELS_DIR",
+        "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
+        "RAG_LOCAL_MODELS__OPENVINO_DIR",
         "PATH",
     }
 

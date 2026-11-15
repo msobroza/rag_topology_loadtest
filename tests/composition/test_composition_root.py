@@ -35,13 +35,14 @@ from sentence_transformers_fakes import FakeSentenceTransformersModule
 SettingsFactory = Callable[..., RagSettings]
 EMBEDDER_WEIGHTS = "embedder:Snowflake/snowflake-arctic-embed-l-v2.0"
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
+UNREACHABLE_STORE = {"components__vector_store__elasticsearch__url": UNREACHABLE_ES}
 TOKEN_URL = "http://token.test/access-token"
 PINNED_THREADS = {  # no calibration
     "components__embedder__local__threads": 1,
     "components__reranker__local__threads": 1,
 }
 # Too small for a second trial: calibration keeps the thread budget's share.
-FIRST_CANDIDATES = {"calibration_budget_s": 1e-9}
+FIRST_CANDIDATES = {"calibration__budget_s": 1e-9}
 EMBED_URL = "http://embedder/v3/embeddings"
 RERANK_URL = "http://reranker/v3/rerank"
 
@@ -51,9 +52,9 @@ def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersMod
     module = FakeSentenceTransformersModule()
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
     # Under the default openvino runtime a first start exports each model into
-    # RAG_OPENVINO_MODELS_DIR; these tests are about the ports, so the models load
+    # RAG_LOCAL_MODELS__OPENVINO_DIR; these tests are about the ports, so the models load
     # by id. The runtimes and the export: test_composition_root_backends.py.
-    monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
     return module
 
 
@@ -120,8 +121,8 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
     settings = settings_factory(
         topology="split-all",  # both ports served by a model server of ours
         components__llm__backend="fake",
-        domino_token_url=TOKEN_URL,
-        http_timeout_s=7.5,
+        domino__token_url=TOKEN_URL,
+        http__timeout_s=7.5,
         components__embedder__served__url=EMBED_URL,
         components__reranker__served__url=RERANK_URL,
     )
@@ -159,7 +160,7 @@ async def test_api_embedder_batches_and_retries_as_configured(
     settings = settings_factory(
         components__embedder__backend="api",
         components__embedder__api__batch_size=2,
-        http_retries=0,
+        http__retries=0,
         components__embedder__api__url=EMBED_URL,
     )
     composition = CompositionRoot(
@@ -197,8 +198,8 @@ async def test_elasticsearch_store_opens_on_its_index_without_the_network(
 ) -> None:
     settings = settings_factory(
         components__embedder__backend="fake",
-        es_url=UNREACHABLE_ES,
-        es_index="passages_v2",
+        **UNREACHABLE_STORE,
+        components__vector_store__elasticsearch__index="passages_v2",
     )
     async with CompositionRoot(settings) as composition:
         store = (await composition.ingest_ports()).vector_store
@@ -207,9 +208,11 @@ async def test_elasticsearch_store_opens_on_its_index_without_the_network(
 
 
 async def test_fake_store_is_seeded_with_the_configured_document_count(
-    fake_settings: RagSettings,
+    settings_factory: SettingsFactory,
 ) -> None:
-    settings = fake_settings.model_copy(update={"fake_store_seed_documents": 12})
+    settings = settings_factory(
+        **FAKE_BACKENDS, components__vector_store__fake__seed_documents=12
+    )
     async with CompositionRoot(settings) as composition:
         store = (await composition.ingest_ports()).vector_store
         assert await store.count() == 12
@@ -226,7 +229,7 @@ async def test_the_llm_opens_before_any_weights_load(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     # local models, api generation
-    settings = settings_factory(es_url=UNREACHABLE_ES, **UNKNOWN_GENERATION_FORMAT)
+    settings = settings_factory(**UNREACHABLE_STORE, **UNKNOWN_GENERATION_FORMAT)
     async with CompositionRoot(settings) as composition:
         with pytest.raises(RagDependencyError, match="llm unavailable"):
             await composition.workflow_dependencies()
@@ -256,7 +259,7 @@ async def test_ingest_ports_load_only_the_embedder_weights(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     # local embedder and reranker
-    settings = settings_factory(es_url=UNREACHABLE_ES, **PINNED_THREADS)
+    settings = settings_factory(**UNREACHABLE_STORE, **PINNED_THREADS)
     async with CompositionRoot(settings) as composition:
         await composition.ingest_ports()
 
@@ -414,7 +417,9 @@ async def test_model_cpus_win_over_every_counter(
 ) -> None:
     container = FakeCpuCounter(8, "container")
     settings = settings_factory(
-        model_cpus=3, domino_api_proxy="http://proxy", domino_hardware_tier_id="t"
+        local_models__cpus=3,
+        domino_api_proxy="http://proxy",
+        domino_hardware_tier_id="t",
     )
     composition = CompositionRoot(
         settings, container_cpus=container
@@ -423,7 +428,8 @@ async def test_model_cpus_win_over_every_counter(
         await open_local_models(composition)
 
     line = thread_budget_line(caplog)
-    assert (line["source"], line["cpus"], line["workers"]) == ("RAG_MODEL_CPUS", 3, 3)
+    assert (line["source"], line["cpus"]) == ("RAG_LOCAL_MODELS__CPUS", 3)
+    assert line["workers"] == 3
     assert container.asked == 0
 
 

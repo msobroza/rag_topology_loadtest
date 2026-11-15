@@ -433,7 +433,7 @@ def test_the_example_file_lists_the_model_paths_once_for_every_app(
     settings = DeploySettings()
     for part in ("embedder", "reranker", "workflow"):
         assert {
-            "RAG_ES_URL",
+            "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
             "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
             "RAG_COMPONENTS__RERANKER__SOURCE_ID",
         } <= set(settings.for_app(part).settings)

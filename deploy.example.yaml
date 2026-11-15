@@ -4,7 +4,8 @@
 # the Apps: the Apps run domino/app.sh by that absolute path.
 #
 # Secrets do NOT go here: every `settings` value is written into an App's launch
-# script. Keep every API key (RAG_ES_API_KEY, RAG_COMPONENTS__LLM__API__API_KEY,
+# script. Keep every API key (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
+# RAG_COMPONENTS__LLM__API__API_KEY,
 # any bearer token for RAG_COMPONENTS__EMBEDDER__API__API_KEY or
 # RAG_COMPONENTS__RERANKER__API__API_KEY) in Domino's project or user environment
 # variables: rag-deploy refuses a setting ending with _API_KEY in this file
@@ -82,7 +83,7 @@ defaults:
   # variable its path names, its levels joined by __.
   settings:
     # Required: the Elasticsearch cluster every workflow App queries.
-    RAG_ES_URL: "https://<elasticsearch host>:9200"
+    RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: "https://<elasticsearch host>:9200"
     # The model paths (each component's source_id) are here, not per App,
     # because which App loads a model depends on the topology (the workflow
     # loads the embedder in split-reranker and both models in monolith). A
@@ -92,7 +93,7 @@ defaults:
     RAG_COMPONENTS__RERANKER__SOURCE_ID: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
     # Where rag-export-openvino wrote the in-process models (a model without a
     # folder there is converted in memory at every start):
-    # RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/<dataset>/openvino
+    # RAG_LOCAL_MODELS__OPENVINO_DIR: /domino/datasets/local/<dataset>/openvino
     # The folder holding config_reranker.json and config_embedder.json (ovms):
     # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 
@@ -104,7 +105,7 @@ defaults:
 # the defaults' settings, this block's winning).
 apps:
   # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
-  # An Agent also gets RAG_DOMINO_TRACING=1 and RAG_BOOTSTRAP_EXTRAS=domino unless
+  # An Agent also gets RAG_DOMINO__TRACING=1 and RAG_BOOTSTRAP_EXTRAS=domino unless
   # its settings set them.
   workflow:
     kind: agent
@@ -117,4 +118,4 @@ apps:
     kind: app
     # hardware_tier_id: <a tier with 16 cores>
     # settings:
-    #   RAG_MODEL_WORKERS: "2"  # torch runtime only; openvino runs one call at a time
+    #   RAG_LOCAL_MODELS__WORKERS: "2"  # torch runtime only; openvino runs one call at a time

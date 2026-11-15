@@ -110,8 +110,8 @@ settings = RagSettings(
         "embedder": {"backend": "fake"},
         "reranker": reranker,
         "llm": {"backend": "fake"},
+        "vector_store": {"backend": "fake"},
     },
-    vector_store_backend="fake",
     graph={"stages": {"retrieve": {"top_k": 5}, "rerank": {"top_k": 3}}},
 )
 composition = CompositionRoot(settings, transport=httpx.MockTransport(flat_endpoint))

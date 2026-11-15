@@ -284,12 +284,12 @@ def refuse_secrets(settings: DeploySettings) -> None:
 
     Raises:
         DominoDeployError: If a setting whose name ends with ``_API_KEY``
-            (``RAG_ES_API_KEY``, ``RAG_COMPONENTS__LLM__API__API_KEY``, ...)
+            (``RAG_COMPONENTS__LLM__API__API_KEY``, the vector store's key, ...)
             holds a value other than "" or ``domino``.
 
     Example:
         >>> refuse_secrets(DeploySettings())
-        DominoDeployError: RAG_ES_API_KEY ...
+        DominoDeployError: RAG_COMPONENTS__LLM__API__API_KEY ...
     """
     blocks = {f"apps.{part}": block for part, block in settings.apps.items()}
     for block_name, block in {"defaults": settings.defaults, **blocks}.items():

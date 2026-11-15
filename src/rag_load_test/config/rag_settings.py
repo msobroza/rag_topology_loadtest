@@ -1,33 +1,37 @@
 """Runtime configuration: the workflow file, ``RAG_*`` variables and a ``.env`` file.
 
 The workflow file declares the workflow: its ``components`` and its ``graph``
-(``workflow_file.py``). Each top-level key of the file is a field here, so each
-of its values has a variable, its path's levels joined by ``__``:
-``RAG_COMPONENTS__RERANKER__LOCAL__THREADS``,
-``RAG_GRAPH__STAGES__RERANK__TOP_K``. A component is named, has a type that
-defaults to its name, states its backend and has one block of settings per
-backend (``component_settings.py``). An API key is read from the environment,
+(``workflow_file.py``), and the settings the components share. Each top-level
+key of the file is a field here, so each of its values has a variable, its
+path's levels joined by ``__``: ``RAG_COMPONENTS__RERANKER__LOCAL__THREADS``,
+``RAG_GRAPH__STAGES__RERANK__TOP_K``, ``RAG_HTTP__RETRIES``. A component, the
+vector store as well as a model, is named, has a type that defaults to its
+name, states its backend and has one block of settings per backend
+(``component_settings.py``). The shared settings are four blocks named after
+what they are about, ``local_models``, ``calibration``, ``http`` and
+``domino`` (``shared_settings.py``). An API key is read from the environment,
 by its path, such as ``RAG_COMPONENTS__LLM__API__API_KEY``.
 
 ``RAG_TOPOLOGY`` places the components named ``embedder`` and ``reranker``:
 one on ``local`` is moved behind a model server of ours (``served``) when the
 topology says so (the rule lives in ``domain/topology.py``). A component on
 ``served`` or ``api`` without a URL, or a bad ``RAG_RUN_LABEL``, fails
-construction, so at start-up.
-The vector store and the settings the components share are still flat
-variables.
+construction, so at start-up. Domino's own run variables are read under the
+names Domino gives them.
 
 Example:
     >>> settings = RagSettings()  # from the env and the workflow file
     >>> settings = RagSettings(  # in tests: merged into the file's components
     ...     _env_file=None, components={"reranker": {"backend": "fake"}})
 
-Every tunable is a field here, a setting of a component or a setting of a
-stage in the graph, so one ``RAG_*`` variable changes it; adapters receive the
-values from the ``composition`` package and never read this module.
+Every tunable is a field here, a setting of a component, a shared setting or a
+setting of a stage in the graph, so one ``RAG_*`` variable changes it; adapters
+receive the values from the ``composition`` package and never read this module.
 """
 
 from __future__ import annotations
+
+from typing import TypeVar
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import (
@@ -36,12 +40,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from ..domain.backends import (
-    DEFAULT_GENERATION_BACKEND,
-    DEFAULT_VECTOR_STORE_BACKEND,
-    LocalModelRuntime,
-    VectorStoreBackend,
-)
+from ..domain.backends import DEFAULT_GENERATION_BACKEND, DEFAULT_VECTOR_STORE_BACKEND
 from ..domain.graph_description import GraphDescription
 from ..domain.retrieval_mode import DEFAULT_RETRIEVAL_MODE
 from ..domain.run_label import default_run_label, validate_run_label
@@ -52,16 +51,24 @@ from ..domain.topology import (
     placed_backend,
 )
 from .component_settings import (
-    VECTOR_STORE,
-    ChromaSettings,
+    Component,
     ComponentSettings,
-    ElasticsearchSettings,
-    FakeStoreSettings,
+    EmbedderSettings,
+    LlmSettings,
     ModelComponent,
+    RerankerSettings,
     VectorStoreSettings,
     typed_by_name,
 )
+from .shared_settings import (
+    CalibrationSettings,
+    DefaultHttpSettings,
+    DominoSettings,
+    LocalModelsSettings,
+)
 from .workflow_file import workflow_file, workflow_file_source
+
+C = TypeVar("C", bound=ComponentSettings)
 
 # Shown in the error for a backend called over HTTP without a URL: one route
 # per backend and type, a model server of ours or an endpoint we do not run.
@@ -112,59 +119,23 @@ class RagSettings(BaseSettings):
     # The workflow file's graph block: its stages with their own settings (the
     # retrieval mode, the sizes, the prompts), its edges and conditional edges.
     graph: GraphDescription
-    # The workflow file's components block: each model component by name, its
-    # backend, source id and alias, its settings and one block per backend.
-    components: dict[str, ModelComponent]
+    # The workflow file's components block: each model and the vector store by
+    # name, its backend, its settings and one block per backend.
+    components: dict[str, Component]
 
     # --- topology and run label ----------------------------------------------------
     topology: Topology = "monolith"
     # "" = the default run label (topology plus every choice off its default)
     run_label: str = ""
 
-    # --- vector store ----------------------------------------------------------------
-    # "fake" = in-memory store seeded with the synthetic corpus when the app starts
-    vector_store_backend: VectorStoreBackend = DEFAULT_VECTOR_STORE_BACKEND
-    es_url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
-    es_api_key: str = ""
-    es_index: str = "rag_passages"
-    # Analyzer of the passages' text, applied when the index is created and to
-    # every lexical query: "standard", or a language's (e.g. "french"). An
-    # index keeps the analyzer it was created with.
-    es_text_analyzer: str = "standard"
-    chroma_url: str = ""  # a Chroma server; "" = embedded Chroma at chroma_path
-    chroma_path: str = "chroma"
-    chroma_collection: str = "rag_passages"
-    # Same size as ``make ingest`` so a fake-store app answers like an ingested one.
-    fake_store_seed_documents: int = Field(default=200, ge=1)
+    # --- what the components share: top-level blocks of the workflow file ------------
+    local_models: LocalModelsSettings = Field(default_factory=LocalModelsSettings)
+    calibration: CalibrationSettings = Field(default_factory=CalibrationSettings)
+    http: DefaultHttpSettings = Field(default_factory=DefaultHttpSettings)
+    domino: DominoSettings = Field(default_factory=DominoSettings)
 
-    # --- in-process models and threads -----------------------------------------------
-    local_model_runtime: LocalModelRuntime = "openvino"  # openvino | torch
-    # Where the openvino runtime keeps its models, one folder each. A model
-    # without a folder there is downloaded and converted into it the first time
-    # it loads; rag-export-openvino fills it ahead of time.
-    openvino_models_dir: str = "models/openvino"
-    # Model calls running at once, max, under torch only; openvino runs one call
-    # at a time on every CPU (domain/thread_budget.py).
-    model_workers: int = Field(default=4, ge=1)
-    # Virtual CPUs the model calls share (domain/thread_budget.py): 0 = find
-    # out; > 0 wins over every other count.
-    model_cpus: float = Field(default=0, ge=0)
-    # Calibration of a local model (stage_calibration.py), per stage: no new
-    # candidate is started once this many seconds have passed.
-    calibration_budget_s: float = Field(default=90.0, gt=0)
-    # Timed requests per candidate, after one warm-up.
-    calibration_rounds: int = Field(default=1, ge=1)
-
-    # --- HTTP and Domino -------------------------------------------------------------
-    # The default of every call out: a component's own http block overrides
-    # each value for its calls (components.<name>.http).
-    http_timeout_s: float = Field(default=30.0, gt=0)
-    http_retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 429
-    http_backoff_s: float = Field(default=0.2, ge=0)  # before the 1st retry; doubles
-    domino_token_url: str = "http://localhost:8899/access-token"
-    domino_token_ttl_s: float = Field(default=240.0, gt=0)  # tokens live ~5 min
-    domino_tracing: bool = False
-    # Domino's own run variables, read here and nowhere else. Aliases never get
+    # --- Domino's own run variables --------------------------------------------------
+    # Not settings of ours: read here and nowhere else. Aliases never get
     # the RAG_ prefix; the lower-case choice keeps the field name usable as a kwarg.
     domino_api_proxy: str = Field(
         default="",
@@ -251,7 +222,7 @@ class RagSettings(BaseSettings):
                 start with ``http://`` or ``https://``; the message names the
                 variables, the value and an example.
         """
-        for name, component in self.components.items():
+        for name, component in self.model_components().items():
             url = _endpoint_url(component)
             if url is not None and not url.startswith(("http://", "https://")):
                 raise ValueError(self._missing_url_message(name, component, url))
@@ -271,7 +242,7 @@ class RagSettings(BaseSettings):
             ValueError: If a ``served`` component's alias is empty; the message
                 names the variables to set.
         """
-        for name, component in self.components.items():
+        for name, component in self.model_components().items():
             if component.backend == "served" and not component.alias:
                 backend = self.variable_of("components", name, "backend")
                 alias = self.variable_of("components", name, "alias")
@@ -313,43 +284,18 @@ class RagSettings(BaseSettings):
         prefix = str(cls.model_config.get("env_prefix", ""))
         return prefix + "__".join((field, *levels)).upper()
 
-    def vector_store_component(self) -> VectorStoreSettings:
-        """Return the vector store's settings, in a component's shape.
+    def model_components(self) -> dict[str, ModelComponent]:
+        """Return the components that are models, by name: every one but a store.
 
         Returns:
-            Its backend and one block per backend, from the flat variables.
+            The embedders, rerankers and LLMs of the workflow file, in its order.
 
         Example:
-            >>> RagSettings().vector_store_component().elasticsearch.index
-            'rag_passages'
+            >>> list(RagSettings().model_components())
+            ['embedder', 'reranker', 'llm']
         """
-        return VectorStoreSettings(
-            backend=self.vector_store_backend,
-            elasticsearch=ElasticsearchSettings(
-                url=self.es_url,
-                index=self.es_index,
-                api_key=self.es_api_key,
-                text_analyzer=self.es_text_analyzer,
-            ),
-            chroma=ChromaSettings(
-                url=self.chroma_url,
-                path=self.chroma_path,
-                collection=self.chroma_collection,
-            ),
-            fake=FakeStoreSettings(seed_documents=self.fake_store_seed_documents),
-        )
-
-    def all_components(self) -> dict[str, ComponentSettings]:
-        """Return every component a stage can call, by name: the vector store too.
-
-        Returns:
-            The model components of the workflow file, then ``vector_store``.
-
-        Example:
-            >>> list(RagSettings().all_components())
-            ['embedder', 'reranker', 'llm', 'vector_store']
-        """
-        return {**self.components, VECTOR_STORE: self.vector_store_component()}
+        models = (EmbedderSettings, RerankerSettings, LlmSettings)
+        return {n: c for n, c in self.components.items() if isinstance(c, models)}
 
     def component_types(self) -> dict[str, str]:
         """Return the type of every component a stage can call, by name.
@@ -361,7 +307,31 @@ class RagSettings(BaseSettings):
             >>> RagSettings().component_types()["vector_store"]
             'vector_store'
         """
-        return {name: c.type for name, c in self.all_components().items()}
+        return {name: c.type for name, c in self.components.items()}
+
+    def ingestion_store(self) -> str:
+        """Return the vector store that ingestion fills: the only one declared.
+
+        Returns:
+            The component's name.
+
+        Raises:
+            ValueError: If the workflow file declares no vector store or several.
+
+        Example:
+            >>> RagSettings().ingestion_store()
+            'vector_store'
+        """
+        stores = [
+            n for n, c in self.components.items() if isinstance(c, VectorStoreSettings)
+        ]
+        if len(stores) != 1:
+            known = ", ".join(map(repr, stores)) or "none"
+            raise ValueError(
+                "ingestion fills one vector store component, and the workflow "
+                f"file declares {len(stores)} (its vector stores: {known})"
+            )
+        return stores[0]
 
     def ingestion_embedder(self, name: str | None = None) -> str:
         """Return the embedder that fills the store: the one named, else the only one.
@@ -398,7 +368,7 @@ class RagSettings(BaseSettings):
             )
         return name or embedders[0]
 
-    def _placed(self, name: str, component: ModelComponent) -> ModelComponent:
+    def _placed(self, name: str, component: C) -> C:
         placed = _PLACED.get(name)
         if placed is None:
             return component
@@ -425,7 +395,7 @@ class RagSettings(BaseSettings):
             self.topology,
             embedding=backends.get("embedder", implied.embedding),
             rerank=backends.get("reranker", implied.rerank),
-            store=self.vector_store_backend,
+            store=backends.get("vector_store", DEFAULT_VECTOR_STORE_BACKEND),
             generation=backends.get("llm", DEFAULT_GENERATION_BACKEND),
             retrieval=self._retrieval_mode(),
         )

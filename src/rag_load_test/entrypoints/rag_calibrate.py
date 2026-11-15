@@ -17,7 +17,7 @@ The logs, ``stage_calibrated`` included, go to standard error, so standard
 output can be appended to ``.env`` as it is.
 
 Example:
-    $ RAG_CALIBRATION_ROUNDS=3 rag-calibrate --only reranker >> .env
+    $ RAG_CALIBRATION__ROUNDS=3 rag-calibrate --only reranker >> .env
 """
 
 from __future__ import annotations
@@ -87,7 +87,8 @@ def _search(report: CalibrationReport) -> str:
     noun = "candidate" if tried == 1 else "candidates"
     text = f"tried {tried} {noun} in {report.seconds:.1f} s"
     if report.cut_short:
-        text += f", cut short by RAG_CALIBRATION_BUDGET_S={report.budget_s:g}"
+        budget = RagSettings.variable_of("calibration", "budget_s")
+        text += f", cut short by {budget}={report.budget_s:g}"
     return text
 
 

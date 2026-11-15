@@ -55,7 +55,7 @@ def fake_weights(
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
     for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
         monkeypatch.delenv(name)
-    monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
+    monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
     monkeypatch.chdir(tmp_path)
     for server in (rag_serve, rag_model_server):
         monkeypatch.setattr(server.uvicorn, "run", never_serve)

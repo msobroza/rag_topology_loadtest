@@ -30,6 +30,7 @@ from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import (
     PACKAGED_WORKFLOW,
     WORKFLOW_FILE_VARIABLE,
+    unknown_keys,
 )
 
 
@@ -50,11 +51,22 @@ def settings_factory() -> Callable[..., RagSettings]:
     """RagSettings without reading a stray ``.env``; keyword overrides allowed.
 
     A keyword names a setting, or a value of the workflow file by its path
-    (``components__reranker__backend``); either is merged into the file.
+    (``components__reranker__backend``); either is merged into the file. A
+    top-level key that is no setting is refused: the settings would ignore it
+    silently, and a test that meant a backend set to fake under a name since
+    removed would run on the file's real backends.
     """
 
     def make(**overrides: object) -> RagSettings:
-        return RagSettings(_env_file=None, **settings_at_paths(**overrides))
+        values = settings_at_paths(**overrides)
+        unknown = unknown_keys(values, RagSettings)
+        if unknown:
+            raise TypeError(
+                f"settings_factory: {', '.join(map(repr, unknown))} is no setting; "
+                "expected a field of RagSettings or a path below one, such as "
+                "components__vector_store__backend"
+            )
+        return RagSettings(_env_file=None, **values)
 
     return make
 

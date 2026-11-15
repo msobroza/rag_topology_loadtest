@@ -1,7 +1,7 @@
 """``rag-export-openvino``: convert the in-process models to OpenVINO, once.
 
-The ``openvino`` runtime (``RAG_LOCAL_MODEL_RUNTIME``, the default) loads the
-folder this command writes for each model under ``RAG_OPENVINO_MODELS_DIR``. An
+The ``openvino`` runtime (``RAG_LOCAL_MODELS__RUNTIME``, the default) loads the
+folder this command writes for each model under ``RAG_LOCAL_MODELS__OPENVINO_DIR``. An
 App whose folder is missing exports it itself on its first start, so this command
 only pre-warms: an image build, or a disk that should start without the Hub. The
 models are the source ids of the workflow file's embedders and rerankers, so
@@ -94,7 +94,7 @@ def export_models(settings: RagSettings, names: Sequence[str], models_dir: str) 
 
 
 def _exported(settings: RagSettings, name: str, models_dir: str) -> bool:
-    component = settings.components[name]
+    component = settings.model_components()[name]
     model_id = component.source_id
     target = exported_model_dir(models_dir, model_id)
     try:
@@ -132,7 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"--only {args.only!r}: expected an embedder or a reranker of the "
             f"workflow file: {', '.join(names)}"
         )
-    models_dir = args.models_dir or settings.openvino_models_dir
+    models_dir = args.models_dir or settings.local_models.openvino_dir
     return export_models(settings, [args.only] if args.only else names, models_dir)
 
 
@@ -146,6 +146,7 @@ def _parser() -> argparse.ArgumentParser:
         "--only", metavar="NAME", help="export just this component's model"
     )
     parser.add_argument(
-        "--models-dir", help="where the exports go (default: RAG_OPENVINO_MODELS_DIR)"
+        "--models-dir",
+        help="where the exports go (default: RAG_LOCAL_MODELS__OPENVINO_DIR)",
     )
     return parser

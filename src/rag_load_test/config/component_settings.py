@@ -1,23 +1,22 @@
 """Each component's settings: the workflow file's ``components`` block.
 
 A component is named. Its type is the port it is used through (``embedder``,
-``reranker``, ``llm``) and defaults to its name, so two components of one type
-take two names and state ``type``. It states its backend, which picks its
-opener; the openers registered in ``composition/`` know which backends exist,
-and refuse any other. A model component has a source id (the weights) and an
-alias (the name a model server serves it under), which defaults to the last
-part of the source id. The settings common to its type sit beside them, and
-those of one backend in a block named after it: the embedder's ``local``
-block holds what its in-process model takes, its ``served`` block the route
-of the model server of ours that serves it, its ``api`` block what an
-endpoint we do not run takes. How patiently a component on ``served`` or
-``api`` is called is its ``http`` block, whichever of the two it is on: its
-timeout, retries and backoff, each left out taking the default shared by every
-component. A key the type does not have, a block of a backend it does not have
-included, is refused.
-
-The vector store is still read from flat ``RAG_*`` variables; its settings
-take the same shape here, and ``RagSettings`` builds them.
+``reranker``, ``llm``, ``vector_store``) and defaults to its name, so two
+components of one type take two names and state ``type``. It states its
+backend, which picks its opener; the openers registered in ``composition/``
+know which backends exist, and refuse any other. A model component has a
+source id (the weights) and an alias (the name a model server serves it
+under), which defaults to the last part of the source id. The settings common
+to its type sit beside them, and those of one backend in a block named after
+it: the embedder's ``local`` block holds what its in-process model takes, its
+``served`` block the route of the model server of ours that serves it, its
+``api`` block what an endpoint we do not run takes. How patiently a component
+on ``served`` or ``api`` is called is its ``http`` block, whichever of the two
+it is on: its timeout, retries and backoff, each left out taking the default
+shared by every component (``shared_settings.py``). The vector store's
+backends are named after their product, ``elasticsearch`` and ``chroma``, and
+``fake``, each with its block. A key the type does not have, a block of a
+backend it does not have included, is refused.
 
 Example:
     >>> EmbedderSettings(backend="local", source_id="Org/model-x").alias
@@ -35,17 +34,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ..domain.api_endpoint import ApiEndpoint
 from ..domain.standard_formats import STANDARD_API_FORMATS
 
-# The name of the vector store, which no file declares yet: it is the
-# component a retrieve stage calls, read from the flat RAG_* variables.
-VECTOR_STORE = "vector_store"
 
+class SettingsBlock(BaseModel):
+    """A block of the workflow file: frozen, and refusing a key it does not have.
 
-class _SettingsBlock(BaseModel):
+    Example:
+        >>> FakeStoreSettings.model_validate({"seed_document": 3})
+        ValidationError: ... seed_document ... Extra inputs are not permitted
+    """
+
     # A key the shape does not have is a typo, never a silent default.
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class ServedSettings(_SettingsBlock):
+class ServedSettings(SettingsBlock):
     """A ``served`` block: the full route of the model server of ours that serves it.
 
     The rest of the endpoint follows from the component, so it is not set: the
@@ -127,7 +129,7 @@ class LlmEndpointSettings(EndpointSettings, LlmServedSettings):
     api_format: str = STANDARD_API_FORMATS["llm"]
 
 
-class EmbedderLocalSettings(_SettingsBlock):
+class EmbedderLocalSettings(SettingsBlock):
     """The embedder's ``local`` block: its in-process model's batch size and threads.
 
     A query is one text, so the batch size is never calibrated; threads at 0
@@ -138,7 +140,7 @@ class EmbedderLocalSettings(_SettingsBlock):
     threads: int = Field(default=0, ge=0)  # 0 = calibrated at start-up
 
 
-class RerankerLocalSettings(_SettingsBlock):
+class RerankerLocalSettings(SettingsBlock):
     """The reranker's ``local`` block, with the size of its calibration request.
 
     A batch size or thread count of 0 is calibrated when the component opens.
@@ -152,14 +154,15 @@ class RerankerLocalSettings(_SettingsBlock):
     calibration_passages: int = Field(default=20, ge=1)
 
 
-class ComponentHttpSettings(_SettingsBlock):
+class ComponentHttpSettings(SettingsBlock):
     """A component's ``http`` block: how patiently it is called over HTTP.
 
     It applies on ``served`` and on ``api`` alike, so it is the component's,
     not one backend's: a topology that moves a component from ``local`` to
     ``served`` keeps it. Each value it leaves out is the default every
-    component shares, ``RAG_HTTP_TIMEOUT_S``, ``RAG_HTTP_RETRIES`` and
-    ``RAG_HTTP_BACKOFF_S`` (``composition/http_resources.py`` resolves them).
+    component shares, the workflow file's top-level ``http`` block
+    (``RAG_HTTP__TIMEOUT_S``, ``RAG_HTTP__RETRIES``, ``RAG_HTTP__BACKOFF_S``);
+    ``composition/http_resources.py`` resolves them.
 
     Example:
         >>> ComponentHttpSettings(timeout_s=120).model_dump(exclude_none=True)
@@ -172,7 +175,7 @@ class ComponentHttpSettings(_SettingsBlock):
     backoff_s: float | None = Field(default=None, ge=0)
 
 
-class ComponentSettings(_SettingsBlock):
+class ComponentSettings(SettingsBlock):
     """What every component states: its backend, which picks its opener.
 
     Example:
@@ -277,42 +280,71 @@ class LlmSettings(ModelComponentSettings):
     api: LlmEndpointSettings = Field(default_factory=LlmEndpointSettings)
 
 
-# A model component of the workflow file, its settings chosen by its type.
-ModelComponent = Annotated[
-    EmbedderSettings | RerankerSettings | LlmSettings, Field(discriminator="type")
-]
+# A model component: what a model server can serve or an endpoint answer for.
+ModelComponent = EmbedderSettings | RerankerSettings | LlmSettings
 
 
-class ElasticsearchSettings(_SettingsBlock):
-    """The vector store's ``elasticsearch`` block."""
+class ElasticsearchSettings(SettingsBlock):
+    """The vector store's ``elasticsearch`` block: kNN, and BM25 for lexical search.
 
-    url: str
-    index: str
-    api_key: str
-    text_analyzer: str
+    Example:
+        >>> ElasticsearchSettings(index="passages_v2").url
+        'http://localhost:9200'
+    """
+
+    url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
+    index: str = "rag_passages"
+    # "" = none (basic auth in the URL, or no security). Read from the
+    # environment: a key is never written in the file.
+    api_key: str = ""
+    # Analyzer of the passages' text, applied when the index is created and to
+    # every lexical query: "standard", or a language's (e.g. "french"). An
+    # index keeps the analyzer it was created with.
+    text_analyzer: str = "standard"
 
 
-class ChromaSettings(_SettingsBlock):
-    """The vector store's ``chroma`` block: a server's URL, else an embedded path."""
+class ChromaSettings(SettingsBlock):
+    """The vector store's ``chroma`` block: a server's URL, else an embedded path.
 
-    url: str
-    path: str
-    collection: str
+    Example:
+        >>> ChromaSettings().path
+        'chroma'
+    """
+
+    url: str = ""  # a Chroma server; "" = embedded Chroma at path
+    path: str = "chroma"
+    collection: str = "rag_passages"
 
 
-class FakeStoreSettings(_SettingsBlock):
-    """The vector store's ``fake`` block: how many synthetic documents seed it."""
+class FakeStoreSettings(SettingsBlock):
+    """The vector store's ``fake`` block: how many synthetic documents seed it.
 
-    seed_documents: int
+    Example:
+        >>> FakeStoreSettings().seed_documents
+        200
+    """
+
+    # Same size as ``make ingest`` so a fake-store app answers like an ingested one.
+    seed_documents: int = Field(default=200, ge=1)
 
 
 class VectorStoreSettings(ComponentSettings):
-    """The vector store: one block per product, and the fake's."""
+    """The vector store: one block per product, and the fake's.
+
+    Example:
+        >>> settings.components["vector_store"].elasticsearch.index
+        'rag_passages'
+    """
 
     type: Literal["vector_store"] = "vector_store"
-    elasticsearch: ElasticsearchSettings
-    chroma: ChromaSettings
-    fake: FakeStoreSettings
+    elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
+    chroma: ChromaSettings = Field(default_factory=ChromaSettings)
+    # "fake" = in memory, seeded with the synthetic corpus when it opens
+    fake: FakeStoreSettings = Field(default_factory=FakeStoreSettings)
+
+
+# A component of the workflow file, its settings chosen by its type.
+Component = Annotated[ModelComponent | VectorStoreSettings, Field(discriminator="type")]
 
 
 def alias_of(source_id: str) -> str:

@@ -51,13 +51,13 @@ class BaseCpuCounter(ABC):
 
 
 class FixedCpus(BaseCpuCounter):
-    """``RAG_MODEL_CPUS``: answers only when positive (0 = find out).
+    """``RAG_LOCAL_MODELS__CPUS``: answers only when positive (0 = find out).
 
     Args:
         cpus: The configured CPU count; 0 or less leaves it to the next counter.
     """
 
-    name = "RAG_MODEL_CPUS"
+    name = "RAG_LOCAL_MODELS__CPUS"
 
     def __init__(self, cpus: float) -> None:
         self._cpus = cpus

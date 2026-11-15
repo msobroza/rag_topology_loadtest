@@ -46,8 +46,8 @@ SERVED_RERANKER = {
     "RAG_COMPONENTS__RERANKER__BACKEND": "served",
     "RAG_COMPONENTS__RERANKER__SERVED__URL": RERANK_URL,
     "RAG_COMPONENTS__LLM__BACKEND": "fake",
-    "RAG_VECTOR_STORE_BACKEND": "fake",
-    "RAG_DOMINO_TOKEN_URL": TOKEN_URL,
+    "RAG_COMPONENTS__VECTOR_STORE__BACKEND": "fake",
+    "RAG_DOMINO__TOKEN_URL": TOKEN_URL,
 }
 
 
@@ -136,7 +136,7 @@ def test_served_components_speak_the_standard_format_at_their_url_under_their_al
         components__llm__backend="served",
         components__llm__served__url=CHAT_URL,
         components__llm__alias="llama-3",
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
         graph__stages__rerank__top_k=3,
     )
     composition = CompositionRoot(settings, transport=httpx.MockTransport(endpoints))
@@ -180,7 +180,7 @@ def test_the_served_blocks_take_what_each_request_carries(
         components__llm__served__url=CHAT_URL,
         components__llm__served__temperature=0.7,
         components__llm__alias="llama-3",
-        vector_store_backend="fake",
+        components__vector_store__backend="fake",
     )
     composition = CompositionRoot(settings, transport=httpx.MockTransport(endpoints))
 
