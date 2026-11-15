@@ -64,14 +64,20 @@ PLACEMENT
 
 # deploy.yaml for this emulation, once: later edits (topology, per-App blocks) stay.
 # Topology and model server keep rag-deploy's defaults; RAG_DEPLOY_TOPOLOGY and
-# RAG_DEPLOY_MODEL_SERVER override them. Every App reads and writes its models in
-# the dataset folder of its machine, as on Domino (the folder names are common.sh's).
+# RAG_DEPLOY_MODEL_SERVER override them. The topology aliases are the example's
+# three, which rag-deploy needs: no alias is defined in its code. Every App reads
+# and writes its models in the dataset folder of its machine, as on Domino (the
+# folder names are common.sh's).
 write_deploy_yaml() {
   [ ! -e "$REPO_PATH/deploy.yaml" ] || return 0
   as_ubuntu tee "$REPO_PATH/deploy.yaml" >/dev/null <<'DEPLOY'
 # Written by the emulation's startup script (emulation/terraform): rag-deploy talks
 # to the fake Domino on this machine. Keys are documented in deploy.example.yaml.
 # Apps run on pool machines, so they are handed URLs on this machine's address.
+topology_alias:
+  monolith: {embedder: local, reranker: local}
+  split-reranker: {embedder: local, reranker: served}
+  split-all: {embedder: served, reranker: served}
 domino_host: "http://${workspace_address}:${domino_port}"
 run_token_url: "http://localhost:${domino_port}/access-token"
 # On every pool machine (for model_server: ovms).

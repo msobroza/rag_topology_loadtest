@@ -94,7 +94,7 @@ The tree is three applications over one shared domain. The domain
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
+   | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names (ADR 0003) |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
 
 2. **Commands.** A command lives in its own application, in a module named
@@ -180,9 +180,9 @@ src/rag_load_test/
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
     backends.py     the vector store's Backend names, the Runtime names, two defaults
-    topology.py     the topology rule: backends per topology (local or served), placed_backend
+    topology.py     the workflow app's topology rule: backends per topology (local or served), placed_backend; topology_that_moves_nothing, what the deploy tool tells it
     run_label.py    the run label: its default for a configuration, what a valid one is
-    roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
+    roles.py        the Role each App is published as (Role, AppPart, ModelServerKind), MODEL_SERVER_ROUTES: what a model server App can serve, and on which route
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
     rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
@@ -303,8 +303,10 @@ src/rag_load_test/
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
     rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
   deploy/           the deploy tool: rag-deploy on Domino 6.2
-    deploy_settings.py  DeploySettings: deploy.yaml (shared defaults, one block per App), RAG_DEPLOY_* overrides
-    publish.py      the entry scripts of a topology's Apps (domain/roles.py says which Apps and Roles), App or Agent, and publishing them in order
+    deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App), RAG_DEPLOY_* overrides
+    workflow_components.py  the components of the workflow file the workflow App reads: name, type, backend; the variable of a component's value
+    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, backends and run label, or a refusal
+    publish.py      the entry scripts of a topology's Apps (domain/roles.py gives each its Role), App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
     app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
@@ -1186,24 +1188,28 @@ topologies, so the Locust numbers stay comparable.
 A model server App is OpenVINO Model Server or the FastAPI model server
 (`rag-model-server`, the same models on the same `/v3` routes and formats):
 `model_server` in `deploy.yaml` picks one for every model server App of a
-topology. Which Apps a topology needs and the Role of each follow from the
-backends the topology implies (`src/rag_load_test/domain/roles.py`).
+topology. Which Apps a topology needs follows from its topology alias in
+`deploy.yaml` (see "Topology aliases" below): one model server App per
+component it serves, then the workflow App. The table shows the three aliases
+of `deploy.example.yaml`.
 
 | Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
 | `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` (+ `RAG_ES_API_KEY`) | `rag` |
 | `split-reranker` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | OVMS: `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `RAG_COMPONENTS__RERANKER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow + embedder | `workflow` | `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` | `rag` |
+| | **B** workflow + embedder | `workflow` | `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` | `rag` |
 | `split-all` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | as above | `ovms` / `rag` |
 | | **C** model server: embedder | `ovms-embedder` / `fastapi-embedder` | as above (FastAPI: weights from `RAG_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` | `rag` |
+| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_ES_URL` | `rag` |
 
 Both workflow app roles run `rag-serve --domino`. A role only defaults
 `RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and
 refuses a topology it does not serve (`monolith` serves only `monolith`;
 `workflow` serves `split-reranker` and `split-all`). Python then resolves the
-backends from the topology, moving the embedder and the reranker to `served`,
-requires `RAG_COMPONENTS__RERANKER__SERVED__URL` /
+backends from the topology, moving the embedder and the reranker from `local` to
+`served` when it says so (`rag-deploy` writes each backend itself, and tells the
+app a topology that moves nothing: see "Topology aliases"), requires
+`RAG_COMPONENTS__RERANKER__SERVED__URL` /
 `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for each served component (as
 everywhere), and calls each served component with the run token: `--domino`
 says the app runs on Domino. A component on `api`, the LLM's included, keeps
@@ -1333,8 +1339,8 @@ make compare
 
 `rag-deploy` (behind these targets) calls Domino's beta Apps API through
 `DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
-as the topology needs (their names follow `app_name_prefix`: see "App names"
-below). The Apps install their own dependencies when they start
+as the topology alias needs (their names follow `app_name_prefix`: see "App
+names" below). The Apps install their own dependencies when they start
 (`domino/app.sh` with `RAG_BOOTSTRAP=1`), into a virtualenv on Python 3.11, so any
 environment with `uv` works, but the first start is slower and needs access to
 the package index and the Hugging Face Hub. An environment without Python 3.11
@@ -1347,14 +1353,14 @@ mount the repository at the same path); elsewhere it refuses to publish.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
-`model_server`, `project_id`, `app_name_prefix`, `ovms_bundle`, `domino_host`)
-and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
+`topology_alias`, `model_server`, `project_id`, `app_name_prefix`, `ovms_bundle`,
+`domino_host`) and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
 `no_instance_grace_s`, `http_timeout_s`, `http_retries`, `run_token_url`); a
 `RAG_DEPLOY_<KEY>` variable overrides one, e.g.
 `RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
 `RAG_DEPLOY_FILE` names another file. `defaults` applies to every App and
-`apps.<embedder|reranker|workflow>` to one, each App taking its own value, else the
-default:
+`apps.<workflow|served component>` to one, each App taking its own value, else the
+default (a block keyed by anything else is refused):
 
 ```yaml
 defaults:
@@ -1378,15 +1384,61 @@ App's winning; YAML numbers and booleans are exported as strings), for example
 `/domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0` works as well as a
 Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
 `/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
-`RAG_TOPOLOGY`, `RAG_COMPONENTS__RERANKER__SERVED__URL` and `RAG_COMPONENTS__EMBEDDER__SERVED__URL` (the model
-server App's URL plus `/v3/rerank` or `/v3/embeddings`), `RAG_OVMS_BUNDLE` and
-`RAG_BOOTSTRAP` itself (they win), and `RAG_RUN_LABEL`
-(`<topology>-<model server>`) unless the settings set it. Secrets stay in
+`RAG_TOPOLOGY`, `RAG_COMPONENTS__<COMPONENT>__BACKEND` of each component the
+topology alias names, `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
+one (the model server App's URL plus `/v3/rerank` or `/v3/embeddings`),
+`RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself (they win), and `RAG_RUN_LABEL`
+unless the settings set it. Secrets stay in
 Domino's project or user environment variables, because `settings` are written
 into the Apps' launch scripts. `rag-deploy` refuses, in any block, a setting
 whose name ends in `_API_KEY` (such as `RAG_COMPONENTS__LLM__API__API_KEY` or
 `RAG_ES_API_KEY`) unless its value is empty or `domino`, which names the run's
 token and is not a secret. A misspelt key is refused with its name.
+
+**Topology aliases.** Where each component runs is a deployment matter, so the
+topologies live in `deploy.yaml` (ADR 0003): `topology` chooses one by its alias,
+and `topology_alias` defines each alias as a row that says `local` (in the
+workflow App's process) or `served` (by a model server App of its own) for the
+components it names. `deploy.example.yaml` ships the three compared here:
+
+```yaml
+topology: split-all
+topology_alias:
+  monolith:       {embedder: local,  reranker: local}
+  split-reranker: {embedder: local,  reranker: served}
+  split-all:      {embedder: served, reranker: served}
+  # a fourth needs no change in code, e.g. split-embedder: {embedder: served, reranker: local}
+```
+
+No alias is defined in code: a `deploy.yaml` without the table deploys nothing.
+`rag-deploy` reads the workflow file the workflow App reads (`RAG_WORKFLOW_FILE`
+in its settings, else the one `rag-serve` finds from the repository root) for
+the components' names and types. It publishes one model server App per served
+component, in the workflow file's order, then the workflow App, whose launch
+script gets `RAG_COMPONENTS__<COMPONENT>__BACKEND` for every component the row
+names and `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` for every served one. A
+component the row does not name keeps the backend the workflow file (or the
+App's `settings`) gives it: to deploy the reranker on `none` or an `api`
+endpoint, leave it out of the row, since a named component's backend is the
+row's and wins over `settings`. A cell says only where a component runs; how it
+is served (`model_server`, the environment, the hardware tier) is in its App's
+block. The run label is the alias, then each served component and its
+model-server kind: `split-all+embedder=fastapi+reranker=fastapi`, or `monolith`.
+
+Until the workflow app drops its own topology rule, `RAG_TOPOLOGY` keeps the
+`X-RAG-Topology` header: it is the alias when the app knows the name
+(`monolith`, `split-reranker`, `split-all`) and its rule would move none of the
+backends written, and `monolith` (whose rule moves nothing) otherwise, so a
+fourth alias deploys with the `monolith` header and its own run label. The
+workflow App's Role follows that value, as `app.sh` pairs them.
+
+Before anything is published, `rag-deploy` refuses a `topology` that is not a
+key of the table, a row naming a component the workflow file does not declare, a
+cell other than `local` or `served`, a served component no model server can
+serve (a model server serves an embedder or a reranker, the component named
+after its type, which `app.sh` starts: a served LLM is refused), and an alias
+whose run label the workflow app would refuse (letters, digits and `._+=:-`, up
+to 128 characters). Each message names the value and what was expected.
 
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
@@ -1412,7 +1464,7 @@ a revision but no environment.
 are pods behind one instance, so scaling does not change the instance URL below.
 
 **App names.** Each App is named `<app_name_prefix>-<part>`, the part being
-`embedder`, `reranker` or `workflow`: `rag-embedder`, `rag-reranker` and
+`workflow` or the name of a served component: `rag-embedder`, `rag-reranker` and
 `rag-workflow` with the default prefix, `rag`. `rag-deploy` creates, finds and
 reports every App by that name (a deploy, `make status`, `rag-deploy url` and the
 note after a model server is redeployed), so two use cases with two prefixes share
@@ -1457,9 +1509,10 @@ One-time prerequisites that stay manual: install the package in the Workspace
 make deploy-dry-run      # rag-deploy --dry-run deploy all: nothing is sent to Domino
 ```
 
-prints each App `rag-deploy` would publish (kind, environment, environment
-revision, hardware tier, autoscaling, entry script), with every check of a real
-deploy. One of them: no value may still hold an `<angle-bracket>` placeholder
+prints each App `rag-deploy` would publish for the chosen topology alias (kind,
+environment, environment revision, hardware tier, autoscaling, entry script),
+with every check of a real deploy; `RAG_DEPLOY_TOPOLOGY=<alias> make
+deploy-dry-run` shows another alias. One of them: no value may still hold an `<angle-bracket>` placeholder
 from the example (in the `settings` of the Apps being deployed, their
 `environment_id`, `environment_revision_id` and `hardware_tier_id`, and
 `ovms_bundle`). The example copied unchanged stops on the first one:

@@ -154,7 +154,6 @@ def test_a_setting_that_is_not_a_scalar_is_refused_with_its_name(
         ("topolgy: monolith\n", "topolgy"),
         ("apps: {embedder: {hardware_tier: cpu-8}}\n", "apps.embedder.hardware_tier"),
         ("defaults: {autoscaling: {max: 4}}\n", "defaults.autoscaling.max"),
-        ("apps: {orchestrator: {kind: agent}}\n", "apps.orchestrator"),
     ],
 )
 def test_an_unknown_key_is_refused_with_its_name(
@@ -180,6 +179,7 @@ def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
     assert settings.model_dump(exclude={"defaults", "apps"}) == {
         "app_name_prefix": "rag",
         "topology": "split-all",
+        "topology_alias": {},  # no alias in code: deploy.yaml defines them
         "model_server": "fastapi",
         "project_id": "",
         "ovms_bundle": "",

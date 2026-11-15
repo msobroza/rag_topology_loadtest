@@ -1,4 +1,4 @@
-"""The Apps a topology needs and the Role each is published as, for every case."""
+"""The Role each App is published as, and what a model server App can serve."""
 
 from __future__ import annotations
 
@@ -7,83 +7,59 @@ from typing import get_args
 import pytest
 
 from rag_load_test.domain.roles import (
-    AppPart,
+    MODEL_SERVER_ROUTES,
     ModelServerKind,
     Role,
-    apps_for_topology,
-    model_servers_for_topology,
-    role_for,
+    model_server_role,
+    workflow_role,
 )
 from rag_load_test.domain.topology import Topology
 
-TOPOLOGIES: tuple[Topology, ...] = get_args(Topology)
-PARTS: tuple[AppPart, ...] = get_args(AppPart)
 KINDS: tuple[ModelServerKind, ...] = get_args(ModelServerKind)
-# Every Role, written out: (topology, App part, model-server kind) -> Role, or
-# None when the topology has no such App.
-EXPECTED_ROLES: dict[tuple[str, str, str], str | None] = {
-    ("monolith", "workflow", "fastapi"): "monolith",
-    ("monolith", "workflow", "ovms"): "monolith",
-    ("monolith", "embedder", "fastapi"): None,
-    ("monolith", "embedder", "ovms"): None,
-    ("monolith", "reranker", "fastapi"): None,
-    ("monolith", "reranker", "ovms"): None,
-    ("split-reranker", "workflow", "fastapi"): "workflow",
-    ("split-reranker", "workflow", "ovms"): "workflow",
-    ("split-reranker", "embedder", "fastapi"): None,
-    ("split-reranker", "embedder", "ovms"): None,
-    ("split-reranker", "reranker", "fastapi"): "fastapi-reranker",
-    ("split-reranker", "reranker", "ovms"): "ovms-reranker",
-    ("split-all", "workflow", "fastapi"): "workflow",
-    ("split-all", "workflow", "ovms"): "workflow",
-    ("split-all", "embedder", "fastapi"): "fastapi-embedder",
-    ("split-all", "embedder", "ovms"): "ovms-embedder",
-    ("split-all", "reranker", "fastapi"): "fastapi-reranker",
-    ("split-all", "reranker", "ovms"): "ovms-reranker",
+# Every Role, written out: (App, model-server kind or topology) -> Role.
+MODEL_SERVER_ROLES = {
+    ("embedder", "fastapi"): "fastapi-embedder",
+    ("reranker", "fastapi"): "fastapi-reranker",
+    ("embedder", "ovms"): "ovms-embedder",
+    ("reranker", "ovms"): "ovms-reranker",
+}
+WORKFLOW_ROLES = {
+    "monolith": "monolith",
+    "split-reranker": "workflow",
+    "split-all": "workflow",
 }
 
 
-@pytest.mark.parametrize(
-    ("topology", "apps"),
-    [
-        ("split-all", ["embedder", "reranker", "workflow"]),
-        ("split-reranker", ["reranker", "workflow"]),
-        ("monolith", ["workflow"]),
-    ],
-)
-def test_each_topology_needs_its_apps_in_deploy_order(
-    topology: Topology, apps: list[str]
+@pytest.mark.parametrize(("component", "kind"), list(MODEL_SERVER_ROLES))
+def test_the_role_of_each_model_server_app(
+    component: str, kind: ModelServerKind
 ) -> None:
-    assert apps_for_topology(topology) == apps
-    assert model_servers_for_topology(topology) == apps[:-1]
+    assert model_server_role(kind, component) == MODEL_SERVER_ROLES[(component, kind)]
 
 
-def test_the_expected_table_covers_every_combination() -> None:
-    every = {(t, p, k) for t in TOPOLOGIES for p in PARTS for k in KINDS}
-    assert set(EXPECTED_ROLES) == every
+@pytest.mark.parametrize("component", ["llm", "reranker_fr", "workflow"])
+def test_a_component_no_model_server_app_serves_has_no_role(component: str) -> None:
+    with pytest.raises(ValueError, match="no model server App serves") as caught:
+        model_server_role("fastapi", component)
+    assert str(caught.value) == (
+        f"no model server App serves a component named {component!r}: a fastapi "
+        "model server serves embedder, reranker"
+    )
 
 
-@pytest.mark.parametrize(
-    ("topology", "part", "kind"),
-    [key for key, role in EXPECTED_ROLES.items() if role is not None],
-)
-def test_the_role_of_each_app(
-    topology: Topology, part: AppPart, kind: ModelServerKind
-) -> None:
-    assert role_for(topology, part, kind) == EXPECTED_ROLES[(topology, part, kind)]
-
-
-@pytest.mark.parametrize(
-    ("topology", "part", "kind"),
-    [key for key, role in EXPECTED_ROLES.items() if role is None],
-)
-def test_an_app_the_topology_lacks_has_no_role(
-    topology: Topology, part: AppPart, kind: ModelServerKind
-) -> None:
-    with pytest.raises(ValueError, match=f"the {topology} topology has no {part} App"):
-        role_for(topology, part, kind)
+@pytest.mark.parametrize("topology", get_args(Topology))
+def test_the_workflow_role_follows_the_topology_it_is_told(topology: Topology) -> None:
+    assert workflow_role(topology) == WORKFLOW_ROLES[topology]
 
 
 def test_every_role_is_given_to_some_app() -> None:
-    given = {role for role in EXPECTED_ROLES.values() if role is not None}
+    given = {*MODEL_SERVER_ROLES.values(), *WORKFLOW_ROLES.values()}
     assert given == set(get_args(Role))
+
+
+def test_each_kind_serves_an_embedder_and_a_reranker_on_the_v3_routes() -> None:
+    expected = {"embedder": "/v3/embeddings", "reranker": "/v3/rerank"}
+    assert {kind: MODEL_SERVER_ROUTES[kind] for kind in KINDS} == {
+        "fastapi": expected,
+        "ovms": expected,
+    }

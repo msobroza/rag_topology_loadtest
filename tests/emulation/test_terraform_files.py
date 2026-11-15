@@ -135,6 +135,14 @@ def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     }
 
 
+def test_the_generated_deploy_yaml_defines_the_examples_topology_aliases() -> None:
+    # rag-deploy defines no alias in code: without the table it deploys nothing.
+    deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
+    example = yaml.safe_load((REPO_ROOT / "deploy.example.yaml").read_text())
+    assert deploy["topology_alias"] == example["topology_alias"]
+    assert set(example["topology_alias"]) == {"monolith", "split-reranker", "split-all"}
+
+
 def test_the_workspace_shell_sets_only_variables_the_project_reads() -> None:
     shell = heredoc(render("scripts/workspace.sh.tftpl"), "SHELLENV")
     exported = set(re.findall(r"^export (\w+)=", shell, re.M))

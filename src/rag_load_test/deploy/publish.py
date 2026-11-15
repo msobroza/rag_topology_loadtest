@@ -1,7 +1,8 @@
 """Publishing a topology's Apps: their entry scripts, versions and order.
 
-The model server Apps are published first, then the workflow App with the URLs
-their running instances answer on.
+Which Apps follow from the topology alias deployed (``topology_alias.py``): the
+model server Apps are published first, then the workflow App with the URLs
+their running instances answer on and each component's backend.
 """
 
 from __future__ import annotations
@@ -12,14 +13,15 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Literal, NoReturn
 
-from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.roles import (
+    MODEL_SERVER_ROUTES,
+    WORKFLOW_APP,
     AppPart,
-    ModelServerPart,
-    apps_for_topology,
-    model_servers_for_topology,
-    role_for,
+    ModelServerKind,
+    model_server_role,
+    workflow_role,
 )
+from ..domain.topology import SERVED
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -36,6 +38,8 @@ from .deploy_settings import (
     refuse_secrets,
 )
 from .endpoint_url import endpoint_url
+from .topology_alias import ResolvedTopology, resolve_topology
+from .workflow_components import component_variable
 
 LAUNCH_SCRIPT = "domino/app.sh"  # relative to the repository root
 # An Agent is an App whose configurationType is AISYSTEM: the only API-level
@@ -77,6 +81,7 @@ def launch_script_in(directory: str) -> str:
 def entry_script(
     app: AppSettings,
     settings: DeploySettings,
+    topology: ResolvedTopology,
     urls: Mapping[AppPart, str],
     launch_script: str,
 ) -> str:
@@ -87,7 +92,8 @@ def entry_script(
 
     Args:
         app: The App's merged settings.
-        settings: The whole deploy settings (topology, model server, bundle).
+        settings: The whole deploy settings (model server, bundle).
+        topology: The topology alias deployed, resolved.
         urls: Where the model server Apps answer (workflow App only).
         launch_script: Absolute path of ``domino/app.sh``.
 
@@ -96,11 +102,11 @@ def entry_script(
 
     Example:
         >>> app = settings.for_app("reranker")
-        >>> entry_script(app, settings, {}, "/repos/rag/domino/app.sh")
+        >>> entry_script(app, settings, topology, {}, "/repos/rag/domino/app.sh")
         'export RAG_ROLE=fastapi-reranker\n...\nexec bash /repos/rag/domino/app.sh'
     """
-    if app.part == "workflow":
-        computed = _workflow_exports(settings, urls, app.settings)
+    if app.part == WORKFLOW_APP:
+        computed = _workflow_exports(settings, topology, urls, app.settings)
     else:
         computed = _model_server_exports(app.part, settings)
     if app.kind == "agent":
@@ -111,10 +117,8 @@ def entry_script(
     return "\n".join([*lines, f"exec bash {shlex.quote(launch_script)}"])
 
 
-def _model_server_exports(
-    part: ModelServerPart, settings: DeploySettings
-) -> dict[str, str]:
-    role = role_for(settings.topology, part, settings.model_server)
+def _model_server_exports(part: AppPart, settings: DeploySettings) -> dict[str, str]:
+    role = model_server_role(settings.model_server, part)
     exports: dict[str, str] = {"RAG_ROLE": role}
     if settings.model_server == "ovms":
         exports["RAG_OVMS_BUNDLE"] = settings.ovms_bundle
@@ -123,29 +127,30 @@ def _model_server_exports(
 
 def _workflow_exports(
     settings: DeploySettings,
+    topology: ResolvedTopology,
     urls: Mapping[AppPart, str],
     app_settings: Mapping[str, str],
 ) -> dict[str, str]:
-    topology = settings.topology
-    role = role_for(topology, "workflow", settings.model_server)
-    exports: dict[str, str] = {"RAG_ROLE": role, "RAG_TOPOLOGY": topology}
-    servers = model_servers_for_topology(topology)
-    if not servers:  # everything in one process: no URL, no run label
-        return exports
-    # The settings take the full route; an App URL may end with a "/".
-    if "reranker" in servers:
-        reranker = _route(urls["reranker"], MODEL_SERVER_RERANK_PATH)
-        exports["RAG_COMPONENTS__RERANKER__SERVED__URL"] = reranker
-    if "embedder" in servers:
-        embeddings = _route(urls["embedder"], MODEL_SERVER_EMBEDDINGS_PATH)
-        exports["RAG_COMPONENTS__EMBEDDER__SERVED__URL"] = embeddings
+    # The workflow app still applies its own topology rule (ADR 0003's first
+    # step): it is told a topology whose rule moves none of the backends below,
+    # and app.sh pairs the Role with it.
+    told = topology.topology_variable()
+    exports: dict[str, str] = {"RAG_ROLE": workflow_role(told), "RAG_TOPOLOGY": told}
+    for name, placement in topology.placements.items():
+        exports[component_variable(name, "backend")] = placement
+        if placement == SERVED:
+            exports[component_variable(name, "served", "url")] = _served_url(
+                urls[name], topology.components[name].type, settings.model_server
+            )
     if "RAG_RUN_LABEL" not in app_settings:
-        exports["RAG_RUN_LABEL"] = f"{topology}-{settings.model_server}"
+        exports["RAG_RUN_LABEL"] = topology.run_label(settings.model_server)
     return exports
 
 
-def _route(app_url: str, path: str) -> str:
-    return app_url.rstrip("/") + path
+def _served_url(app_url: str, component_type: str, kind: ModelServerKind) -> str:
+    # The settings take the full route; an App URL may end with a "/". The type
+    # is one the kind serves: resolve_topology refused any other.
+    return app_url.rstrip("/") + MODEL_SERVER_ROUTES[kind][component_type]
 
 
 def version_body(app: AppSettings, script: str) -> dict[str, object]:
@@ -194,23 +199,24 @@ def _autoscaling_specification(scaling: Autoscaling) -> dict[str, object]:
 def publish_app(
     client: DominoAppsClient,
     settings: DeploySettings,
+    topology: ResolvedTopology,
     part: AppPart,
-    urls: Mapping[AppPart, str],
     *,
     launch_script: str,
     sleep: Callable[[float], None] = time.sleep,
 ) -> DominoApp:
     """Create ``part``'s App or post a new version to it, then wait until Running.
 
-    The App is found and created by its name, ``<app_name_prefix>-<part>``.
+    The App is found and created by its name, ``<app_name_prefix>-<part>``. The
+    workflow App is handed where the model server Apps of the topology answer.
 
     Prints the App's endpoint once Running.
 
     Args:
         client: Apps API client for the project.
         settings: The deploy settings.
+        topology: The topology alias deployed, resolved.
         part: The App to publish.
-        urls: Where the model server Apps answer (workflow App only).
         launch_script: Absolute path of ``domino/app.sh``.
         sleep: Waits between polls; tests and dry runs pass a no-op.
 
@@ -219,13 +225,17 @@ def publish_app(
 
     Raises:
         DominoDeployError: If the existing App is of another kind (App or Agent),
-            or it does not come up.
+            a model server App the workflow App calls is not Running, or the App
+            does not come up.
 
     Example:
-        >>> publish_app(client, DeploySettings(), "reranker", {}, launch_script=path)
+        >>> publish_app(client, settings, topology, "reranker", launch_script=path)
     """
     app_settings = settings.for_app(part)
-    script = entry_script(app_settings, settings, urls, launch_script)
+    urls: dict[AppPart, str] = {}
+    if part == WORKFLOW_APP:
+        urls = model_server_urls(client, settings, topology)
+    script = entry_script(app_settings, settings, topology, urls, launch_script)
     version = version_body(app_settings, script)
     app = client.find(app_settings.name)
     if app is None:
@@ -264,12 +274,14 @@ def deploy(
     launch_script: str,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Publish ``target``, or every App the topology needs, in order.
+    """Publish ``target``, or every App the topology alias needs, in order.
 
-    Settings holding secrets, placeholders, no environment id, a default
-    environment revision without the default environment, or a missing OVMS
-    bundle are refused first, with ``DominoDeployError``. Redeploying a model
-    server prints a note that the workflow App still calls its old instance.
+    Settings holding secrets, a topology alias that does not resolve against
+    the workflow file (``resolve_topology``), placeholders, no environment id, a
+    default environment revision without the default environment, or a missing
+    OVMS bundle are refused first, with ``DominoDeployError``. Redeploying a
+    model server prints a note that the workflow App still calls its old
+    instance.
 
     Args:
         client: Apps API client for the project.
@@ -285,18 +297,18 @@ def deploy(
         >>> deploy(client, DeploySettings(), "all", launch_script=path)
     """
     refuse_secrets(settings)
-    needed = apps_for_topology(settings.topology)
+    topology = resolve_topology(settings)
+    needed = topology.app_parts()
     if target != "all" and target not in needed:
         _refuse_an_app_the_topology_does_not_use(settings, target, needed)
     parts = needed if target == "all" else [target]
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, parts)
     for part in parts:
-        urls = model_server_urls(client, settings) if part == "workflow" else {}
         publish_app(
-            client, settings, part, urls, launch_script=launch_script, sleep=sleep
+            client, settings, topology, part, launch_script=launch_script, sleep=sleep
         )
-    if target in ("embedder", "reranker"):
+    if target in topology.served:
         _note_the_workflow_calls_the_old_instance(client, settings, target)
 
 
@@ -314,7 +326,7 @@ def _note_the_workflow_calls_the_old_instance(
     client: DominoAppsClient, settings: DeploySettings, part: AppPart
 ) -> None:
     # The workflow App holds the model server's instance URL, which a redeploy changes.
-    workflow = settings.app_name("workflow")
+    workflow = settings.app_name(WORKFLOW_APP)
     if client.find(workflow) is not None:
         print(
             f"{workflow} still calls the previous {settings.app_name(part)} "
@@ -331,7 +343,7 @@ def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> No
                 f"(or apps.{app.part}.environment_id) in {deploy_file()}; it is the "
                 "id of the Domino compute environment the App runs in"
             )
-    if settings.model_server != "ovms" or parts == ["workflow"]:
+    if settings.model_server != "ovms" or parts == [WORKFLOW_APP]:
         return
     if not settings.ovms_bundle or not os.path.exists(settings.ovms_bundle):
         raise DominoDeployError(
@@ -359,29 +371,30 @@ def _refuse_a_default_revision_alone(settings: DeploySettings) -> None:
 
 
 def model_server_urls(
-    client: DominoAppsClient, settings: DeploySettings
+    client: DominoAppsClient, settings: DeploySettings, topology: ResolvedTopology
 ) -> dict[AppPart, str]:
     """Find where the model server Apps the workflow App calls answer.
 
     Args:
         client: Apps API client for the project.
-        settings: The deploy settings, for the topology and Domino host.
+        settings: The deploy settings, for the App names and Domino host.
+        topology: The topology alias deployed, for its served components.
 
     Returns:
-        Each model server part's endpoint URL.
+        Each served component's model server App URL, by component.
 
     Raises:
         DominoDeployError: If one of them is not deployed or not Running.
 
     Example:
-        >>> model_server_urls(client, DeploySettings())
+        >>> model_server_urls(client, DeploySettings(), topology)
         {'embedder': ..., ...}
     """
     return {
         part: endpoint_url(
             client, require_app(client, settings, part), settings.domino_host
         )
-        for part in model_servers_for_topology(settings.topology)
+        for part in topology.served
     }
 
 

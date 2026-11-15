@@ -14,6 +14,7 @@ from domino_deploy_helpers import (
     DEPLOY_YAML,
     INSTANCES_URL,
     LAUNCH,
+    MONOLITH_EXPORTS,
     add_app,
     make_client,
     make_settings,
@@ -27,14 +28,16 @@ from rag_load_test.deploy.publish import (
     entry_script,
     launch_script_in,
 )
+from rag_load_test.deploy.topology_alias import resolve_topology
 
-# Which Apps a topology needs is tested in tests/domain/test_roles.py; that each
-# Role the scripts export starts the right server, in
-# test_entry_scripts_through_app_sh.py.
+# Which Apps each topology alias needs is tested in
+# test_domino_deploy_topology_alias.py; that each Role the scripts export starts
+# the right server, in test_entry_scripts_through_app_sh.py.
 
 
 def script(part: str, settings: DeploySettings, urls: dict[str, str]) -> str:
-    return entry_script(settings.for_app(part), settings, urls, LAUNCH)  # type: ignore[arg-type]
+    topology = resolve_topology(settings)
+    return entry_script(settings.for_app(part), settings, topology, urls, LAUNCH)
 
 
 def with_settings(part: str, values: dict[str, str], **overrides: object) -> DeploySettings:  # fmt: skip
@@ -76,9 +79,11 @@ def test_split_all_workflow_script_quotes_urls_and_names_the_run() -> None:
         "export RAG_ES_URL=https://es.test:9200\n"
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-all\n"
-        "export RAG_COMPONENTS__RERANKER__SERVED__URL='https://domino.test/apps/r'\"'\"'1/v3/rerank'\n"
+        "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         "export RAG_COMPONENTS__EMBEDDER__SERVED__URL=https://domino.test/apps/e1/v3/embeddings\n"
-        "export RAG_RUN_LABEL=split-all-ovms\n"
+        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
+        "export RAG_COMPONENTS__RERANKER__SERVED__URL='https://domino.test/apps/r'\"'\"'1/v3/rerank'\n"
+        "export RAG_RUN_LABEL=split-all+embedder=ovms+reranker=ovms\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -89,17 +94,20 @@ def test_split_reranker_workflow_script_has_only_the_reranker_url() -> None:
     assert script("workflow", settings, urls) == (
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-reranker\n"
+        "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
+        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
         "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
-        "export RAG_RUN_LABEL=split-reranker-fastapi\n"
+        "export RAG_RUN_LABEL=split-reranker+reranker=fastapi\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
-def test_monolith_workflow_script_has_no_model_server_and_no_run_label() -> None:
+def test_monolith_workflow_script_has_local_backends_and_no_url() -> None:
     settings = make_settings(topology="monolith")
     assert script("workflow", settings, {}) == (
         "export RAG_ROLE=monolith\n"
         "export RAG_TOPOLOGY=monolith\n"
+        f"{MONOLITH_EXPORTS}"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -109,7 +117,7 @@ def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
     assert script("workflow", settings, {}) == (
         "export RAG_ROLE=monolith\n"
         "export RAG_TOPOLOGY=monolith\n"
-        f"{BOOTSTRAP_AND_EXEC}"
+        f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
@@ -121,7 +129,7 @@ def test_an_agent_keeps_the_tracing_and_extras_its_settings_set() -> None:
         "export RAG_DOMINO_TRACING=0\n"
         "export RAG_ROLE=monolith\n"
         "export RAG_TOPOLOGY=monolith\n"
-        f"{BOOTSTRAP_AND_EXEC}"
+        f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
@@ -133,7 +141,7 @@ def test_app_settings_come_first_so_computed_exports_win() -> None:
         "export RAG_TOPOLOGY=split-all\n"
         "export RAG_ROLE=monolith\n"
         "export RAG_TOPOLOGY=monolith\n"
-        f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
+        f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
@@ -145,6 +153,8 @@ def test_a_run_label_in_the_settings_replaces_the_computed_one() -> None:
         "export RAG_RUN_LABEL=split-reranker-8cores\n"
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-reranker\n"
+        "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
+        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
         "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -182,9 +192,11 @@ def test_deploy_all_for_split_all_creates_three_apps_in_order() -> None:
     assert apps.creates[2].version.entryScript == (
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=split-all\n"
-        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
+        "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
-        "export RAG_RUN_LABEL=split-all-fastapi\n"
+        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
+        "export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 

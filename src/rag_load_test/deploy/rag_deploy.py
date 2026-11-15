@@ -17,7 +17,6 @@ import argparse
 import os
 import time
 from collections.abc import Callable
-from typing import get_args
 
 import httpx
 from pydantic import ValidationError
@@ -31,7 +30,6 @@ from fake_domino.api_shapes import (
 from fake_domino.server import create_fake_domino, fake_domino_http
 from fake_domino.state import FakeDominoApps
 
-from ..domain.roles import AppPart
 from .app_id_cache import APP_ID_CACHE_FILE, AppIdCache
 from .apps_client import DominoAppsClient, DominoDeployError
 from .deploy_settings import DeploySettings, deploy_file
@@ -85,10 +83,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run against an in-process fake Domino: nothing is sent to Domino",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    parts = list(get_args(AppPart))  # embedder, reranker, workflow
-    commands.add_parser("deploy").add_argument("target", choices=["all", *parts])
+    # The App parts follow from the topology alias, so deploy checks them.
+    commands.add_parser("deploy").add_argument(
+        "target", help="all, workflow, or a component the topology alias serves"
+    )
     commands.add_parser("status")
-    commands.add_parser("url").add_argument("part", choices=parts)
+    commands.add_parser("url").add_argument(
+        "part", help="workflow, or a served component such as reranker"
+    )
     return parser
 
 

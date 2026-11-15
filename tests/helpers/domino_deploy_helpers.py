@@ -31,6 +31,13 @@ BOOTSTRAP_AND_EXEC = (
 )
 # What an Agent (the workflow App by default) exports before RAG_BOOTSTRAP.
 AGENT_EXPORTS = "export RAG_DOMINO_TRACING=1\nexport RAG_BOOTSTRAP_EXTRAS=domino\n"
+# What the monolith alias's workflow App exports after its Role and topology:
+# the backend of each component the alias names, and the run label.
+MONOLITH_EXPORTS = (
+    "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
+    "export RAG_COMPONENTS__RERANKER__BACKEND=local\n"
+    "export RAG_RUN_LABEL=monolith\n"
+)
 
 
 def add_app(
@@ -67,10 +74,12 @@ def make_settings(**overrides: object) -> DeploySettings:
     """DeploySettings with every App on ``env-1``; a stray deploy.yaml cannot leak in.
 
     Every key the tests depend on is passed, and passed values beat the file.
+    The topology aliases are the three of deploy.example.yaml.
     """
     values: dict[str, object] = {
         "app_name_prefix": "rag",
         "topology": "split-all",
+        "topology_alias": TOPOLOGY_ALIASES,
         "model_server": "fastapi",
         "project_id": "proj-1",
         "ovms_bundle": "",
@@ -82,9 +91,21 @@ def make_settings(**overrides: object) -> DeploySettings:
     return DeploySettings(**values)  # type: ignore[arg-type]
 
 
+# The three topology aliases compared today, as deploy.example.yaml defines them.
+TOPOLOGY_ALIASES = {
+    "monolith": {"embedder": "local", "reranker": "local"},
+    "split-reranker": {"embedder": "local", "reranker": "served"},
+    "split-all": {"embedder": "served", "reranker": "served"},
+}
+TOPOLOGY_ALIAS_YAML = """\
+topology_alias:
+  monolith: {embedder: local, reranker: local}
+  split-reranker: {embedder: local, reranker: served}
+  split-all: {embedder: served, reranker: served}
+"""
+
 # The owner's example, with a split-reranker topology so it deploys two Apps.
-DEPLOY_YAML = """\
-topology: split-reranker
+DEPLOY_YAML = "topology: split-reranker\n" + TOPOLOGY_ALIAS_YAML + """\
 model_server: fastapi
 project_id: ""
 
@@ -115,8 +136,9 @@ apps:
 # --- rag-deploy end to end: main over the fake Domino (fixtures and helpers) ---
 
 PROXY = "http://proxy.test:8899"
-# The CLI tests' deploy.yaml: every App on env-1, nothing else set.
-ENV_1 = "defaults:\n  environment_id: env-1\n"
+# The CLI tests' deploy.yaml: the three topology aliases and every App on env-1,
+# nothing else set. It ends inside defaults, so a test can add a default to it.
+ENV_1 = TOPOLOGY_ALIAS_YAML + "defaults:\n  environment_id: env-1\n"
 CACHE_FILE = ".rag-deploy-cache.json"  # in the working directory
 NO_ENVIRONMENT = (
     "rag-deploy: error: No environment_id for App rag-embedder: set "

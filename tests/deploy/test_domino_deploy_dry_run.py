@@ -16,6 +16,7 @@ from domino_deploy_helpers import (
     ENV_1,
     INSTANCES_URL,
     NO_ENVIRONMENT,
+    TOPOLOGY_ALIAS_YAML,
     RunMain,
     deployed_lines,
     launched,
@@ -31,6 +32,7 @@ def dry_run_report(
 ) -> str:
     tail = launched()
     environment = f"  environmentId: env-1\n  environmentRevisionId: {revision}\n"
+    served = f"{INSTANCES_URL}/app-{{}}-v1-i/v3/{{}}"
     model_servers = "".join(
         f"\nrag-{part}\n  kind: app (configurationType STANDARD)\n"
         f"{environment}  hardwareTierId: {tier}\n  autoscaling: off\n"
@@ -47,9 +49,11 @@ def dry_run_report(
         "  autoscaling: minReplicas 1, maxReplicas 4, targetCpuAvgUtilizationPct 70\n"
         "  entryScript:\n"
         "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY=split-all\n"
-        f"    export RAG_COMPONENTS__RERANKER__SERVED__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
-        f"    export RAG_COMPONENTS__EMBEDDER__SERVED__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
-        "    export RAG_RUN_LABEL=split-all-fastapi\n"
+        "    export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
+        f"    export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
+        "    export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"    export RAG_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
+        "    export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
         f"{agent_exports}    export RAG_BOOTSTRAP=1\n    {tail}\n"
     )
 
@@ -90,14 +94,15 @@ def test_dry_run_shows_the_environment_revision_when_set(run_main: RunMain) -> N
 def test_dry_run_refuses_a_default_revision_without_the_default_environment(
     run_main: RunMain,
 ) -> None:
-    Path("deploy.yaml").write_text("defaults: {environment_revision_id: rev-7}\n")
+    no_environment = "defaults: {environment_revision_id: rev-7}\n"
+    Path("deploy.yaml").write_text(TOPOLOGY_ALIAS_YAML + no_environment)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
     assert "defaults.environment_revision_id 'rev-7' in deploy.yaml has no " in err
 
 
 def test_dry_run_still_requires_the_environment_id(run_main: RunMain) -> None:
-    Path("deploy.yaml").unlink()
+    Path("deploy.yaml").write_text(TOPOLOGY_ALIAS_YAML)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
     assert err.endswith(NO_ENVIRONMENT)

@@ -18,6 +18,7 @@ from domino_deploy_helpers import (
     ENV_1,
     INSTANCES_URL,
     LAUNCH,
+    TOPOLOGY_ALIASES,
     RunMain,
     add_app,
     make_client,
@@ -63,7 +64,11 @@ def test_with_no_prefix_set_the_apps_keep_their_names(
 ) -> None:
     monkeypatch.delenv("RAG_DEPLOY_APP_NAME_PREFIX", raising=False)
     monkeypatch.setenv("RAG_DEPLOY_FILE", str(tmp_path / "absent.yaml"))
-    settings = DeploySettings(project_id="proj-1", defaults={"environment_id": "e"})  # type: ignore[arg-type]
+    settings = DeploySettings(
+        project_id="proj-1",
+        topology_alias=TOPOLOGY_ALIASES,  # type: ignore[arg-type]
+        defaults={"environment_id": "e"},  # type: ignore[arg-type]
+    )
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, settings, "all")
     assert settings.app_name_prefix == "rag"

@@ -12,15 +12,32 @@
 #
 # Unknown keys are refused. A RAG_DEPLOY_<KEY> environment variable overrides a
 # top-level key, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`; RAG_DEPLOY_FILE
-# names another file.
+# names another file. rag-deploy also reads the workflow file the workflow App
+# reads (RAG_WORKFLOW_FILE in its settings, else as rag-serve finds it), to know
+# the components a topology alias names.
 
-# monolith | split-reranker | split-all
+# The topology deployed: one of the topology aliases below.
 topology: split-all
+# Each topology alias says where the components it names run: local, in the
+# workflow App's process, or served, by a model server App of its own (named
+# <app_name_prefix>-<component>). The names are the workflow file's components.
+# A component an alias does not name keeps the backend the workflow file gives
+# it (here the LLM, on api). A model server serves an embedder or a reranker,
+# the component named after its type; any other served component is refused
+# before anything is published. A new alias is one more row: rag-deploy
+# publishes one App per served component, then the workflow App, and writes each
+# named component's backend and served URL into the workflow App's launch
+# script, and the run label: the alias, then +<component>=<model_server> for
+# each served one (split-all+embedder=fastapi+reranker=fastapi).
+topology_alias:
+  monolith: {embedder: local, reranker: local}
+  split-reranker: {embedder: local, reranker: served}
+  split-all: {embedder: served, reranker: served}
 # fastapi | ovms: what serves the models in the model server Apps
 model_server: fastapi
 # The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
 project_id: ""
-# Each App is named <app_name_prefix>-<part> (part: embedder, reranker, workflow),
+# Each App is named <app_name_prefix>-<part> (part: workflow or a served component),
 # so two use cases with two prefixes share one project. Lowercase letters and
 # digits in words joined by single hyphens, starting with a letter, e.g. qp-rag:
 # rag-deploy's own rule (we found none of Domino's), checked before anything is
@@ -58,10 +75,11 @@ defaults:
   # The hardware tier id; "" = the project's default.
   hardware_tier_id: ""
   # Environment variables for the App, exported by its launch script. rag-deploy
-  # itself sets RAG_ROLE, RAG_TOPOLOGY, RAG_COMPONENTS__RERANKER__SERVED__URL,
-  # RAG_COMPONENTS__EMBEDDER__SERVED__URL, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those
-  # win), and RAG_RUN_LABEL unless set here. A value of the workflow file is set
-  # by the variable its path names, its levels joined by __.
+  # itself sets RAG_ROLE, RAG_TOPOLOGY, RAG_COMPONENTS__<COMPONENT>__BACKEND of each
+  # component the topology alias names and RAG_COMPONENTS__<COMPONENT>__SERVED__URL
+  # of each served one, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those win), and
+  # RAG_RUN_LABEL unless set here. A value of the workflow file is set by the
+  # variable its path names, its levels joined by __.
   settings:
     # Required: the Elasticsearch cluster every workflow App queries.
     RAG_ES_URL: "https://<elasticsearch host>:9200"
@@ -78,7 +96,8 @@ defaults:
     # The folder holding config_reranker.json and config_embedder.json (ovms):
     # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 
-# One block per App, for what really differs per App: kind (app | agent),
+# One block per App, keyed by workflow or by the name of a served component (a
+# key that is neither is refused), for what really differs per App: kind (app | agent),
 # environment_id, environment_revision_id (a revision of this App's environment,
 # its own or the default one), hardware_tier_id, autoscaling {min_replicas
 # (default 1), max_replicas, target_cpu_pct (1..100)} and settings (merged with

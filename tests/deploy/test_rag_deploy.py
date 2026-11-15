@@ -21,6 +21,7 @@ from domino_deploy_helpers import (
     ENV_1,
     INSTANCES_URL,
     NO_ENVIRONMENT,
+    TOPOLOGY_ALIAS_YAML,
     RunMain,
     add_app,
     deployed_lines,
@@ -204,7 +205,7 @@ def test_url_of_an_app_not_deployed_is_an_error(run_main: RunMain) -> None:
 
 
 def test_deploy_requires_the_environment_id(run_main: RunMain) -> None:
-    Path("deploy.yaml").unlink()
+    Path("deploy.yaml").write_text(TOPOLOGY_ALIAS_YAML)
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
     assert code == 2
@@ -316,7 +317,7 @@ def test_status_after_a_deploy_shows_the_run_headers_the_app_reports(
         f"rag-reranker   Running        {INSTANCES_URL}/app-2-v1-i\n"
         f"rag-workflow   Running        {INSTANCES_URL}/app-3-v1-i\n"
         "readyz: HTTP 200, X-RAG-Topology: split-all, "
-        "X-RAG-Run-Label: split-all-fastapi\n"
+        "X-RAG-Run-Label: split-all+embedder=fastapi+reranker=fastapi\n"
         "  fake_domino: ok answered by the fake\n"
     )
 

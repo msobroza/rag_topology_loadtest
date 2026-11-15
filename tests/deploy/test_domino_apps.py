@@ -19,6 +19,7 @@ from domino_deploy_helpers import (
     BOOTSTRAP_AND_EXEC,
     INSTANCES_URL,
     LAUNCH,
+    MONOLITH_EXPORTS,
     add_app,
     make_client,
     make_settings,
@@ -33,6 +34,7 @@ from rag_load_test.deploy.apps_client import (
 )
 from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.publish import publish_app
+from rag_load_test.deploy.topology_alias import resolve_topology
 
 
 def sent(body: BaseModel) -> dict[str, object]:
@@ -47,9 +49,12 @@ def publish(
     sleep: Callable[[float], None] = no_sleep,
     cache: AppIdCache | None = None,
 ) -> DominoApp:
-    """``publish_app`` with no model server URLs."""
+    """``publish_app`` of one App of the topology ``settings`` choose."""
     client = make_client(apps, cache=cache)
-    return publish_app(client, settings, part, {}, launch_script=LAUNCH, sleep=sleep)  # type: ignore[arg-type]
+    topology = resolve_topology(settings)
+    return publish_app(
+        client, settings, topology, part, launch_script=LAUNCH, sleep=sleep
+    )
 
 
 def test_publish_creates_the_app_with_the_documented_body() -> None:
@@ -84,7 +89,7 @@ def test_the_workflow_is_created_as_an_agent() -> None:
     assert app.configuration_type == "AISYSTEM"  # echoed back by the fake
     assert apps.creates[0].version.entryScript == (
         "export RAG_ROLE=monolith\nexport RAG_TOPOLOGY=monolith\n"
-        f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
+        f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 

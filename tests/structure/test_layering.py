@@ -54,6 +54,9 @@ MAY_IMPORT_PORTS = {"application"}
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # For the defaults of the four RAG_* values a load test sends, nothing else.
     "rag_load_test.loadtest.loadtest_settings": {"config"},
+    # The deploy tool reads the workflow settings, to know the components a
+    # topology alias names (ADR 0003); the rest of deploy reads them through it.
+    "rag_load_test.deploy.workflow_components": {"config"},
 }
 LOCUSTFILE = REPO_ROOT / "locustfile.py"  # the load-test client's file, outside src
 
@@ -203,6 +206,11 @@ def test_the_import_table_on_literal_sources() -> None:
     assert forbidden_imports("rag_load_test.entrypoints.rag_serve", adapter) != []
     settings = "from ..config.rag_settings import RagSettings"
     assert forbidden_imports("rag_load_test.loadtest.loadtest_settings", settings) == []
+    workflow = "from ..config.workflow_file import workflow_file"
+    assert forbidden_imports("rag_load_test.deploy.workflow_components", workflow) == []
+    assert forbidden_imports("rag_load_test.deploy.publish", workflow) == [
+        "rag_load_test.deploy.publish:1 imports rag_load_test.config.workflow_file"
+    ]
 
 
 def test_the_table_names_every_package_of_the_product() -> None:

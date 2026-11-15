@@ -26,20 +26,16 @@ from pydantic_settings import (
 )
 
 from ..domain.api_endpoint import DOMINO_RUN_TOKEN
-from ..domain.roles import AppPart, ModelServerKind
-from ..domain.topology import Topology
+from ..domain.roles import WORKFLOW_APP, AppPart, ModelServerKind
 from .apps_client import DominoDeployError, WaitLimits
 
 AppKind = Literal["app", "agent"]
+# Where a topology alias puts a component it names: in the workflow App's
+# process, or behind a model server App of its own.
+Placement = Literal["local", "served"]
 DEPLOY_FILE = (
     "deploy.yaml"  # in the working directory, unless RAG_DEPLOY_FILE names one
 )
-# The orchestrator is published as an Agent, the model servers as plain Apps.
-DEFAULT_KIND: dict[AppPart, AppKind] = {
-    "embedder": "app",
-    "reranker": "app",
-    "workflow": "agent",
-}
 
 
 def deploy_file() -> str:
@@ -138,7 +134,14 @@ class DeploySettings(BaseSettings):
     # Each App is named <app_name_prefix>-<part>, so that two use cases with two
     # prefixes can share one Domino project.
     app_name_prefix: str = "rag"
-    topology: Topology = "split-all"
+    # The topology alias deployed: a key of topology_alias, checked against the
+    # workflow file before anything is published (topology_alias.py).
+    topology: str = "split-all"
+    # Each topology alias: local or served for each component of the workflow
+    # file it names. A component it does not name keeps the backend the
+    # workflow file gives it. Where a component runs differs per site, so no
+    # alias is defined in code (ADR 0003).
+    topology_alias: dict[str, dict[str, Placement]] = {}
     model_server: ModelServerKind = "fastapi"
     project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
     ovms_bundle: str = ""  # required for ``ovms``: bin/ovms + lib/, or its .tar.gz
@@ -152,6 +155,8 @@ class DeploySettings(BaseSettings):
     http_retries: int = 2
     run_token_url: str = "http://localhost:8899/access-token"  # a run's token service
     defaults: AppBlock = AppBlock()
+    # Keyed by workflow or by a served component's name: any other key is
+    # refused once the workflow file is read (topology_alias.py).
     apps: dict[AppPart, AppBlock] = {}
 
     @classmethod
@@ -224,7 +229,8 @@ class DeploySettings(BaseSettings):
             part: The App whose settings are merged.
 
         Returns:
-            The App's settings, the kind defaulting to ``DEFAULT_KIND``.
+            The App's settings, the kind defaulting to ``agent`` for the
+            workflow App and ``app`` for a model server App.
 
         Example:
             >>> DeploySettings().for_app("reranker").hardware_tier_id
@@ -235,7 +241,7 @@ class DeploySettings(BaseSettings):
         return AppSettings(
             part=part,
             name=self.app_name(part),
-            kind=own.kind or shared.kind or DEFAULT_KIND[part],
+            kind=own.kind or shared.kind or _default_kind(part),
             environment_id=environment_id,
             environment_revision_id=revision_id,
             hardware_tier_id=own.hardware_tier_id or shared.hardware_tier_id or "",
@@ -253,6 +259,11 @@ class DeploySettings(BaseSettings):
         return WaitLimits(
             self.wait_timeout_s, self.poll_interval_s, self.no_instance_grace_s
         )
+
+
+def _default_kind(part: AppPart) -> AppKind:
+    # The orchestrator is published as an Agent, the model servers as plain Apps.
+    return "agent" if part == WORKFLOW_APP else "app"
 
 
 def _environment_of(own: AppBlock, shared: AppBlock) -> tuple[str, str]:

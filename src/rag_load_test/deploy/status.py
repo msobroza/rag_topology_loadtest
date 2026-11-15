@@ -10,7 +10,6 @@ from http import HTTPStatus
 import httpx
 
 from ..domain.errors import describe_error
-from ..domain.roles import apps_for_topology
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -20,6 +19,7 @@ from .apps_client import (
 )
 from .deploy_settings import DeploySettings
 from .endpoint_url import endpoint_url
+from .topology_alias import resolve_topology
 
 
 def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
@@ -30,14 +30,16 @@ def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
 
     Args:
         client: Apps API client for the project.
-        settings: The deploy settings (topology, Domino host, run token URL).
+        settings: The deploy settings (topology alias, Domino host, run token
+            URL).
 
     Example:
         >>> print_status(client, DeploySettings())
         rag-workflow   Running   https://...
     """
     endpoint: str | None = None
-    names = [settings.app_name(part) for part in apps_for_topology(settings.topology)]
+    parts = resolve_topology(settings).app_parts()
+    names = [settings.app_name(part) for part in parts]
     width = max(map(len, names)) + 2  # a column as wide as the longest name
     for name in names:  # the workflow App is last
         app = client.find(name)
