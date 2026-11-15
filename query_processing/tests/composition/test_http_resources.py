@@ -47,6 +47,6 @@ def test_the_default_is_set_once_for_every_component(
     assert policies == {
         "embedder": HttpPolicy(timeout_s=5.0, retries=0, backoff_s=0.0),
         "reranker": HttpPolicy(timeout_s=5.0, retries=0, backoff_s=0.0),
-        # The packaged file gives the LLM its own timeout: an answer is slow.
+        # The tests' file gives the LLM its own timeout: an answer is slow.
         "llm": HttpPolicy(timeout_s=120.0, retries=0, backoff_s=0.0),
     }

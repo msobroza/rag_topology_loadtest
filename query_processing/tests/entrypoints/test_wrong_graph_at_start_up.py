@@ -1,6 +1,6 @@
 """A workflow graph that cannot run is refused when ``rag-serve`` starts.
 
-Each case writes the packaged graph with one mistake into a workflow file and
+Each case writes the fixture's graph with one mistake into a workflow file and
 runs the command. The refusal is a usage error naming what is wrong and what
 was expected, raised before the server starts, so before any component opens;
 nothing is left to fail on the first request. What only an opened component
@@ -22,8 +22,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from uvicorn.lifespan.on import LifespanOn
 
-from rag_components import FAKE_BACKEND_VARIABLES, FAKE_BACKENDS, settings_at_paths
-from rag_graphs import packaged_graph, rag_graph, write_workflow_file
+from rag_components import (
+    FAKE_BACKEND_VARIABLES,
+    FAKE_BACKENDS,
+    settings_at_paths,
+    shell_settings,
+)
+from rag_graphs import fixture_graph, rag_graph, write_workflow_file
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
@@ -50,7 +55,7 @@ class FakeServer:
 @pytest.fixture
 def server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeServer:
     """All-fake backends, no RAG_* from the shell, an empty directory, no real server."""
-    for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
+    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
         monkeypatch.delenv(name)
     for name, value in FAKE_BACKEND_VARIABLES.items():
         monkeypatch.setenv(name, value)
@@ -221,7 +226,7 @@ def test_a_graph_that_cannot_run_is_a_usage_error_before_anything_opens(
     mistake: str,
 ) -> None:
     change, said = MISTAKES[mistake]
-    graph = packaged_graph()
+    graph = fixture_graph()
     change(graph)
 
     with pytest.raises(SystemExit) as exited:

@@ -254,6 +254,6 @@ def test_no_flat_variable_of_a_model_component_is_read(
     backends = [c.backend for c in s.components.values()]
     assert backends == ["local", "local", "api", "elasticsearch"]
     reranker = s.components["reranker"]
-    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
-    assert s.components["embedder"].alias == "snowflake-arctic-embed-l-v2.0"
+    assert reranker.source_id == "fixture-org/fixture-reranker"
+    assert s.components["embedder"].alias == "fixture-embedder"
     assert s.components["llm"].http.timeout_s == 120.0

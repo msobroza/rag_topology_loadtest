@@ -16,7 +16,7 @@ from rag_load_test.infrastructure.local_models.local_model import (
 @pytest.mark.parametrize(
     ("model_id", "expected"),
     [
-        ("Snowflake/snowflake-arctic-embed-l-v2.0", "snowflake-arctic-embed-l-v2.0"),
+        ("fixture-org/fixture-embedder", "fixture-embedder"),
         ("plain-name", "plain-name"),
         ("org/name/", "name"),
         ("/abs/path/to/model", "model"),

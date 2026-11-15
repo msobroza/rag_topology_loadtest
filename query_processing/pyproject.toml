@@ -26,7 +26,7 @@ dependencies = [
     "httpx>=0.27",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "pyyaml>=6",  # config/workflow.yaml, read by pydantic-settings and workflow_file.py
+    "pyyaml>=6",  # a use case's workflow.yaml, read by pydantic-settings and workflow_file.py
     "joblib>=1.3",  # cpu_count() honours the container's CPU quota
     "threadpoolctl>=3.1",  # per-model caps on OpenMP/BLAS threads
 ]
@@ -81,7 +81,7 @@ rag-domino-emulation = "fake_domino.emulation.server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"rag_load_test" = ["py.typed", "config/workflow.yaml"]
+"rag_load_test" = ["py.typed"]
 "fake_domino" = ["py.typed"]
 
 [tool.pytest.ini_options]

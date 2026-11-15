@@ -1,9 +1,11 @@
-"""Today's RAG graph with some of its stages' settings changed, for the tests.
+"""The tests' workflow file, and its graph with some stages' settings changed.
 
-The graph is the one of the workflow file that ships with the code, so a test
-names only what it changes. A lexical graph has no embed stage, as a lexical
-workflow file has none: its first chain starts at retrieve. A test hands the
-graph to the settings as ``graph=``, which replaces the file's whole graph.
+The toolkit ships no workflow file and its tests read no use case's: they run
+on ``fixture_workflow.yaml``, beside this module, a four-stage retrieval graph
+over made-up models, so a test names only what it changes. A lexical graph has
+no embed stage, as a lexical workflow file has none: its first chain starts at
+retrieve. A test hands the graph to the settings as ``graph=``, which replaces
+the file's whole graph.
 
 Example::
 
@@ -17,9 +19,10 @@ from typing import Any
 
 import yaml
 
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW
 from rag_load_test.domain.graph_description import GraphDescription
 
+# The workflow file every test reads unless it names another (conftest.py).
+FIXTURE_WORKFLOW = Path(__file__).with_name("fixture_workflow.yaml")
 # Each keyword of rag_graph: the stage it sets and the key of that stage.
 STAGE_SETTING = {
     "retrieve_top_k": ("retrieve", "top_k"),
@@ -30,18 +33,18 @@ STAGE_SETTING = {
 }
 
 
-def packaged_graph() -> dict[str, Any]:
-    """The ``graph`` block of the workflow file that ships with the code, as read."""
-    return yaml.safe_load(PACKAGED_WORKFLOW.read_text(encoding="utf-8"))["graph"]
+def fixture_graph() -> dict[str, Any]:
+    """The ``graph`` block of the tests' workflow file, as read."""
+    return yaml.safe_load(FIXTURE_WORKFLOW.read_text(encoding="utf-8"))["graph"]
 
 
 def rag_graph(retrieval_mode: str = "dense", **changes: object) -> GraphDescription:
-    """Today's graph, its retrieve stage in ``retrieval_mode``, with ``changes``.
+    """The fixture's graph, its retrieve stage in ``retrieval_mode``, with ``changes``.
 
     ``changes`` are keywords of ``STAGE_SETTING``. A lexical graph has no embed
     stage.
     """
-    graph = packaged_graph()
+    graph = fixture_graph()
     stages = graph["stages"]
     stages["retrieve"]["retrieval_mode"] = retrieval_mode
     for keyword, value in changes.items():
@@ -55,9 +58,9 @@ def rag_graph(retrieval_mode: str = "dense", **changes: object) -> GraphDescript
     return GraphDescription.model_validate(graph)
 
 
-def packaged_components() -> dict[str, Any]:
-    """The ``components`` block of the workflow file that ships with the code."""
-    return yaml.safe_load(PACKAGED_WORKFLOW.read_text(encoding="utf-8"))["components"]
+def fixture_components() -> dict[str, Any]:
+    """The ``components`` block of the tests' workflow file."""
+    return yaml.safe_load(FIXTURE_WORKFLOW.read_text(encoding="utf-8"))["components"]
 
 
 def write_workflow_file(
@@ -65,8 +68,8 @@ def write_workflow_file(
 ) -> Path:
     """Write a workflow file of ``graph`` and ``components``; return it.
 
-    The components are the packaged file's unless a test gives its own.
+    The components are the fixture's unless a test gives its own.
     """
-    blocks = {"components": components or packaged_components(), "graph": graph}
+    blocks = {"components": components or fixture_components(), "graph": graph}
     path.write_text(yaml.safe_dump(blocks), encoding="utf-8")
     return path

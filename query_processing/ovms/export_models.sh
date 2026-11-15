@@ -4,9 +4,11 @@
 # OVMS tag. Each component gets config_<component>.json, the config an OVMS
 # model-server App of that component serves (domino/model_servers/ovms.sh).
 #
-# Usage: ovms/export_models.sh [MODELS_DIR]      (default: ovms/models)
+# Usage: ovms/export_models.sh [MODELS_DIR]   (default: ovms/models in the working
+# directory, the use case's, as every output of a command)
 # Needs: HF Hub access to download the source models; a Python with pip; this
-# package installed (`make install`) so `rag-served-models` is on PATH.
+# package installed (`make install`) so `rag-served-models` is on PATH, run where it
+# finds the use case's workflow file (its directory, or RAG_WORKFLOW_FILE).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -23,7 +25,7 @@ fi
 # Assigned first so a failing command stops the script (a pipe would hide it).
 SERVED_MODELS=$(rag-served-models)
 
-MODELS_DIR=${1:-$HERE/models}
+MODELS_DIR=${1:-$PWD/ovms/models}
 EXPORT_DIR="$MODELS_DIR/.export"
 PYTHON=${PYTHON:-python}
 # Pinned to the OVMS tag so the exporter matches the server that will load the IR.

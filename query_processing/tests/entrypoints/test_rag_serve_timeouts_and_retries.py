@@ -4,7 +4,7 @@ through its HTTP API.
 Each model component has an ``http`` block: the timeout of one attempt, the
 retries after the first, and the backoff before the first retry. A value the
 block leaves out is the default shared by every component (``RAG_HTTP__TIMEOUT_S``,
-``RAG_HTTP__RETRIES``, ``RAG_HTTP__BACKOFF_S``); the packaged workflow file gives
+``RAG_HTTP__RETRIES``, ``RAG_HTTP__BACKOFF_S``); the tests' workflow file gives
 the LLM its own longer timeout. The endpoints are one HTTP transport that answers
 in their place: it refuses the calls made about the question a set number of
 times, and records each with its read timeout and the moment it came.
@@ -24,10 +24,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from model_api_fakes import standard_answer
-from rag_components import FAKE_BACKENDS
+from rag_components import FAKE_BACKENDS, shell_settings
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from rag_load_test.entrypoints.rag_serve import create_app
 
 SettingsFactory = Callable[..., RagSettings]
@@ -88,10 +87,9 @@ class FlakyModelEndpoints:
 
 @pytest.fixture(autouse=True)
 def _no_settings_from_the_shell(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every default is the code's or the packaged file's, whatever the shell sets."""
-    for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
-        if name != WORKFLOW_FILE_VARIABLE:
-            monkeypatch.delenv(name)
+    """Every default is the code's or the tests' file's, whatever the shell sets."""
+    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
+        monkeypatch.delenv(name)
 
 
 def called_over_http(component: str, backend: str) -> dict[str, object]:
@@ -141,7 +139,7 @@ def test_with_every_default_a_component_makes_three_attempts_in_todays_timeout(
     assert response.json()["error"] == f"{component}_unavailable"
     attempts = endpoints.at(URLS[component])
     assert len(attempts) == 3  # the first attempt and RAG_HTTP__RETRIES=2
-    # RAG_HTTP__TIMEOUT_S, or the LLM's own timeout in the packaged file.
+    # RAG_HTTP__TIMEOUT_S, or the LLM's own timeout in the tests' file.
     assert {attempt.timeout_s for attempt in attempts} == {timeout_s}
     assert waited_at_least(attempts, TODAYS_BACKOFFS)
 
@@ -249,6 +247,6 @@ def test_the_default_set_once_holds_for_every_value_a_component_leaves_out(
 
     attempts = endpoints.at(URLS[component])
     assert len(attempts) == 2
-    # The LLM keeps the timeout of its own block in the packaged file.
+    # The LLM keeps the timeout of its own block in the tests' file.
     assert {attempt.timeout_s for attempt in attempts} == {timeout_s}
     assert waited_at_least(attempts, [0.25])

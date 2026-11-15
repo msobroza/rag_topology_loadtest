@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from rag_components import FAKE_BACKENDS
+from rag_components import FAKE_BACKENDS, without_shell_settings
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
@@ -242,7 +242,7 @@ def test_a_new_backend_is_one_new_module(tmp_path: Path) -> None:
     opener.write_text(REVERSED_RERANKER_OPENER, encoding="utf-8")
     (tmp_path / "driver.py").write_text(DRIVER, encoding="utf-8")
     # No RAG_* variable of this shell, and the copy ahead of any installed package.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
+    env = without_shell_settings(os.environ)
     env["PYTHONPATH"] = str(tmp_path / "src")
 
     run = subprocess.run(

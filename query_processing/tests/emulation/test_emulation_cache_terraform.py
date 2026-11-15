@@ -16,6 +16,7 @@ import yaml
 from emulation_terraform import (
     SCRIPTS,
     TF_DIR,
+    USE_CASE_ROOT,
     heredoc,
     locals_,
     render,
@@ -146,12 +147,20 @@ def test_the_pool_warms_what_app_sh_installs_at_every_app_start() -> None:
     commands = install_project_commands()
     pool = (TF_DIR / "scripts" / "pool.sh.tftpl").read_text(encoding="utf-8")
 
-    assert len(commands) == 2, commands
-    for command in commands:
-        warmed = command.replace('"$1', '"$HOME/rag-venv').replace(
-            '"$2"', '".[domino]"'
-        )
-        assert warmed in pool, f"{warmed!r} not in pool.sh.tftpl"
+    # app.sh: its venv on the repository's Python, then what it is asked for.
+    assert commands == [
+        'uv venv "$venv" --python "$(cat "$PYTHON_VERSION_FILE")"',
+        'uv pip install --python "$venv/bin/python" "$@"',
+    ]
+    # The pool, at the clone's paths: an Agent's toolkit, then the use case of
+    # RAG_USE_CASE_DIR, the directory rag-deploy runs from.
+    venv = 'uv venv "$HOME/rag-venv" --python "$(cat "$1/.python-version")"'
+    install = (
+        'uv pip install --python "$HOME/rag-venv/bin/python" '
+        f'"$1/{TOOLKIT_ROOT.name}[domino]" "$1/{USE_CASE_ROOT.name}"'
+    )
+    for warmed in (venv, install):
+        assert f'{warmed}\' _ "$REPO_PATH"' in pool, f"{warmed!r} not in pool.sh.tftpl"
 
 
 def test_each_machine_restores_its_models_after_writing_the_cache_config() -> None:

@@ -125,7 +125,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _parser()
     args = parser.parse_args(argv)
-    settings = RagSettings()
+    try:
+        settings = RagSettings()
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
     names = exported_components(settings)
     if args.only and args.only not in names:
         parser.error(

@@ -46,8 +46,7 @@ from rag_load_test.loadtest.target_record import (
 SETTINGS = LoadTestSettings()
 POOL = build_request_pool(
     SETTINGS.question_count,
-    SETTINGS.top_k_retrieve,
-    SETTINGS.top_k_rerank,
+    *SETTINGS.rerank_sizes,
     questions_file=SETTINGS.questions_file,
 )
 WAIT_TIME = between(SETTINGS.wait_min_s, SETTINGS.wait_max_s)

@@ -1,7 +1,10 @@
-# rag-deploy settings: cp deploy.example.yaml deploy.yaml, then edit (deploy.yaml is
-# git-ignored). Run `make deploy` / `make status` from the toolkit's directory (for
-# example /repos/<project>/query_processing) in a Domino Workspace of the one
-# project that hosts all the Apps: the Apps run domino/app.sh by that absolute path.
+# The RAG use case's rag-deploy settings: cp deploy.example.yaml deploy.yaml in
+# this directory, then edit (deploy.yaml is git-ignored). Run `make deploy` /
+# `make status` from this directory (for example
+# /repos/<project>/query_processing_rag_usecase) in a Domino Workspace of the one
+# project that hosts all the Apps: every App runs the toolkit's
+# query_processing/domino/app.sh, found from here, by its absolute path, and runs
+# its role's command here (RAG_USE_CASE_DIR), where it finds workflow.yaml.
 #
 # Secrets do NOT go here: every `settings` and `overrides` value is written into
 # an App's launch script. Keep every API key
@@ -81,16 +84,17 @@ defaults:
   hardware_tier_id: ""
   # The model-server kind of every model server App, unless its block sets its
   # own: fastapi (rag-model-server) | ovms (OpenVINO Model Server). Each kind is
-  # one registered class and one launch script, domino/model_servers/<kind>.sh.
+  # one registered class and one launch script, the toolkit's
+  # domino/model_servers/<kind>.sh.
   server: fastapi
   # The variables the launch script reads that are no value of the workflow
   # file, exported by the App's launch script: RAG_OVMS_MODELS_DIR,
   # RAG_BOOTSTRAP_EXTRAS, RAG_WORKFLOW_FILE (the workflow file the Apps read,
-  # from the toolkit's directory), ... A value of the workflow file goes under
+  # from this directory), ... A value of the workflow file goes under
   # overrides below: written here, it is refused, naming its place there.
   # rag-deploy itself sets RAG_ROLE (workflow or model-server),
-  # RAG_MODEL_SERVER_COMPONENT and RAG_MODEL_SERVER_KIND, RAG_OVMS_BUNDLE and
-  # RAG_BOOTSTRAP (those win).
+  # RAG_MODEL_SERVER_COMPONENT and RAG_MODEL_SERVER_KIND, RAG_OVMS_BUNDLE,
+  # RAG_USE_CASE_DIR (this directory) and RAG_BOOTSTRAP (those win).
   # settings:
   #   # The folder holding config_<component>.json of each component ovms serves:
   #   RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models

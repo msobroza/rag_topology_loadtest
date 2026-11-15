@@ -23,6 +23,9 @@ from repo_paths import REPO_ROOT
 
 TF_DIR = REPO_ROOT / "emulation" / "terraform"
 SCRIPTS = TF_DIR / "scripts"
+# The use case the emulation deploys. The toolkit's own tests read none of its
+# files; the emulation's do, since it installs and deploys that use case.
+USE_CASE_ROOT = REPO_ROOT / "query_processing_rag_usecase"
 SETUP_SH = REPO_ROOT / "emulation" / "cloudshell" / "setup.sh"
 OPTIONS = SerializationOptions(
     with_comments=False, explicit_blocks=False, strip_string_quotes=True

@@ -1,10 +1,12 @@
-# Local infrastructure for the split topologies and for ingestion.
-#   docker compose --env-file ovms/versions.env up -d
-# Elasticsearch: single node, security off (dev only). OVMS: model repository
-# produced by ovms/export_models.sh, mounted read-only.
+# Local infrastructure for the split topologies and for ingestion, started from a
+# use case's directory, the project directory, by its Makefile (make infra-up):
+#   docker compose -f ../query_processing/docker-compose.yml --project-directory . \
+#     --env-file ../query_processing/ovms/versions.env up -d
+# Elasticsearch: single node, security off (dev only). OVMS: the model repository
+# ovms/export_models.sh produced in that directory (ovms/models), mounted read-only.
 # The workflow app finds each service through the workflow file (its components
 # block), or through the variable a value's path names:
-#   elasticsearch  components.vector_store.elasticsearch.url, the packaged file's
+#   elasticsearch  components.vector_store.elasticsearch.url, such as
 #                  http://localhost:9200 (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
 #   ovms-reranker  components.reranker.served.url with backend: served
 #                  (RAG_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank)

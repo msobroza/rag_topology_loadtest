@@ -11,7 +11,7 @@ this Workspace and the start-up checks of the workflow app are not the deploy
 tool's. The one module of ``deploy`` that may import the workflow settings.
 
 Example:
-    >>> read_workflow_components(PACKAGED_WORKFLOW)["reranker"]
+    >>> read_workflow_components(Path("workflow.yaml"))["reranker"]
     WorkflowComponent(type='reranker', backend='local')
     >>> workflow_setting_path("RAG_HTTP__RETRIES")
     ('http', 'retries')
@@ -33,6 +33,7 @@ from ..config.component_settings import typed_by_name
 from ..config.rag_settings import RagSettings
 from ..config.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
+    WorkflowFileNotFoundError,
     workflow_file,
     workflow_file_source,
 )
@@ -62,14 +63,25 @@ def workflow_file_for(app_settings: Mapping[str, str]) -> Path:
 
     Returns:
         The file its ``RAG_WORKFLOW_FILE`` names, else the one ``workflow_file``
-        finds here, where the App starts too (the toolkit's directory).
+        finds here, in the use case's directory, where the App runs too.
+
+    Raises:
+        DominoDeployError: If neither names a workflow file; the message says
+            where it looked.
 
     Example:
         >>> workflow_file_for({"RAG_WORKFLOW_FILE": "lexical.yaml"})
         PosixPath('lexical.yaml')
     """
     named = app_settings.get(WORKFLOW_FILE_VARIABLE)
-    return Path(named) if named else workflow_file()
+    if named:
+        return Path(named)
+    try:
+        return workflow_file()
+    except WorkflowFileNotFoundError as exc:
+        raise DominoDeployError(
+            f"rag-deploy reads the workflow file the workflow App reads: {exc}"
+        ) from exc
 
 
 def read_workflow_components(path: Path) -> dict[str, WorkflowComponent]:
@@ -88,7 +100,7 @@ def read_workflow_components(path: Path) -> dict[str, WorkflowComponent]:
             of names to mappings.
 
     Example:
-        >>> list(read_workflow_components(PACKAGED_WORKFLOW))
+        >>> list(read_workflow_components(Path("workflow.yaml")))
         ['embedder', 'reranker', 'llm']
     """
     entries = typed_by_name(_workflow_data(path).get("components") or {})
@@ -202,7 +214,7 @@ def refuse_unknown_override_keys(overrides: Mapping[str, object], path: Path) ->
             is not a mapping, or value left empty, with its place.
 
     Example:
-        >>> refuse_unknown_override_keys({"htpp": {"retries": 0}}, PACKAGED_WORKFLOW)
+        >>> refuse_unknown_override_keys({"htpp": {"retries": 0}}, path)
         DominoDeployError: overrides in deploy.yaml has no key 'htpp': ...
     """
     _refuse_unknown_keys(overrides, RagSettings, _workflow_data(path), (), path)
@@ -332,7 +344,7 @@ def refuse_override_values(overrides: Mapping[str, object], path: Path) -> None:
             its place and what they expect.
 
     Example:
-        >>> refuse_override_values({"http": {"retries": -1}}, PACKAGED_WORKFLOW)
+        >>> refuse_override_values({"http": {"retries": -1}}, path)
         DominoDeployError: ... http.retries: Input should be greater than or ...
     """
     # Given as arguments, the overrides are the highest source, as a variable.

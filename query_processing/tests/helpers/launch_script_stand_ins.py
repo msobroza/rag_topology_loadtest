@@ -54,8 +54,9 @@ def stay_until_the_other_is_done(tmp_path: Path, name: str) -> str:
 def make_stand_ins(tmp_path: Path) -> Path:
     """Fake binaries that append their argv (and nginx its config) to <name>.log.
 
-    Each also appends its ``RAG_*`` variables to <name>.env; a fake installed in a
-    venv by ``uv venv`` logs to venv-<name>.log and venv-<name>.env instead.
+    Each also appends its ``RAG_*`` variables to <name>.env and the directory
+    it was started in to <name>.cwd; a fake installed in a venv by ``uv venv``
+    logs to venv-<name>.log, venv-<name>.env and venv-<name>.cwd instead.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -65,6 +66,7 @@ def make_stand_ins(tmp_path: Path) -> Path:
             "#!/usr/bin/env bash\n"
             f'echo "$@" >> "{tmp_path}/{name}.log"\n'
             f'env | grep "^RAG_" | sort >> "{tmp_path}/{name}.env" || true\n'
+            f'pwd >> "{tmp_path}/{name}.cwd"\n'
             + (
                 f'[ "$1" = -c ] && cp "$2" "{tmp_path}/nginx.conf"\n'
                 if name == "nginx"
@@ -79,7 +81,8 @@ def make_stand_ins(tmp_path: Path) -> Path:
     venv_fakes = "".join(
         "printf '#!/usr/bin/env bash\\n"
         f'echo "$@" >> {tmp_path}/venv-{name}.log\\n'
-        f'env | grep "^RAG_" | sort >> {tmp_path}/venv-{name}.env\\n\' '
+        f'env | grep "^RAG_" | sort >> {tmp_path}/venv-{name}.env\\n'
+        f"pwd >> {tmp_path}/venv-{name}.cwd\\n' "
         f'> "$2/bin/{name}"; chmod +x "$2/bin/{name}"\n'
         for name in VENV_FAKES
     )
@@ -121,6 +124,11 @@ def started_env(tmp_path: Path, name: str) -> list[str]:
     return (tmp_path / f"{name}.env").read_text().splitlines()
 
 
+def started_in(tmp_path: Path, name: str) -> Path:
+    """The directory the stand-in ``name`` was last started in."""
+    return Path((tmp_path / f"{name}.cwd").read_text().splitlines()[-1])
+
+
 def models_dir(tmp_path: Path) -> Path:
     """A models folder holding both OVMS configs, so no OVMS model server exports."""
     models = tmp_path / "models"
@@ -131,9 +139,12 @@ def models_dir(tmp_path: Path) -> Path:
 
 
 def ovms_bundle(tmp_path: Path) -> Path:
-    """An unpacked OVMS bundle whose ``bin/ovms`` logs argv and LD_LIBRARY_PATH."""
+    """An unpacked OVMS bundle whose ``bin/ovms`` logs argv, LD_LIBRARY_PATH and cwd."""
     bundle = tmp_path / "bundle" / "ovms"
     (bundle / "lib").mkdir(parents=True)
-    extra = f'echo "$LD_LIBRARY_PATH" >> "{tmp_path}/bundle-ovms.ld"\n'
+    extra = (
+        f'echo "$LD_LIBRARY_PATH" >> "{tmp_path}/bundle-ovms.ld"\n'
+        f'pwd >> "{tmp_path}/bundle-ovms.cwd"\n'
+    )
     write_fake(bundle / "bin" / "ovms", tmp_path / "bundle-ovms.log", extra)
     return bundle

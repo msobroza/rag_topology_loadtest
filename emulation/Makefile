@@ -16,10 +16,11 @@ APP_HOST ?=
 PLACEMENT ?= /etc/rag-emulation/placement.json
 CORPUS ?= quebec-insurance
 CORPUS_ANALYZER ?= french
-# The toolkit's directory: its commands and make targets run there, and what they
-# write (data/, results/) is there.
-TOOLKIT = ../query_processing
-CORPUS_DIR = $(abspath $(TOOLKIT)/data/$(CORPUS))
+# The use case the emulation deploys: its commands and make targets run in its
+# directory, where they find its files, and what they write (data/, results/) is
+# there.
+USE_CASE = ../query_processing_rag_usecase
+CORPUS_DIR = $(abspath $(USE_CASE)/data/$(CORPUS))
 # Once `make corpus` has run, Locust asks that corpus's questions, not the
 # synthetic English ones.
 QUESTIONS = $(if $(wildcard $(CORPUS_DIR)/questions.jsonl),RAG_LOADTEST_QUESTIONS_FILE=$(CORPUS_DIR)/questions.jsonl)
@@ -63,29 +64,29 @@ tunnel-locust: ## Forward localhost:8089 to Locust's web UI (leave running)
 destroy: ## Delete everything Terraform created (the state bucket stays)
 	$(TF) destroy
 
-ingest: ## Workspace: index the synthetic English corpus into the emulation's Elasticsearch (the project's make ingest)
-	$(MAKE) -C $(TOOLKIT) ingest
+ingest: ## Workspace: index the synthetic English corpus into the emulation's Elasticsearch (the use case's make ingest)
+	$(MAKE) -C $(USE_CASE) ingest
 
 corpus-files: ## Workspace: fetch a corpus's files (its questions.jsonl included) without indexing it: make corpus-files CORPUS=quebec-insurance
-	cd $(TOOLKIT) && rag-fetch-corpus $(CORPUS) --out $(CORPUS_DIR)
+	cd $(USE_CASE) && rag-fetch-corpus $(CORPUS) --out $(CORPUS_DIR)
 
 corpus: corpus-files ## Workspace: fetch a French corpus and index it instead (one corpus per index: this or ingest): make corpus CORPUS=quebec-insurance
-	cd $(TOOLKIT) && RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER=$(CORPUS_ANALYZER) rag-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
+	cd $(USE_CASE) && RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER=$(CORPUS_ANALYZER) rag-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
 
 corpus-save: ## Workspace: snapshot the index into the cache bucket, named after corpus, analyzer and embedder
-	./machine/index_snapshot.sh save "$(SNAPSHOT_PREFIX)"
+	cd $(USE_CASE) && $(CURDIR)/machine/index_snapshot.sh save "$(SNAPSHOT_PREFIX)"
 
 corpus-restore: corpus-files ## Workspace: the index back from the cache bucket, in place of make corpus
-	./machine/index_snapshot.sh restore "$(SNAPSHOT_PREFIX)"
+	cd $(USE_CASE) && $(CURDIR)/machine/index_snapshot.sh restore "$(SNAPSHOT_PREFIX)"
 
-deploy: ## Workspace: publish every App through the fake Domino (the project's make deploy)
-	$(MAKE) -C $(TOOLKIT) deploy
+deploy: ## Workspace: publish every App through the fake Domino (the use case's make deploy)
+	$(MAKE) -C $(USE_CASE) deploy
 
 status: ## Workspace: each App's status and URL, then the workflow App's /readyz
-	$(MAKE) -C $(TOOLKIT) status
+	$(MAKE) -C $(USE_CASE) status
 
 loadtest: ## Workspace: Locust through the fake Domino's proxy: make loadtest RUN_NAME=split-all
-	$(QUESTIONS) $(MAKE) -C $(TOOLKIT) loadtest-domino RUN_NAME=$(RUN_NAME)
+	$(QUESTIONS) $(MAKE) -C $(USE_CASE) loadtest-domino RUN_NAME=$(RUN_NAME)
 
 app-machines: ## Workspace: what answers /readyz on port 8888 of each pool machine
 	@$(POOL_MACHINES) \
@@ -95,7 +96,7 @@ app-machines: ## Workspace: what answers /readyz on port 8888 of each pool machi
 
 loadtest-direct: ## Workspace: Locust straight at the workflow App, bypassing the proxy: make loadtest-direct APP_HOST=<address> RUN_NAME=split-all-direct
 	@test -n "$(APP_HOST)" || { echo "APP_HOST=<the workflow App's machine (make app-machines)> is required" >&2; exit 1; }
-	$(QUESTIONS) $(MAKE) -C $(TOOLKIT) loadtest HOST=http://$(APP_HOST):8888 RUN_NAME=$(RUN_NAME)
+	$(QUESTIONS) $(MAKE) -C $(USE_CASE) loadtest HOST=http://$(APP_HOST):8888 RUN_NAME=$(RUN_NAME)
 
 # The clone has the same path on every machine, and the Workspace's ~/.ssh/config
 # knows the pool machines.
@@ -107,8 +108,8 @@ models-save: ## Workspace: upload this machine's and every pool machine's export
 			ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$$machine" "FORCE=$(FORCE) $(CURDIR)/machine/cache_bucket.sh models-save" || exit 1; \
 		done
 
-results-save: ## Workspace: upload query_processing/results/ to the cache bucket as one archive and print its gs:// URL
-	./machine/cache_bucket.sh results-save $(abspath $(TOOLKIT)/results)
+results-save: ## Workspace: upload query_processing_rag_usecase/results/ to the cache bucket as one archive and print its gs:// URL
+	./machine/cache_bucket.sh results-save $(abspath $(USE_CASE)/results)
 
 cache-status: ## Workspace: the cache bucket's objects, then the index snapshots
 	./machine/cache_bucket.sh status

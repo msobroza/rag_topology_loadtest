@@ -293,7 +293,8 @@ class ElasticsearchSettings(SettingsBlock):
     """
 
     url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
-    index: str = "rag_passages"
+    # The use case's own: "" = unset, refused on this backend (RagSettings).
+    index: str = ""
     # "" = none (basic auth in the URL, or no security). Read from the
     # environment: a key is never written in the file.
     api_key: str = ""
@@ -312,8 +313,9 @@ class ChromaSettings(SettingsBlock):
     """
 
     url: str = ""  # a Chroma server; "" = embedded Chroma at path
-    path: str = "chroma"
-    collection: str = "rag_passages"
+    path: str = "chroma"  # in the working directory, the use case's
+    # The use case's own: "" = unset, refused on this backend (RagSettings).
+    collection: str = ""
 
 
 class FakeStoreSettings(SettingsBlock):
@@ -330,6 +332,9 @@ class FakeStoreSettings(SettingsBlock):
 
 class VectorStoreSettings(ComponentSettings):
     """The vector store: one block per product, and the fake's.
+
+    The index or collection the passages are kept under is the use case's to
+    name: the block of the backend in use states it, or start-up refuses it.
 
     Example:
         >>> settings.components["vector_store"].elasticsearch.index

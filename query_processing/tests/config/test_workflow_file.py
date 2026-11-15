@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
 
+from rag_graphs import FIXTURE_WORKFLOW
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import (
-    PACKAGED_WORKFLOW,
     WORKFLOW_FILE_VARIABLE,
+    WorkflowFileNotFoundError,
     declared_alias,
     unknown_keys,
     workflow_file,
     workflow_file_source,
 )
+from repo_paths import TOOLKIT_ROOT
 
 
 @pytest.fixture
@@ -25,11 +28,42 @@ def elsewhere(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_with_no_file_here_and_none_named_the_packaged_file_is_used(
+def test_with_no_file_here_and_none_named_it_stops_saying_where_it_looked(
     elsewhere: Path,
 ) -> None:
-    assert workflow_file() == PACKAGED_WORKFLOW
-    assert PACKAGED_WORKFLOW.is_file()
+    with pytest.raises(WorkflowFileNotFoundError) as caught:
+        workflow_file()
+
+    assert str(caught.value) == (
+        "no workflow file: RAG_WORKFLOW_FILE is not set, and the working directory "
+        f"{elsewhere} has no workflow.yaml; run the command from a use case's "
+        "directory, or set RAG_WORKFLOW_FILE to a workflow file"
+    )
+    # A settings mistake to every command: each turns a ValueError into a
+    # usage error, and an OSError where it reads files.
+    assert isinstance(caught.value, ValueError)
+    assert isinstance(caught.value, FileNotFoundError)
+
+
+def test_the_toolkit_ships_no_workflow_file() -> None:
+    # A use case holds its own: none ships with the code, as data or as a default.
+    assert sorted((TOOLKIT_ROOT / "src").rglob("*.yaml")) == []
+    pyproject = tomllib.loads((TOOLKIT_ROOT / "pyproject.toml").read_text("utf-8"))
+    data = pyproject["tool"]["setuptools"]["package-data"]
+    shipped = [name for files in data.values() for name in files]
+    assert shipped, "no package data read: the lookup is wrong"
+    assert [name for name in shipped if name.endswith((".yaml", ".yml"))] == []
+
+
+def test_with_no_file_the_settings_stop_saying_where_they_looked(
+    elsewhere: Path,
+) -> None:
+    with pytest.raises(WorkflowFileNotFoundError, match="no workflow file: "):
+        RagSettings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_the_tests_read_their_own_fixture_file() -> None:
+    assert workflow_file() == FIXTURE_WORKFLOW
 
 
 def test_a_workflow_yaml_in_the_working_directory_is_used(elsewhere: Path) -> None:
@@ -96,4 +130,9 @@ def test_a_declared_alias_is_read_from_the_file_alone(tmp_path: Path) -> None:
     assert declared_alias("embedder", path) == "emb"
     assert declared_alias("llm", path) == ""  # no source id
     assert declared_alias("absent", path) == ""
-    assert declared_alias("reranker") == "crossencoder-camembert-base-mmarcoFR"
+    assert declared_alias("reranker") == "fixture-reranker"
+
+
+def test_a_declared_alias_needs_a_workflow_file(elsewhere: Path) -> None:
+    with pytest.raises(WorkflowFileNotFoundError, match="no workflow file: "):
+        declared_alias("reranker")

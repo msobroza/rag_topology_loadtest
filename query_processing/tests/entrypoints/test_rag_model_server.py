@@ -38,10 +38,8 @@ from rag_load_test.entrypoints.rag_model_server import (
 )
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
-EMBED_ALIAS = (
-    "snowflake-arctic-embed-l-v2.0"  # the embedder's alias in the workflow file
-)
-RERANK_ALIAS = "crossencoder-camembert-base-mmarcoFR"  # the reranker's
+EMBED_ALIAS = "fixture-embedder"  # the embedder's alias in the workflow file
+RERANK_ALIAS = "fixture-reranker"  # the reranker's
 
 
 def api_reranker(client: httpx.AsyncClient, alias: str) -> ApiReranker:
@@ -130,14 +128,9 @@ def test_rerank_for_an_unknown_model_is_404_like_ovms(reranker_app: TestClient) 
 def test_role_specific_endpoints_and_readiness(
     embedder_app: TestClient, reranker_app: TestClient
 ) -> None:
-    assert (
-        embedder_app.get("/v3/models/snowflake-arctic-embed-l-v2.0").status_code == 200
-    )
+    assert embedder_app.get("/v3/models/fixture-embedder").status_code == 200
     assert embedder_app.get("/v3/models/other").status_code == 404
-    assert (
-        reranker_app.get("/v3/models/crossencoder-camembert-base-mmarcoFR").status_code
-        == 200
-    )
+    assert reranker_app.get("/v3/models/fixture-reranker").status_code == 200
     assert embedder_app.post("/v3/rerank", json={}).status_code == 404
     assert reranker_app.post("/v3/embeddings", json={}).status_code == 404
     assert reranker_app.get("/healthz").json() == {"status": "ok", "role": "reranker"}
@@ -160,8 +153,8 @@ async def test_api_adapters_work_against_the_fastapi_server(
         embed_client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=embedder_app), base_url="http://models"
         )
-        reranker = api_reranker(rerank_client, "crossencoder-camembert-base-mmarcoFR")
-        embedder = api_embedder(embed_client, "snowflake-arctic-embed-l-v2.0")
+        reranker = api_reranker(rerank_client, "fixture-reranker")
+        embedder = api_embedder(embed_client, "fixture-embedder")
         passages = [
             ScoredPassage(id="x", text="cafeteria lunch", retrieval_score=0.9),
             ScoredPassage(id="y", text="vacation days policy", retrieval_score=0.8),
@@ -314,16 +307,8 @@ def test_model_server_answers_under_the_domino_prefix(
     monkeypatch.setenv("DOMINO_RUN_HOST_PATH", "/apps/abc123")
     composition = CompositionRoot(settings_factory(), reranker=FakeReranker())
     with TestClient(create_model_server("reranker", composition)) as client:
-        assert (
-            client.get(
-                "/apps/abc123/v3/models/crossencoder-camembert-base-mmarcoFR"
-            ).status_code
-            == 200
-        )
-        assert (
-            client.get("/v3/models/crossencoder-camembert-base-mmarcoFR").status_code
-            == 200
-        )
+        assert client.get("/apps/abc123/v3/models/fixture-reranker").status_code == 200
+        assert client.get("/v3/models/fixture-reranker").status_code == 200
 
 
 # --- the answers, pure: no HTTP, no server ---------------------------------

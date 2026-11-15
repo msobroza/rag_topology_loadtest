@@ -25,9 +25,11 @@ from launch_script_stand_ins import (
     ovms_bundle,
     stand_in_env,
     started_env,
+    started_in,
     write_fake,
 )
 from rag_load_test.domain.roles import Role
+from repo_paths import TOOLKIT_ROOT
 
 
 @pytest.fixture
@@ -274,7 +276,7 @@ def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -
         ),
     ],
 )
-def test_bootstrap_installs_the_project_in_a_venv_before_serving(
+def test_bootstrap_installs_the_toolkit_in_a_venv_before_serving(
     tmp_path: Path, bin_dir: Path, env: dict[str, str], server: str, argv: str
 ) -> None:
     result = run_app(tmp_path, bin_dir, **env, RAG_BOOTSTRAP="1")
@@ -282,7 +284,7 @@ def test_bootstrap_installs_the_project_in_a_venv_before_serving(
     venv = tmp_path / "home" / "rag-venv"
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",  # the project's Python, from .python-version
-        f"pip install --python {venv}/bin/python .",
+        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
     ]
     assert log(tmp_path, f"venv-{server}").strip() == argv
     assert log(tmp_path, server) == ""  # not the one already on PATH
@@ -292,17 +294,106 @@ def test_bootstrap_installs_the_project_in_a_venv_before_serving(
 @pytest.mark.parametrize(
     "env", [{"RAG_ROLE": "workflow"}, model_server_env("fastapi", "reranker")]
 )
-def test_bootstrap_installs_the_extras_an_agent_asks_for(
+def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
     tmp_path: Path, bin_dir: Path, env: dict[str, str]
 ) -> None:
+    # No package index has the toolkit: the use case's dependency on it is
+    # met only when both are named in the same install.
+    use_case = tmp_path / "use case"
+    use_case.mkdir()
     result = run_app(
-        tmp_path, bin_dir, **env, RAG_BOOTSTRAP="1", RAG_BOOTSTRAP_EXTRAS="domino"
+        tmp_path,
+        bin_dir,
+        **env,
+        RAG_BOOTSTRAP="1",
+        RAG_BOOTSTRAP_EXTRAS="domino",
+        RAG_USE_CASE_DIR=str(use_case),
     )
     assert result.returncode == 0, result.stderr
     venv = tmp_path / "home" / "rag-venv"
     assert log(tmp_path, "uv").splitlines()[1] == (
-        f"pip install --python {venv}/bin/python .[domino]"
+        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}[domino] {use_case}"
     )
+
+
+# --- the use case's directory ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("env", "server"),
+    [
+        ({"RAG_ROLE": "workflow"}, "rag-serve"),
+        (model_server_env("fastapi", "embedder"), "rag-model-server"),
+        (model_server_env("ovms", "reranker"), "ovms"),
+    ],
+)
+def test_the_roles_command_runs_in_the_use_cases_directory(
+    tmp_path: Path, bin_dir: Path, env: dict[str, str], server: str
+) -> None:
+    # There it finds the use case's workflow file; the kinds' scripts are found
+    # from app.sh's own place.
+    use_case = tmp_path / "use case"
+    use_case.mkdir()
+    models = models_dir(tmp_path)
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        **env,
+        RAG_USE_CASE_DIR=str(use_case),
+        RAG_OVMS_MODELS_DIR=str(models),
+    )
+    assert result.returncode == 0, result.stderr
+    assert started_in(tmp_path, server) == use_case
+
+
+def test_the_prefix_proxy_reads_the_toolkits_config_from_the_use_case(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    use_case = tmp_path / "use case"
+    use_case.mkdir()
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        **model_server_env("ovms", "reranker"),
+        RAG_USE_CASE_DIR=str(use_case),
+        RAG_OVMS_MODELS_DIR=str(models_dir(tmp_path)),
+        RAG_OVMS_PREFIX_PROXY="1",
+        DOMINO_RUN_HOST_PATH="/apps/abc123/",
+    )
+    # The fakes exit at once, so app.sh reports the death and exits non-zero.
+    assert "exited" in result.stderr
+    conf = (tmp_path / "nginx.conf").read_text()
+    assert "location /apps/abc123/ { proxy_pass http://ovms/; }" in conf
+    assert started_in(tmp_path, "nginx") == use_case
+
+
+def test_without_a_use_case_the_command_runs_where_app_sh_started(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    started = tmp_path / "started here"
+    started.mkdir()
+    result = subprocess.run(
+        ["bash", str(APP_SH)],
+        env=stand_in_env(tmp_path, bin_dir),
+        cwd=started,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert started_in(tmp_path, "rag-serve") == started
+
+
+def test_a_use_case_directory_that_is_missing_is_named(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    result = run_app(tmp_path, bin_dir, RAG_USE_CASE_DIR=str(tmp_path / "gone"))
+    assert result.returncode == 1
+    assert (
+        f"RAG_USE_CASE_DIR='{tmp_path / 'gone'}' is no directory; expected the use "
+        "case's directory, as rag-deploy sets it"
+    ) in result.stderr
+    assert log(tmp_path, "rag-serve") == ""
 
 
 def test_bootstrap_runs_ovms_from_an_unpacked_bundle(

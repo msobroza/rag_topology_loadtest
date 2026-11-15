@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW
+from rag_graphs import FIXTURE_WORKFLOW
 from rag_load_test.deploy.apps_client import DominoDeployError
 from rag_load_test.deploy.workflow_components import (
     WorkflowComponent,
@@ -26,8 +26,8 @@ def written(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def test_the_packaged_file_declares_the_rags_four_components_in_order() -> None:
-    assert read_workflow_components(PACKAGED_WORKFLOW) == {
+def test_the_fixture_file_declares_four_components_in_order() -> None:
+    assert read_workflow_components(FIXTURE_WORKFLOW) == {
         "embedder": WorkflowComponent(type="embedder", backend="local"),
         "reranker": WorkflowComponent(type="reranker", backend="local"),
         "llm": WorkflowComponent(type="llm", backend="api"),
@@ -53,7 +53,7 @@ def test_only_the_file_is_read_not_the_variables_of_this_shell(
 ) -> None:
     # The Apps do not see the Workspace's shell: the file says what they get.
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "fake")
-    assert read_workflow_components(PACKAGED_WORKFLOW)["reranker"].backend == "local"
+    assert read_workflow_components(FIXTURE_WORKFLOW)["reranker"].backend == "local"
 
 
 def test_a_missing_file_is_named(tmp_path: Path) -> None:
@@ -97,8 +97,8 @@ def test_the_workflow_apps_own_file_is_the_one_read() -> None:
 
 
 def test_without_one_the_file_is_found_as_rag_serve_finds_it() -> None:
-    # tests/conftest.py names the packaged file in RAG_WORKFLOW_FILE.
-    assert workflow_file_for({"RAG_ES_URL": "https://es"}) == PACKAGED_WORKFLOW
+    # tests/conftest.py names the tests' file in RAG_WORKFLOW_FILE.
+    assert workflow_file_for({"RAG_ES_URL": "https://es"}) == FIXTURE_WORKFLOW
 
 
 def test_a_components_value_is_set_by_the_variable_its_path_names() -> None:
@@ -175,5 +175,5 @@ def test_the_values_are_checked_with_the_overrides_over_the_file_alone(
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", "https://r/v2/rerank")
     with pytest.raises(DominoDeployError, match="RAG_COMPONENTS__RERANKER__API__URL"):
         refuse_override_values(
-            {"components": {"reranker": {"backend": "api"}}}, PACKAGED_WORKFLOW
+            {"components": {"reranker": {"backend": "api"}}}, FIXTURE_WORKFLOW
         )

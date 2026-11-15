@@ -1,8 +1,9 @@
-# The RAG workflow (ADR 0004): what the workflow app runs when it finds no
-# other workflow file. RAG_WORKFLOW_FILE names another; else a workflow.yaml in
-# the working directory is used before this one. Each top-level key is a
-# setting, and each value is overridden by the variable its path names, its
-# levels joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5 or
+# The RAG use case's workflow (ADR 0004, ADR 0005): its models, prompts, sizes
+# and store, the one place they are pinned, since the toolkit defaults none of
+# them. A command run from this directory reads this file; RAG_WORKFLOW_FILE
+# names another, such as a variant, instead. Each top-level key is a setting,
+# and each value is overridden by the variable its path names, its levels
+# joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5 or
 # RAG_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
 # set it by its path, such as RAG_COMPONENTS__LLM__API__API_KEY or
 # RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
@@ -44,11 +45,14 @@ components:
       timeout_s: 120 # an answer takes longer than a model-server call
   vector_store:
     # elasticsearch | chroma | fake (in memory, seeded with the synthetic
-    # corpus when it opens); one block per backend
+    # corpus when it opens); one block per backend. Where the passages are
+    # kept has no default: each store's block names it.
     backend: elasticsearch
     elasticsearch:
       url: http://localhost:9200 # http://user:password@host:9200 for basic auth
       index: rag_passages
+    chroma: # RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma
+      collection: rag_passages
 
 graph:
   # Each stage is an instance of the stage type of its name, unless `type`

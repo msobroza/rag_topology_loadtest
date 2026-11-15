@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from rag_graphs import packaged_graph, write_workflow_file
+from rag_graphs import fixture_graph, write_workflow_file
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.shared_settings import (
     CalibrationSettings,
@@ -34,8 +34,8 @@ domino: {token_url: "http://token.test/t", token_ttl_s: 60, tracing: true}
 
 @pytest.fixture
 def shared_blocks_in_the_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A workflow file of the packaged graph and components, with the four blocks."""
-    workflow = write_workflow_file(tmp_path / "workflow.yaml", packaged_graph())
+    """A workflow file of the fixture's graph and components, with the four blocks."""
+    workflow = write_workflow_file(tmp_path / "workflow.yaml", fixture_graph())
     with workflow.open("a", encoding="utf-8") as file:
         file.write(SHARED_BLOCKS)
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))

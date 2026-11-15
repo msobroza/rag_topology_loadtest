@@ -1,0 +1,56 @@
+# The toolkit's tests run on this workflow file, never on a use case's
+# (conftest.py names it in RAG_WORKFLOW_FILE for every test). It has the shape
+# of a four-stage retrieval workflow (embed, retrieve, rerank, generate) and
+# made-up models: no source id here names real weights, and no URL a real
+# endpoint. A test changes a value by its path (settings_factory) or writes a
+# file of its own (rag_graphs.write_workflow_file).
+components:
+  embedder:
+    backend: local
+    source_id: fixture-org/fixture-embedder
+    query_prefix: "query: "
+  reranker:
+    backend: local
+    source_id: fixture-org/fixture-reranker
+  llm:
+    backend: api
+    api:
+      url: https://llm.fixture.test/v1/chat/completions
+      api_format: openai
+      model: fixture-chat-model
+    http:
+      timeout_s: 120
+  vector_store:
+    backend: elasticsearch
+    elasticsearch:
+      url: http://localhost:9200
+      index: fixture_passages
+    chroma:
+      collection: fixture_passages
+
+graph:
+  stages:
+    embed:
+      call: embedder
+    retrieve:
+      call: vector_store
+      retrieval_mode: dense
+      top_k: 20
+    rerank:
+      call: reranker
+      top_k: 10
+    generate:
+      call: llm
+      system_prompt: Answer from the numbered fixture passages only.
+      user_prompt: |-
+        Context:
+        {context}
+
+        Question: {question}
+  edges:
+    - [START, embed, retrieve, rerank]
+    - [generate, END]
+  conditional_edges:
+    - source: rerank
+      path: is_query_mode
+      path_map: {true: generate, false: END}

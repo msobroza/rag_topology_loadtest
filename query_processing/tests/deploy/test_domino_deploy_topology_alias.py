@@ -1,6 +1,6 @@
 """The topology alias: the deploy settings choose a topology by its alias.
 
-Through ``deploy`` and ``main`` over the fake Domino, against the packaged
+Through ``deploy`` and ``main`` over the fake Domino, against the tests'
 workflow file (embedder and reranker on local, the LLM on api): which Apps each
 alias publishes and in which order, what the workflow App's launch script
 carries, a fourth alias added to the table, and each refusal, before anything is
@@ -29,11 +29,10 @@ from domino_deploy_helpers import (
 )
 from fake_domino.server import create_fake_domino
 from fake_domino.state import FakeDominoApps
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW
+from rag_graphs import FIXTURE_WORKFLOW
 from rag_load_test.deploy.apps_client import DominoDeployError
 from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.publish import deploy
-from repo_paths import TOOLKIT_ROOT
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 EMBEDDINGS = "/v3/embeddings"
@@ -43,7 +42,7 @@ SPLIT_EMBEDDER = {"embedder": "served", "reranker": "local"}
 
 
 def run_deploy(apps: FakeDominoApps, settings: DeploySettings) -> None:
-    deploy(make_client(apps), settings, "all", launch_script=LAUNCH, sleep=no_sleep)
+    deploy(make_client(apps), settings, "all", launch=LAUNCH, sleep=no_sleep)
 
 
 def created(apps: FakeDominoApps) -> list[str]:
@@ -212,7 +211,7 @@ def test_the_workflow_file_the_workflow_app_names_is_the_one_read(
         "  reranker_fr: {type: reranker, backend: local, source_id: org/r}\n"
     )
     own = {"settings": {"RAG_WORKFLOW_FILE": str(workflow)}}
-    # The packaged file, which RAG_WORKFLOW_FILE names here, has no reranker_fr.
+    # The tests' file, which RAG_WORKFLOW_FILE names here, has no reranker_fr.
     settings = with_alias("fr", {"reranker_fr": "local"}, apps={"workflow": own})
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, settings)
@@ -249,7 +248,7 @@ def test_a_row_naming_a_component_the_workflow_file_lacks_is_refused() -> None:
     settings = with_alias("typo", {"embedder": "local", "rerankr": "served"})
     assert refusal(FakeDominoApps(), settings) == (
         "topology alias 'typo' in deploy.yaml names 'rerankr', which the workflow "
-        f"file '{PACKAGED_WORKFLOW}' does not declare: a row names components of "
+        f"file '{FIXTURE_WORKFLOW}' does not declare: a row names components of "
         "that file ('embedder', 'reranker', 'llm', 'vector_store')"
     )
 
@@ -319,7 +318,7 @@ def test_an_apps_block_of_no_app_is_refused() -> None:
     assert refusal(FakeDominoApps(), settings) == (
         "apps.orchestrator in deploy.yaml is no App: an apps block is keyed by "
         "workflow or by a component of the workflow file "
-        f"'{PACKAGED_WORKFLOW}' ('embedder', 'reranker', 'llm', 'vector_store')"
+        f"'{FIXTURE_WORKFLOW}' ('embedder', 'reranker', 'llm', 'vector_store')"
     )
 
 
@@ -367,15 +366,11 @@ def test_a_fourth_alias_deployed_is_reported_under_its_own_name(
     )
 
 
-EXAMPLE_YAML = TOOLKIT_ROOT / "deploy.example.yaml"
-
-
 @pytest.mark.parametrize(("alias", "names"), list(TODAYS_APPS.items()))
-def test_a_dry_run_of_each_alias_of_the_example_shows_its_apps_and_scripts(
+def test_a_dry_run_of_each_alias_shows_its_apps_and_scripts(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch, alias: str, names: list[str]
 ) -> None:
-    filled = re.sub(r"<([^<>]+)>", "real", EXAMPLE_YAML.read_text())
-    Path("deploy.yaml").write_text(filled)
+    # deploy.yaml holds the three aliases' table (domino_env).
     monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", alias)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, err) == (0, "")

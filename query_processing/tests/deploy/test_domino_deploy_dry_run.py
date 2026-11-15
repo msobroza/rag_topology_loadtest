@@ -22,16 +22,14 @@ from domino_deploy_helpers import (
     launched,
     model_server_exports,
 )
-from repo_paths import TOOLKIT_ROOT
 
 pytest_plugins = ["domino_deploy_fixtures"]
-EXAMPLE_YAML = TOOLKIT_ROOT / "deploy.example.yaml"
 
 
 def dry_run_report(
     tier: str = "(the project default)", revision: str = "(chosen by Domino)"
 ) -> str:
-    tail = launched()
+    tail = "".join(f"    {line}\n" for line in launched().splitlines())
     environment = f"  environmentId: env-1\n  environmentRevisionId: {revision}\n"
     served = f"{INSTANCES_URL}/app-{{}}-v1-i/v3/{{}}"
     model_servers = "".join(
@@ -39,7 +37,7 @@ def dry_run_report(
         f"{environment}  hardwareTierId: {tier}\n  autoscaling: off\n"
         "  entryScript:\n"
         + "".join(f"    {line}\n" for line in model_server_exports(part).splitlines())
-        + f"    export RAG_BOOTSTRAP=1\n    {tail}\n"
+        + tail
         for part in ("embedder", "reranker")
     )
     agent_exports = "".join(f"    {line}\n" for line in AGENT_EXPORTS.splitlines())
@@ -56,7 +54,7 @@ def dry_run_report(
         "    export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
         f"    export RAG_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
         "    export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
-        f"{agent_exports}    export RAG_BOOTSTRAP=1\n    {tail}\n"
+        f"{agent_exports}{tail}"
     )
 
 
@@ -117,14 +115,47 @@ def test_dry_run_still_refuses_secrets_in_deploy_yaml(run_main: RunMain) -> None
     assert "RAG_ES_API_KEY is set in deploy.yaml under defaults.settings" in err
 
 
-def test_dry_run_still_requires_the_toolkits_directory(
+def test_dry_run_still_requires_the_toolkits_launch_script_above(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # A use case's directory outside the repository: no toolkit beside it.
     (tmp_path / "elsewhere").mkdir()
     monkeypatch.chdir(tmp_path / "elsewhere")
+    Path("deploy.yaml").write_text(ENV_1)
     code, _, err = run_main(["--dry-run", "deploy", "all"], None)
     assert code == 2
-    assert "has no domino/app.sh" in err
+    assert f"no query_processing/domino/app.sh in {tmp_path / 'elsewhere'} " in err
+
+
+def test_dry_run_without_deploy_settings_says_where_it_looked(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    Path("deploy.yaml").unlink()
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert (code, out) == (2, "")
+    assert err.endswith(
+        "rag-deploy: error: no deploy settings: RAG_DEPLOY_FILE is not set, and "
+        f"the working directory {Path.cwd()} has no deploy.yaml; run rag-deploy "
+        "from a use case's directory (cp deploy.example.yaml deploy.yaml there), "
+        "or set RAG_DEPLOY_FILE to the file\n"
+    )
+    monkeypatch.setenv("RAG_DEPLOY_FILE", "nowhere.yaml")
+    code, _, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert code == 2
+    assert "RAG_DEPLOY_FILE names 'nowhere.yaml', which is no file" in err
+
+
+def test_dry_run_without_a_workflow_file_says_where_it_looked(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RAG_WORKFLOW_FILE")
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert (code, out) == (2, "")
+    assert (
+        "rag-deploy reads the workflow file the workflow App reads: no workflow "
+        f"file: RAG_WORKFLOW_FILE is not set, and the working directory {Path.cwd()} "
+        "has no workflow.yaml"
+    ) in err
 
 
 def test_dry_run_still_checks_the_ovms_bundle(
@@ -152,10 +183,10 @@ def test_a_dry_run_deploys_one_component_served_by_fastapi_and_one_by_ovms(
     scripts = re.findall(r"entryScript:\n((?:    .*\n)+)", report)
     embedder, reranker, workflow = (script.replace("    ", "") for script in scripts)
     assert embedder == f"{model_server_exports('embedder', 'fastapi')}" + (
-        f"export RAG_BOOTSTRAP=1\n{launched()}\n"
+        f"{launched()}\n"
     )
     assert reranker == f"{model_server_exports('reranker', 'ovms')}" + (
-        f"export RAG_OVMS_BUNDLE={bundle}\nexport RAG_BOOTSTRAP=1\n{launched()}\n"
+        f"export RAG_OVMS_BUNDLE={bundle}\n{launched()}\n"
     )
     served = f"{INSTANCES_URL}/app-{{}}-v1-i/v3/{{}}"
     assert (
@@ -177,31 +208,3 @@ def test_dry_run_status_lists_nothing_deployed(
         "rag-reranker   not deployed\n"
         "rag-workflow   not deployed\n",
     )
-
-
-def test_dry_run_of_the_example_copied_as_is_stops_on_a_placeholder(
-    run_main: RunMain,
-) -> None:
-    Path("deploy.yaml").write_text(EXAMPLE_YAML.read_text())
-    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert (code, out) == (2, "")
-    assert err.endswith(
-        "rag-deploy: error: environment_id in defaults of deploy.yaml still holds "
-        "the example placeholder '<environment id>': replace it with a real value\n"
-    )
-
-
-def test_dry_run_of_the_example_with_real_values_publishes_every_app(
-    run_main: RunMain,
-) -> None:
-    # Every <placeholder> replaced by a real-looking value, nothing else changed.
-    filled = re.sub(r"<([^<>]+)>", "real", EXAMPLE_YAML.read_text())
-    Path("deploy.yaml").write_text(filled)
-    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
-    assert (code, err) == (0, "")
-    assert out.startswith(deployed_lines(3))
-    es_url = "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL"
-    assert f"    export {es_url}=https://real:9200\n" in out
-    assert "  kind: agent (configurationType AISYSTEM)\n" in out
-    # The example holds no revision: Domino keeps choosing it.
-    assert out.count("  environmentRevisionId: (chosen by Domino)\n") == 3

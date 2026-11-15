@@ -66,5 +66,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "ovms/export_models.sh.",
     )
     parser.parse_args(argv)
-    print("\n".join(served_model_lines(RagSettings())))
+    try:
+        settings = RagSettings()
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
+    print("\n".join(served_model_lines(settings)))
     return 0

@@ -11,14 +11,15 @@ from pathlib import Path
 
 import pytest
 
+from rag_components import shell_settings
 from rag_load_test.entrypoints import rag_export_openvino
 from rag_load_test.entrypoints.rag_export_openvino import main
 from rag_load_test.infrastructure.local_models.openvino_export import (
     OpenVinoUnavailableError,
 )
 
-DEFAULT_EMBEDDER = "Snowflake/snowflake-arctic-embed-l-v2.0"
-DEFAULT_RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+DEFAULT_EMBEDDER = "fixture-org/fixture-embedder"
+DEFAULT_RERANKER = "fixture-org/fixture-reranker"
 
 
 class RecordingExports:
@@ -47,7 +48,7 @@ def exports(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> RecordingExports
     recorder = RecordingExports()
     monkeypatch.setattr(rag_export_openvino, "export_embedder", recorder.embedder)
     monkeypatch.setattr(rag_export_openvino, "export_reranker", recorder.reranker)
-    for name in [n for n in os.environ if n.startswith("RAG_")]:
+    for name in shell_settings(os.environ):
         monkeypatch.delenv(name)
     monkeypatch.chdir(tmp_path)
     return recorder
@@ -60,15 +61,15 @@ def test_exports_both_settings_models_into_the_settings_folder(
 
     base = Path("models/openvino")
     assert exports.calls == [
-        ("embedder", DEFAULT_EMBEDDER, base / "snowflake-arctic-embed-l-v2.0"),
-        ("reranker", DEFAULT_RERANKER, base / "crossencoder-camembert-base-mmarcoFR"),
+        ("embedder", DEFAULT_EMBEDDER, base / "fixture-embedder"),
+        ("reranker", DEFAULT_RERANKER, base / "fixture-reranker"),
     ]
     out = capsys.readouterr().out.splitlines()
     assert out == [
         f"rag-export-openvino: embedder {DEFAULT_EMBEDDER} -> "
-        f"{base / 'snowflake-arctic-embed-l-v2.0'}",
+        f"{base / 'fixture-embedder'}",
         f"rag-export-openvino: reranker {DEFAULT_RERANKER} -> "
-        f"{base / 'crossencoder-camembert-base-mmarcoFR'}",
+        f"{base / 'fixture-reranker'}",
     ]
 
 
@@ -100,7 +101,7 @@ def test_models_dir_option_beats_the_setting(
 
     main(["--only", "reranker", "--models-dir", "from-flag"])
 
-    assert exports.calls[0][2] == Path("from-flag/crossencoder-camembert-base-mmarcoFR")
+    assert exports.calls[0][2] == Path("from-flag/fixture-reranker")
 
 
 def test_settings_overrides_pick_the_models_and_folder(
@@ -138,7 +139,7 @@ def test_missing_packages_name_the_extra_without_a_traceback(
     err = capsys.readouterr().err
     assert "sentence-transformers[openvino]" in err
     assert DEFAULT_EMBEDDER in err
-    assert "models/openvino/snowflake-arctic-embed-l-v2.0" in err
+    assert "models/openvino/fixture-embedder" in err
     assert "Traceback" not in err
 
 
@@ -156,5 +157,5 @@ def test_a_failed_export_names_model_and_folder_and_stops(
     err = capsys.readouterr().err.splitlines()
     assert err == [
         f"rag-export-openvino: cannot export embedder {DEFAULT_EMBEDDER} to "
-        f"{Path('out/snowflake-arctic-embed-l-v2.0')}: {error}"
+        f"{Path('out/fixture-embedder')}: {error}"
     ]

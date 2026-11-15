@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_components import FAKE_BACKENDS
+from rag_components import FAKE_BACKENDS, without_shell_settings
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
@@ -139,7 +139,7 @@ def test_a_new_api_format_is_one_new_module(tmp_path: Path) -> None:
     package = package_copy_with(tmp_path, module, FLAT_RERANK_FORMAT)
     (tmp_path / "driver.py").write_text(DRIVER, encoding="utf-8")
     # No RAG_* variable of this shell, and the copy ahead of any installed package.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
+    env = without_shell_settings(os.environ)
     env["PYTHONPATH"] = str(tmp_path / "src")
 
     run = subprocess.run(

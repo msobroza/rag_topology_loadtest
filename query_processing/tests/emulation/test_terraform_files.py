@@ -26,6 +26,7 @@ from emulation_terraform import (
     SCRIPTS,
     SETUP_SH,
     TF_DIR,
+    USE_CASE_ROOT,
     heredoc,
     locals_,
     render,
@@ -126,25 +127,28 @@ def test_the_fake_domino_runs_with_the_contracts_command_line() -> None:
     assert locals_()["domino_port"] == 8899
 
 
-def test_the_machines_install_and_deploy_from_the_toolkits_directory() -> None:
-    toolkit = TOOLKIT_ROOT.name
+def test_the_machines_install_both_and_deploy_from_the_use_cases_directory() -> None:
+    toolkit, use_case = TOOLKIT_ROOT.name, USE_CASE_ROOT.name
     workspace = (SCRIPTS / "workspace.sh.tftpl").read_text(encoding="utf-8")
     pool = (SCRIPTS / "pool.sh.tftpl").read_text(encoding="utf-8")
-    # The repository's one virtualenv, at the clone's root, and the toolkit in it.
+    # The repository's one virtualenv, at the clone's root, and in one command the
+    # toolkit, then the use case that depends on it.
     assert (
         'uv venv --python "$(cat .python-version)" .venv\' _ "$REPO_PATH"' in workspace
     )
-    assert f'-e "./{toolkit}[loadtest,emulation]"\' _ "$REPO_PATH"' in workspace
-    # rag-deploy runs in the toolkit's directory and reads its deploy.yaml there.
-    assert f'tee "$REPO_PATH/{toolkit}/deploy.yaml"' in workspace
+    installed = f'-e "./{toolkit}[loadtest,emulation]" -e ./{use_case}\' _ "$REPO_PATH"'
+    assert installed in workspace
+    # rag-deploy runs in the use case's directory and reads its deploy.yaml there.
+    assert f'tee "$REPO_PATH/{use_case}/deploy.yaml"' in workspace
     assert f'"$REPO_PATH/{toolkit}/ovms/versions.env"' in pool
+    assert (USE_CASE_ROOT / "workflow.yaml").is_file()
     assert (REPO_ROOT / ".python-version").is_file()
     assert (TOOLKIT_ROOT / "ovms" / "versions.env").is_file()
 
 
 def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
-    example = (TOOLKIT_ROOT / "deploy.example.yaml").read_text(encoding="utf-8")
+    example = (USE_CASE_ROOT / "deploy.example.yaml").read_text(encoding="utf-8")
     documented = set(re.findall(r"^[ #]*(\w+):", example, re.M))
     assert set(deploy) <= documented
     assert set(deploy["defaults"]) <= documented
@@ -165,6 +169,8 @@ def test_the_generated_deploy_yaml_passes_rag_deploys_checks_of_its_values(
     path = tmp_path / "deploy.yaml"
     path.write_text(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
     monkeypatch.setenv("RAG_DEPLOY_FILE", str(path))
+    # Checked against the workflow file of the use case the emulation deploys.
+    monkeypatch.setenv("RAG_WORKFLOW_FILE", str(USE_CASE_ROOT / "workflow.yaml"))
     settings = DeploySettings()
     refuse_workflow_settings_in_free_lists(settings)
     check_overrides(settings)
@@ -173,7 +179,7 @@ def test_the_generated_deploy_yaml_passes_rag_deploys_checks_of_its_values(
 def test_the_generated_deploy_yaml_defines_the_examples_topology_aliases() -> None:
     # rag-deploy defines no alias in code: without the table it deploys nothing.
     deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
-    example = yaml.safe_load((TOOLKIT_ROOT / "deploy.example.yaml").read_text())
+    example = yaml.safe_load((USE_CASE_ROOT / "deploy.example.yaml").read_text())
     assert deploy["topology_alias"] == example["topology_alias"]
     assert set(example["topology_alias"]) == {"monolith", "split-reranker", "split-all"}
 

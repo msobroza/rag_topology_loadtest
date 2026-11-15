@@ -2,16 +2,16 @@
 
 The deploy tool and the launch script agree on variable names (``RAG_ROLE``,
 ``RAG_MODEL_SERVER_COMPONENT``, ``RAG_MODEL_SERVER_KIND``, ``RAG_TOPOLOGY_ALIAS``,
-``RAG_OVMS_BUNDLE``, ``RAG_BOOTSTRAP``, each component's backend and served URL)
-without sharing code. For each combination the deploy tool can produce (a
-topology alias, one of its Apps, the model-server kinds of the Apps) the script
-it writes is run by bash with the launch script's stand-in binaries, and the test
-asserts what app.sh starts. What is expected is worked out from the combination
-alone, never from a Role string, so a Role or a kind that app.sh does not handle
-or maps to another server fails here rather than at App start on Domino. The
-aliases are the three of deploy.example.yaml and a fourth added to the table;
-the kinds are every registered one for every model server App, and FastAPI
-beside OVMS. And the overrides, written in the workflow file's shape, reach
+``RAG_OVMS_BUNDLE``, ``RAG_BOOTSTRAP``, ``RAG_USE_CASE_DIR``, each component's
+backend and served URL) without sharing code. For each combination the deploy
+tool can produce (a topology alias, one of its Apps, the model-server kinds of
+the Apps) the script it writes is run by bash with the launch script's stand-in
+binaries, and the test asserts what app.sh starts, and where: in the use case's
+directory. What is expected is worked out from the combination alone, never from
+a Role string, so a Role or a kind that app.sh does not handle or maps to
+another server fails here rather than at App start on Domino. The aliases are
+the three a use case compares and a fourth added to the table; the kinds are
+every registered one for every model server App, and FastAPI beside OVMS. And the overrides, written in the workflow file's shape, reach
 the workflow App and a model server App as variables that their settings read
 back to the same values, over the workflow file.
 """
@@ -33,6 +33,7 @@ from launch_script_stand_ins import (
     ovms_bundle,
     stand_in_env,
     started_env,
+    started_in,
 )
 from rag_load_test.application.stages.base_stage import STAGE_TYPES
 from rag_load_test.config.rag_settings import RagSettings
@@ -42,7 +43,7 @@ from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.model_server_kinds.base_model_server_kind import (
     MODEL_SERVER_KINDS,
 )
-from rag_load_test.deploy.publish import entry_script
+from rag_load_test.deploy.publish import LaunchPaths, entry_script
 from rag_load_test.deploy.topology_alias import resolve_topology
 
 APP_URLS = {
@@ -123,7 +124,10 @@ def run_entry_script(
     topology = resolve_topology(settings)
     servers = topology.served if part == "workflow" else []
     urls = {server: APP_URLS[server] for server in servers}
-    script = entry_script(settings.for_app(part), settings, topology, urls, str(APP_SH))
+    use_case = tmp_path / "use_case"
+    use_case.mkdir()
+    launch = LaunchPaths(str(APP_SH), str(use_case))
+    script = entry_script(settings.for_app(part), settings, topology, urls, launch)
     env = stand_in_env(tmp_path, bin_dir, RAG_OVMS_MODELS_DIR=str(models))
     result = subprocess.run(
         ["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60
@@ -158,6 +162,8 @@ def test_each_entry_script_starts_its_app_through_app_sh(
     assert result.returncode == 0, result.stderr
     server, argv = expected_start(part, kinds, models)
     assert log(tmp_path, server).strip() == argv
+    # In the use case's directory, where it finds the use case's workflow file.
+    assert started_in(tmp_path, server) == tmp_path / "use_case"
     if part == "workflow":
         assert f"RAG_TOPOLOGY_ALIAS={alias}" in started_env(tmp_path, server)
 

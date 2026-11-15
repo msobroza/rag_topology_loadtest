@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from rag_components import shell_settings
 from rag_load_test.entrypoints import (
     rag_calibrate,
     rag_ingest,
@@ -53,7 +54,7 @@ def fake_weights(
     """Fake models, torch; no RAG_* from the shell, no ``.env``, no server run."""
     module = FakeSentenceTransformersModule()
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
-    for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
+    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
         monkeypatch.delenv(name)
     monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
     monkeypatch.chdir(tmp_path)

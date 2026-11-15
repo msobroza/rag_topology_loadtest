@@ -53,9 +53,7 @@ def publish(
     """``publish_app`` of one App of the topology ``settings`` choose."""
     client = make_client(apps, cache=cache)
     topology = resolve_topology(settings)
-    return publish_app(
-        client, settings, topology, part, launch_script=LAUNCH, sleep=sleep
-    )
+    return publish_app(client, settings, topology, part, launch=LAUNCH, sleep=sleep)
 
 
 def test_publish_creates_the_app_with_the_documented_body() -> None:

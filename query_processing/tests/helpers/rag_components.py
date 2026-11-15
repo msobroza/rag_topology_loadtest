@@ -16,7 +16,10 @@ Example::
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from typing import Any
+
+from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 
 # Every model component and the vector store on its fake backend: no weights,
 # no network, no Elasticsearch.
@@ -30,6 +33,28 @@ FAKE_BACKENDS: dict[str, str] = {
 FAKE_BACKEND_VARIABLES: dict[str, str] = {
     f"RAG_{path.upper()}": value for path, value in FAKE_BACKENDS.items()
 }
+
+
+def shell_settings(
+    environ: Mapping[str, str], prefixes: tuple[str, ...] = ("RAG_",)
+) -> list[str]:
+    """The variables of ``environ`` a test clears: each with one of ``prefixes``.
+
+    A variable of the developer's shell would leak into the test. The one that
+    names the tests' workflow file (conftest.py) stays: the toolkit ships none,
+    and a test that clears the others still reads the tests' file.
+    """
+    return [
+        name
+        for name in environ
+        if name.startswith(prefixes) and name != WORKFLOW_FILE_VARIABLE
+    ]
+
+
+def without_shell_settings(environ: Mapping[str, str]) -> dict[str, str]:
+    """``environ`` for a process a test starts, without the ``shell_settings``."""
+    cleared = set(shell_settings(environ))
+    return {name: value for name, value in environ.items() if name not in cleared}
 
 
 def settings_at_paths(**values: object) -> dict[str, Any]:

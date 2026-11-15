@@ -98,8 +98,12 @@ def main(
         >>> main(["quebec-insurance", "--out", "data/quebec"])
         0
     """
-    args = _parser().parse_args(argv)
-    settings = settings or RagSettings()
+    parser = _parser()
+    args = parser.parse_args(argv)
+    try:
+        settings = settings or RagSettings()
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
     http = settings.http
     policy = HttpPolicy(http.timeout_s, http.retries, http.backoff_s)
     corpus = CORPORA[args.corpus]

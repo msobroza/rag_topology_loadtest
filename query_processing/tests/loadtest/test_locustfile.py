@@ -114,6 +114,9 @@ def test_loadtest_target_selects_one_user_class(
     monkeypatch: pytest.MonkeyPatch, target: str, active: str
 ) -> None:
     monkeypatch.setenv("RAG_LOADTEST_TARGET", target)
+    # The rerank target requires the sizes of its request; the others ignore them.
+    monkeypatch.setenv("RAG_TOP_K_RETRIEVE", "20")
+    monkeypatch.setenv("RAG_TOP_K_RERANK", "10")
     module = _import_locustfile(f"locustfile_target_{target}")
     flags = {
         name: getattr(module, name).abstract

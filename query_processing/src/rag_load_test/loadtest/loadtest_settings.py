@@ -2,16 +2,19 @@
 
 ``locustfile.py`` builds one ``LoadTestSettings()`` at import, from the
 environment and ``.env``, as the RAG system's and the deploy tool's settings are
-read. Most variables are ``RAG_LOADTEST_*``. Two are the RAG system's own, the
-aliases of its ``reranker`` and ``embedder`` components
-(``RAG_COMPONENTS__RERANKER__ALIAS``, ``RAG_COMPONENTS__EMBEDDER__ALIAS``),
-which default to the aliases the workflow file gives them, and two were
-(``RAG_TOP_K_RETRIEVE``, ``RAG_TOP_K_RERANK``, now the sizes of the workflow
-file's stages): a request sent to a model server directly carries what the
-workflow app would send, with the same defaults. ``DOMINO_API_KEY`` is Domino's.
-This is the one module of the load-test client that imports the config package,
-and only for the defaults of the two aliases: it reads them from the workflow
-file and never builds the RAG system's settings.
+read. Most variables are ``RAG_LOADTEST_*``. Four are what a request sent to a
+model server directly carries, as the workflow app would send it, and only a
+model-server target reads them: the aliases of the ``reranker`` and
+``embedder`` components (``RAG_COMPONENTS__RERANKER__ALIAS``,
+``RAG_COMPONENTS__EMBEDDER__ALIAS``), which default to the aliases the
+workflow file gives them, and the documents and ``top_n`` of a rerank request
+(``RAG_TOP_K_RETRIEVE``, ``RAG_TOP_K_RERANK``), which have no default: they
+are the use case's sizes, which its environment example states. The workflow
+app's own target reads none of them, and so needs no workflow file.
+``DOMINO_API_KEY`` is Domino's. This is the one module of the load-test client
+that imports the config package, and only for the defaults of the two aliases:
+it reads them from the workflow file and never builds the RAG system's
+settings.
 
 Example:
     >>> LoadTestSettings().target  # "rag" unless RAG_LOADTEST_TARGET says otherwise
@@ -78,28 +81,28 @@ class LoadTestSettings(BaseSettings):
         validation_alias=_variable("RAG_LOADTEST_QUESTIONS", "question_count"),
     )
     questions_file: Path | None = None  # replaces the synthetic questions when set
-    # --- what a model server is sent: the RAG system's variables and defaults ---------
+    # --- what a model server is sent: the RAG system's variables ----------------------
     # The workflow app no longer reads these two: its sizes are settings of its
-    # stages, in the workflow file. These defaults are the sizes of the file
-    # that ships with the code.
-    top_k_retrieve: int = Field(
-        default=20,
+    # stages, in the workflow file. They are the use case's, so they have no
+    # default here: the rerank target requires both (None = unset).
+    top_k_retrieve: int | None = Field(
+        default=None,
         ge=1,
         validation_alias=_variable("RAG_TOP_K_RETRIEVE", "top_k_retrieve"),
     )
-    top_k_rerank: int = Field(
-        default=10,
+    top_k_rerank: int | None = Field(
+        default=None,
         ge=1,
         validation_alias=_variable("RAG_TOP_K_RERANK", "top_k_rerank"),
     )
-    # The names a model server serves its model under, read from the workflow
-    # file when the settings are built.
+    # The names a model server serves its model under; "" = the workflow
+    # file's, read when the settings are built for the target that sends it.
     reranker_alias: str = Field(
-        default_factory=lambda: declared_alias("reranker"),
+        default="",
         validation_alias=_variable("RAG_COMPONENTS__RERANKER__ALIAS", "reranker_alias"),
     )
     embedder_alias: str = Field(
-        default_factory=lambda: declared_alias("embedder"),
+        default="",
         validation_alias=_variable("RAG_COMPONENTS__EMBEDDER__ALIAS", "embedder_alias"),
     )
     # --- Domino auth: a bearer token wins over an API key ----------------------------
@@ -131,6 +134,14 @@ class LoadTestSettings(BaseSettings):
     def step_shape(self) -> bool:
         """Whether the run follows the step shape (``RAG_LOADTEST_SHAPE=step``)."""
         return self.shape == "step"
+
+    @property
+    def rerank_sizes(self) -> tuple[int, int]:
+        """The documents and ``top_n`` of a rerank request, 0 each where unset.
+
+        Only the rerank target sends one, and it requires both sizes.
+        """
+        return self.top_k_retrieve or 0, self.top_k_rerank or 0
 
     @property
     def auth_headers(self) -> dict[str, str]:
@@ -185,14 +196,38 @@ class LoadTestSettings(BaseSettings):
                 f"RAG_LOADTEST_WAIT_MAX_S={self.wait_max_s} is below "
                 f"RAG_LOADTEST_WAIT_MIN_S={self.wait_min_s}; expected max >= min"
             )
-        # A request with a top_n above its candidates is one the workflow app
-        # never sends with the workflow file that ships with the code.
-        if self.top_k_rerank > self.top_k_retrieve:
-            raise ValueError(
-                f"RAG_TOP_K_RERANK={self.top_k_rerank} exceeds "
-                f"RAG_TOP_K_RETRIEVE={self.top_k_retrieve}; expected at most it"
-            )
+        _check_rerank_sizes(self.target, self.top_k_retrieve, self.top_k_rerank)
         return self
+
+    @model_validator(mode="after")
+    def _aliases_from_the_workflow_file(self) -> LoadTestSettings:
+        # Only a model-server target sends an alias, so only it reads the
+        # workflow file: the workflow app's target needs none.
+        if self.target == "rerank" and not self.reranker_alias:
+            self.reranker_alias = declared_alias("reranker")
+        if self.target == "embeddings" and not self.embedder_alias:
+            self.embedder_alias = declared_alias("embedder")
+        return self
+
+
+def _check_rerank_sizes(
+    target: LoadTarget, candidates: int | None, top_n: int | None
+) -> None:
+    # The sizes of a rerank request are the use case's, so they have no default.
+    if target == "rerank" and (candidates is None or top_n is None):
+        raise ValueError(
+            "RAG_LOADTEST_TARGET=rerank needs RAG_TOP_K_RETRIEVE and "
+            "RAG_TOP_K_RERANK, the documents and top_n of each rerank request, "
+            "as the workflow file's retrieve and rerank stages set them (top_k); "
+            f"got {candidates} and {top_n}"
+        )
+    # A request with a top_n above its candidates is one the workflow app
+    # never sends.
+    if candidates is not None and top_n is not None and top_n > candidates:
+        raise ValueError(
+            f"RAG_TOP_K_RERANK={top_n} exceeds RAG_TOP_K_RETRIEVE={candidates}; "
+            "expected at most it"
+        )
 
 
 def _at_least(variable: str, raw: object, minimum: int) -> int:

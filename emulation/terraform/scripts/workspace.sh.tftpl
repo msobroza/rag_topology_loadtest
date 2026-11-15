@@ -19,13 +19,14 @@ CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 
 # The repository's one virtualenv, at the clone's root, with the toolkit installed from
-# query_processing/ with the loadtest and emulation extras: rag-deploy, rag-ingest,
-# rag-fetch-corpus, locust and rag-domino-emulation.
+# query_processing/ with the loadtest and emulation extras (rag-deploy, rag-ingest,
+# rag-fetch-corpus, locust and rag-domino-emulation) and the RAG use case from
+# query_processing_rag_usecase/, in one command: no package index has the toolkit.
 install_project() {
   if [ ! -x "$REPO_PATH/.venv/bin/python" ]; then
     retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv --python "$(cat .python-version)" .venv' _ "$REPO_PATH"
   fi
-  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python -e "./query_processing[loadtest,emulation]"' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python -e "./query_processing[loadtest,emulation]" -e ./query_processing_rag_usecase' _ "$REPO_PATH"
 }
 
 # The key the fake Domino logs in to the pool machines with, from Secret Manager.
@@ -63,8 +64,9 @@ PLACEMENT
   fi
 }
 
-# deploy.yaml for this emulation, once, in the toolkit's directory where rag-deploy
-# runs: later edits (topology, per-App blocks) stay.
+# deploy.yaml for this emulation, once, in the use case's directory where rag-deploy
+# runs (and the Apps run their role's command): later edits (topology, per-App
+# blocks) stay.
 # The topology and each App's model-server kind keep rag-deploy's defaults;
 # RAG_DEPLOY_TOPOLOGY overrides the one, a server key in deploy.yaml (defaults or
 # an App's block) the other. The topology aliases are the example's
@@ -72,8 +74,8 @@ PLACEMENT
 # and writes its models in the dataset folder of its machine, as on Domino (the
 # folder names are common.sh's).
 write_deploy_yaml() {
-  [ ! -e "$REPO_PATH/query_processing/deploy.yaml" ] || return 0
-  as_ubuntu tee "$REPO_PATH/query_processing/deploy.yaml" >/dev/null <<'DEPLOY'
+  [ ! -e "$REPO_PATH/query_processing_rag_usecase/deploy.yaml" ] || return 0
+  as_ubuntu tee "$REPO_PATH/query_processing_rag_usecase/deploy.yaml" >/dev/null <<'DEPLOY'
 # Written by the emulation's startup script (emulation/terraform): rag-deploy talks
 # to the fake Domino on this machine. Keys are documented in deploy.example.yaml.
 # Apps run on pool machines, so they are handed URLs on this machine's address.

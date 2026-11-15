@@ -24,26 +24,29 @@ from collections.abc import AsyncIterator, Callable
 import pytest
 
 from rag_components import FAKE_BACKENDS, settings_at_paths
+from rag_graphs import FIXTURE_WORKFLOW
 from rag_load_test.application.rag_dependencies import RagDependencies
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import (
-    PACKAGED_WORKFLOW,
-    WORKFLOW_FILE_VARIABLE,
-    unknown_keys,
-)
+from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE, unknown_keys
+
+# The toolkit ships no workflow file, and no test of it reads a use case's: this
+# is the one place the tests are given theirs (helpers/fixture_workflow.yaml,
+# made-up models). Set here for what a test module computes as it is collected,
+# and again around every test below.
+os.environ[WORKFLOW_FILE_VARIABLE] = str(FIXTURE_WORKFLOW)
 
 
 @pytest.fixture(autouse=True)
-def _the_packaged_workflow_file(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every test reads the workflow file that ships with the code, unless it says.
+def _the_fixture_workflow_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test reads the tests' own workflow file, unless it says otherwise.
 
     A ``workflow.yaml`` left in the working directory, or ``RAG_WORKFLOW_FILE``
-    set in the shell, would change the graph the tests run. A test names
-    another file with the variable, or unsets it to find one in the working
-    directory; an autouse fixture is set up before the test's own.
+    set in the shell or by an earlier test, would change the graph the tests
+    run. A test names another file with the variable, or unsets it to find one
+    in the working directory; an autouse fixture is set up before the test's own.
     """
-    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(PACKAGED_WORKFLOW))
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(FIXTURE_WORKFLOW))
 
 
 @pytest.fixture

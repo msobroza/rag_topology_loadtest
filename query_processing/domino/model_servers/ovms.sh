@@ -13,11 +13,12 @@
 # Models are provisioned on the App's own disk the first time it starts without
 # them, then reused. A config missing from RAG_OVMS_MODELS_DIR makes it run
 # ovms/export_models.sh there, which exports every embedder and reranker of the
-# workflow file, a config_<component>.json each (needs uv and the Hub): the
-# exporter's pinned requirements go into a virtualenv of their own
-# ($HOME/ovms-exporter-venv) so they cannot downgrade the project's packages, and
-# the project is uv-installed into $HOME/rag-venv first when `rag-served-models` is
-# not on PATH.
+# use case's workflow file (app.sh has entered its directory), a
+# config_<component>.json each (needs uv and the Hub): the exporter's pinned
+# requirements go into a virtualenv of their own ($HOME/ovms-exporter-venv) so
+# they cannot downgrade the project's packages, and the toolkit and the use case
+# are uv-installed into $HOME/rag-venv first when `rag-served-models` is not on
+# PATH. Every path of the toolkit's own is under $TOOLKIT, which app.sh sets.
 #
 # OVMS has no base-path option. When Domino forwards the app path prefix
 # (DOMINO_RUN_HOST_PATH) to the process instead of stripping it, set
@@ -79,9 +80,9 @@ ovms_render_proxy_config() {
   local prefix=${DOMINO_RUN_HOST_PATH:-}
   prefix=${prefix%/}
   if [ -n "$prefix" ]; then
-    sed "s#__PREFIX__#$prefix#g" domino/ovms-proxy.conf > "$1"
+    sed "s#__PREFIX__#$prefix#g" "$TOOLKIT/domino/ovms-proxy.conf" > "$1"
   else
-    sed '/__PREFIX__/d' domino/ovms-proxy.conf > "$1"
+    sed '/__PREFIX__/d' "$TOOLKIT/domino/ovms-proxy.conf" > "$1"
   fi
 }
 
@@ -94,14 +95,14 @@ ovms_provision_models() {
   echo "app.sh[$WHO]: $config not found; exporting the models into $OVMS_MODELS_DIR (RAG_OVMS_MODELS_DIR) with ovms/export_models.sh" >&2
   # export_models.sh asks the project's rag-served-models which models to export.
   if ! command -v rag-served-models >/dev/null 2>&1; then
-    install_project "$HOME/rag-venv" .
+    install_this_project
   fi
   # Its pinned requirements are pip-installed into $PYTHON, hence a virtualenv of
   # their own; --seed because the script runs "$PYTHON -m pip".
   if [ ! -x "$exporter_venv/bin/python" ]; then
-    uv venv "$exporter_venv" --seed --python "$(cat ../.python-version)"
+    uv venv "$exporter_venv" --seed --python "$(cat "$PYTHON_VERSION_FILE")"
   fi
-  PYTHON="$exporter_venv/bin/python" ovms/export_models.sh "$OVMS_MODELS_DIR" \
+  PYTHON="$exporter_venv/bin/python" "$TOOLKIT/ovms/export_models.sh" "$OVMS_MODELS_DIR" \
     || die "exporting the OVMS models into $OVMS_MODELS_DIR failed (ran ovms/export_models.sh with PYTHON=$exporter_venv/bin/python; it needs the Hugging Face Hub and the OVMS exporter's requirements); $config is missing; fix the error above, or mount a folder holding it and set RAG_OVMS_MODELS_DIR"
   [ -f "$config" ] \
     || die "ovms/export_models.sh finished but $config is still missing: it exports each embedder and reranker of the workflow file, so check that the component is one, and RAG_OVMS_MODELS_DIR=$OVMS_MODELS_DIR"

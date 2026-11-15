@@ -3,7 +3,8 @@
 Top-level keys say what to deploy and how ``rag-deploy`` talks to Domino;
 ``defaults`` and ``apps.<part>`` say how each App runs, their ``settings``
 being the variables its launch script reads; ``overrides`` holds this site's
-values of the workflow file, in its shape, which every App gets.
+values of the workflow file, in its shape, which every App gets. The file is a
+use case's, in its directory, where rag-deploy runs, and a use case's
 ``deploy.example.yaml`` documents every key.
 
 Example:
@@ -44,6 +45,7 @@ SERVED: Placement = "served"
 DEPLOY_FILE = (
     "deploy.yaml"  # in the working directory, unless RAG_DEPLOY_FILE names one
 )
+DEPLOY_FILE_VARIABLE = "RAG_DEPLOY_FILE"
 # What serves a model server App whose block and the defaults name no kind.
 DEFAULT_MODEL_SERVER_KIND = "fastapi"
 
@@ -58,7 +60,37 @@ def deploy_file() -> str:
         >>> deploy_file()
         'deploy.yaml'
     """
-    return os.environ.get("RAG_DEPLOY_FILE") or DEPLOY_FILE
+    return os.environ.get(DEPLOY_FILE_VARIABLE) or DEPLOY_FILE
+
+
+def require_deploy_file() -> None:
+    """Stop when there is no deploy settings file where ``deploy_file`` looks.
+
+    The settings would take a missing file for an empty one, and deploy with
+    the defaults of the code, which define no topology alias.
+
+    Raises:
+        DominoDeployError: If the file ``RAG_DEPLOY_FILE`` names is missing, or
+            the variable is unset and the working directory has no
+            ``deploy.yaml``; the message names where it looked.
+
+    Example:
+        >>> require_deploy_file()  # in a use case's directory holding deploy.yaml
+    """
+    path = deploy_file()
+    if os.path.isfile(path):
+        return
+    if os.environ.get(DEPLOY_FILE_VARIABLE):
+        raise DominoDeployError(
+            f"{DEPLOY_FILE_VARIABLE} names {path!r}, which is no file: point it at "
+            f"the deploy settings, or unset it to read {DEPLOY_FILE} here"
+        )
+    raise DominoDeployError(
+        f"no deploy settings: {DEPLOY_FILE_VARIABLE} is not set, and the working "
+        f"directory {os.getcwd()} has no {DEPLOY_FILE}; run rag-deploy from a use "
+        f"case's directory (cp deploy.example.yaml {DEPLOY_FILE} there), or set "
+        f"{DEPLOY_FILE_VARIABLE} to the file"
+    )
 
 
 class _Block(BaseModel):

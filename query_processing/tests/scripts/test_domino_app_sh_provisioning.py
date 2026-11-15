@@ -53,6 +53,7 @@ def tree(tmp_path: Path) -> Path:
         tree / "ovms" / "export_models.sh",
         f'echo "$* PYTHON=$PYTHON served=$(command -v rag-served-models)"'
         f' >> "{tmp_path}/export.log"\n'
+        f'pwd >> "{tmp_path}/export.cwd"\n'
         'case "$FAKE_EXPORT" in\n'
         f'  writes) mkdir -p "$1"; {writes};;\n'
         "  fails) exit 3 ;;\n"
@@ -112,7 +113,7 @@ def log(tmp_path: Path, name: str) -> list[str]:
 
 def test_the_fake_stands_where_the_ovms_kind_runs_the_real_exporter() -> None:
     assert (TOOLKIT_ROOT / "ovms" / "export_models.sh").is_file()
-    assert 'ovms/export_models.sh "$OVMS_MODELS_DIR"' in OVMS_SH.read_text()
+    assert '"$TOOLKIT/ovms/export_models.sh" "$OVMS_MODELS_DIR"' in OVMS_SH.read_text()
 
 
 def test_a_present_config_is_served_without_any_export(
@@ -153,7 +154,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
     project, exporter = home / "rag-venv", home / EXPORTER_VENV
     assert log(tmp_path, "uv") == [
         f"venv {project} --python 3.11",  # the project, for rag-served-models
-        f"pip install --python {project}/bin/python .",
+        f"pip install --python {project}/bin/python {tree}",
         f"venv {exporter} --seed --python 3.11",  # the exporter's own pins go here
     ]
     assert log(tmp_path, "export") == [
@@ -164,6 +165,31 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
         f"--rest_port 8888 --config_path {models}/config_{component}.json"
     ]
     assert f"exporting the models into {models}" in result.stderr
+
+
+def test_the_export_runs_in_the_use_cases_directory_after_installing_both(
+    tmp_path: Path, tree: Path, bin_dir: Path
+) -> None:
+    # rag-served-models finds the use case's workflow file in its directory.
+    use_case = tmp_path / "use_case"
+    use_case.mkdir()
+
+    result = run_app(
+        tmp_path,
+        tree,
+        bin_dir,
+        "reranker",
+        RAG_OVMS_MODELS_DIR=str(tmp_path / "models"),
+        RAG_USE_CASE_DIR=str(use_case),
+        FAKE_EXPORT="writes",
+    )
+
+    assert result.returncode == 0, result.stderr
+    project = tmp_path / "home" / "rag-venv"
+    assert log(tmp_path, "uv")[1] == (
+        f"pip install --python {project}/bin/python {tree} {use_case}"
+    )
+    assert (tmp_path / "export.cwd").read_text().splitlines() == [str(use_case)]
 
 
 def test_a_rag_served_models_already_on_path_is_used_as_is(

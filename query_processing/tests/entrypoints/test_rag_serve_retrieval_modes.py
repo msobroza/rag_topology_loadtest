@@ -47,7 +47,7 @@ def test_each_retrieval_mode_answers_and_embeds_only_when_it_needs_a_vector(
     assert response.status_code == 200, response.text
     body = response.json()
     assert list(body["timings_ms"]) == TIMING_KEYS[mode]
-    assert len(body["passages"]) == 10  # the packaged rerank stage's top_k
+    assert len(body["passages"]) == 10  # the fixture's rerank stage's top_k
     assert embedder.queries == embedded
     assert (body["timings_ms"].get("embed", 0.0) > 0) == bool(embedded)
     assert (body["answer"] is not None) == (path == "/query")

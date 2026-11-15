@@ -43,7 +43,7 @@ def run_deploy(
     client: DominoAppsClient | None = None,
 ) -> None:
     client = client or make_client(apps)
-    deploy(client, settings, target, launch_script=LAUNCH, sleep=no_sleep)  # type: ignore[arg-type]
+    deploy(client, settings, target, launch=LAUNCH, sleep=no_sleep)  # type: ignore[arg-type]
 
 
 def qp_rag(**overrides: object) -> DeploySettings:

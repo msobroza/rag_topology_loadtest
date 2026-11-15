@@ -54,14 +54,18 @@ def bin_dir(tmp_path: Path) -> Path:
     return bin_dir
 
 
-def run_export(tmp_path: Path, bin_dir: Path) -> subprocess.CompletedProcess[str]:
+def run_export(
+    tmp_path: Path, bin_dir: Path, *, with_folder: bool = True
+) -> subprocess.CompletedProcess[str]:
+    """Run the script in ``tmp_path``, into tmp_path/models unless told no folder."""
     env = {
         "HOME": str(tmp_path),
         "PATH": f"{bin_dir}:{SYSTEM_PATH}",
         "PYTHON": str(bin_dir / "python"),
     }
+    folder = [str(tmp_path / "models")] if with_folder else []
     return subprocess.run(
-        ["bash", str(EXPORT_SH), str(tmp_path / "models")],
+        ["bash", str(EXPORT_SH), *folder],
         env=env,
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -99,6 +103,21 @@ def test_each_served_model_is_exported_under_its_component_name(
     assert "<--model_name><custom-embed>" in embedder
     assert f"<--config_file_path><{models}/config_embedder.json>" in embedder
     assert not (tmp_path / "pwned").exists()  # a value is never run
+
+
+def test_without_a_folder_the_models_land_in_the_working_directorys_ovms_models(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    # The working directory is the use case's: every output of a command is there.
+    write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
+
+    result = run_export(tmp_path, bin_dir, with_folder=False)
+
+    assert result.returncode == 0, result.stderr
+    models = tmp_path / "ovms" / "models"
+    embedder = export_call(tmp_path, "embeddings_ov")
+    assert f"<--config_file_path><{models}/config_embedder.json>" in embedder
+    assert (models / ".export").is_dir()
 
 
 def test_a_served_model_of_another_type_stops_the_export(

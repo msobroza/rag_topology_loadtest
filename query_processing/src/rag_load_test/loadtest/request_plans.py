@@ -7,8 +7,7 @@ plans out: ``locustfile.py`` only does the Locust I/O around them, so they are
 tested with plain calls and without gevent monkey-patching the interpreter.
 
 Example:
-    >>> pool = build_request_pool(settings.question_count, settings.top_k_retrieve,
-    ...                           settings.top_k_rerank,
+    >>> pool = build_request_pool(settings.question_count, *settings.rerank_sizes,
     ...                           questions_file=settings.questions_file)
     >>> plan = plan_rag_request("/query", pool, rng)
 """
@@ -69,7 +68,7 @@ def build_request_pool(
         The pool, its questions and passages as tuples.
 
     Example:
-        >>> build_request_pool(50, settings.top_k_retrieve, settings.top_k_rerank,
+        >>> build_request_pool(50, *settings.rerank_sizes,
         ...                    questions_file=Path("data/quebec/questions.jsonl"))
     """
     passages = [p.text for d in synthetic_corpus(candidates) for p in chunk(d)]

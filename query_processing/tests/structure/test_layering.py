@@ -3,12 +3,13 @@ packages of ``rag_load_test`` may import (the table in the README's "Where a fil
 goes"). And the mock rule: ``fake_domino`` imports nothing from ``rag_load_test``,
 and only ``deploy/rag_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
 mock's own tests, in ``tests/fake_domino/``, import nothing from ``rag_load_test``
-either."""
+either. And the one-way rule: no file of the toolkit's source names a use case."""
 
 from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -315,3 +316,43 @@ def test_only_rag_deploy_imports_fake_domino() -> None:
     assert (
         not offending
     ), f"only deploy/rag_deploy.py may import fake_domino: {offending}"
+
+
+# --- one way: a use case installs the toolkit, never the reverse --------------------
+
+# A use case is a distribution of its own beside the toolkit (ADR 0005), named
+# query_processing_<name>_usecase (its distribution with hyphens). No file of the
+# toolkit's source names one: not in an import, not as a path or a default.
+USE_CASE_NAME = re.compile(r"query[_-]processing[_-]\w+?[_-]usecase")
+
+
+def files_naming_a_use_case(files: Mapping[str, str]) -> list[str]:
+    """The paths of ``files`` (path to text) whose text names a use case.
+
+    Example::
+
+        files_naming_a_use_case({"a.py": "import query_processing_rag_usecase"})
+        # ["a.py"]
+    """
+    return sorted(path for path, text in files.items() if USE_CASE_NAME.search(text))
+
+
+def test_the_use_case_rule_on_literal_files() -> None:
+    files = {
+        "a.py": "from query_processing_rag_usecase import settings\n",
+        "b.py": "import query_processing  # the toolkit's own name\n",
+        "c.yaml": "dependencies: [query-processing-legal-usecase]\n",
+        "d.py": "# a use case's directory holds workflow.yaml\n",
+    }
+    assert files_naming_a_use_case(files) == ["a.py", "c.yaml"]
+
+
+def test_no_file_of_the_toolkits_source_names_a_use_case() -> None:
+    source = TOOLKIT_ROOT / "src"
+    files = {
+        str(path.relative_to(source)): path.read_text(encoding="utf-8")
+        for path in sorted(source.rglob("*"))
+        if path.is_file() and "__pycache__" not in path.parts
+    }
+    assert files, f"no file was read under {source}: the walk is wrong"
+    assert files_naming_a_use_case(files) == []

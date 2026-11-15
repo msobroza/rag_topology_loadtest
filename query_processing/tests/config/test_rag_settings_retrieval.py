@@ -17,15 +17,15 @@ TWO_MODELS = ("embedder", "reranker")
 # --- defaults ------------------------------------------------------------------
 
 
-def test_default_models_and_their_served_aliases(
+def test_the_files_models_and_their_served_aliases(
     settings_factory: SettingsFactory,
 ) -> None:
     embedder, reranker = (settings_factory().components[n] for n in TWO_MODELS)
 
-    assert embedder.source_id == "Snowflake/snowflake-arctic-embed-l-v2.0"
-    assert embedder.alias == "snowflake-arctic-embed-l-v2.0"
-    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
-    assert reranker.alias == "crossencoder-camembert-base-mmarcoFR"
+    assert embedder.source_id == "fixture-org/fixture-embedder"
+    assert embedder.alias == "fixture-embedder"
+    assert reranker.source_id == "fixture-org/fixture-reranker"
+    assert reranker.alias == "fixture-reranker"
 
 
 def test_defaults_of_the_new_options(settings_factory: SettingsFactory) -> None:
@@ -40,7 +40,7 @@ def test_defaults_of_the_new_options(settings_factory: SettingsFactory) -> None:
     assert (chroma.url, chroma.path, chroma.collection) == (
         "",
         "chroma",
-        "rag_passages",
+        "fixture_passages",  # the file's: a collection has no default
     )
 
 

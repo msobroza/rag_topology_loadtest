@@ -214,19 +214,21 @@ def test_deploy_requires_the_environment_id(run_main: RunMain) -> None:
     assert apps.received == []
 
 
-def test_deploy_outside_the_toolkits_directory_publishes_nothing(
+def test_deploy_from_no_use_case_beside_the_toolkit_publishes_nothing(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
+    Path("deploy.yaml").write_text(ENV_1)
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
     assert code == 2
     assert err.endswith(
-        f"rag-deploy: error: {Path.cwd()} has no domino/app.sh: run rag-deploy from "
-        "the toolkit's directory (for example /repos/<project>/query_processing), "
-        "the directory the Apps run it from\n"
+        f"rag-deploy: error: no query_processing/domino/app.sh in {Path.cwd()} or any "
+        "directory above it: run rag-deploy from a use case's directory in the "
+        "repository (for example /repos/<project>/<use case>, beside "
+        "query_processing/), where the Apps run the role's command\n"
     )
     assert apps.received == []
 
@@ -363,7 +365,7 @@ def test_deploy_passes_each_apps_settings_to_it(run_main: RunMain) -> None:
         "export RAG_ROLE=workflow\n"
     )
     for entry in scripts:
-        assert entry.endswith(f"export RAG_BOOTSTRAP=1\n{launched()}")
+        assert entry.endswith(launched())
 
 
 def test_deploy_refuses_an_es_api_key_in_deploy_yaml(run_main: RunMain) -> None:

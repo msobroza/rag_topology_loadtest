@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from rag_components import shell_settings
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.entrypoints.rag_served_models import main, served_model_lines
 from repo_paths import TOOLKIT_ROOT
@@ -39,10 +40,8 @@ def test_an_embedder_or_reranker_of_any_name_is_listed_and_an_llm_is_not(
     settings = settings_factory(components={"coarse": coarse})
 
     assert served_model_lines(settings) == [
-        "embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 "
-        "snowflake-arctic-embed-l-v2.0",
-        "reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR "
-        "crossencoder-camembert-base-mmarcoFR",
+        "embedder embedder fixture-org/fixture-embedder fixture-embedder",
+        "reranker reranker fixture-org/fixture-reranker fixture-reranker",
         "coarse reranker /models/coarse-rr/ coarse-rr",
     ]
 
@@ -50,7 +49,7 @@ def test_an_embedder_or_reranker_of_any_name_is_listed_and_an_llm_is_not(
 @pytest.fixture
 def clean_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No RAG_* variable from the developer's shell and no stray ``.env`` in cwd."""
-    for name in [n for n in os.environ if n.startswith("RAG_")]:
+    for name in shell_settings(os.environ):
         monkeypatch.delenv(name)
     monkeypatch.chdir(tmp_path)
 
@@ -62,10 +61,8 @@ def test_rag_served_models_prints_the_workflow_files_components(
     assert main([]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
-        "embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 "
-        "snowflake-arctic-embed-l-v2.0",
-        "reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR "
-        "crossencoder-camembert-base-mmarcoFR",
+        "embedder embedder fixture-org/fixture-embedder fixture-embedder",
+        "reranker reranker fixture-org/fixture-reranker fixture-reranker",
     ]
 
 
@@ -107,10 +104,8 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     )
 
     assert result.stdout.splitlines() == [
-        "embedder|embedder|Snowflake/snowflake-arctic-embed-l-v2.0|"
-        "snowflake-arctic-embed-l-v2.0|",
-        "reranker|reranker|antoinelouis/crossencoder-camembert-base-mmarcoFR|"
-        "it's; echo pwned|",
+        "embedder|embedder|fixture-org/fixture-embedder|fixture-embedder|",
+        "reranker|reranker|fixture-org/fixture-reranker|it's; echo pwned|",
     ]
 
 

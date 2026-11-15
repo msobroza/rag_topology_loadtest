@@ -33,7 +33,7 @@ from rag_load_test.domain.passages import ScoredPassage
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
 SettingsFactory = Callable[..., RagSettings]
-EMBEDDER_WEIGHTS = "embedder:Snowflake/snowflake-arctic-embed-l-v2.0"
+EMBEDDER_WEIGHTS = "embedder:fixture-org/fixture-embedder"
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
 UNREACHABLE_STORE = {"components__vector_store__elasticsearch__url": UNREACHABLE_ES}
 TOKEN_URL = "http://token.test/access-token"

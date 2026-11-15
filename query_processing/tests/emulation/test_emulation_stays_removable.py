@@ -36,13 +36,18 @@ SHARED_FILES_THAT_NAME_IT = {
     "docs/adr/0001-emulation-platform-and-app-placement.md",
     ".gitignore",
 }
+# The use case the emulation deploys: its files are the project's own settings too.
+USE_CASE = "query_processing_rag_usecase/"
 # The project's own settings: what the owner reads to configure a real Domino.
 PROJECT_SETTINGS_FILES = (
     f"{TOOLKIT}src/rag_load_test/config/rag_settings.py",
     f"{TOOLKIT}src/rag_load_test/deploy/deploy_settings.py",
-    f"{TOOLKIT}deploy.example.yaml",
-    f"{TOOLKIT}.env.example",
     f"{TOOLKIT}Makefile",
+    f"{USE_CASE}deploy.example.yaml",
+    f"{USE_CASE}.env.example",
+    f"{USE_CASE}workflow.yaml",
+    f"{USE_CASE}Makefile",
+    f"{USE_CASE}pyproject.toml",
     "Makefile",
 )
 

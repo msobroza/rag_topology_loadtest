@@ -2,13 +2,13 @@
 
 Its top-level keys are settings of ``RagSettings``: the ``components`` and
 the ``graph`` blocks (ADR 0004), and the blocks of what the components share
-(``local_models``, ``calibration``, ``http``, ``domino``). It is found as the
-deploy settings find
-theirs: the file ``RAG_WORKFLOW_FILE`` names, else ``workflow.yaml`` in the
-working directory, else the file that ships with this package, the RAG's.
-``RagSettings`` puts the file below the environment and ``.env``, so a variable
-named by a value's path, such as ``RAG_GRAPH__STAGES__RERANK__TOP_K``, wins
-over it.
+(``local_models``, ``calibration``, ``http``, ``domino``). The toolkit ships
+none: a use case holds its own (ADR 0005), and a command finds it as the
+deploy tool finds its deploy settings, the file ``RAG_WORKFLOW_FILE`` names,
+else ``workflow.yaml`` in the working directory, the use case's directory;
+with neither it stops, naming both places. ``RagSettings`` puts the file below
+the environment and ``.env``, so a variable named by a value's path, such as
+``RAG_GRAPH__STAGES__RERANK__TOP_K``, wins over it.
 
 Example:
     >>> source = workflow_file_source(RagSettings, workflow_file())
@@ -25,31 +25,51 @@ from pydantic_settings import BaseSettings, YamlConfigSettingsSource
 
 from .component_settings import alias_of
 
-PACKAGED_WORKFLOW = Path(__file__).with_name("workflow.yaml")
 WORKFLOW_FILE = "workflow.yaml"  # in the working directory
 # Read from the environment only, not from .env: it says which files to read.
 WORKFLOW_FILE_VARIABLE = "RAG_WORKFLOW_FILE"
 
 
+class WorkflowFileNotFoundError(FileNotFoundError, ValueError):
+    """No workflow file where a command looked; the message names the places.
+
+    A ``ValueError`` too, so that every command that turns a settings mistake
+    into a usage error stops on it with its message, not a traceback.
+
+    Example:
+        >>> raise WorkflowFileNotFoundError("no workflow file: ...")
+    """
+
+
 def workflow_file() -> Path:
-    """Find the workflow file: the one a variable names, else here, else packaged.
+    """Find the workflow file: the one a variable names, else the one here.
 
     The variable comes first, so that a variant can be tried from a directory
     that holds a ``workflow.yaml`` without moving it.
 
     Returns:
         ``RAG_WORKFLOW_FILE`` when it is set, else ``workflow.yaml`` in the
-        working directory when there is one, else the packaged file.
+        working directory.
+
+    Raises:
+        WorkflowFileNotFoundError: If the variable is unset and the working
+            directory has no ``workflow.yaml``; the message names both places.
 
     Example:
-        >>> workflow_file().name  # with RAG_WORKFLOW_FILE unset
+        >>> workflow_file().name  # with RAG_WORKFLOW_FILE unset, in a use case
         'workflow.yaml'
     """
     named = os.environ.get(WORKFLOW_FILE_VARIABLE)
     if named:
         return Path(named)
     here = Path(WORKFLOW_FILE)
-    return here if here.is_file() else PACKAGED_WORKFLOW
+    if here.is_file():
+        return here
+    raise WorkflowFileNotFoundError(
+        f"no workflow file: {WORKFLOW_FILE_VARIABLE} is not set, and the working "
+        f"directory {os.getcwd()} has no {WORKFLOW_FILE}; run the command from a "
+        f"use case's directory, or set {WORKFLOW_FILE_VARIABLE} to a workflow file"
+    )
 
 
 def workflow_file_source(
@@ -70,16 +90,16 @@ def workflow_file_source(
         The YAML source over ``path``.
 
     Raises:
-        FileNotFoundError: If ``path`` is not a file.
+        WorkflowFileNotFoundError: If ``path`` is not a file.
         OSError: If ``path`` cannot be read.
         ValueError: If a top-level key is not a field of ``settings_cls``.
 
     Example:
         >>> workflow_file_source(RagSettings, Path("missing.yaml"))
-        FileNotFoundError: workflow file 'missing.yaml' does not exist
+        WorkflowFileNotFoundError: workflow file 'missing.yaml' does not exist
     """
     if not path.is_file():
-        raise FileNotFoundError(f"workflow file {str(path)!r} does not exist")
+        raise WorkflowFileNotFoundError(f"workflow file {str(path)!r} does not exist")
     try:
         source = YamlConfigSettingsSource(settings_cls, yaml_file=path)
     except OSError as exc:
@@ -125,6 +145,10 @@ def declared_alias(component: str, path: Path | None = None) -> str:
     Returns:
         Its ``alias``, else the last part of its ``source_id``; "" when the
         file declares no such component.
+
+    Raises:
+        WorkflowFileNotFoundError: If no ``path`` is given and
+            ``workflow_file`` finds none.
 
     Example:
         >>> declared_alias("reranker")

@@ -20,14 +20,23 @@ from fake_domino.state import FakeDominoApps
 from rag_load_test.deploy.app_id_cache import AppIdCache
 from rag_load_test.deploy.apps_client import DominoAppsClient
 from rag_load_test.deploy.deploy_settings import DeploySettings
+from rag_load_test.deploy.publish import LaunchPaths
 
 APPS_PATH = "/api/apps/beta/apps"
 APPS_URL = f"{FAKE_DOMINO_URL}/apps"  # the fake's App pages: {APPS_URL}/app-1, ...
 # Where the fake's App instances answer: {INSTANCES_URL}/app-1-v1-i, ...
 INSTANCES_URL = f"{FAKE_DOMINO_URL}/fake-owner/fake-project/r/notebookSession"
-LAUNCH = "/repos/rag topology/domino/app.sh"  # a space, to check the quoting
+# The toolkit's launch script and a use case beside it, in a repository whose
+# path has a space, to check the quoting.
+LAUNCH = LaunchPaths(
+    "/repos/rag topology/query_processing/domino/app.sh",
+    "/repos/rag topology/my_use_case",
+)
+# How every entry script ends: the use case's directory, the bootstrap, the script.
 BOOTSTRAP_AND_EXEC = (
-    "export RAG_BOOTSTRAP=1\nexec bash '/repos/rag topology/domino/app.sh'"
+    "export RAG_USE_CASE_DIR='/repos/rag topology/my_use_case'\n"
+    "export RAG_BOOTSTRAP=1\n"
+    "exec bash '/repos/rag topology/query_processing/domino/app.sh'"
 )
 # What an Agent (the workflow App by default) exports before RAG_BOOTSTRAP.
 AGENT_EXPORTS = "export RAG_DOMINO__TRACING=1\nexport RAG_BOOTSTRAP_EXTRAS=domino\n"
@@ -174,8 +183,19 @@ NO_ENVIRONMENT = (
 
 
 def launched() -> str:
-    """The tail of every entry script when rag-deploy runs from this directory."""
-    return f"exec bash {shlex.quote(str(Path.cwd() / 'domino' / 'app.sh'))}"
+    """The tail of every entry script when rag-deploy runs from this directory.
+
+    This directory is the use case's, beside the toolkit's in the repository,
+    as ``domino_env`` lays them out: its path, the bootstrap, then the
+    toolkit's launch script.
+    """
+    use_case = Path.cwd()
+    script = use_case.parent / "query_processing" / "domino" / "app.sh"
+    return (
+        f"export RAG_USE_CASE_DIR={shlex.quote(str(use_case))}\n"
+        "export RAG_BOOTSTRAP=1\n"
+        f"exec bash {shlex.quote(str(script))}"
+    )
 
 
 RunMain = Callable[..., tuple[int, str, str]]

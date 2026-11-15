@@ -246,6 +246,35 @@ class RagSettings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def check_store_names(self) -> RagSettings:
+        """Fail at start-up when a store names no index or collection to keep.
+
+        Where the passages are kept is the use case's choice, so the toolkit
+        has no default for it: the block of the store's backend states it.
+
+        Returns:
+            The settings, unchanged.
+
+        Raises:
+            ValueError: If a vector store on ``elasticsearch`` has no index, or
+                on ``chroma`` no collection; the message names the variables,
+                the workflow file's key and the value.
+        """
+        for name, component in self.components.items():
+            named = _store_name(component)
+            if named is None or named[1]:
+                continue
+            key, backend = named[0], component.backend
+            backend_variable = self.variable_of("components", name, "backend")
+            variable = self.variable_of("components", name, backend, key)
+            raise ValueError(
+                f"{backend_variable}={backend!r} needs {variable}, the {key} the "
+                f"passages are kept in (components.{name}.{backend}.{key} in the "
+                "workflow file); got ''"
+            )
+        return self
+
+    @model_validator(mode="after")
     def check_served_aliases(self) -> RagSettings:
         """Fail at start-up when a component on ``served`` has no alias.
 
@@ -397,6 +426,18 @@ class RagSettings(BaseSettings):
             f"{backend_variable}={backend!r} needs {url_variable}, the full route "
             f"of the endpoint (for example {example}); got {url!r}"
         )
+
+
+def _store_name(component: Component) -> tuple[str, str] | None:
+    # A store's key that names where its passages are kept, and its value;
+    # None for a model, or for a store on a backend that names nothing.
+    if not isinstance(component, VectorStoreSettings):
+        return None
+    if component.backend == "elasticsearch":
+        return "index", component.elasticsearch.index
+    if component.backend == "chroma":
+        return "collection", component.chroma.collection
+    return None
 
 
 def _endpoint_url(component: ModelComponent) -> str | None:

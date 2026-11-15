@@ -26,9 +26,10 @@ from fake_domino.state import FakeDominoApps
 from rag_load_test.deploy.apps_client import DominoDeployError
 from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.publish import (
+    LaunchPaths,
     deploy,
     entry_script,
-    launch_script_in,
+    launch_paths,
 )
 from rag_load_test.deploy.topology_alias import resolve_topology
 from repo_paths import REPO_ROOT, TOOLKIT_ROOT
@@ -179,33 +180,47 @@ def test_a_run_label_in_the_overrides_replaces_the_computed_one() -> None:
     )
 
 
-def test_the_launch_script_is_found_in_the_toolkits_directory(tmp_path: Path) -> None:
-    (tmp_path / "domino").mkdir()
-    (tmp_path / "domino" / "app.sh").write_text("#!/bin/bash\n")
-    assert launch_script_in(str(tmp_path)) == f"{tmp_path}/domino/app.sh"
+@pytest.mark.parametrize("below", ["my_use_case", "my_use_case/variants/fr"])
+def test_the_launch_script_is_the_toolkits_found_going_up_from_the_use_case(
+    tmp_path: Path, below: str
+) -> None:
+    script = tmp_path / "query_processing" / "domino" / "app.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/bash\n")
+    use_case = tmp_path / below
+    assert launch_paths(str(use_case)) == LaunchPaths(str(script), str(use_case))
 
 
-def test_the_launch_script_is_in_the_toolkits_directory_not_the_repositorys() -> None:
-    found = launch_script_in(str(TOOLKIT_ROOT))
-    assert found == str(TOOLKIT_ROOT / "domino" / "app.sh")
-    with pytest.raises(DominoDeployError):
-        launch_script_in(str(REPO_ROOT))
+def test_from_beside_the_toolkit_in_this_repository_its_launch_script_is_found() -> (
+    None
+):
+    found = launch_paths(str(REPO_ROOT / "a_use_case"))
+    assert found.script == str(TOOLKIT_ROOT / "domino" / "app.sh")
 
 
-def test_a_directory_without_the_launch_script_says_to_run_from_the_toolkit(
+def test_a_use_case_outside_the_repository_says_where_it_looked(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(DominoDeployError) as caught:
-        launch_script_in(str(tmp_path))
+        launch_paths(str(tmp_path))
     assert str(caught.value) == (
-        f"{tmp_path} has no domino/app.sh: run rag-deploy from the toolkit's "
-        "directory (for example /repos/<project>/query_processing), the directory "
-        "the Apps run it from"
+        f"no query_processing/domino/app.sh in {tmp_path} or any directory above "
+        "it: run rag-deploy from a use case's directory in the repository (for "
+        "example /repos/<project>/<use case>, beside query_processing/), where the "
+        "Apps run the role's command"
     )
 
 
+def test_every_entry_script_names_the_use_case_after_what_wins_over_it() -> None:
+    # A free list cannot move the Apps' working directory: rag-deploy's own wins.
+    own = {"RAG_USE_CASE_DIR": "/elsewhere"}
+    entry = script("reranker", with_settings("reranker", own), {})
+    assert entry.splitlines()[0] == "export RAG_USE_CASE_DIR=/elsewhere"
+    assert entry.endswith(BOOTSTRAP_AND_EXEC)
+
+
 def run_deploy(apps: FakeDominoApps, settings: DeploySettings, target: str) -> None:
-    deploy(make_client(apps), settings, target, launch_script=LAUNCH, sleep=no_sleep)  # type: ignore[arg-type]
+    deploy(make_client(apps), settings, target, launch=LAUNCH, sleep=no_sleep)  # type: ignore[arg-type]
 
 
 def test_deploy_all_for_split_all_creates_three_apps_in_order() -> None:

@@ -17,6 +17,7 @@ import pytest
 import yaml
 from dotenv import dotenv_values
 
+from rag_components import shell_settings
 from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.overrides import override_exports
 from rag_load_test.entrypoints.rag_calibrate import main
@@ -44,7 +45,7 @@ def fake_weights(
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
     for name, fake in fake_openvino_modules().items():
         monkeypatch.setitem(sys.modules, name, fake)
-    for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
+    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
         monkeypatch.delenv(name)
     monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
     monkeypatch.setenv("RAG_LOCAL_MODELS__CPUS", "2")

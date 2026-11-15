@@ -29,24 +29,67 @@ def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.auth_headers == {}
 
 
-def test_the_four_model_values_default_to_the_rag_systems(
-    monkeypatch: pytest.MonkeyPatch, settings_factory: Callable[..., RagSettings]
+def test_the_workflow_apps_target_reads_no_model_value_and_no_workflow_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    settings = settings_from(monkeypatch, {})
-    rag = settings_factory()
+    monkeypatch.delenv("RAG_WORKFLOW_FILE")
+    monkeypatch.chdir(tmp_path)  # no workflow file here either
 
-    # The sizes are the stages' of the workflow file that ships with the code.
-    stages = rag.graph.stages
-    assert (settings.top_k_retrieve, settings.top_k_rerank) == (
-        stages["retrieve"].stage_settings["top_k"],
-        stages["rerank"].stage_settings["top_k"],
-    )
-    # The aliases are the workflow file's, as a model server serves its model.
-    components = rag.components
-    assert (settings.reranker_alias, settings.embedder_alias) == (
-        components["reranker"].alias,
-        components["embedder"].alias,
-    )
+    settings = settings_from(monkeypatch, {})
+
+    assert (settings.top_k_retrieve, settings.top_k_rerank) == (None, None)
+    assert settings.rerank_sizes == (0, 0)
+    assert (settings.reranker_alias, settings.embedder_alias) == ("", "")
+
+
+@pytest.mark.parametrize(
+    ("target", "field", "component"),
+    [
+        ("rerank", "reranker_alias", "reranker"),
+        ("embeddings", "embedder_alias", "embedder"),
+    ],
+)
+def test_a_model_servers_target_sends_the_workflow_files_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    settings_factory: Callable[..., RagSettings],
+    target: str,
+    field: str,
+    component: str,
+) -> None:
+    sizes = {"RAG_TOP_K_RETRIEVE": "20", "RAG_TOP_K_RERANK": "10"}
+    settings = settings_from(monkeypatch, {"RAG_LOADTEST_TARGET": target, **sizes})
+
+    # As a model server serves its model: the alias the workflow file gives it.
+    assert getattr(settings, field) == settings_factory().components[component].alias
+
+
+def test_a_model_servers_target_without_a_workflow_file_says_where_it_looked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("RAG_WORKFLOW_FILE")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="no workflow file: RAG_WORKFLOW_FILE is not"):
+        settings_from(monkeypatch, {"RAG_LOADTEST_TARGET": "embeddings"})
+
+
+@pytest.mark.parametrize(
+    "sizes",
+    [{}, {"RAG_TOP_K_RETRIEVE": "20"}, {"RAG_TOP_K_RERANK": "10"}],
+    ids=["neither", "no-top-n", "no-documents"],
+)
+def test_the_rerank_target_needs_both_sizes_which_have_no_default(
+    monkeypatch: pytest.MonkeyPatch, sizes: dict[str, str]
+) -> None:
+    # They are the use case's sizes: its environment example states them.
+    with pytest.raises(ValueError, match="RAG_LOADTEST_TARGET=rerank") as caught:
+        settings_from(monkeypatch, {"RAG_LOADTEST_TARGET": "rerank", **sizes})
+
+    assert (
+        "RAG_LOADTEST_TARGET=rerank needs RAG_TOP_K_RETRIEVE and RAG_TOP_K_RERANK, "
+        "the documents and top_n of each rerank request, as the workflow file's "
+        "retrieve and rerank stages set them (top_k)"
+    ) in str(caught.value)
 
 
 def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:

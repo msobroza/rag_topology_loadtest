@@ -3,20 +3,22 @@
 Which Apps follow from the topology alias deployed (``topology_alias.py``): the
 model server Apps are published first, then the workflow App with the URLs
 their running instances answer on and each component's backend. Every entry
-script runs ``domino/app.sh`` in one of two Roles: the workflow app, or a model
-server told its component and its model-server kind. What else a kind's launch
-script reads, and what a kind refuses, is the kind's class's to say
-(``model_server_kinds/``), so the flow here is the same for every kind. Every
-entry script also exports the overrides, this site's values of the workflow
-file (``overrides.py``).
+script runs the toolkit's ``domino/app.sh`` in one of two Roles: the workflow
+app, or a model server told its component and its model-server kind, and
+names the use case's directory, where the role's command finds the use case's
+files. What else a kind's launch script reads, and what a kind refuses, is the
+kind's class's to say (``model_server_kinds/``), so the flow here is the same
+for every kind. Every entry script also exports the overrides, this site's
+values of the workflow file (``overrides.py``).
 """
 
 from __future__ import annotations
 
-import os
 import shlex
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, NoReturn
 
 from ..domain.roles import MODEL_SERVER_ROLE, WORKFLOW_APP, WORKFLOW_ROLE, AppPart
@@ -46,8 +48,13 @@ from .overrides import (
 from .topology_alias import ResolvedTopology, resolve_topology
 from .workflow_components import component_variable
 
-# Relative to the toolkit's directory, query_processing/ in the repository.
+# The toolkit's directory in the repository, a use case's sibling, and its
+# launch script within it.
+TOOLKIT_DIRECTORY = "query_processing"
 LAUNCH_SCRIPT = "domino/app.sh"
+# What tells app.sh where to run the role's command: one of rag-deploy's own
+# exports, which win over the settings and the overrides.
+USE_CASE_DIR_VARIABLE = "RAG_USE_CASE_DIR"
 # An Agent is an App whose configurationType is AISYSTEM: the only API-level
 # difference (assumed to be what the UI's "Deploy Agent" sends).
 CONFIGURATION_TYPES: dict[AppKind, str] = {"app": "STANDARD", "agent": "AISYSTEM"}
@@ -57,33 +64,53 @@ CONFIGURATION_TYPES: dict[AppKind, str] = {"app": "STANDARD", "agent": "AISYSTEM
 AGENT_EXPORTS = {"RAG_DOMINO__TRACING": "1", "RAG_BOOTSTRAP_EXTRAS": "domino"}
 
 
-def launch_script_in(directory: str) -> str:
-    """Return the absolute path of ``domino/app.sh`` under ``directory``.
+@dataclass(frozen=True)
+class LaunchPaths:
+    """Where every App starts: the toolkit's launch script and the use case.
 
-    The Apps mount this repository at the same path as the Workspace (for example
-    /repos/<project>) but do not start in it, so the path must be absolute.
-
-    Args:
-        directory: The toolkit's directory in the repository, absolute.
-
-    Returns:
-        The launch script's path.
-
-    Raises:
-        DominoDeployError: If ``directory`` has no ``domino/app.sh``.
+    Both are absolute: the Apps mount the repository at the same path as the
+    Workspace (for example /repos/<project>) but do not start in it.
 
     Example:
-        >>> launch_script_in(os.getcwd())
+        >>> LaunchPaths("/repos/p/query_processing/domino/app.sh", "/repos/p/uc")
+    """
+
+    script: str  # the toolkit's domino/app.sh
+    use_case_dir: str  # where app.sh runs the role's command: rag-deploy's own
+
+
+def launch_paths(use_case_dir: str) -> LaunchPaths:
+    """Find the toolkit's launch script, going up from the use case's directory.
+
+    rag-deploy runs from a use case's directory, a sibling of the toolkit's in
+    the repository, so the launch script is the first
+    ``query_processing/domino/app.sh`` found from there up.
+
+    Args:
+        use_case_dir: The use case's directory, absolute: the working directory.
+
+    Returns:
+        The launch script found, and ``use_case_dir``.
+
+    Raises:
+        DominoDeployError: If no directory from ``use_case_dir`` up holds the
+            launch script; the message names where it looked.
+
+    Example:
+        >>> launch_paths("/repos/rag/my_use_case").script
         '/repos/rag/query_processing/domino/app.sh'
     """
-    path = os.path.join(directory, LAUNCH_SCRIPT)
-    if not os.path.isfile(path):
-        raise DominoDeployError(
-            f"{directory} has no {LAUNCH_SCRIPT}: run rag-deploy from the toolkit's "
-            "directory (for example /repos/<project>/query_processing), the directory "
-            "the Apps run it from"
-        )
-    return path
+    start = Path(use_case_dir)
+    wanted = Path(TOOLKIT_DIRECTORY, LAUNCH_SCRIPT)
+    for directory in (start, *start.parents):
+        if (directory / wanted).is_file():
+            return LaunchPaths(str(directory / wanted), use_case_dir)
+    raise DominoDeployError(
+        f"no {wanted} in {use_case_dir} or any directory above it: run rag-deploy "
+        "from a use case's directory in the repository (for example "
+        f"/repos/<project>/<use case>, beside {TOOLKIT_DIRECTORY}/), where the "
+        "Apps run the role's command"
+    )
 
 
 def entry_script(
@@ -91,12 +118,13 @@ def entry_script(
     settings: DeploySettings,
     topology: ResolvedTopology,
     urls: Mapping[AppPart, str],
-    launch_script: str,
+    launch: LaunchPaths,
 ) -> str:
-    r"""Write the shell that exports one App's settings, then runs ``launch_script``.
+    r"""Write the shell that exports one App's settings, then runs the launch script.
 
     Each App carries its own environment variables: ``app.settings`` first, then
-    every override, then the computed ones, which therefore win.
+    every override, then the computed ones, which therefore win, the use case's
+    directory last among them.
 
     Args:
         app: The App's merged settings.
@@ -104,15 +132,15 @@ def entry_script(
             model-server kind reads.
         topology: The topology alias deployed, resolved.
         urls: Where the model server Apps answer (workflow App only).
-        launch_script: Absolute path of ``domino/app.sh``.
+        launch: The launch script to run, and the use case's directory.
 
     Returns:
         The entry script, one ``export`` per line, then ``exec bash``.
 
     Example:
         >>> app = settings.for_app("reranker")
-        >>> entry_script(app, settings, topology, {}, "/repos/rag/domino/app.sh")
-        'export RAG_ROLE=model-server\n...\nexec bash /repos/rag/domino/app.sh'
+        >>> entry_script(app, settings, topology, {}, launch)
+        'export RAG_ROLE=model-server\n...\nexec bash /repos/rag/query_processing/...'
     """
     overrides = override_exports(settings)
     given = {**app.settings, **overrides}  # what the computed defaults yield to
@@ -122,15 +150,17 @@ def entry_script(
         computed = _model_server_exports(app.part, settings, topology)
     if app.kind == "agent":
         computed |= {k: v for k, v in AGENT_EXPORTS.items() if k not in given}
-    # The generic environment has nothing installed: app.sh installs it first.
+    # The generic environment has nothing installed: app.sh installs it first,
+    # the toolkit and the use case, then runs the role's command in the latter.
     exports = [
         *app.settings.items(),
         *overrides.items(),
         *computed.items(),
+        (USE_CASE_DIR_VARIABLE, launch.use_case_dir),
         ("RAG_BOOTSTRAP", "1"),
     ]
     lines = [f"export {name}={shlex.quote(value)}" for name, value in exports]
-    return "\n".join([*lines, f"exec bash {shlex.quote(launch_script)}"])
+    return "\n".join([*lines, f"exec bash {shlex.quote(launch.script)}"])
 
 
 def _model_server_exports(
@@ -218,7 +248,7 @@ def publish_app(
     topology: ResolvedTopology,
     part: AppPart,
     *,
-    launch_script: str,
+    launch: LaunchPaths,
     sleep: Callable[[float], None] = time.sleep,
 ) -> DominoApp:
     """Create ``part``'s App or post a new version to it, then wait until Running.
@@ -233,7 +263,7 @@ def publish_app(
         settings: The deploy settings.
         topology: The topology alias deployed, resolved.
         part: The App to publish.
-        launch_script: Absolute path of ``domino/app.sh``.
+        launch: The launch script the App runs, and the use case's directory.
         sleep: Waits between polls; tests and dry runs pass a no-op.
 
     Returns:
@@ -245,13 +275,13 @@ def publish_app(
             does not come up.
 
     Example:
-        >>> publish_app(client, settings, topology, "reranker", launch_script=path)
+        >>> publish_app(client, settings, topology, "reranker", launch=launch)
     """
     app_settings = settings.for_app(part)
     urls: dict[AppPart, str] = {}
     if part == WORKFLOW_APP:
         urls = model_server_urls(client, settings, topology)
-    script = entry_script(app_settings, settings, topology, urls, launch_script)
+    script = entry_script(app_settings, settings, topology, urls, launch)
     version = version_body(app_settings, script)
     app = client.find(app_settings.name)
     if app is None:
@@ -287,7 +317,7 @@ def deploy(
     settings: DeploySettings,
     target: AppPart | Literal["all"],
     *,
-    launch_script: str,
+    launch: LaunchPaths,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """Publish ``target``, or every App the topology alias needs, in order.
@@ -305,14 +335,14 @@ def deploy(
         client: Apps API client for the project.
         settings: The deploy settings.
         target: One App, or ``"all"``.
-        launch_script: Absolute path of ``domino/app.sh``.
+        launch: The launch script every App runs, and the use case's directory.
         sleep: Waits between polls; tests and dry runs pass a no-op.
 
     Raises:
         DominoDeployError: If the topology does not use ``target``.
 
     Example:
-        >>> deploy(client, DeploySettings(), "all", launch_script=path)
+        >>> deploy(client, DeploySettings(), "all", launch=launch_paths(os.getcwd()))
     """
     refuse_secrets(settings)
     refuse_workflow_settings_in_free_lists(settings)
@@ -325,9 +355,7 @@ def deploy(
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, topology, parts)
     for part in parts:
-        publish_app(
-            client, settings, topology, part, launch_script=launch_script, sleep=sleep
-        )
+        publish_app(client, settings, topology, part, launch=launch, sleep=sleep)
     if target in topology.served:
         _note_the_workflow_calls_the_old_instance(client, settings, target)
 

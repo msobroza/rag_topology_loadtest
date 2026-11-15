@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from launch_script_stand_ins import log, make_stand_ins, stand_in_env
+from rag_graphs import FIXTURE_WORKFLOW
 from repo_paths import TOOLKIT_ROOT
 
 # Dropped into deploy/model_server_kinds/ of a copy of the package: the only change.
@@ -63,7 +64,7 @@ import sys
 import rag_load_test
 from rag_load_test.deploy.apps_client import DominoDeployError
 from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.publish import entry_script
+from rag_load_test.deploy.publish import LaunchPaths, entry_script
 from rag_load_test.deploy.topology_alias import resolve_topology
 
 URLS = {"embedder": "https://domino.test/e1", "reranker": "https://domino.test/r1"}
@@ -83,7 +84,7 @@ topology = resolve_topology(chosen)
 scripts = {
     part: entry_script(
         chosen.for_app(part), chosen, topology,
-        URLS if part == "workflow" else {}, sys.argv[1],
+        URLS if part == "workflow" else {}, LaunchPaths(sys.argv[1], sys.argv[2]),
     )
     for part in topology.app_parts()
 }
@@ -112,12 +113,14 @@ def copies_with_a_new_kind(root: Path) -> tuple[Path, Path]:
 
 
 def run_driver(root: Path, app_sh: Path) -> dict[str, object]:
+    """Run the driver in ``root``, a use case's directory holding the tests' file."""
     (root / "driver.py").write_text(DRIVER, encoding="utf-8")
+    shutil.copy(FIXTURE_WORKFLOW, root / "workflow.yaml")
     # No RAG_* variable of this shell, and the copy ahead of any installed package.
     env = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
     env["PYTHONPATH"] = str(root / "src")
     run = subprocess.run(
-        [sys.executable, str(root / "driver.py"), str(app_sh)],
+        [sys.executable, str(root / "driver.py"), str(app_sh), str(root)],
         capture_output=True,
         text=True,
         timeout=120,

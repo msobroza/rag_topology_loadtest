@@ -26,9 +26,13 @@ in-process models (OpenVINO or PyTorch). See
 
 To run it on Domino, follow [Step by step: first test run on Domino](#step-by-step-first-test-run-on-domino).
 
-The code is in `query_processing/`, the toolkit's directory: every command and
-file path of this README is run from, or relative to, that directory unless it
-says otherwise.
+The repository holds two distributions (ADR 0005): the toolkit, all the code, in
+`query_processing/`, and the RAG use case, which installs it and holds settings
+only (its workflow file, deploy settings example, environment example and
+Makefile), in `query_processing_rag_usecase/`. Every command of this README is run
+from the use case's directory, where it finds the use case's files and writes its
+output, and a file path is relative to the toolkit's directory unless it says
+otherwise.
 
 ## Workflow
 
@@ -56,9 +60,10 @@ instance of a registered stage type (`embed`, `retrieve`, `rerank`, `generate`),
 which defaults to the stage's name, and names the component it calls with
 `call` (`embedder`, `vector_store`, `reranker`, `llm`); plain edges are chains
 between the reserved `START` and `END`; the branch after rerank is a conditional
-edge asking the registered edge condition `is_query_mode`. A workflow file equal
-to the graph above ships with the code (`src/rag_load_test/config/workflow.yaml`)
-and is used when no other is found.
+edge asking the registered edge condition `is_query_mode`. The workflow file of
+the graph above is the RAG use case's
+(`query_processing_rag_usecase/workflow.yaml`): the toolkit ships none, and a
+command run where it finds none stops, saying where it looked.
 
 The request's question becomes both the conversational query and the
 standalone query of the workflow state, and the history is empty. The stages
@@ -79,20 +84,32 @@ before any component opens, `rag-serve` refuses a graph that cannot run (see
 
 ### Where a file goes
 
-The toolkit is one distribution, in `query_processing/`: every path of this
-section and of the tree below it is relative to that directory, except the
-repository's own entries at the end of the tree (`emulation/`, `docs/`, the root
-`Makefile`, `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and
-`.github/`).
+The repository holds two distributions (ADR 0005), each a directory of its own
+at its root:
 
-The tree is three applications over one shared domain. The domain
+- **The toolkit**, in `query_processing/`: every line of code. Every path of this
+  section and of the tree below it is relative to that directory, except the use
+  case's and the repository's own entries at the end of the tree
+  (`query_processing_rag_usecase/`, `emulation/`, `docs/`, the root `Makefile`,
+  `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and `.github/`).
+  It ships no workflow file and no default that is a use case's model, prompt,
+  size, index or collection: its tests run on a fixture workflow file of made-up
+  models (`tests/helpers/fixture_workflow.yaml`).
+- **A use case**, `query_processing_rag_usecase/` for the RAG: settings only, no
+  Python code (its workflow file, deploy settings example, environment example,
+  a Makefile of run targets) and its own tests, which import only what the
+  toolkit installs. It depends on the toolkit; the toolkit never imports nor
+  names a use case. Its commands run in its directory, where they find
+  `workflow.yaml`, `deploy.yaml` and `.env`, and write what they write.
+
+The toolkit is three applications over one shared domain. The domain
 (`domain/`) is the language all three use: no I/O, no framework.
 
 | Application | What it is | Where it lives |
 | --- | --- | --- |
 | RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `infrastructure/`, `composition/`, `entrypoints/` |
 | deploy tool | what publishes the Apps of a Topology (`rag-deploy`) | one package, `deploy/` |
-| load-test client | what drives a target and compares runs (Locust, `rag-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, where Locust looks for it |
+| load-test client | what drives a target and compares runs (Locust, `rag-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, which a use case's Makefile hands to Locust (`-f`) |
 
 1. **Imports.** A package imports only what this table allows.
 
@@ -173,9 +190,14 @@ The tree is three applications over one shared domain. The domain
    model server answers on too.
 7. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
+8. **One way.** A use case depends on the toolkit, never the reverse: no file of
+   the toolkit's `src/` names a use case (`query_processing_<name>_usecase`),
+   in an import, a path or a default. What a use case needs that is code (a
+   stage type, a backend) is added to the toolkit, even when one use case alone
+   needs it; a use case adds files only.
 
-`tests/structure/test_layering.py` checks rule 1 for every package, and that
-`locustfile.py` imports only the `loadtest` package;
+`tests/structure/test_layering.py` checks rule 1 for every package, that
+`locustfile.py` imports only the `loadtest` package, and rule 8;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
 rule 4 (only component packages in `adapters/`, their layout with `api/` for
 both `served` and `api`, and no port implemented anywhere else) and rule 7. The fake Domino (`src/fake_domino/`) is a
@@ -184,8 +206,8 @@ test double, not part of the product, and the rule does not apply to it.
 ### The tree
 
 ```text
-query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (every make target runs here),
-                    vulture_whitelist.py, .env.example, deploy.example.yaml, results/ (load-test output, git-ignored)
+query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (its install, its gates, fake-domino),
+                    vulture_whitelist.py; no workflow file and no use case's file
   src/rag_load_test/
     __init__.py       package docstring, __version__
     domain/           no I/O, no framework; imports no other package
@@ -225,8 +247,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       rag_settings.py RagSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
       component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
-      workflow.yaml   the workflow file that ships with the code: the RAG's components and graph, used when no other is found
-      workflow_file.py  workflow_file (RAG_WORKFLOW_FILE, else ./workflow.yaml, else the packaged one), the settings source that reads it, declared_alias
+      workflow_file.py  workflow_file (RAG_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder
@@ -324,7 +345,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
       rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
     deploy/           the deploy tool: rag-deploy on Domino 6.2
-      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), RAG_DEPLOY_* overrides; Placement (local or served); override_values, each override by its path
+      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), RAG_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked); Placement (local or served); override_values, each override by its path
       workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
       overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
@@ -333,14 +354,14 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
         fastapi_kind.py  fastapi: rag-model-server, an embedder or a reranker on the /v3 routes
         ovms_kind.py  ovms: OpenVINO Model Server on its /v3 routes, from the OVMS bundle it refuses when missing
-      publish.py      the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
+      publish.py      where every App starts (LaunchPaths: the toolkit's launch script, found going up from the use case's directory, and that directory), the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
       app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
       status.py       rag-deploy status: one line per App, then the workflow App's /readyz
       rag_deploy.py   rag-deploy: the parser, url, --dry-run
       apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
     loadtest/         the load-test client, with locustfile.py
-      loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four values a model-server request carries (two sizes, two aliases), Domino auth
+      loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
@@ -355,28 +376,36 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
     server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
     emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
-  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
-  docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
-  ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
-  domino/             app.sh (one entry point: the workflow app or a model server, from RAG_ROLE), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
+  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a use case's Makefile runs it (locust -f) from the use case's directory
+  docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002), a use case's directory its project directory
+  ovms/               versions.env (single OVMS version pin), export_models.sh (into ovms/models of the working directory, a use case's)
+  domino/             app.sh (one entry point: the workflow app or a model server, from RAG_ROLE, run in the use case's directory, RAG_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
     structure/        the import, placement and code-shape rules, read from the source with ast
     fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
-    helpers/          named fakes, fixtures, and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
+    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models), and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
+query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: settings only, no code
+  pyproject.toml      the distribution (query-processing-rag-usecase), its one dependency the toolkit; packages = []
+  workflow.yaml       the RAG's workflow file: its components (models, endpoint, store) and its graph (stages, sizes, prompts)
+  deploy.example.yaml  its deploy settings example: the topology aliases, the Apps, this site's overrides (cp to deploy.yaml)
+  .env.example        its environment example, the load-test sizes of a rerank request included (cp to .env)
+  Makefile            its run targets (serve, ingest, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
+  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias
+  results/            load-test output (git-ignored), as data/, models/, ovms/models/ and chroma/ written here
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
 docs/adr/           the decisions
-Makefile            hands install, install-dev, check and each gate to query_processing/, with the one .venv here
+Makefile            installs both distributions in one command; hands check and each gate to query_processing/, then runs the use case's tests; the one .venv here
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
 ## Quickstart (monolith on a laptop)
 
 ```bash
-cd query_processing           # the toolkit: every make target below runs here
-make install-dev              # pip install -e ".[dev]" (locust, pytest, ruff, black, mypy)
+make install-dev              # at the root: the toolkit with locust, pytest, ruff, black, mypy, and the use case, in one pip command
+cd query_processing_rag_usecase   # the RAG use case: every make target below runs here
 cp .env.example .env          # set RAG_COMPONENTS__LLM__API__API_KEY, or RAG_COMPONENTS__LLM__BACKEND=fake to skip the LLM
 make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need `make ovms-export` first)
 make openvino-export          # once: convert both models to OpenVINO under models/openvino (2.7 GB of downloads, ~4.5 GB on disk)
@@ -388,9 +417,14 @@ The project runs on Python 3.11, named once in `.python-version` at the
 repository's root. The `make` targets use the one `.venv` at the repository's
 root when there is one, without activating it (`uv venv` there, which reads
 `.python-version`, or `python3.11 -m venv .venv`, before `make install-dev`);
-otherwise they use the commands on your `PATH`. `make install`, `make
-install-dev`, `make check` and each gate also run from the root, which hands
-them to `query_processing/`.
+otherwise they use the commands on your `PATH`. `make install` and `make
+install-dev` run from the root and install both distributions in one command,
+the toolkit first: no package index has the toolkit the use case depends on.
+`make check` and each gate run from the root too, which hands them to
+`query_processing/`; `make check` then runs the use case's tests. The run
+targets are the use case's, and run from its directory: a command run where it
+finds no `workflow.yaml` (and `RAG_WORKFLOW_FILE` unset) stops, saying where it
+looked.
 
 ```bash
 curl -s -X POST localhost:8888/query -H 'Content-Type: application/json' \
@@ -464,8 +498,9 @@ make compare                          # results/comparison.md
 ```
 
 `make loadtest` runs `locust --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME)`
-(defaults `USERS=20 SPAWN_RATE=5 RUN_TIME=2m`) with the `locustfile.py` of this
-directory and writes `results/<RUN_NAME>_stats.csv`, `_failures.csv` and
+(defaults `USERS=20 SPAWN_RATE=5 RUN_TIME=2m`) with the toolkit's `locustfile.py`
+(`locust -f ../query_processing/locustfile.py`), from the use case's directory, and
+writes there `results/<RUN_NAME>_stats.csv`, `_failures.csv` and
 `.html`. `HOST` is the service base URL without a trailing slash (on Domino: the
 App URL). Locust rewrites the stats file once a second and not again as it shuts
 down, so `locustfile.py` rewrites it once more when the run stops:
@@ -617,8 +652,9 @@ their own settings, its plain edges as chains, and its conditional edges in a
 block of their own, spelled with LangGraph's names (ADR 0004). A command finds
 it as `rag-deploy` finds `deploy.yaml`: the file `RAG_WORKFLOW_FILE` names (read
 from the environment, not from `.env`), else `workflow.yaml` in the working
-directory, else the one that ships with the code,
-`src/rag_load_test/config/workflow.yaml`, which is the RAG's:
+directory, a use case's; with neither, it stops, naming both places. The toolkit
+ships none and defaults none of a use case's models, prompts, sizes, index or
+collection. The RAG use case's, `query_processing_rag_usecase/workflow.yaml`:
 
 ```yaml
 components:
@@ -631,6 +667,7 @@ components:
   vector_store:
     backend: elasticsearch
     elasticsearch: {url: "http://localhost:9200", index: rag_passages}
+    chroma: {collection: rag_passages}
 graph:
   stages:
     embed:    {call: embedder}
@@ -652,7 +689,7 @@ coarse`. The vector store is a component like the models: its backend is named
 after its product, `elasticsearch` or `chroma`, or is `fake`, each with its
 block, and `rag-ingest` fills the one the file declares.
 
-| Component type | Key | In the packaged file | Meaning |
+| Component type | Key | In the RAG's file | Meaning |
 | --- | --- | --- | --- |
 | every type | `backend` | `local`, `local`, `api`, `elasticsearch` | how it runs, one of the openers registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. Nothing else decides it: `rag-deploy` sets it for each component the topology alias names, and on a laptop you set it |
 | every type | `type` | not written: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` |
@@ -675,11 +712,11 @@ block, and `rag-ingest` fills the one the file declares.
 | every model | `http.retries` | not written: the top-level `http.retries` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries the Domino run token; any other 4xx fails at once |
 | every model | `http.backoff_s` | not written: the top-level `http.backoff_s` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
 | `vector_store` | `elasticsearch.url` | `http://localhost:9200` | the cluster; `http://user:password@host:9200` for basic auth |
-| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages |
+| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages; required on `elasticsearch`: no default, start-up refuses an empty one |
 | `vector_store` | `elasticsearch.api_key` | never written | from the environment only (`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`): an Elasticsearch API key, the alternative to basic auth; empty = none |
 | `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
-| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`, `rag_passages` | the folder of the embedded Chroma store, and the collection holding the passages |
+| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the passages; the collection is required on `chroma`: no default |
 | `vector_store` | `fake.seed_documents` | not written: `200` | synthetic documents seeded into the `fake` store when it opens (>= 1) |
 
 A key the type does not have, a block of a backend it does not have included
@@ -702,7 +739,7 @@ RAG_HTTP__RETRIES=0 make serve   # no retry for every component that sets none
 ```
 
 What several components share is four more top-level blocks of the file, each
-named after what it is about. The packaged file writes none of them, so each
+named after what it is about. The RAG's file writes none of them, so each
 value is the default below; a workflow file may write any of them, and a
 variable named by its path wins over the file:
 
@@ -721,7 +758,7 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 | `local_models` | `cpus` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
 | `calibration` | `budget_s` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
 | `calibration` | `rounds` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
-| `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the packaged LLM sets `120`); also the timeout of the hardware-tier lookup |
+| `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the RAG's LLM sets `120`); also the timeout of the hardware-tier lookup |
 | `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
 | `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
 | `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `rag-serve --domino`, and for an `api` key set to `domino` |
@@ -732,7 +769,7 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 RAG_LOCAL_MODELS__RUNTIME=torch RAG_LOCAL_MODELS__CPUS=4 make serve
 ```
 
-| Stage | Setting | In the packaged file | Meaning |
+| Stage | Setting | In the RAG's file | Meaning |
 | --- | --- | --- | --- |
 | every stage | `call` | | the component it calls: `embedder`, `vector_store`, `reranker` or `llm` |
 | every stage | `type` | not written: the stage's name | the stage type it is an instance of |
@@ -781,7 +818,7 @@ graph:
     - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
 ```
 
-`RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the packaged file
+`RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the RAG's file
 is accepted too, but its embed stage then embeds every question for nothing.
 
 ### What start-up refuses in a graph
@@ -825,14 +862,14 @@ before the app serves, with one line in the server's log.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RAG_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `rag-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
-| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+reranker=local+llm=api+vector_store=elasticsearch` for the packaged file); `rag-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `rag-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
-| `RAG_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory and the packaged one (environment only, not `.env`) |
+| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+reranker=local+llm=api+vector_store=elasticsearch` for the RAG's file); `rag-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `rag-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
+| `RAG_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory (environment only, not `.env`); with neither, a command stops, naming both places |
 | `RAG_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `RAG_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_COMPONENTS__LLM__API__API_KEY` or `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `RAG_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `RAG_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
 | `RAG_LOCAL_MODELS__...`, `RAG_CALIBRATION__...`, `RAG_HTTP__...`, `RAG_DOMINO__...` | from the workflow file, else the defaults | one value of a block the components share, named by its path, such as `RAG_LOCAL_MODELS__CPUS` or `RAG_DOMINO__TRACING` (see the shared blocks above) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | Domino's own run variables, not settings of ours: read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
-| `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | `20`, `10` | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the defaults are the packaged workflow file's sizes, and the workflow app no longer reads either |
+| `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | none: required by the `rerank` target | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the use case's sizes, which its `.env.example` states (the RAG's: `20`, `10`, its stages' `top_k`), and the workflow app does not read either. The aliases a model-server target sends default to the workflow file's, which only that target reads |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
 | `RAG_LOADTEST_WAIT_MIN_S`, `RAG_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
@@ -891,7 +928,7 @@ any more by the workflow app:
 | `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | the components' aliases (`RAG_COMPONENTS__EMBEDDER__ALIAS`, `RAG_COMPONENTS__RERANKER__ALIAS`), the model name a `served` component sends |
 | `RAG_OVMS_AUTH` (one for both) | none: a `served` component is called with the run token under `rag-serve --domino` and with no key elsewhere |
 | a model server of ours on the `api` backend: `RAG_COMPONENTS__EMBEDDER__API__URL`, `RAG_COMPONENTS__RERANKER__API__URL`, their key defaulted to `domino` by `rag-serve --domino` | the `served` backend: `RAG_COMPONENTS__EMBEDDER__SERVED__URL`, `RAG_COMPONENTS__RERANKER__SERVED__URL`; `api` is an endpoint we do not run, and `--domino` no longer changes its key |
-| the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each the top-level `http` block's when not written; the LLM's `120` is written in the packaged workflow file, and a workflow file that gives its LLM none calls it with `RAG_HTTP__TIMEOUT_S` |
+| the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each the top-level `http` block's when not written; the LLM's `120` is written in the RAG's workflow file, and a workflow file that gives its LLM none calls it with `RAG_HTTP__TIMEOUT_S` |
 | `RAG_LLM_BACKEND` (`openai` \| `fake`) | `RAG_COMPONENTS__LLM__BACKEND` (`api` \| `fake`) |
 | `RAG_VECTOR_STORE_BACKEND` | the vector store component's `backend` (`RAG_COMPONENTS__VECTOR_STORE__BACKEND`) |
 | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
@@ -1037,8 +1074,8 @@ are refused at start-up.
 | `chroma` | cosine, HNSW | refused at start-up |
 | `fake` | brute-force cosine | a stand-in: passages ranked by how many distinct words they share with the question |
 
-**Chroma** (`RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma`, `pip install -e ".[chroma]"`).
-Embedded by default: a folder (its `chroma.path`), no server to run, filled by
+**Chroma** (`RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma`, the toolkit's `[chroma]` extra).
+Embedded by default: a folder (its `chroma.path`, in the use case's directory), no server to run, filled by
 `make ingest` like any store. Its `chroma.url` points at a Chroma server instead.
 Chroma serves dense retrieval only. Open-source Chroma filters text by substring
 but does not rank it (its ranked Search API is Chroma Cloud only), so a
@@ -1224,11 +1261,14 @@ rerankers of the workflow file, whatever their names (here `reranker`,
 `snowflake-arctic-embed-l-v2.0`: each alias is the source id's last part).
 `rag-served-models` prints them, `RAG_*` overrides included, one line of
 shell-quoted words each (name, type, source id, alias) for `export_models.sh`;
-the `rag` Domino image reads the source ids from the installed package.
+the `rag` Domino image reads the source ids from the use case's workflow file,
+which it copies beside the use case it installs.
 
-**Export** (`make ovms-export` = `./ovms/export_models.sh [MODELS_DIR]`, default
-`ovms/models`; run `make install` first so `rag-served-models` is on `PATH`, or
-the script stops and says so): takes the served models from `rag-served-models`,
+**Export** (`make ovms-export` in the use case's directory = the toolkit's
+`ovms/export_models.sh [MODELS_DIR]`, default `ovms/models` in the working
+directory, the use case's, whose workflow file `rag-served-models` reads; run
+`make install` at the root first so `rag-served-models` is on `PATH`, or the
+script stops and says so): takes the served models from `rag-served-models`,
 downloads `export_model.py` and its `requirements.txt` from the OVMS repository at tag `v${OVMS_VERSION}` into `<MODELS_DIR>/.export/` (cached),
 `pip install`s them into `$PYTHON` (set `PYTHON=/path/to/venv/bin/python` for a
 separate environment, which it needs: the exporter pins its own
@@ -1243,8 +1283,8 @@ model directories relatively, so the tree can be mounted anywhere.
 (`domino/model_servers/ovms.sh`) that finds its component's
 `config_<component>.json` missing under
 `RAG_OVMS_MODELS_DIR` runs `export_models.sh` itself, once, before serving: it
-needs `uv`, installs this project into `$HOME/rag-venv` when `rag-served-models`
-is not on `PATH`, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
+needs `uv`, installs the toolkit and the use case into `$HOME/rag-venv` when
+`rag-served-models` is not on `PATH`, runs in the use case's directory, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
 prebuilt `ovms` image has no `uv`, so there the models still have to be mounted.
 This path has not been run for real.
 
@@ -1290,9 +1330,12 @@ image (it pre-downloads the source ids) and refill the models Dataset.
 
 ## Deploying on Domino 6.2
 
-Every app is published with the same entry point, `domino/app.sh`,
-which `cd`s into the toolkit's directory (`query_processing/`), reads its role
-from `RAG_ROLE` and listens on `0.0.0.0:8888` (a Domino requirement). Only environment variables differ between
+Every app is published with the same entry point, the toolkit's `domino/app.sh`,
+which installs the toolkit and the use case (`RAG_BOOTSTRAP=1`), then runs its
+role's command in the use case's directory (`RAG_USE_CASE_DIR`, the directory
+`rag-deploy` ran from), where that command finds the use case's workflow file,
+reads its role from `RAG_ROLE` and listens on `0.0.0.0:8888` (a Domino
+requirement). Only environment variables differ between
 topologies, so the Locust numbers stay comparable.
 
 An App has one of two roles: the workflow app (`RAG_ROLE=workflow`, the
@@ -1352,9 +1395,9 @@ the `rag` environment.
 it can and exiting with a clear message when it cannot. Create a Dataset named
 `ovms-models` (Data → Datasets; git-based projects mount it at
 `/mnt/data/ovms-models`, DFS projects at `/domino/datasets/local/ovms-models`, so
-set `RAG_OVMS_MODELS_DIR` there) and fill it from a Workspace with
-`./ovms/export_models.sh /mnt/data/ovms-models`, or upload the contents of a
-local `ovms/models/`. Apps inherit the project's Dataset mounts.
+set `RAG_OVMS_MODELS_DIR` there) and fill it from a Workspace, in the use case's
+directory, with `../query_processing/ovms/export_models.sh /mnt/data/ovms-models`,
+or upload the contents of a local `ovms/models/` (the use case's). Apps inherit the project's Dataset mounts.
 
 **Elasticsearch and corpus.** Put `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (and `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) of a cluster the
 apps can reach in Project → Settings → Environment variables, then run `make ingest` once from a Workspace.
@@ -1445,8 +1488,9 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 
 ### Deploy on Domino in a few commands
 
-From the toolkit's directory (for example `/repos/<project>/query_processing`) in a
-Workspace of the one project that hosts all the Apps:
+From the use case's directory (for example
+`/repos/<project>/query_processing_rag_usecase`) in a Workspace of the one project
+that hosts all the Apps:
 
 ```bash
 cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, each App's server
@@ -1466,10 +1510,12 @@ the package index and the Hugging Face Hub. An environment without Python 3.11
 also needs access to GitHub, where `uv` downloads it from. For an App served by `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
 `bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
 example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
-root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
-the directory `rag-deploy` runs from, so run it from the toolkit's directory,
-`query_processing/` (the Apps mount the repository at the same path); elsewhere it
-refuses to publish.
+root or `sudo` for `apt-get`. Run `rag-deploy` from the use case's directory: it
+finds the toolkit's launch script going up from there (the first directory that
+holds `query_processing/domino/app.sh`, refusing to publish when there is none),
+and every App runs that script by its absolute path and its role's command in
+that directory (`RAG_USE_CASE_DIR`, one of `rag-deploy`'s own exports), the Apps
+mounting the repository at the same path as the Workspace.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
@@ -1568,7 +1614,7 @@ topology_alias:
 
 No alias is defined in code: a `deploy.yaml` without the table deploys nothing.
 `rag-deploy` reads the workflow file the workflow App reads (`RAG_WORKFLOW_FILE`
-in its settings, else the one `rag-serve` finds from the toolkit's directory) for
+in its settings, else the one `rag-serve` finds in the use case's directory) for
 the components' names and types. It publishes one model server App per served
 component, in the workflow file's order, then the workflow App, whose launch
 script gets `RAG_COMPONENTS__<COMPONENT>__BACKEND` for every component the row
@@ -1665,9 +1711,10 @@ deploy-reranker` alone, `rag-deploy` reminds you that the workflow App
 deploy-workflow`. Every model server call in a split topology goes through
 Domino's proxy: it is part of what the split topologies measure on Domino.
 
-One-time prerequisites that stay manual: install the package in the Workspace
-(`make install-dev`, or `uv pip install -e ".[loadtest]"`), `make ingest`, and for
-`ovms` the exported models.
+One-time prerequisites that stay manual: install the toolkit and the use case in
+the Workspace (`make install-dev` at the root, or `uv pip install -e
+"./query_processing[loadtest]" -e ./query_processing_rag_usecase`, both in one
+command), `make ingest`, and for `ovms` the exported models.
 
 #### Try the deploy without Domino
 
@@ -1767,6 +1814,7 @@ instance. Replace the placeholders once; the code itself does not change.
 | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY` | project environment variables, every project |
 | `RAG_COMPONENTS__LLM__API__API_KEY` (and `RAG_COMPONENTS__LLM__API__URL` for a gateway), or `RAG_COMPONENTS__LLM__BACKEND=fake` | project environment variables of the monolith and workflow projects |
 | `RAG_ROLE`, and a model server's `RAG_MODEL_SERVER_COMPONENT` and `RAG_MODEL_SERVER_KIND` | project environment variables, one set per project (see step 2) |
+| `RAG_USE_CASE_DIR` | project environment variables, every project: the use case's directory as the Apps see the repository, e.g. `/mnt/code/query_processing_rag_usecase`, where `domino/app.sh` runs the role's command (`rag-deploy` sets it itself) |
 | `RAG_COMPONENTS__RERANKER__SERVED__URL`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` | workflow project, set after step 5 publishes the model apps |
 | `RAG_OVMS_MODELS_DIR` | OVMS projects, only when the Dataset is not mounted at `/mnt/data/ovms-models` |
 | `RAG_OVMS_PREFIX_PROXY=1` | OVMS projects, only if step 6 returns `404` |
@@ -1807,7 +1855,8 @@ Skip the rows you do not test. Keep `RAG_DOMINO__TRACING` identical across proje
 create a Dataset `ovms-models`, open a Workspace with the `rag` environment and run:
 
 ```bash
-./ovms/export_models.sh /mnt/data/ovms-models      # needs HF Hub access; ~10 min on CPU
+cd query_processing_rag_usecase                     # the use case's directory, where its workflow file is
+../query_processing/ovms/export_models.sh /mnt/data/ovms-models   # needs HF Hub access; ~10 min on CPU
 ls /mnt/data/ovms-models                            # config_reranker.json, config_embedder.json, model folders
 ```
 
@@ -1816,7 +1865,8 @@ project). DFS projects mount it at `/domino/datasets/local/ovms-models`: set
 `RAG_OVMS_MODELS_DIR` there. The FastAPI projects need no Dataset.
 
 **4. Index the corpus (once per Elasticsearch cluster).** From a Workspace in
-`rag-monolith` (`rag` environment, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` set):
+`rag-monolith` (`rag` environment, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` set),
+in the use case's directory (`query_processing_rag_usecase/`):
 
 ```bash
 make ingest                                         # 200 synthetic documents, local embedder
@@ -1824,9 +1874,9 @@ curl -s "$RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL/rag_passages/_count" 
 ```
 
 Every app reads this one index; the serving embedder must be the one used here
-(the embedder's `source_id`, `Snowflake/snowflake-arctic-embed-l-v2.0` in the packaged workflow file, both locally and on OVMS).
+(the embedder's `source_id`, `Snowflake/snowflake-arctic-embed-l-v2.0` in the RAG's workflow file, both locally and on OVMS).
 
-**5. Publish the apps (Apps → Publish, entry point `domino/app.sh`).**
+**5. Publish the apps (Apps → Publish, entry point `query_processing/domino/app.sh`).**
 Order matters for the split topologies:
 
 1. model apps first: `rag-ovms-reranker`, `rag-ovms-embedder` (and/or the two
@@ -1858,7 +1908,7 @@ A `404` on the first call means Domino forwards the path prefix to OVMS: set
 (see "Proxy prefix" above); the FastAPI apps need nothing. `/readyz` lists which
 dependency is missing when it answers `503`.
 
-**7. Load test (Workspace in `rag-monolith`, `rag` environment).** The run token
+**7. Load test (Workspace in `rag-monolith`, `rag` environment, from the use case's directory).** The run token
 expires after about 5 minutes, so export it right before each run:
 
 ```bash
@@ -1896,14 +1946,18 @@ Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
 ## Development
 
 ```bash
-make check         # every gate below, in order, stopping at the first failure
+make check         # every gate below, in order, stopping at the first failure, then the use case's tests
 make test          # pytest: fakes + httpx.MockTransport only; no weights, no network, no Elasticsearch
 make format        # ruff --fix + black
 ```
 
 These run from the repository's root, whose `Makefile` hands them to
-`query_processing/`'s, or from `query_processing/` itself, with the same result
-(`make -C query_processing check`).
+`query_processing/`'s, or from `query_processing/` itself, over the toolkit alone
+(`make -C query_processing check`). At the root, `make check` then runs the RAG
+use case's own tests, from `query_processing_rag_usecase/`, linted with ruff and
+black under the toolkit's configuration: its workflow file answers through the
+workflow app's HTTP API, and a dry run of each topology alias of its
+`deploy.example.yaml` publishes the expected Apps on the fake Domino.
 `make check` is the project's quality gate, and the GitHub Actions workflow
 `.github/workflows/checks.yml` runs the same command on every pull request and on
 every push to `main`. The verdict is deterministic: every gate tool is pinned to an

@@ -17,8 +17,8 @@ from rag_load_test.deploy.deploy_settings import (
     DeploySettings,
     refuse_placeholders,
     refuse_secrets,
+    require_deploy_file,
 )
-from repo_paths import TOOLKIT_ROOT
 
 
 @pytest.fixture
@@ -423,46 +423,40 @@ def test_only_a_name_ending_with_api_key_is_a_secret(deploy_file: Path) -> None:
 
 # --- the project id ---
 
-EXAMPLE_YAML = TOOLKIT_ROOT / "deploy.example.yaml"
 
-
-def test_the_example_file_copied_as_is_takes_the_project_from_the_workspace(
+def test_an_empty_project_id_takes_the_project_from_the_workspace(
     deploy_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The example has `project_id: ""`: empty means "not set".
-    deploy_file.write_text(EXAMPLE_YAML.read_text())
+    # A use case's example has `project_id: ""`: empty means "not set".
+    deploy_file.write_text('project_id: ""\n')
     monkeypatch.setenv("DOMINO_PROJECT_ID", "proj-of-the-workspace")
-    settings = DeploySettings()
-    assert settings.project_id == "proj-of-the-workspace"
-    refuse_secrets(settings)  # the example holds no secret
+    assert DeploySettings().project_id == "proj-of-the-workspace"
 
 
-def test_the_example_file_copied_as_is_stops_on_its_first_placeholder(
-    deploy_file: Path,
-) -> None:
-    deploy_file.write_text(EXAMPLE_YAML.read_text())
+# --- where the deploy settings are found ---
+
+
+def test_the_deploy_file_a_variable_names_must_exist(deploy_file: Path) -> None:
     with pytest.raises(DominoDeployError) as caught:
-        refuse_placeholders(DeploySettings(), ["embedder", "reranker", "workflow"])
-    message = placeholder_message(
-        "environment_id", "defaults", "<environment id>", deploy_file
+        require_deploy_file()
+    assert str(caught.value) == (
+        f"RAG_DEPLOY_FILE names {str(deploy_file)!r}, which is no file: point it "
+        "at the deploy settings, or unset it to read deploy.yaml here"
     )
-    assert str(caught.value) == message
+    deploy_file.write_text("topology: monolith\n")
+    require_deploy_file()
 
 
-def test_the_example_file_writes_the_store_and_the_model_paths_as_overrides(
-    deploy_file: Path,
+def test_without_a_variable_the_deploy_file_is_the_working_directorys(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    deploy_file.write_text(EXAMPLE_YAML.read_text())
-    settings = DeploySettings()
-    # Once, in the workflow file's shape, for every App; no free list holds them.
-    components = settings.overrides["components"]
-    assert set(components) == {"vector_store", "embedder", "reranker"}
-    assert components["vector_store"]["elasticsearch"]["url"].startswith("https://")
-    assert "source_id" in components["embedder"]
-    assert "source_id" in components["reranker"]
-    for part in ("embedder", "reranker", "workflow"):
-        assert settings.for_app(part).settings == {}
-    assert settings.for_app("workflow").kind == "agent"
+    monkeypatch.delenv("RAG_DEPLOY_FILE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DominoDeployError, match="no deploy settings: ") as caught:
+        require_deploy_file()
+    assert f"the working directory {tmp_path} has no deploy.yaml" in str(caught.value)
+    (tmp_path / "deploy.yaml").write_text("topology: monolith\n")
+    require_deploy_file()
 
 
 def test_an_explicit_project_id_wins_over_the_workspace(

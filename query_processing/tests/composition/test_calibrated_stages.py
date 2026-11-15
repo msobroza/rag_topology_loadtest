@@ -37,7 +37,7 @@ from sentence_transformers_fakes import FakeSentenceTransformersModule
 
 SettingsFactory = Callable[..., RagSettings]
 TORCH_MODEL = LocalModel("org/name", "org/name", "torch")
-RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+RERANKER = "fixture-org/fixture-reranker"
 
 
 @pytest.fixture

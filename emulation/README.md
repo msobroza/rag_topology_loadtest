@@ -116,8 +116,10 @@ on `PATH`, and with
 `DOMINO_API_PROXY=http://localhost:8899`, `DOMINO_PROJECT_ID` and
 `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
 set, as a Domino Workspace would have them (the Project environment variables are
-exported too). The toolkit's commands run in `query_processing/`, and the targets
-below run them there. `query_processing/deploy.yaml` is already written for this
+exported too). The emulation deploys the RAG use case: its commands run in
+`query_processing_rag_usecase/`, where they find its workflow file, and the targets
+below run them there. Both the toolkit and the use case are installed in the
+`.venv`. `query_processing_rag_usecase/deploy.yaml` is already written for this
 emulation, the Elasticsearch URL and the OpenVINO folder under its `overrides`;
 edit it as on
 Domino (topology, per-App blocks, each model server App's `server`, the
@@ -143,8 +145,8 @@ make -C emulation status               # each App's status and URL, then the wor
 make -C emulation loadtest RUN_NAME=split-all             # through the emulated Domino's proxy
 make -C emulation app-machines                            # which pool machine runs the workflow
 make -C emulation loadtest-direct APP_HOST=<address> RUN_NAME=split-all-direct   # bypassing the proxy
-make -C query_processing compare
-make -C emulation results-save         # query_processing/results/ as one archive in the bucket; prints its gs:// URL
+make -C query_processing_rag_usecase compare
+make -C emulation results-save         # query_processing_rag_usecase/results/ as one archive in the bucket; prints its gs:// URL
 make -C emulation cache-status         # the bucket's objects, then the index snapshots
 ```
 
@@ -188,7 +190,7 @@ for every method and sub-path, and forwards the request to a real app on your
 machine when `--upstream` names one for that App:
 
 ```bash
-cd query_processing                                  # the toolkit's directory
+cd query_processing_rag_usecase                      # the use case's directory
 make model-server SERVE=reranker PORT=8011           # a real model server
 rag-domino-emulation --upstream rag-reranker=http://localhost:8011
 DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make deploy-reranker
@@ -336,7 +338,7 @@ the machines as to be created again: `make -C emulation plan apply` brings back
 fresh machines with fresh disks, so the Workspace's results and `deploy.yaml` edits
 are gone, and the Apps must be deployed again. The index and the models come back
 from the cache bucket (`corpus-restore`; the models at boot) if they were saved.
-Save `query_processing/results/` before the deadline (`make -C emulation results-save`).
+Save `query_processing_rag_usecase/results/` before the deadline (`make -C emulation results-save`).
 `destroy` works at any time, with or without the machines.
 
 A startup script runs at every boot. A pool machine re-created alone gets a new

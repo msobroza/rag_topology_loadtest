@@ -2,7 +2,9 @@
 # The Elasticsearch index as a snapshot in the cache bucket, through Elasticsearch's
 # own snapshot API and its built-in `gcs` repository type (emulation/README.md, "The
 # cache bucket"). No credential is configured: on Compute Engine the repository uses
-# the Elasticsearch machine's service account. Run from the Workspace's clone:
+# the Elasticsearch machine's service account. Run in the Workspace's clone, from
+# the use case's directory (make -C emulation corpus-save), where rag-served-models
+# finds the use case's workflow file:
 #   index_snapshot.sh save <prefix>      snapshot the index as <prefix>-<embedder>
 #   index_snapshot.sh restore <prefix>   replace the index with that snapshot
 #   index_snapshot.sh list               each snapshot's name, state, end time and metadata

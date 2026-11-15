@@ -10,11 +10,17 @@
 #                 one more script there, and this dispatch does not change.
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
 #
+# RAG_USE_CASE_DIR (set by rag-deploy: the directory it ran from) is the use
+# case's directory: the role's command runs there, where it finds the use case's
+# workflow file, for the workflow app and for a model server of any kind alike.
+# Unset, the command runs in the directory app.sh was started in.
+#
 # RAG_BOOTSTRAP=1 (set by rag-deploy) first installs what the App needs, for a
-# generic environment with only uv: the workflow app uv-installs this project into
-# a virtualenv under $HOME, with the extras named by RAG_BOOTSTRAP_EXTRAS (e.g.
-# "domino") when set; a model server runs its kind's bootstrap. Unset, nothing is
-# installed: the prebuilt `rag` / `ovms` images already have it all.
+# generic environment with only uv: the workflow app uv-installs the toolkit, with
+# the extras named by RAG_BOOTSTRAP_EXTRAS (e.g. "domino") when set, and the use
+# case of RAG_USE_CASE_DIR, in one command, into a virtualenv under $HOME; a
+# model server runs its kind's bootstrap. Unset, nothing is installed: the
+# prebuilt `rag` / `ovms` images already have it all.
 #
 # The workflow app reads everything else from its own variables: each component's
 # backend and served URL, and RAG_TOPOLOGY_ALIAS, only a label (rag-deploy sets
@@ -24,40 +30,60 @@
 # (RAG_LOCAL_MODELS__RUNTIME=openvino).
 set -euo pipefail
 
-# The toolkit's directory, query_processing/ in the repository: what is installed,
-# and where every relative path below starts. The project's .python-version is
-# one level up, at the repository's root.
-cd "$(dirname "$0")/.."
+# The toolkit's directory, query_processing/ in the repository: what is installed
+# with the use case, and where every path of the toolkit's own below starts,
+# absolute, since the role's command runs in the use case's directory. The
+# project's .python-version is one level up, at the repository's root.
+TOOLKIT=$(cd "$(dirname "$0")/.." && pwd)
+PYTHON_VERSION_FILE=$TOOLKIT/../.python-version
 
 ROLE=${RAG_ROLE:-workflow}
-WHO=$ROLE                          # what die names: the role, or the kind and component
-MODEL_SERVERS=domino/model_servers # one launch script per model-server kind
+WHO=$ROLE                                   # what die names: the role, or the kind and component
+MODEL_SERVERS=$TOOLKIT/domino/model_servers # one launch script per model-server kind
 
 die() {
   echo "app.sh[$WHO]: $*" >&2
   exit 1
 }
 
-# install_project <venv> <project>: uv-install this project, then put it on PATH.
+# install_project <venv> <requirement>...: uv-install the requirements in one
+# command, then put the venv on PATH.
 install_project() {
+  local venv=$1
+  shift
   # Its own virtualenv, on the project's Python (.python-version), which uv
   # fetches when the environment lacks it: the environment's own packages
   # (an old urllib3 in Domino's standard image) break ours.
-  uv venv "$1" --python "$(cat ../.python-version)"
-  uv pip install --python "$1/bin/python" "$2"
-  export PATH="$1/bin:$PATH"
+  uv venv "$venv" --python "$(cat "$PYTHON_VERSION_FILE")"
+  uv pip install --python "$venv/bin/python" "$@"
+  export PATH="$venv/bin:$PATH"
 }
 
-# install_this_project: this project into $HOME/rag-venv, with the extras an
-# Agent asks for: its launch script sets RAG_BOOTSTRAP_EXTRAS=domino (tracing).
+# install_this_project: the toolkit, with the extras an Agent asks for (its
+# launch script sets RAG_BOOTSTRAP_EXTRAS=domino, for tracing), then the use case
+# of RAG_USE_CASE_DIR when there is one, into $HOME/rag-venv in one command: the
+# use case depends on the toolkit, which no package index has.
 install_this_project() {
-  local project=.
-  if [ -n "${RAG_BOOTSTRAP_EXTRAS:-}" ]; then project=".[$RAG_BOOTSTRAP_EXTRAS]"; fi
-  install_project "$HOME/rag-venv" "$project"
+  local toolkit=$TOOLKIT
+  if [ -n "${RAG_BOOTSTRAP_EXTRAS:-}" ]; then toolkit="${TOOLKIT}[$RAG_BOOTSTRAP_EXTRAS]"; fi
+  if [ -n "${RAG_USE_CASE_DIR:-}" ]; then
+    install_project "$HOME/rag-venv" "$toolkit" "$RAG_USE_CASE_DIR"
+  else
+    install_project "$HOME/rag-venv" "$toolkit"
+  fi
+}
+
+# enter_use_case: the use case's directory, where the role's command finds the
+# use case's files; without RAG_USE_CASE_DIR, the directory app.sh started in.
+enter_use_case() {
+  [ -n "${RAG_USE_CASE_DIR:-}" ] || return 0
+  cd "$RAG_USE_CASE_DIR" 2>/dev/null \
+    || die "RAG_USE_CASE_DIR='$RAG_USE_CASE_DIR' is no directory; expected the use case's directory, as rag-deploy sets it"
 }
 
 serve_workflow_app() {
   if [ "${RAG_BOOTSTRAP:-}" = 1 ]; then install_this_project; fi
+  enter_use_case
   exec rag-serve --host 0.0.0.0 --port 8888 --domino
 }
 
@@ -83,10 +109,11 @@ serve_model() {
     "" | *[!a-z0-9_-]*) die "RAG_MODEL_SERVER_KIND='$kind' is no model-server kind; expected one of: $(known_kinds)" ;;
   esac
   [ -f "$MODEL_SERVERS/$kind.sh" ] \
-    || die "RAG_MODEL_SERVER_KIND='$kind' has no launch script $MODEL_SERVERS/$kind.sh; expected one of: $(known_kinds)"
+    || die "RAG_MODEL_SERVER_KIND='$kind' has no launch script domino/model_servers/$kind.sh; expected one of: $(known_kinds)"
   # shellcheck source=/dev/null  # one of domino/model_servers/*.sh
   . "$MODEL_SERVERS/$kind.sh"
   if [ "${RAG_BOOTSTRAP:-}" = 1 ]; then bootstrap_model_server; fi
+  enter_use_case
   serve_model_server "$component"
 }
 

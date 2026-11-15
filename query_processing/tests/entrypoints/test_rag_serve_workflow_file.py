@@ -1,10 +1,11 @@
 """The workflow app runs the graph of its workflow file, seen through its HTTP API.
 
 The app is started from all-fake settings, its reranker a recording double that
-keeps retrieval order, so a test reads the sizes each stage was given. With no
-workflow file of its own the app runs the one that ships with the code; a
-``workflow.yaml`` in the working directory, or the file ``RAG_WORKFLOW_FILE``
-names, replaces it; a variable named by a value's path overrides that value.
+keeps retrieval order, so a test reads the sizes each stage was given. The app
+runs the file ``RAG_WORKFLOW_FILE`` names, else ``workflow.yaml`` in the working
+directory, the use case's; with neither it does not start, saying where it
+looked (test_no_workflow_file_at_start_up.py): no workflow file ships with the
+code. A variable named by a value's path overrides that value.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from rag_components import FAKE_BACKENDS
-from rag_graphs import packaged_graph, write_workflow_file
+from rag_graphs import fixture_graph, write_workflow_file
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
@@ -58,8 +59,8 @@ def ask(settings: RagSettings, path: str = "/retrieve", **ports: Any) -> dict[st
 
 
 def stage_changed(stage: str, **settings: object) -> dict[str, Any]:
-    """The packaged graph with one stage's settings changed."""
-    graph = packaged_graph()
+    """The fixture's graph with one stage's settings changed."""
+    graph = fixture_graph()
     graph["stages"][stage].update(settings)
     return graph
 
@@ -75,11 +76,11 @@ def no_named_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 # --- where the file comes from ----------------------------------------------------
 
 
-def test_with_no_workflow_file_of_its_own_the_app_runs_todays_graph(
-    settings_factory: SettingsFactory, no_named_file: Path
+def test_the_app_runs_the_graph_of_the_file_it_is_given(
+    settings_factory: SettingsFactory,
 ) -> None:
     embedder, reranker = RecordingEmbedder(), RecordingReranker()
-    settings = settings_factory(**FAKE_BACKENDS)
+    settings = settings_factory(**FAKE_BACKENDS)  # the tests' file (conftest)
 
     body = ask(settings, "/query", embedder=embedder, reranker=reranker)
 
@@ -87,7 +88,7 @@ def test_with_no_workflow_file_of_its_own_the_app_runs_todays_graph(
     assert embedder.queries == [QUESTION]  # embed, then a dense retrieval
     assert reranker.calls == [(QUESTION, 20, 10)]
     assert len(body["passages"]) == 10
-    # FakeLLM echoes the user message: the packaged user prompt, filled.
+    # FakeLLM echoes the user message: the file's user prompt, filled.
     assert body["answer"].startswith("[fake-llm] Context:\n[1] ")
 
 
@@ -141,7 +142,7 @@ def test_a_variable_naming_a_missing_file_fails_naming_it(
 def test_a_stage_named_otherwise_is_an_instance_of_the_type_it_names(
     settings_factory: SettingsFactory, no_named_file: Path
 ) -> None:
-    graph = packaged_graph()
+    graph = fixture_graph()
     graph["stages"]["keep_best"] = {"type": "rerank", "call": "reranker", "top_k": 4}
     del graph["stages"]["rerank"]
     graph["edges"][0] = ["START", "embed", "retrieve", "keep_best"]
@@ -158,7 +159,7 @@ def test_a_stage_named_otherwise_is_an_instance_of_the_type_it_names(
 def test_a_stage_that_names_no_component_is_refused_at_start_up(
     settings_factory: SettingsFactory, no_named_file: Path
 ) -> None:
-    graph = packaged_graph()
+    graph = fixture_graph()
     del graph["stages"]["rerank"]["call"]
     write_workflow_file(no_named_file / "workflow.yaml", graph)
 
@@ -268,7 +269,7 @@ def test_a_rerank_size_above_the_retrieve_size_is_no_longer_refused(
 def test_lexical_retrieval_is_a_workflow_file_with_no_embed_stage(
     settings_factory: SettingsFactory, no_named_file: Path
 ) -> None:
-    # The packaged components: ingestion still embeds the passages.
+    # The fixture's components: ingestion still embeds the passages.
     lexical_graph = yaml.safe_load(LEXICAL_WORKFLOW)["graph"]
     write_workflow_file(no_named_file / "workflow.yaml", lexical_graph)
     store, embedder = ScriptedStore(["a"], ["z", "y"]), RecordingEmbedder()
@@ -291,7 +292,7 @@ def test_a_lexical_retrieve_stage_after_an_embed_stage_runs_it_for_nothing(
     ask(settings_factory(**FAKE_BACKENDS), vector_store=store, embedder=embedder)
 
     assert store.calls == [("lexical", QUESTION, 20)]
-    assert embedder.queries == [QUESTION]  # the packaged graph still embeds
+    assert embedder.queries == [QUESTION]  # the fixture's graph still embeds
 
 
 @pytest.mark.parametrize(

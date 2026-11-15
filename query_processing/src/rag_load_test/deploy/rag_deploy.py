@@ -32,9 +32,9 @@ from fake_domino.state import FakeDominoApps
 
 from .app_id_cache import APP_ID_CACHE_FILE, AppIdCache
 from .apps_client import DominoAppsClient, DominoDeployError
-from .deploy_settings import DeploySettings, deploy_file
+from .deploy_settings import DeploySettings, deploy_file, require_deploy_file
 from .endpoint_url import endpoint_url
-from .publish import CONFIGURATION_TYPES, deploy, launch_script_in, require_app
+from .publish import CONFIGURATION_TYPES, deploy, launch_paths, require_app
 from .status import print_status
 
 DRY_RUN_PROJECT_ID = "dry-run-project"
@@ -59,6 +59,7 @@ def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -
         fake_domino = create_fake_domino(dry_run_apps)
     sleep = time.sleep if fake_domino is None else _no_sleep
     try:
+        require_deploy_file()
         settings = DeploySettings()
         cache = AppIdCache(None if args.dry_run else APP_ID_CACHE_FILE)
         with _apps_client(settings, fake_domino, cache) as client:
@@ -101,8 +102,9 @@ def _run_command(
     sleep: Callable[[float], None],
 ) -> None:
     if args.command == "deploy":
-        launch_script = launch_script_in(os.getcwd())
-        deploy(client, settings, args.target, launch_script=launch_script, sleep=sleep)
+        # Run from the use case's directory: the Apps run the role's command there.
+        launch = launch_paths(os.getcwd())
+        deploy(client, settings, args.target, launch=launch, sleep=sleep)
     if args.command == "status":
         print_status(client, settings)
     if args.command == "url":

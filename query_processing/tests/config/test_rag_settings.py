@@ -8,15 +8,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from rag_graphs import packaged_graph, write_workflow_file
+from rag_graphs import fixture_graph, write_workflow_file
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 
 SettingsFactory = Callable[..., RagSettings]
-SYSTEM_PROMPT = (
-    "You answer questions using only the numbered context passages. "
-    "Cite passages as [n]. If the context is insufficient, say so."
-)
+SYSTEM_PROMPT = "Answer from the numbered fixture passages only."  # the fixture's
 USER_PROMPT = "Context:\n{context}\n\nQuestion: {question}"
 
 
@@ -39,8 +36,9 @@ def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
     store = s.components["vector_store"]
+    # The index is the file's: where the passages are kept has no default.
     assert (store.elasticsearch.index, store.fake.seed_documents) == (
-        "rag_passages",
+        "fixture_passages",
         200,
     )
     assert s.local_models.workers == 4
@@ -95,7 +93,7 @@ def test_counts_below_one_are_rejected(
 # --- the workflow file -------------------------------------------------------------
 
 
-def test_the_packaged_workflow_file_is_todays_graph(
+def test_the_fixture_file_reads_into_stages_edges_and_a_conditional_edge(
     settings_factory: SettingsFactory,
 ) -> None:
     s = settings_factory()
@@ -140,7 +138,7 @@ def test_the_sources_win_in_their_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # One key per source, each set by that source and every source below it.
-    graph = packaged_graph()
+    graph = fixture_graph()
     graph["stages"]["retrieve"].update(top_k=7, rrf_k=61)
     graph["stages"]["rerank"]["top_k"] = 5
     workflow = write_workflow_file(tmp_path / "workflow.yaml", graph)
@@ -177,7 +175,7 @@ def test_an_unknown_top_level_key_of_the_file_is_refused_naming_it(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    workflow = write_workflow_file(tmp_path / "workflow.yaml", packaged_graph())
+    workflow = write_workflow_file(tmp_path / "workflow.yaml", fixture_graph())
     with workflow.open("a", encoding="utf-8") as file:
         file.write("top_k_retrieve: 20\n")
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))

@@ -20,10 +20,15 @@ import yaml
 from fastapi.testclient import TestClient
 
 from rag_components import FAKE_BACKENDS
-from rag_graphs import packaged_components, packaged_graph, write_workflow_file
+from rag_graphs import (
+    FIXTURE_WORKFLOW,
+    fixture_components,
+    fixture_graph,
+    write_workflow_file,
+)
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW, WORKFLOW_FILE_VARIABLE
+from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from rag_load_test.domain.corpus import chunk, synthetic_corpus
 from rag_load_test.entrypoints.rag_serve import create_app
 from repo_paths import REPO_ROOT
@@ -34,8 +39,8 @@ COARSE_URL, FINE_URL = "http://coarse.test/v3/rerank", "http://fine.test/v3/rera
 
 
 def two_rerank_stages() -> dict[str, Any]:
-    """The packaged graph with a coarse rerank stage before its rerank stage."""
-    graph = packaged_graph()
+    """The fixture's graph with a coarse rerank stage before its rerank stage."""
+    graph = fixture_graph()
     graph["stages"]["rerank_coarse"] = {"type": "rerank", "call": "coarse", "top_k": 15}
     graph["edges"][0] = ["START", "embed", "retrieve", "rerank_coarse", "rerank"]
     return graph
@@ -82,7 +87,7 @@ def test_two_stages_call_two_components_of_one_type(
     # Each stage called its own component, under that component's alias.
     assert endpoints.sent == [
         (COARSE_URL, "coarse-rr", 20),
-        (FINE_URL, "crossencoder-camembert-base-mmarcoFR", 20),
+        (FINE_URL, "fixture-reranker", 20),
     ]
     timings = response.json()["timings_ms"]
     assert list(timings) == [
@@ -96,7 +101,7 @@ def test_two_stages_call_two_components_of_one_type(
     assert len(response.json()["passages"]) == 10  # the rerank stage's top_k
 
 
-def test_the_packaged_file_builds_the_rag_from_its_three_model_components(
+def test_the_fixture_file_builds_a_graph_from_its_three_model_components(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The file's embedder, reranker and LLM, each moved to its fake by its path.
@@ -123,14 +128,14 @@ def passages_of(documents: int) -> int:
 def write_file_with_store(
     path: Path, monkeypatch: pytest.MonkeyPatch, name: str, store: dict[str, Any]
 ) -> None:
-    """Write a workflow file of the packaged graph, every model on its fake, and ``store``.
+    """Write a workflow file of the fixture's graph, every model on its fake, and ``store``.
 
     The retrieve stage calls the store by ``name``; the file names it the file
     to read.
     """
-    models = {n: {**c, "backend": "fake"} for n, c in packaged_components().items()}
+    models = {n: {**c, "backend": "fake"} for n, c in fixture_components().items()}
     del models["vector_store"]
-    graph = packaged_graph()
+    graph = fixture_graph()
     graph["stages"]["retrieve"]["call"] = name
     write_workflow_file(path, graph, {**models, name: store})
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(path))
@@ -180,7 +185,7 @@ def api_keys_in(node: object) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "path", [PACKAGED_WORKFLOW, REPO_ROOT / "README.md"], ids=["packaged", "readme"]
+    "path", [FIXTURE_WORKFLOW, REPO_ROOT / "README.md"], ids=["fixture", "readme"]
 )
 def test_no_example_writes_an_api_key_in_a_workflow_file(path: Path) -> None:
     text = path.read_text(encoding="utf-8")

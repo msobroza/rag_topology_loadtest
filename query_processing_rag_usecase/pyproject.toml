@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# The RAG, the toolkit's first use case (ADR 0005): settings only. Its workflow
+# file, deploy settings example, environment example and Makefile are files of
+# this directory, where its commands run; every line of code is the toolkit's.
+[project]
+name = "query-processing-rag-usecase"
+version = "0.1.0"
+description = "The RAG use case of the query_processing toolkit: its workflow file, its deploy settings and its load-test settings."
+requires-python = ">=3.11"  # the version in .python-version, at the repository's root
+license = { text = "Apache-2.0" }
+# The toolkit, under its distribution's current name. No package index has it:
+# every install names both directories in one command, the toolkit first
+# (the root Makefile, the CI, the image, domino/app.sh).
+dependencies = ["rag-load-test"]
+
+[tool.setuptools]
+packages = []  # no Python code of its own
+
+# For uv alone (uv sync, uv run, here): where the toolkit is. Nothing depends on
+# it: pip ignores it, and every install names the toolkit's directory itself.
+[tool.uv.sources]
+rag-load-test = { path = "../query_processing" }
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# The tests import only what the toolkit installs (rag_load_test, fake_domino),
+# never the toolkit's own tests.
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

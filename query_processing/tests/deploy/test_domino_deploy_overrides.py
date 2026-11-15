@@ -1,6 +1,6 @@
 """The overrides: this site's values of the workflow file, in its shape, for every App.
 
-Through ``deploy`` and ``main`` over the fake Domino, against the packaged
+Through ``deploy`` and ``main`` over the fake Domino, against the tests'
 workflow file: each override reaches every App's launch script under the
 variable of its path, after the App's free list and before rag-deploy's own
 exports; a workflow setting in a free list, a misspelt key, a secret, a
@@ -28,7 +28,7 @@ from domino_deploy_helpers import (
     no_sleep,
 )
 from fake_domino.state import FakeDominoApps
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW
+from rag_graphs import FIXTURE_WORKFLOW
 from rag_load_test.deploy.apps_client import DominoDeployError
 from rag_load_test.deploy.deploy_settings import (
     DeploySettings,
@@ -60,7 +60,7 @@ SITE_EXPORTS = (
 
 
 def run_deploy(apps: FakeDominoApps, settings: DeploySettings) -> None:
-    deploy(make_client(apps), settings, "all", launch_script=LAUNCH, sleep=no_sleep)
+    deploy(make_client(apps), settings, "all", launch=LAUNCH, sleep=no_sleep)
 
 
 def scripts(apps: FakeDominoApps) -> dict[str, str]:
@@ -240,7 +240,7 @@ def test_a_component_or_stage_the_file_does_not_declare_is_refused(
 ) -> None:
     assert refusal(make_settings(overrides=overrides)) == (
         f"{place} in deploy.yaml names {name!r}, which the workflow file "
-        f"'{PACKAGED_WORKFLOW}' does not declare: an override changes a value the "
+        f"'{FIXTURE_WORKFLOW}' does not declare: an override changes a value the "
         f"file declares (expected one of: {declared})"
     )
 
@@ -330,7 +330,7 @@ def test_a_value_the_workflow_settings_refuse_is_refused(
     overrides: dict[str, object], detail: str
 ) -> None:
     assert refusal(make_settings(topology="monolith", overrides=overrides)) == (
-        f"the workflow file '{PACKAGED_WORKFLOW}' with the overrides of deploy.yaml "
+        f"the workflow file '{FIXTURE_WORKFLOW}' with the overrides of deploy.yaml "
         f"makes settings the workflow app refuses: {detail}"
     )
 
@@ -375,7 +375,7 @@ def test_the_variables_the_launch_scripts_read_still_pass_through() -> None:
     values = {
         "RAG_OVMS_MODELS_DIR": "/d/ovms-models",
         "RAG_BOOTSTRAP_EXTRAS": "domino,dev",
-        "RAG_WORKFLOW_FILE": str(PACKAGED_WORKFLOW),
+        "RAG_WORKFLOW_FILE": str(FIXTURE_WORKFLOW),
     }
     defaults = {"environment_id": "env-1", "settings": values}
     apps = FakeDominoApps(["Running"])

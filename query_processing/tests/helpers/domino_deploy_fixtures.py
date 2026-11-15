@@ -19,12 +19,16 @@ from rag_load_test.deploy.rag_deploy import main
 
 @pytest.fixture
 def domino_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A Workspace's environment, run from a toolkit's directory whose deploy.yaml
-    only sets the environment."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "domino").mkdir()
-    (tmp_path / "domino" / "app.sh").write_text("#!/bin/bash\n")
-    (tmp_path / "deploy.yaml").write_text(ENV_1)
+    """A Workspace's environment, run from a use case's directory whose deploy.yaml
+    only sets the environment, beside the toolkit's in a repository."""
+    repository = tmp_path / "repository"
+    launch_script = repository / "query_processing" / "domino" / "app.sh"
+    launch_script.parent.mkdir(parents=True)
+    launch_script.write_text("#!/bin/bash\n")
+    use_case = repository / "my_use_case"
+    use_case.mkdir()
+    monkeypatch.chdir(use_case)
+    (use_case / "deploy.yaml").write_text(ENV_1)
     for name in (
         "TOPOLOGY",
         "PROJECT_ID",

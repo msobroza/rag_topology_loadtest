@@ -107,7 +107,10 @@ def test_unprefixed_provider_variables_are_not_read(
     llm = settings_factory().components["llm"]
 
     assert llm.api.endpoint(llm.alias) == ApiEndpoint(
-        "https://api.openai.com/v1/chat/completions", "openai", "", "gpt-4o-mini"
+        "https://llm.fixture.test/v1/chat/completions",
+        "openai",
+        "",
+        "fixture-chat-model",
     )
 
 
@@ -147,9 +150,7 @@ def test_an_api_block_without_a_model_sends_the_alias(
     )
 
     embedder = s.components["embedder"]
-    assert (
-        embedder.api.endpoint(embedder.alias).model == "snowflake-arctic-embed-l-v2.0"
-    )
+    assert embedder.api.endpoint(embedder.alias).model == "fixture-embedder"
 
 
 @pytest.mark.parametrize("component", ["embedder", "reranker", "llm"])

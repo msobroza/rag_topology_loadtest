@@ -1,4 +1,4 @@
-"""The RAG graph of the packaged workflow file, built over fake ports, and the prompts."""
+"""The RAG graph of the tests' workflow file, built over fake ports, and the prompts."""
 
 from __future__ import annotations
 

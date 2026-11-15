@@ -23,9 +23,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from model_api_fakes import standard_answer
+from rag_components import shell_settings
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW, WORKFLOW_FILE_VARIABLE
 from rag_load_test.entrypoints import rag_serve
 from rag_load_test.entrypoints.rag_serve import create_app
 
@@ -37,8 +37,8 @@ CHAT_URL = "http://llm-app.test/v3/chat/completions"
 VENDOR_RERANK_URL = "https://rerank.vendor.test/v2/rerank"
 TOKEN_URL = "http://domino.test/access-token"
 RUN_TOKEN = "run-token"
-EMBEDDER_ALIAS = "snowflake-arctic-embed-l-v2.0"
-RERANKER_ALIAS = "crossencoder-camembert-base-mmarcoFR"
+EMBEDDER_ALIAS = "fixture-embedder"
+RERANKER_ALIAS = "fixture-reranker"
 # One served reranker; every other component on its fake, so the run token is
 # the only Authorization a call can carry.
 SERVED_RERANKER = {
@@ -91,10 +91,8 @@ def rag_serve_apps(
     No ``RAG_*`` or ``DOMINO_*`` variable of the shell and no ``.env`` is read:
     a test sets what it needs.
     """
-    for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
+    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
         monkeypatch.delenv(name)
-    # The workflow file stays the packaged one (conftest), whatever was unset.
-    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(PACKAGED_WORKFLOW))
     monkeypatch.chdir(tmp_path)
     transport = httpx.MockTransport(endpoints)
 

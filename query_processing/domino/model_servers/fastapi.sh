@@ -9,7 +9,8 @@
 # workflow file says; the in-process model exports itself into
 # RAG_LOCAL_MODELS__OPENVINO_DIR on its first start (RAG_LOCAL_MODELS__RUNTIME=openvino).
 
-# bootstrap_model_server: this project, as the workflow app installs it.
+# bootstrap_model_server: the toolkit and the use case, as the workflow app
+# installs them.
 bootstrap_model_server() {
   install_this_project
 }

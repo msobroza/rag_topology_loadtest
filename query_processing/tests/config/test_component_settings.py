@@ -9,8 +9,8 @@ import pytest
 from pydantic import ValidationError
 
 from rag_graphs import (
-    packaged_components,
-    packaged_graph,
+    fixture_components,
+    fixture_graph,
     rag_graph,
     write_workflow_file,
 )
@@ -38,7 +38,7 @@ EMBED_URL = "http://embedder:8002/v3/embeddings"
 RERANK_URL = "http://reranker:8001/v3/rerank"
 
 
-def test_the_packaged_file_declares_the_rags_three_models_and_its_store(
+def test_the_fixture_file_declares_three_model_components_and_a_store(
     settings_factory: SettingsFactory,
 ) -> None:
     components = settings_factory().components
@@ -46,8 +46,8 @@ def test_the_packaged_file_declares_the_rags_three_models_and_its_store(
     assert list(components) == ["embedder", "reranker", "llm", "vector_store"]
     embedder = components["embedder"]
     assert (embedder.type, embedder.backend) == ("embedder", "local")
-    assert embedder.source_id == "Snowflake/snowflake-arctic-embed-l-v2.0"
-    assert embedder.alias == "snowflake-arctic-embed-l-v2.0"
+    assert embedder.source_id == "fixture-org/fixture-embedder"
+    assert embedder.alias == "fixture-embedder"
     assert embedder.query_prefix == "query: "
     assert embedder.local == EmbedderLocalSettings(batch_size=64, threads=0)
     assert embedder.api == EmbedderEndpointSettings(
@@ -56,8 +56,8 @@ def test_the_packaged_file_declares_the_rags_three_models_and_its_store(
     assert embedder.http == ComponentHttpSettings()  # every value the default
     reranker = components["reranker"]
     assert (reranker.type, reranker.backend) == ("reranker", "local")
-    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
-    assert reranker.alias == "crossencoder-camembert-base-mmarcoFR"
+    assert reranker.source_id == "fixture-org/fixture-reranker"
+    assert reranker.alias == "fixture-reranker"
     assert reranker.local == RerankerLocalSettings(
         batch_size=0, threads=0, calibration_passages=20
     )
@@ -66,10 +66,10 @@ def test_the_packaged_file_declares_the_rags_three_models_and_its_store(
     llm = components["llm"]
     assert (llm.type, llm.backend) == ("llm", "api")
     assert llm.api == LlmEndpointSettings(
-        url="https://api.openai.com/v1/chat/completions",
+        url="https://llm.fixture.test/v1/chat/completions",
         api_format="openai",
         api_key="",
-        model="gpt-4o-mini",
+        model="fixture-chat-model",
         temperature=0.0,
     )
     # An answer takes longer than a model-server call: its own timeout.
@@ -115,7 +115,7 @@ def test_every_value_is_reachable_by_its_environment_path(
     assert embedder.api.batch_size == 16
     assert embedder.http == ComponentHttpSettings(retries=5)
     assert reranker.alias == "rr"
-    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+    assert reranker.source_id == "fixture-org/fixture-reranker"
     assert reranker.local == RerankerLocalSettings(
         batch_size=4, threads=2, calibration_passages=12
     )
@@ -125,14 +125,14 @@ def test_every_value_is_reachable_by_its_environment_path(
         "sk-key",
         0.5,
     )
-    assert llm.api.url == "https://api.openai.com/v1/chat/completions"  # kept
+    assert llm.api.url == "https://llm.fixture.test/v1/chat/completions"  # kept
     assert llm.http == ComponentHttpSettings(timeout_s=9.0)
 
 
 @pytest.mark.parametrize(
     ("source_id", "alias"),
     [
-        ("Snowflake/snowflake-arctic-embed-l-v2.0", "snowflake-arctic-embed-l-v2.0"),
+        ("fixture-org/fixture-embedder", "fixture-embedder"),
         ("/domino/datasets/local/d/models/crossencoder", "crossencoder"),
         ("models/reranker/", "reranker"),
         ("bge-small", "bge-small"),
@@ -256,20 +256,54 @@ def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None
 # --- the vector store ------------------------------------------------------------------
 
 
-def test_the_vector_store_is_a_component_of_the_packaged_file(
+def test_the_vector_store_is_a_component_of_the_fixture_file(
     settings_factory: SettingsFactory,
 ) -> None:
     store = settings_factory().components["vector_store"]
 
     assert (store.type, store.backend) == ("vector_store", "elasticsearch")
     assert store.elasticsearch == ElasticsearchSettings(
-        url="http://localhost:9200", index="rag_passages"
+        url="http://localhost:9200", index="fixture_passages"
     )
     assert store.elasticsearch.text_analyzer == "standard"
     assert store.chroma == ChromaSettings(
-        url="", path="chroma", collection="rag_passages"
+        url="", path="chroma", collection="fixture_passages"
     )
     assert store.fake == FakeStoreSettings(seed_documents=200)
+
+
+def test_where_the_passages_are_kept_is_the_use_cases_with_no_default() -> None:
+    assert (ElasticsearchSettings().index, ChromaSettings().collection) == ("", "")
+
+
+@pytest.mark.parametrize(
+    ("backend", "key"), [("elasticsearch", "index"), ("chroma", "collection")]
+)
+def test_a_store_naming_no_index_or_collection_is_refused_naming_its_variable(
+    settings_factory: SettingsFactory, backend: str, key: str
+) -> None:
+    unnamed = {f"components__vector_store__{backend}__{key}": ""}
+
+    with pytest.raises(ValidationError) as caught:
+        settings_factory(components__vector_store__backend=backend, **unnamed)
+
+    variable = f"RAG_COMPONENTS__VECTOR_STORE__{backend.upper()}__{key.upper()}"
+    assert (
+        f"RAG_COMPONENTS__VECTOR_STORE__BACKEND={backend!r} needs {variable}, the "
+        f"{key} the passages are kept in (components.vector_store.{backend}.{key} "
+        "in the workflow file); got ''"
+    ) in str(caught.value)
+
+
+def test_a_store_on_another_backend_names_nothing(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(
+        components__vector_store__backend="fake",
+        components__vector_store__elasticsearch__index="",
+        components__vector_store__chroma__collection="",
+    )
+    assert settings.components["vector_store"].backend == "fake"
 
 
 def test_each_block_of_the_vector_store_is_read_by_its_path(
@@ -351,9 +385,9 @@ def test_ingestion_fills_the_one_vector_store_the_file_declares(
 def test_ingestion_refuses_a_file_without_a_vector_store(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    components = packaged_components()
+    components = fixture_components()
     del components["vector_store"]
-    workflow = write_workflow_file(tmp_path / "w.yaml", packaged_graph(), components)
+    workflow = write_workflow_file(tmp_path / "w.yaml", fixture_graph(), components)
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
 
     with pytest.raises(ValueError, match=r"declares 0 \(its vector stores: none\)"):

@@ -8,7 +8,7 @@ another model has loaded. So each command that opens components calls
 as a usage error, as it reports any other settings mistake.
 
 Example:
-    >>> check_registered_names(RagSettings())  # the packaged file: nothing raised
+    >>> check_registered_names(RagSettings())  # a use case's file: nothing raised
 """
 
 from __future__ import annotations
