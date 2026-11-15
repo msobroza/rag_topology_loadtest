@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 # locust gevent-patches the interpreter at import unless this is set; it must run
 # before any ``import locust`` (the locustfile tests import it).
 os.environ.setdefault("LOCUST_SKIP_MONKEY_PATCH", "1")
+
+# No test may reach real model weights. The Hub is offline and its cache is an
+# empty folder, so a test that opens an in-process model without a fake fails at
+# once. Without this it downloads the model, or loads a cached one and exports
+# it: gigabytes, twice on 2026-11-15, when tests passed settings a change had
+# removed, the settings ignored them, and the app ran on its `local` backends.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HOME"] = os.path.join(tempfile.gettempdir(), "rag-tests-empty-hf-home")
+os.environ["HF_HUB_CACHE"] = os.path.join(os.environ["HF_HOME"], "hub")
 
 from collections.abc import AsyncIterator, Callable
 
