@@ -84,7 +84,7 @@ async def test_st_embedder_encodes_inside_its_scope_on_a_worker(
     assert thread.startswith("rag-model")
 
 
-async def test_st_embedder_returns_plain_lists_and_normalizes(
+async def test_st_embedder_returns_plain_lists_not_normalised_by_default(
     st_embedder: SentenceTransformerEmbedder, st_model: FakeSentenceTransformer
 ) -> None:
     vectors = await st_embedder.embed(("ab", "abcd"))
@@ -96,7 +96,7 @@ async def test_st_embedder_returns_plain_lists_and_normalizes(
         {
             "texts": ["ab", "abcd"],
             "batch_size": 8,
-            "normalize_embeddings": True,
+            "normalize_embeddings": False,
             # No tqdm bar on stderr per call (the Apps log at INFO).
             "show_progress_bar": False,
         }
@@ -141,3 +141,23 @@ async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
     assert rebatched.scope is st_scope
     assert await rebatched.ready() == (True, "fake-st")
     assert all(thread.startswith("rag-model") for thread in st_scope.ran_on)
+
+
+async def test_st_embedder_passes_normalize_embeddings_to_encode_and_keeps_it(
+    st_model: FakeSentenceTransformer,
+    executor: ThreadPoolExecutor,
+    st_scope: RecordingScope,
+) -> None:
+    embedder = SentenceTransformerEmbedder(
+        st_model,
+        executor,
+        model_name="fake-st",
+        batch_size=8,
+        scope=st_scope,
+        normalize_embeddings=True,
+    )
+
+    await embedder.embed(["a"])
+    await embedder.with_batch_size(3).embed(["b"])
+
+    assert [call["normalize_embeddings"] for call in st_model.calls] == [True, True]
