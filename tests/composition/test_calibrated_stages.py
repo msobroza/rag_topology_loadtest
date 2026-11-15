@@ -222,6 +222,38 @@ async def test_embed_threads_above_zero_time_nothing(
     assert fake_weights.batch_sizes == []
 
 
+@pytest.mark.parametrize("normalize", [False, True])
+async def test_the_factory_calibrates_and_opens_the_embedder_as_normalised(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    caplog: pytest.LogCaptureFixture,
+    normalize: bool,
+) -> None:
+    settings = four_thread_settings(settings_factory, embedding_normalize=normalize)
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        async with CompositionRoot(settings) as composition:
+            embedder = await composition.local_embedder()
+            calibrated = len(fake_weights.normalized)
+            await embedder.embed(["vacation policy"])
+
+    assert calibrated > 0  # calibration timed encode calls
+    assert fake_weights.normalized == [normalize] * (calibrated + 1)
+
+
+async def test_the_embed_stage_loads_the_embedder_with_the_normalize_setting(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    pool: ThreadPoolExecutor,
+) -> None:
+    settings = settings_factory(embedding_normalize=True)
+    stage = EmbedStage(TORCH_MODEL, pool, settings)
+
+    adapter = stage.rebatched(await stage.loaded(threads=1), 2)
+    await stage.serve_sample(adapter)
+
+    assert fake_weights.normalized == [True]
+
+
 async def test_the_embed_sample_is_one_question_with_the_query_prefix(
     settings_factory: SettingsFactory, pool: ThreadPoolExecutor
 ) -> None:

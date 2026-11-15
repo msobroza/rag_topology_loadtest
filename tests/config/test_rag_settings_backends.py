@@ -119,6 +119,16 @@ def test_settings_reject_unknown_topology(
         settings_factory(topology="split-reranker-fastapi")
 
 
+def test_settings_leave_embeddings_unnormalised_unless_the_env_asks(
+    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert settings_factory().embedding_normalize is False
+
+    monkeypatch.setenv("RAG_EMBEDDING_NORMALIZE", "true")
+
+    assert settings_factory().embedding_normalize is True
+
+
 def test_settings_field_set_is_pinned() -> None:
     # Experiments should vary the topology, not grow knobs: adding a field is a
     # decision. The tunables (top-k, index, batch sizes, workers, HTTP, Domino token,
@@ -144,6 +154,7 @@ def test_settings_field_set_is_pinned() -> None:
         "embedding_backend",
         "embedding_batch_size",
         "embedding_model",
+        "embedding_normalize",
         "embedding_query_prefix",
         "embedding_threads",
         "es_api_key",

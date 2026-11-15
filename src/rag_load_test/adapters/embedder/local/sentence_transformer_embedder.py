@@ -30,6 +30,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         model_name: The name ``ready`` reports.
         batch_size: Texts per ``encode`` batch.
         scope: Caps the OpenMP threads of each encode call.
+        normalize_embeddings: Scale each vector to unit length; off by default.
 
     Example:
         >>> model = local_model("org/embedder", runtime="torch", models_dir="models")
@@ -47,13 +48,21 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         model_name: str,
         batch_size: int,
         scope: NativeThreadScope,
+        normalize_embeddings: bool = False,
     ) -> None:
         self._model, self._executor, self._batch_size = model, executor, batch_size
         self.model_name, self.scope = model_name, scope
+        self._normalize = normalize_embeddings
 
     @classmethod
     def from_pretrained(
-        cls, model: LocalModel, executor: Executor, *, batch_size: int, threads: int
+        cls,
+        model: LocalModel,
+        executor: Executor,
+        *,
+        batch_size: int,
+        threads: int,
+        normalize_embeddings: bool = False,
     ) -> SentenceTransformerEmbedder:
         """Load a ``SentenceTransformer`` on CPU, then build its thread scope.
 
@@ -62,6 +71,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             executor: The shared inference pool the encode calls run on.
             batch_size: Texts per ``encode`` batch.
             threads: Threads one encode call may use.
+            normalize_embeddings: Scale each vector to unit length.
 
         Returns:
             The embedder on the loaded model.
@@ -74,7 +84,12 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         # After the model: the scope only sees native libraries already loaded.
         scope = NativeThreadScope(threads)
         return cls(
-            loaded, executor, model_name=model.name, batch_size=batch_size, scope=scope
+            loaded,
+            executor,
+            model_name=model.name,
+            batch_size=batch_size,
+            scope=scope,
+            normalize_embeddings=normalize_embeddings,
         )
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -84,7 +99,8 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             texts: The texts to embed; none returns ``[]`` without a model call.
 
         Returns:
-            One unit-norm vector per text, in the same order.
+            One vector per text, in the same order; unit length only when
+            ``normalize_embeddings`` is set.
         """
         if not texts:
             return []
@@ -102,8 +118,8 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             batch_size: Texts per ``encode`` batch.
 
         Returns:
-            A new adapter sharing the model, the pool, the model name and the
-            thread scope.
+            A new adapter sharing the model, the pool, the model name, the
+            thread scope and the normalisation.
 
         Example:
             >>> smaller = adapter.with_batch_size(2)
@@ -114,6 +130,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             model_name=self.model_name,
             batch_size=batch_size,
             scope=self.scope,
+            normalize_embeddings=self._normalize,
         )
 
     async def ready(self) -> tuple[bool, str]:
@@ -125,12 +142,13 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         return True, self.model_name
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
-        # Unit-norm vectors, so cosine similarity is a plain dot product. No
-        # progress bar: at the Apps' INFO level one is drawn on stderr per call.
+        # Normalising is optional: every store compares by cosine, which ignores
+        # length. No progress bar: at the Apps' INFO level one is drawn on stderr
+        # per call.
         matrix = self._model.encode(
             texts,
             batch_size=self._batch_size,
-            normalize_embeddings=True,
+            normalize_embeddings=self._normalize,
             show_progress_bar=False,
         )
         return matrix.tolist()
