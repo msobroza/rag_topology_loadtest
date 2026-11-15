@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from ...domain.backends import LocalModelRuntime, OpenVinoWeightFormat
+from ..openvino_cpu_properties import openvino_cpu_properties
 
 # Appended to a model's folder name, per weight format. fp32 adds nothing: every
 # export made before the setting existed holds 32-bit weights and keeps its place.
@@ -52,14 +53,8 @@ class LocalModel:
         """
         if self.runtime == "torch":
             return {}
-        # In its latency mode OpenVINO keeps to physical cores: asked for 2 threads
-        # on one core with two hyper-threads, it reported INFERENCE_NUM_THREADS=1
-        # and left the second CPU idle (GCP sitting of 2026-11-15). Allowed the
-        # hyper-threads it ran 2, and a rerank request took 2.94 s instead of 3.38.
-        ov_config = {
-            "INFERENCE_NUM_THREADS": str(threads),
-            "ENABLE_HYPER_THREADING": "YES",
-        }
+        # Why the hyper-threads are allowed: see openvino_cpu_properties.
+        ov_config = openvino_cpu_properties(threads)
         return {"backend": "openvino", "model_kwargs": {"ov_config": ov_config}}
 
 

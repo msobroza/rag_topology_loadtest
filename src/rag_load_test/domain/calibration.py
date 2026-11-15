@@ -5,15 +5,17 @@ under each candidate batch size and thread count left at 0 by the settings, and
 keeps the fastest. This module holds the rules, no clock and no model: which
 candidates (``halvings``), which trial wins (``fastest``), what a calibration
 reports (``CalibrationReport``) and the request every candidate serves
-(``calibration_sample``). The loop is
-``infrastructure/local_models/stage_calibration.py``.
+(``calibration_sample``). A model server (OVMS) is calibrated the same way on
+its stream and thread counts. The loops are
+``infrastructure/local_models/stage_calibration.py`` (in-process) and
+``infrastructure/calibration/served_stage_calibration.py`` (model server).
 
 Example:
     >>> halvings(20)
     (20, 10, 5, 2, 1)
     >>> slow, quick = StageTuning(2, 20), StageTuning(2, 2)
     >>> fastest([TimedTrial(slow, 5.5), TimedTrial(quick, 2.9)])
-    StageTuning(threads=2, batch_size=2)
+    StageTuning(threads=2, batch_size=2, streams=1)
 """
 
 from __future__ import annotations
@@ -27,10 +29,18 @@ from .corpus import synthetic_corpus, synthetic_questions
 
 @dataclass(frozen=True)
 class StageTuning:
-    """The two parameters calibration chooses for a stage."""
+    """The parameters calibration chooses for a stage.
 
-    threads: int  # native threads one call of the stage may use
+    Example:
+        >>> StageTuning(threads=2, batch_size=20, streams=2)  # a model server's
+        StageTuning(threads=2, batch_size=20, streams=2)
+    """
+
+    threads: int  # native threads one call of the stage may use (all its streams')
     batch_size: int  # texts (or passages) per model batch
+    # Requests the stage's model runs at once: 1 for an in-process stage, which
+    # runs one call at a time; a model server splits its threads among them.
+    streams: int = 1
 
 
 @dataclass(frozen=True)
@@ -59,10 +69,20 @@ class CalibrationReport:
     seconds: float  # spent calibrating, loads included; 0 when nothing was timed
     budget_s: float
     cut_short: bool  # the budget stopped the search before every candidate ran
+    # Requests each trial served at once: 1 for an in-process stage; a model
+    # server's stream count is chosen for this load.
+    requests: int = 1
 
     @property
     def chosen_seconds(self) -> float | None:
-        """The seconds one request took under the choice; None when none was timed."""
+        """The seconds a trial took under the choice; None when none was timed.
+
+        A trial is ``requests`` requests at once, so this is the time until the
+        last of them was answered.
+
+        Returns:
+            The fewest seconds of the choice's trials, or None.
+        """
         timed = [trial.seconds for trial in self.trials if trial.tuning == self.chosen]
         return min(timed, default=None)
 
@@ -114,7 +134,7 @@ def fastest(trials: Sequence[TimedTrial]) -> StageTuning:
     Example:
         >>> first, second = StageTuning(2, 20), StageTuning(1, 20)
         >>> fastest([TimedTrial(first, 3.0), TimedTrial(second, 3.0)])
-        StageTuning(threads=2, batch_size=20)
+        StageTuning(threads=2, batch_size=20, streams=1)
     """
     if not trials:
         raise ValueError("fastest needs at least one trial, got no trial")

@@ -14,9 +14,10 @@ from pathlib import Path
 
 import pytest
 
+from launch_script_stand_ins import served_config, write_ovms_config_stand_in
 from repo_paths import REPO_ROOT
 
-SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id")
+SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id", "mktemp")
 EXPORTER_VENV = "ovms-exporter-venv"
 
 
@@ -55,7 +56,8 @@ def tree(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def bin_dir(tmp_path: Path) -> Path:
-    """Fake ``ovms`` and ``uv``; ``uv venv <dir>`` fills <dir>/bin with fakes."""
+    """Fake ``ovms``, ``rag-ovms-config`` and ``uv``; ``uv venv <dir>`` fills
+    <dir>/bin with fakes."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name in SYSTEM_TOOLS:
@@ -63,6 +65,7 @@ def bin_dir(tmp_path: Path) -> Path:
         assert found, f"{name} is needed on PATH to run app.sh"
         (bin_dir / name).symlink_to(found)
     logging_fake(bin_dir / "ovms", tmp_path / "ovms.log")
+    write_ovms_config_stand_in(bin_dir / "rag-ovms-config", tmp_path)
     venv_fakes = "".join(
         f"printf '#!/usr/bin/env bash\\n' > \"$2/bin/{name}\"; "
         f'chmod +x "$2/bin/{name}"\n'
@@ -79,9 +82,11 @@ def bin_dir(tmp_path: Path) -> Path:
 def run_app(
     tmp_path: Path, tree: Path, bin_dir: Path, **env: str
 ) -> subprocess.CompletedProcess[str]:
-    home = tmp_path / "home"
+    home, temporary = tmp_path / "home", tmp_path / "tmp"
     home.mkdir(exist_ok=True)
-    full_env = {"PATH": str(bin_dir), "HOME": str(home), **env}
+    temporary.mkdir(exist_ok=True)
+    full_env = {"PATH": str(bin_dir), "HOME": str(home), "TMPDIR": str(temporary)}
+    full_env.update(env)
     return subprocess.run(
         ["bash", str(tree / "domino" / "app.sh")],
         env=full_env,
@@ -123,7 +128,7 @@ def test_a_present_config_is_served_without_any_export(
     assert result.returncode == 0, result.stderr
     assert (log(tmp_path, "export"), log(tmp_path, "uv")) == ([], [])
     assert log(tmp_path, "ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_reranker.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     ]
 
 
@@ -154,7 +159,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
         f"served={project}/bin/rag-served-models"
     ]
     assert log(tmp_path, "ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_embedder.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     ]
     assert f"exporting the models into {models}" in result.stderr
 
@@ -204,7 +209,7 @@ def test_bootstrap_installs_the_ovms_bundle_then_exports(
     assert len(log(tmp_path, "apt-get")) == 2
     assert len(log(tmp_path, "export")) == 1
     assert log(tmp_path, "bundle-ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_reranker.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     ]
 
 

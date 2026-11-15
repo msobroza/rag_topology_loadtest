@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from rag_load_test.domain.calibration import (
+    CalibrationReport,
     StageTuning,
     TimedTrial,
     calibration_sample,
@@ -91,3 +92,22 @@ def test_the_sample_passages_are_not_in_length_order() -> None:
 def test_the_sample_refuses_no_passage() -> None:
     with pytest.raises(ValueError, match="passages=0"):
         calibration_sample(0)
+
+
+# --- streams and requests --------------------------------------------------------------
+
+
+def test_an_in_process_tuning_runs_one_stream() -> None:
+    assert StageTuning(threads=2, batch_size=20).streams == 1
+    assert StageTuning(2, 20) != StageTuning(2, 20, streams=2)
+
+
+def test_a_report_serves_one_request_at_once_unless_told() -> None:
+    chosen = StageTuning(2, 20, streams=2)
+    trials = (TimedTrial(chosen, 2.41),)
+    report = CalibrationReport("rerank", chosen, trials, 71.0, 90.0, False)
+
+    assert report.requests == 1
+    assert CalibrationReport(
+        "rerank", chosen, trials, 71.0, 90.0, False, requests=4
+    ).chosen_seconds == pytest.approx(2.41)

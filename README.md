@@ -76,7 +76,7 @@ The tree is three applications over one shared domain. The domain
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the four `RAG_*` values a load test sends |
 
 2. **Commands.** A command lives in its own application, in a module named
-   exactly after it with hyphens as underscores: the RAG system's six in
+   exactly after it with hyphens as underscores: the RAG system's eight in
    `entrypoints/` (`rag-serve` is `entrypoints/rag_serve.py`), `rag-deploy` in
    `deploy/rag_deploy.py`, `rag-compare` in `loadtest/rag_compare.py`.
 3. **One name, one module.** No two modules share a file name. A settings module
@@ -93,7 +93,9 @@ The tree is three applications over one shared domain. The domain
    implements no port is not an adapter and lives in `infrastructure/`: what
    the `api` implementations share (`endpoint/`), what the `local` ones share
    (`local_models/`), `http/`, the corpora `rag-fetch-corpus` downloads
-   (`corpora/`), `json_log.py` and `fake_text.py`. Building the implementations
+   (`corpora/`), the calibration loops (`calibration/`), OpenVINO Model Server's
+   graph, serving folder and process (`ovms/`), `openvino_cpu_properties.py`,
+   `one_line_failure.py`, `json_log.py` and `fake_text.py`. Building the implementations
    from the settings is not an adapter either: that is `composition/`, rule 5.
 5. **Composition.** `composition/` is the composition root, the only code that
    reads the settings to build an adapter. Each job has one module:
@@ -208,6 +210,15 @@ src/rag_load_test/
       download.py   download a corpus's files under one HttpPolicy and convert them
       conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
       jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
+    calibration/    the calibration loops
+      timed_trials.py  CalibrationLimits, TimedTrials: the trials, the budget rule, the report and its stage_calibrated line
+      served_stage_calibration.py  BaseServedStage, calibrate_served: one model server start per candidate, streams then threads
+    ovms/           OpenVINO Model Server, run by us
+      ovms_graph.py  ovms_plugin_config, graph_with_plugin_config: the graph's one plugin_config line for a tuning
+      ovms_serving_folder.py  write_ovms_serving_folder: the export linked, a graph of our own; the export is never written
+      ovms_process.py  OvmsProcess: one ovms on a free local port for an async with, waited for and stopped
+    openvino_cpu_properties.py  openvino_cpu_properties: INFERENCE_NUM_THREADS and ENABLE_HYPER_THREADING for a thread count
+    one_line_failure.py  one_line_failure: how a command reports a failure an operator can act on, on one stderr line
     fake_text.py    tokenize, cosine: the text helpers the fake implementations share
     json_log.py     log_json: the one log format
   composition/      the composition root: builds the adapters from the settings (rule 5)
@@ -216,6 +227,8 @@ src/rag_load_test/
     http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source
     local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
     calibrated_stages.py  RerankStage, EmbedStage: the CPU-bound stages calibration times, and their candidates
+    ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
+    ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder
     base_port_factory.py  BasePortFactory: the supplied port, else the one its Backend names, opened once
     embedder_factory.py  EmbedderFactory: local, api, fake
     reranker_factory.py  RerankerFactory: local, api, fake, none
@@ -226,7 +239,8 @@ src/rag_load_test/
     rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
     rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
-    rag_calibrate.py  rag-calibrate: calibrate the in-process models here, print the RAG_* lines that pin them
+    rag_calibrate.py  rag-calibrate: calibrate the in-process models (or OVMS) here, print the RAG_* lines that pin them
+    rag_ovms_config.py  rag-ovms-config: the config an OVMS App starts with, its streams and threads calibrated first
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
     rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
   deploy/           the deploy tool: rag-deploy on Domino 6.2
@@ -447,6 +461,10 @@ FastAPI model server on `fp32`, and the whole lead was the 8-bit weights: on the
 same weights both served the same, 0.24 requests a second each at `fp32` and
 0.36 to 0.38 at `int8`. Ranking quality on `int8` weights was not checked.
 
+`docs/model-servers.md` sets the two servers side by side: what the documentation
+of OVMS and of FastAPI says about serving, how each is set up here, and what the
+sittings measured (streams, batch size, order of service).
+
 ## HTTP API
 
 | Route | Body → result |
@@ -524,8 +542,12 @@ with a one-line usage error, not a traceback.
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
 | `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
-| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
+| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them, and an OVMS trial still running then is abandoned (> 0) |
 | `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
+| `RAG_CALIBRATION_USERS` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
+| `RAG_OVMS_NUM_STREAMS` | `0` | an OVMS App: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
+| `RAG_OVMS_THREADS` | `0` | an OVMS App: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
+| `RAG_OVMS_START_TIMEOUT_S` | `120` | how long one OVMS start may take to answer before its calibration fails (> 0) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
 | `RAG_HTTP_RETRIES` | `2` | endpoint retries (embedding, rerank and generation) on transport errors, 5xx, 429, and 401 when the key is `domino`; hardware-tier lookup retries on transport errors |
@@ -621,6 +643,39 @@ for the reranker on a 2-CPU machine. `rag-calibrate` finds the values once
 instead (below). Under `torch` with several workers, calls share the CPUs, and
 calibration does not time them together.
 
+**Calibrating OVMS.** An OVMS App is calibrated too, on its two parameters: its
+stream count (`RAG_OVMS_NUM_STREAMS`, requests OVMS runs at once on its model)
+and its thread count (`RAG_OVMS_THREADS`, the threads all its streams share).
+A lone request is always fastest on one stream, since it gets every thread.
+Streams only pay when several requests are in flight, so a stream count is
+chosen for a stated load: `RAG_CALIBRATION_USERS` requests at once, 4 by
+default. A trial is the time until all of them are answered. OVMS takes its
+settings only when it starts, so each candidate is one start of `ovms`. Every
+stream count (1, 2, 4, ... up to the CPUs, 1 first) is timed on all the CPUs;
+then each smaller thread count, as long as it is at least the best stream
+count, with that stream count. The warm-up and rounds are the in-process ones.
+The budget also bounds a trial: one still running when it is spent is
+abandoned, its `ovms` stopped, and the search ends there. The fastest completed
+trial wins; if none completed, the first candidate is kept untimed: one stream,
+which is what the export runs. So calibration lasts about the budget plus one
+start, and a slow candidate never fails the App. The requests go through the
+workflow app's own `api` adapters, with no retry: a retried request would be
+timed as one slow request. Each waits up to `RAG_CALIBRATION_BUDGET_S`, not
+`RAG_HTTP_TIMEOUT_S`, since it may wait behind the others in flight. The
+result is one `stage_calibrated` line, which also names the streams and the
+requests, then one
+`ovms_serving_config` line.
+
+Run on real machines on 15 November 2026 (OVMS 2026.3.1, one reranker of 8 and of
+16 CPUs). For 4 requests in flight the whole search took 151 seconds on 8 CPUs,
+six candidates, so the default budget of 90 seconds covers the stream counts and
+not the thread counts. On both machines one request already used every core, and
+streams gained 2% at most: 1, 2 and 4 streams were within a few percent of each
+other, and more were slower. With one timed round such candidates swap places
+from run to run: the same machine kept 1 stream at one start and 4 at another.
+Raise `RAG_CALIBRATION_ROUNDS` for a steadier choice. `docs/model-servers.md` has
+the figures.
+
 **Pinning the result** (`rag-calibrate`). Run it once on a machine of the App's
 hardware tier that holds the models. It loads each in-process model as an App
 would (`RAG_EMBEDDING_MODEL`, `RAG_RERANK_MODEL`, `RAG_LOCAL_MODEL_RUNTIME`,
@@ -654,8 +709,26 @@ Put these lines in `deploy.yaml`'s `settings` or in `.env`. Then an App starts
 without calibrating, and every replica of the tier runs the same values. The
 embedder prints `RAG_EMBEDDING_THREADS` only: its batch size is not searched.
 A failure it can explain (a bad setting, a model it cannot load or export) is
-one line on standard error and exit code 1. OVMS has its own settings and is
-not calibrated by it.
+one line on standard error and exit code 1.
+
+With `--ovms-models DIR` it calibrates OVMS instead, on the export in DIR
+(`ovms` must be on `PATH`), in a temporary folder it removes; `--only` still
+picks one model. It searches both parameters, even pinned ones. Each model
+prints the same two variables, since one OVMS App serves one model: pin them in
+that App's block of `deploy.yaml`, not in the shared settings.
+
+```bash
+rag-calibrate --ovms-models /mnt/data/ovms-models --only reranker
+```
+
+On an 8-CPU machine on 15 November 2026, with `RAG_CALIBRATION_USERS=16` and a
+budget of 1,500 seconds, it printed:
+
+```
+# rerank: timed on 8 CPUs under ovms, 30.812 s for 16 requests at once; tried 6 candidates in 503.5 s
+RAG_OVMS_NUM_STREAMS=2
+RAG_OVMS_THREADS=8
+```
 
 ## Retrieval, stores and model endpoints
 
@@ -912,9 +985,33 @@ is not on `PATH`, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
 prebuilt `ovms` image has no `uv`, so there the models still have to be mounted.
 This path has not been run for real.
 
+**How an OVMS App starts.** Once the export is there, `app.sh` runs
+`rag-ovms-config --serve <part> --models-dir "$RAG_OVMS_MODELS_DIR" --serving-dir <a fresh temporary folder>`
+and starts `ovms` on the config it prints. That command calibrates each of
+`RAG_OVMS_NUM_STREAMS` and `RAG_OVMS_THREADS` left at `0` (see "Calibrating
+OVMS" above), then writes the serving folder for the choice: a copy of the
+export's `config_<part>.json`, and a `<alias>/` folder that links every file of
+the export's but `graph.pbtxt`. The graph is written there with its one
+`plugin_config` line set to `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and
+`ENABLE_HYPER_THREADING`, and no `PERFORMANCE_HINT` (OVMS refuses it with
+`NUM_STREAMS`). The export is never written, so it can stay on a read-only
+Dataset shared by several Apps. With both variables pinned nothing is
+calibrated and the App starts at once. When `rag-ovms-config` is not on `PATH`
+(the OVMS roles' bootstrap installs no project), `app.sh` installs the project
+with `uv` into `$HOME/rag-venv` first. Without `uv` it serves the export's own
+config, one stream and not calibrated, and says so on standard error; a pinned
+`RAG_OVMS_*` then stops the App, since it cannot be applied. If
+`rag-ovms-config` fails, the App stops and its message says to pin both
+variables to skip calibration. The prefix proxy (`RAG_OVMS_PREFIX_PROXY=1`)
+serves the same config. Verified on a real OVMS on 15 November 2026: OVMS follows
+the linked model files of the serving folder, and it takes `NUM_STREAMS`,
+`INFERENCE_NUM_THREADS` and `ENABLE_HYPER_THREADING` together. The prefix proxy
+and the start without `uv` have only run against stand-ins.
+
 **Compose** (`make infra-up`) mounts `ovms/models` read-only at `/workspace` and
 starts the reranker with `--rest_port 8001 --config_path /workspace/config_reranker.json`,
-the embedder on `8002` with `config_embedder.json`. Verify:
+the embedder on `8002` with `config_embedder.json`. It serves the export as
+exported: one stream, not calibrated. Verify:
 
 ```bash
 curl -s localhost:8001/v2/health/ready && echo reranker ready

@@ -190,10 +190,26 @@ class RagSettings(BaseSettings):
     # out; > 0 wins over every other count.
     model_cpus: float = Field(default=0, ge=0)
     # Calibration of a local model (stage_calibration.py), per stage: no new
-    # candidate is started once this many seconds have passed.
+    # candidate is started once this many seconds have passed; a model server's
+    # trial still running then is abandoned (served_stage_calibration.py).
     calibration_budget_s: float = Field(default=90.0, gt=0)
     # Timed requests per candidate, after one warm-up.
     calibration_rounds: int = Field(default=1, ge=1)
+    # Requests in flight while a model server's candidate is timed: the load its
+    # stream count is chosen for (one request is always fastest on one stream).
+    # In-process stages are timed on one request: under openvino they run one
+    # call at a time, so n requests take n times as long under any tuning.
+    calibration_users: int = Field(default=4, ge=1)
+
+    # --- OpenVINO Model Server (an ovms-* App) ----------------------------------------
+    # Requests OVMS runs at once on its model (NUM_STREAMS); 0 = calibrated at
+    # start-up, by rag-ovms-config.
+    ovms_num_streams: int = Field(default=0, ge=0)
+    # Threads its inference shares, all streams together (INFERENCE_NUM_THREADS);
+    # 0 = calibrated at start-up, up to the CPUs.
+    ovms_threads: int = Field(default=0, ge=0)
+    # How long one OVMS start may take to answer before calibration fails.
+    ovms_start_timeout_s: float = Field(default=120.0, gt=0)
 
     # --- HTTP and Domino -------------------------------------------------------------
     http_timeout_s: float = Field(default=30.0, gt=0)
@@ -329,6 +345,25 @@ class RagSettings(BaseSettings):
             f"{' or '.join(map(repr, LEXICAL_STORE_BACKENDS))}, or "
             "RAG_RETRIEVAL_MODE=dense"
         )
+
+    @model_validator(mode="after")
+    def check_ovms_tuning(self) -> RagSettings:
+        """Fail at start-up when a pinned OVMS stream count exceeds its thread count.
+
+        Returns:
+            The settings, unchanged.
+
+        Raises:
+            ValueError: If both are pinned and ``ovms_num_streams`` is above
+                ``ovms_threads``: a stream needs a thread.
+        """
+        streams, threads = self.ovms_num_streams, self.ovms_threads
+        if streams and threads and streams > threads:
+            raise ValueError(
+                f"RAG_OVMS_NUM_STREAMS={streams} exceeds RAG_OVMS_THREADS={threads}: "
+                "a stream needs a thread; pin at most as many streams as threads"
+            )
+        return self
 
     @classmethod
     def variable_of(cls, field: str) -> str:

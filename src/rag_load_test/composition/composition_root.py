@@ -13,7 +13,9 @@ Each job has its own module, and this class only wires them together:
   implementations share (the HTTP client, the thread budget, the model pool);
 - one factory per port (``embedder_factory.py``, ``reranker_factory.py``,
   ``vector_store_factory.py``, ``llm_factory.py``), which maps each Backend to
-  what opens it: a new Backend is one method and one entry in one factory.
+  what opens it: a new Backend is one method and one entry in one factory;
+- ``ovms_calibration.py``: an OVMS App's stream and thread counts, and the
+  folder it serves from.
 
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently.
@@ -27,6 +29,7 @@ Example:
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import TracebackType
 from typing import NamedTuple, TypedDict, Unpack
 
@@ -45,6 +48,7 @@ from .embedder_factory import EmbedderFactory
 from .http_resources import HttpResources
 from .llm_factory import LLMFactory
 from .local_model_resources import LocalModelResources
+from .ovms_calibration import OvmsCalibration
 from .reranker_factory import RerankerFactory
 from .resource_scope import ResourceScope
 from .vector_store_factory import VectorStoreFactory
@@ -108,6 +112,7 @@ class CompositionRoot:
         self._vector_stores = VectorStoreFactory(
             settings, scope, self._embedders.open, supplied.get("vector_store")
         )
+        self._ovms = OvmsCalibration(settings, http, local_models)
 
     async def __aenter__(self) -> CompositionRoot:
         await self._scope.__aenter__()
@@ -208,3 +213,45 @@ class CompositionRoot:
         if part == "embedder":
             return await self._embedders.calibration()
         return await self._rerankers.calibration()
+
+    async def ovms_serving_config(
+        self, part: ModelServerPart, models_dir: Path, serving_dir: Path
+    ) -> Path:
+        """Write the folder an OVMS App serves one model from, calibrating first.
+
+        Each of ``RAG_OVMS_NUM_STREAMS`` and ``RAG_OVMS_THREADS`` left at 0 is
+        calibrated, one ``ovms`` start per candidate (``ovms`` on ``PATH``);
+        with both pinned nothing is started.
+
+        Args:
+            part: ``embedder`` or ``reranker``.
+            models_dir: The folder OVMS's exporter wrote into; never written.
+            serving_dir: The App's own folder, written for the choice.
+
+        Returns:
+            The config file to start OVMS with.
+
+        Example:
+            >>> await composition.ovms_serving_config("reranker", models, serving)
+            PosixPath('/tmp/serving/config_reranker.json')
+        """
+        return await self._ovms.serving_config(part, models_dir, serving_dir)
+
+    async def ovms_calibration(
+        self, part: ModelServerPart, models_dir: Path
+    ) -> ComponentCalibration:
+        """Calibrate OVMS on one model here, on demand, both parameters searched.
+
+        Args:
+            part: ``embedder`` or ``reranker``.
+            models_dir: The folder OVMS's exporter wrote into; never written.
+
+        Returns:
+            The report, the CPUs, ``ovms`` as the runtime, and the settings
+            that pin the choice.
+
+        Example:
+            >>> (await composition.ovms_calibration("reranker", models)).pinned
+            {'RAG_OVMS_NUM_STREAMS': 2, 'RAG_OVMS_THREADS': 2}
+        """
+        return await self._ovms.calibration(part, models_dir)
