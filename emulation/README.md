@@ -14,8 +14,9 @@ removed without touching the rest (see "Removing the emulation").
 Terraform creates what already exists before anyone deploys on a real Domino (ADR
 `docs/adr/0001-emulation-platform-and-app-placement.md`). Then the project's
 unchanged `rag-deploy` publishes the Apps through the **emulated Domino**
-(`rag-domino-emulation`), which places each App on a free machine of its hardware
-tier over SSH and proxies every call to it. Terraform never creates an App.
+(`rag-domino-emulation`), which places each App on free machines of its hardware
+tier over SSH (one machine per replica, see "Replicas") and proxies every call to
+it. Terraform never creates an App.
 
 ```
                     Cloud Shell (terraform, gcloud)
@@ -47,7 +48,7 @@ tier over SSH and proxies every call to it. Terraform never creates an App.
 | Firewall rules | IAP range `35.235.240.0/20` to ports 22, 8899, 8089; Workspace to pool on 22 and 8888; pool to Workspace on 8899; Workspace and pool to Elasticsearch on 9200 | nothing else gets in |
 | Workspace machine | `n2-standard-8`, 50 GB | the emulated Domino on 8899 and the Workspace (Locust runs here) |
 | Elasticsearch machine | `n2-standard-4`, 50 GB, heap 4g, Spot | single node, security off, data on its disk |
-| Pool machines | tier `cpu-8`: 3 x `n2-standard-8`, 50 GB each, Spot | one App per machine: the workflow, a reranker, an embedder |
+| Pool machines | tier `cpu-8`: 3 x `n2-standard-8`, 50 GB each, Spot | one App, or one replica of an App, per machine: by default the workflow, a reranker, an embedder |
 | Two reserved internal addresses | Workspace and Elasticsearch | stable `deploy.yaml` |
 | Three service accounts | no project role; `roles/storage.objectUser` on the cache bucket only, and for Elasticsearch's `roles/storage.legacyBucketReader` on it too | the Workspace's may read two secrets |
 | Cache bucket `<project id>-<name>-cache` | private (uniform access, public access prevention), in the region | what outlives the machines (see "The cache bucket"); `destroy` deletes it |
@@ -227,6 +228,38 @@ are removed, or whether the prefix is stripped: there the emulated Domino follow
 API's rules (bearer token or API key, `401`), and its Swagger page says which is
 which.
 
+## Replicas
+
+On Domino an App's replicas are pods of one instance. The emulated Domino runs each
+replica on a machine of its own. In `deploy.yaml`, an App block with
+`autoscaling: {min_replicas: N, max_replicas: N}` gives that App N machines of its
+hardware tier; without it, the App gets one. A tier needs a free machine for every
+replica: an App asking for more machines than its tier has is refused, and one
+that finds too few free stays `Queued` until enough are free. Add machines to the
+tier (`hardware_tiers` in `terraform.tfvars`) before you deploy more replicas.
+
+The App still has one instance and one URL. Its proxy spreads the requests over
+the machines by one of two rules, which are the two that Kubernetes uses:
+
+- `round-robin` (the default): each request goes to the next machine in turn, as
+  an ingress controller does.
+- `connection-random`: each caller connection gets one machine at random and keeps
+  it, as a Kubernetes Service does.
+
+Domino says that requests spread across an App's pods when session affinity is
+off. It does not say by which rule. To change the rule on a running emulation, add
+`--replica-balancing connection-random` to the `ExecStart` line of the
+`rag-domino-emulation` unit on the Workspace, then run `sudo systemctl
+daemon-reload` and `sudo systemctl restart rag-domino-emulation`. A restart makes
+the emulated Domino forget every App, so deploy again.
+
+Not emulated:
+
+- Pods added or removed during a run: only `min_replicas` counts. `max_replicas`,
+  the CPU target and session affinity are stored, never acted on.
+- Session affinity: a caller is never kept on one replica by a cookie.
+- One disk shared by the replicas: each machine keeps its own dataset folder.
+
 ## The cache bucket
 
 The bucket outlives the machines, so that a later sitting starts in minutes instead
@@ -396,6 +429,8 @@ Delete:
   TEMPORARY in its code layout
 - the "Emulation" block of `CONTEXT.md`
 
-`docs/adr/0001-emulation-platform-and-app-placement.md` may be kept as history.
+`docs/adr/0001-emulation-platform-and-app-placement.md` and
+`docs/adr/0002-replicas-on-machines-and-an-assumed-balancing-rule.md` may be kept as
+history.
 
 Then `make check` must still pass.

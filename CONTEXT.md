@@ -104,8 +104,12 @@ Which App of a topology it is: the workflow app (`workflow`), or the model serve
 _Avoid_: role (a role also says what serves the model, and which workflow app), app name
 
 **Instance**:
-The running copy of an App's current version; an App answers at its instance's address.
-_Avoid_: pod, replica, and "instance" for a cloud VM (that is a machine)
+What runs an App's current version, as one replica or several; an App answers at its instance's address.
+_Avoid_: pod, and "instance" for a cloud VM (that is a machine)
+
+**Replica**:
+One of the identical processes of an instance, each on the App's hardware tier and all behind the instance's one address; an App's autoscaling says how many run. In the emulation each replica has a machine to itself.
+_Avoid_: pod, copy, instance (the instance is all of them)
 
 **Hardware tier**:
 A named size of compute that Domino runs an App or a Workspace on. In the emulation each tier is a pool of machines of one size.
@@ -142,6 +146,10 @@ _Avoid_: fake Domino (that is the Apps API stand-in alone), mini Domino
 **Machine**:
 One cloud VM of the emulation.
 _Avoid_: instance, node, server
+
+**Balancing rule**:
+How the emulated Domino's proxy chooses the replica that answers a request: the next one in turn for each request, or one drawn at random for each caller connection. Domino documents that requests spread over replicas, not by which rule.
+_Avoid_: load balancer (there is no separate one), routing policy
 
 **Cache bucket**:
 Where the emulation keeps what outlives its machines: the exported models, the index snapshots, the result archives.

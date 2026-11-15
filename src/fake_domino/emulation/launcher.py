@@ -53,6 +53,17 @@ class BaseAppLauncher(abc.ABC):
         """
 
     @abc.abstractmethod
+    def stop(self, machine: str) -> None:
+        """Stop the App on ``machine``, before the machine is given back.
+
+        A stop that fails is logged, never raised: the machine is released
+        anyway, since the next App started there stops whatever still runs.
+
+        Args:
+            machine: The machine's address.
+        """
+
+    @abc.abstractmethod
     def state(self, machine: str) -> AppRunState:
         """Say how the App on ``machine`` is doing.
 

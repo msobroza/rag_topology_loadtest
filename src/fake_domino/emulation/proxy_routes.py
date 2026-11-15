@@ -46,10 +46,10 @@ class _Gated:
     proxy: FakeAppProxy
 
 
-def _placed_upstream(apps: FakeDominoApps, app: FakeApp) -> str | None:
-    # Only a placing scheduler knows a machine; a scripted one leaves --upstream.
+def _placed_upstreams(apps: FakeDominoApps, app: FakeApp) -> tuple[str, ...]:
+    # Only a placing scheduler knows machines; a scripted one leaves --upstream.
     scheduler = apps.scheduler
-    return scheduler.upstream(app.id) if isinstance(scheduler, AppPlacer) else None
+    return scheduler.upstreams(app.id) if isinstance(scheduler, AppPlacer) else ()
 
 
 def _gated(request: Request, apps: FakeState) -> _Gated:
@@ -79,8 +79,8 @@ async def app_by_id(request: Request, gated: Gated, app_id: str, path: str) -> R
     app = gated.apps.apps.get(app_id)
     if app is None:
         raise HTTPException(HTTPStatus.NOT_FOUND, f"no App {app_id}")
-    prefix, upstream = f"/apps/{app_id}", _placed_upstream(gated.apps, app)
-    target = AppTarget(app, app.versions[-1], prefix, path, upstream)
+    prefix, upstreams = f"/apps/{app_id}", _placed_upstreams(gated.apps, app)
+    target = AppTarget(app, app.versions[-1], prefix, path, upstreams)
     return await gated.proxy.answer(request, gated.caller, target)
 
 
@@ -112,7 +112,7 @@ async def app_by_instance(
     if owned is None:
         raise HTTPException(HTTPStatus.NOT_FOUND, f"no App instance {instance_id}")
     prefix = f"/{owner}/{project}/r/notebookSession/{instance_id}"
-    target = AppTarget(*owned, prefix, path, _placed_upstream(gated.apps, owned[0]))
+    target = AppTarget(*owned, prefix, path, _placed_upstreams(gated.apps, owned[0]))
     return await gated.proxy.answer(request, gated.caller, target)
 
 
