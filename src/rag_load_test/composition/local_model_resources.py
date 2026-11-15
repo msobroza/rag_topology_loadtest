@@ -4,7 +4,8 @@ The thread budget comes from the first CPU counter that answers
 (``RAG_MODEL_CPUS``, the Domino tier, the container; see
 ``infrastructure/local_models/cpu_count.py``). The pool is created on first need
 and shut down with the scope. Under the ``openvino`` runtime a model whose
-folder is missing is exported there first, on the pool, since it takes minutes
+folder is missing is exported there first, at the settings' weight format, on
+the pool, since it takes minutes
 (``infrastructure/local_models/model_provisioning.py``).
 
 Example:
@@ -26,7 +27,7 @@ from ..infrastructure.local_models.cpu_count import (
     first_cpu_count,
     work_out_thread_budget,
 )
-from ..infrastructure.local_models.local_model import LocalModel
+from ..infrastructure.local_models.local_model import LocalModel, OpenVinoExports
 from ..infrastructure.local_models.model_pool import model_executor
 from ..infrastructure.local_models.model_provisioning import (
     Exporter,
@@ -122,10 +123,12 @@ class LocalModelResources:
 
         Args:
             model_id: The model's Hugging Face id or local path.
-            export: Converts this kind of model to OpenVINO files.
+            export: Converts this kind of model to OpenVINO files, at the weight
+                format the settings name.
 
         Returns:
-            The files the model loads from and what runs it.
+            The files the model loads from (the export of the settings' weight
+            format, under ``openvino``) and what runs it.
 
         Example:
             >>> await local_models.local_model("org/rerank", export_reranker)
@@ -134,7 +137,9 @@ class LocalModelResources:
         return await provision_local_model(
             model_id,
             runtime=settings.local_model_runtime,
-            models_dir=settings.openvino_models_dir,
+            exports=OpenVinoExports(
+                settings.openvino_models_dir, settings.openvino_weight_format
+            ),
             export=export,
             require_packages=self._require_openvino_packages,
             executor=await self.model_pool(),

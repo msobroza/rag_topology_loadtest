@@ -6,8 +6,14 @@ load). ``LocalModelResources`` never lets it come to that: it exports a missing
 folder first (``model_provisioning.py``). ``torch`` always loads the id.
 Describing a model reads nothing but whether the folder exists.
 
+The folder's name carries the weight format, so an export of another format is
+never loaded by mistake and both can sit side by side: ``<model>`` for ``fp32``,
+``<model>-int8`` for ``int8``.
+
 Example:
-    >>> model = local_model("org/name", runtime="openvino", models_dir="models/ov")
+    >>> model = local_model(
+    ...     "org/name", runtime="openvino", models_dir="models/ov", weight_format="fp32"
+    ... )
     >>> model.source  # "models/ov/name" once exported, else "org/name"
 """
 
@@ -17,7 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...domain.backends import LocalModelRuntime
+from ...domain.backends import LocalModelRuntime, OpenVinoWeightFormat
+
+# Appended to a model's folder name, per weight format. fp32 adds nothing: every
+# export made before the setting existed holds 32-bit weights and keeps its place.
+_FOLDER_SUFFIXES: dict[OpenVinoWeightFormat, str] = {"fp32": "", "int8": "-int8"}
 
 
 @dataclass(frozen=True)
@@ -53,25 +63,61 @@ class LocalModel:
         return {"backend": "openvino", "model_kwargs": {"ov_config": ov_config}}
 
 
-def exported_model_dir(models_dir: str, model_id: str) -> Path:
-    """Return where a model's OpenVINO export lives.
+@dataclass(frozen=True)
+class OpenVinoExports:
+    """Where the OpenVINO exports are kept, and the weight format loaded and written.
+
+    Example:
+        >>> OpenVinoExports("models/openvino", "int8").folder("org/name")
+        PosixPath('models/openvino/name-int8')
+    """
+
+    models_dir: str  # RAG_OPENVINO_MODELS_DIR
+    weight_format: OpenVinoWeightFormat  # RAG_OPENVINO_WEIGHT_FORMAT
+
+    def folder(self, model_id: str) -> Path:
+        """Return where ``model_id``'s export of this weight format lives.
+
+        Args:
+            model_id: The model's Hugging Face id or path.
+
+        Returns:
+            The folder, as ``exported_model_dir`` names it.
+        """
+        return exported_model_dir(
+            self.models_dir, model_id, weight_format=self.weight_format
+        )
+
+
+def exported_model_dir(
+    models_dir: str, model_id: str, *, weight_format: OpenVinoWeightFormat
+) -> Path:
+    """Return where a model's OpenVINO export of ``weight_format`` lives.
 
     Args:
         models_dir: The folder holding every export (``RAG_OPENVINO_MODELS_DIR``).
         model_id: The model's Hugging Face id or path.
+        weight_format: ``fp32`` or ``int8`` (``RAG_OPENVINO_WEIGHT_FORMAT``).
 
     Returns:
-        ``models_dir`` joined with the last segment of ``model_id``.
+        ``models_dir`` joined with the last segment of ``model_id``, followed by
+        ``-int8`` for ``int8``.
 
     Example:
-        >>> exported_model_dir("models/openvino", "Snowflake/arctic-embed")
-        PosixPath('models/openvino/arctic-embed')
+        >>> exported_model_dir("models/openvino", "Snowflake/arctic-embed",
+        ...                    weight_format="int8")
+        PosixPath('models/openvino/arctic-embed-int8')
     """
-    return Path(models_dir) / model_id.rstrip("/").rsplit("/", 1)[-1]
+    name = model_id.rstrip("/").rsplit("/", 1)[-1]
+    return Path(models_dir) / f"{name}{_FOLDER_SUFFIXES[weight_format]}"
 
 
 def local_model(
-    model_id: str, *, runtime: LocalModelRuntime, models_dir: str
+    model_id: str,
+    *,
+    runtime: LocalModelRuntime,
+    models_dir: str,
+    weight_format: OpenVinoWeightFormat,
 ) -> LocalModel:
     """Describe how ``model_id`` loads under ``runtime``.
 
@@ -79,11 +125,13 @@ def local_model(
         model_id: The model's Hugging Face id or path.
         runtime: ``openvino`` or ``torch``.
         models_dir: The folder holding the OpenVINO exports.
+        weight_format: Which export to load under ``openvino``; ``torch``
+            ignores it.
 
     Returns:
         The model, loading from its exported folder when the runtime is
         ``openvino`` and the folder exists, else from ``model_id``.
     """
-    exported = exported_model_dir(models_dir, model_id)
+    exported = exported_model_dir(models_dir, model_id, weight_format=weight_format)
     use_export = runtime == "openvino" and exported.is_dir()
     return LocalModel(model_id, str(exported) if use_export else model_id, runtime)

@@ -29,6 +29,13 @@
 # models (monolith, workflow, fastapi-*) export themselves into
 # RAG_OPENVINO_MODELS_DIR on their first start (RAG_LOCAL_MODEL_RUNTIME=openvino).
 #
+# RAG_OPENVINO_WEIGHT_FORMAT (fp32, the default, or int8) is what both exports
+# store the weights as. An OVMS models folder holds one export, of one weight
+# format, recorded in its weight-format file (a folder without one holds int8).
+# An OVMS role whose folder holds another format stops before OVMS starts: set
+# RAG_OPENVINO_WEIGHT_FORMAT to the format found, or point RAG_OVMS_MODELS_DIR
+# at another folder, where the asked format is exported on first start.
+#
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedding and
 # rerank backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
 # RAG_EMBEDDING_API_URL / RAG_RERANK_API_URL for every component on a model server
@@ -47,6 +54,9 @@ cd "$(dirname "$0")/.."
 
 ROLE=${RAG_ROLE:-monolith}
 MODELS_DIR=${RAG_OVMS_MODELS_DIR:-/mnt/data/ovms-models}
+# The default of RagSettings.openvino_weight_format, repeated in bash; a test
+# (tests/scripts/test_domino_app_sh_weight_format.py) fails if the two differ.
+WEIGHT_FORMAT=${RAG_OPENVINO_WEIGHT_FORMAT:-fp32}
 OVMS_UPSTREAM_PORT=9000
 
 die() {
@@ -84,7 +94,7 @@ render_proxy_config() {
 
 serve_ovms() {
   local config="$MODELS_DIR/$1"
-  if [ ! -f "$config" ]; then provision_ovms_models "$config"; fi
+  if [ ! -f "$config" ]; then provision_ovms_models "$config"; else require_ovms_weight_format; fi
   command -v ovms >/dev/null 2>&1 \
     || die "'ovms' binary not on PATH; use the environment built from domino/Dockerfile --target ovms"
   if [ "${RAG_OVMS_PREFIX_PROXY:-}" != 1 ]; then
@@ -104,6 +114,16 @@ serve_ovms() {
     sleep 1
   done
   die "ovms or nginx exited"
+}
+
+# require_ovms_weight_format: the export in $MODELS_DIR is of the weight format
+# asked. ovms/export_models.sh records it in weight-format; a folder without that
+# file was exported before it did, always at int8.
+require_ovms_weight_format() {
+  local found=int8 record="$MODELS_DIR/weight-format"
+  if [ -f "$record" ]; then found=$(<"$record"); fi
+  [ "$found" = "$WEIGHT_FORMAT" ] \
+    || die "$MODELS_DIR (RAG_OVMS_MODELS_DIR) holds an OVMS export at weight format $found, but $WEIGHT_FORMAT was asked (RAG_OPENVINO_WEIGHT_FORMAT, fp32 when unset); set RAG_OPENVINO_WEIGHT_FORMAT=$found to serve that export, or point RAG_OVMS_MODELS_DIR at another folder, where $WEIGHT_FORMAT is exported on first start"
 }
 
 # provision_ovms_models <config>: export both models into $MODELS_DIR, once.

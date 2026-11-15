@@ -44,6 +44,7 @@ from ..domain.backends import (
     EmbeddingBackend,
     GenerationBackend,
     LocalModelRuntime,
+    OpenVinoWeightFormat,
     RerankBackend,
     VectorStoreBackend,
 )
@@ -176,6 +177,12 @@ class RagSettings(BaseSettings):
     # without a folder there is downloaded and converted into it the first time
     # it loads; rag-export-openvino fills it ahead of time.
     openvino_models_dir: str = "models/openvino"
+    # Read by both exports: the in-process one (local_models/openvino_export.py;
+    # an int8 model gets its own folder, "<model>-int8") and OVMS's
+    # (ovms/export_models.sh, through rag-served-models). fp32 is what the
+    # in-process models have always run; ranking quality on int8 is unchecked.
+    # domino/app.sh repeats this default in bash; a test keeps the two equal.
+    openvino_weight_format: OpenVinoWeightFormat = "fp32"  # fp32 | int8
     # Model calls running at once, max, under torch only; openvino runs one call
     # at a time on every CPU (domain/thread_budget.py).
     model_workers: int = Field(default=4, ge=1)

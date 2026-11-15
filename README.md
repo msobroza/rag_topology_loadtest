@@ -307,7 +307,7 @@ documents at start-up (nothing to ingest: `rag-ingest` refuses the fake store).
 ## Split topologies on a laptop
 
 ```bash
-make ovms-export              # once, after make install: export both models (int8) into ovms/models, needs HF Hub access
+make ovms-export              # once, after make install: export both models into ovms/models at RAG_OPENVINO_WEIGHT_FORMAT (fp32 by default), needs HF Hub access
 make infra-up                 # the OVMS containers now serve the reranker on :8001 and the embedder on :8002
 
 # split-reranker: reranker over HTTP, embedder in-process
@@ -438,6 +438,15 @@ servers with the `rag` environment (no OVMS binary needed); the workflow app's
 `RAG_LOADTEST_TARGET` selects the Locust user class: `rag` (default,
 `/query` + `/retrieve`), `rerank` or `embeddings`.
 
+**Compare servers on the same weight format.** The FastAPI model server runs the
+in-process export and OVMS its own export; both read `RAG_OPENVINO_WEIGHT_FORMAT`
+(`fp32` or `int8`, see "Weight format" below). Measured on 15 November 2026,
+one reranker replica on a 2-CPU machine: the reranker's export is 442 MB at
+`fp32` and 111 MB at `int8`. OVMS on `int8` looked 38 to 65% faster than the
+FastAPI model server on `fp32`, and the whole lead was the 8-bit weights: on the
+same weights both served the same, 0.24 requests a second each at `fp32` and
+0.36 to 0.38 at `int8`. Ranking quality on `int8` weights was not checked.
+
 ## HTTP API
 
 | Route | Body → result |
@@ -496,7 +505,8 @@ with a one-line usage error, not a traceback.
 | `RAG_GENERATION_TIMEOUT_S` | `120` | timeout of one generation request (> 0); an answer takes longer than a model-server call. Retries and backoff are `RAG_HTTP_RETRIES` / `RAG_HTTP_BACKOFF_S` |
 | **Everything else** | | |
 | `RAG_LOCAL_MODEL_RUNTIME` | `openvino` | what runs the in-process models: `openvino` \| `torch` |
-| `RAG_OPENVINO_MODELS_DIR` | `models/openvino` | where `rag-export-openvino` writes and the `openvino` runtime looks first, one folder per model |
+| `RAG_OPENVINO_MODELS_DIR` | `models/openvino` | where `rag-export-openvino` writes and the `openvino` runtime looks first, one folder per model and weight format |
+| `RAG_OPENVINO_WEIGHT_FORMAT` | `fp32` | what both OpenVINO exports (in-process and OVMS) store the weights as: `fp32` \| `int8` (8-bit weight compression only); changing it exports again, into `<model>-int8` in-process. See "Weight format" |
 | `RAG_VECTOR_STORE_BACKEND` | `elasticsearch` | `elasticsearch` \| `chroma` \| `fake` (in-memory, seeded with the synthetic corpus at start-up) |
 | `RAG_RETRIEVAL_MODE` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store; no embed stage) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` |
 | `RAG_HYBRID_RRF_K` | `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
@@ -770,7 +780,7 @@ RAG_LOADTEST_QUESTIONS_FILE=data/quebec/questions.jsonl make loadtest RUN_NAME=m
   `not_ready` while the index is missing or empty.
 * On Domino every workflow app points at one shared cluster (`RAG_ES_URL` in the
   project's environment variables), so the corpus is ingested once. All
-  topologies embed with `snowflake-arctic-embed-l-v2.0` (in-process or its int8 OVMS
+  topologies embed with `snowflake-arctic-embed-l-v2.0` (in-process or its OVMS
   export), so one index serves every run. Its vectors have 1024 dimensions: an
   index filled by an earlier embedder (384 for `bge-small-en-v1.5`) cannot take
   them, so ingest into a new `RAG_ES_INDEX`.
@@ -817,6 +827,39 @@ never run), anything on x86 Linux, which is what Domino runs, and speed there.
 On the Mac, where OpenVINO defaults to half precision, it was slower than
 PyTorch.
 
+### Weight format
+
+`RAG_OPENVINO_WEIGHT_FORMAT` says what an OpenVINO export stores its weights as:
+`fp32` (32-bit floats, the default) or `int8` (weights stored as 8-bit integers;
+weight compression only, not full quantization). It is one setting read by both
+exports: `rag-export-openvino` and a first start of the in-process models, and
+`ovms/export_models.sh` through `rag-served-models`. `fp32` is the default
+because it is what the in-process models have always run, and ranking quality
+on `int8` weights has not been checked.
+
+In-process, each weight format has its own folder: `<model>` for `fp32` (every
+export made before the setting holds 32-bit weights and keeps its place) and
+`<model>-int8` for `int8`. An export of another format is never loaded. A start
+that finds no folder for its format exports one, so changing the setting
+exports again from the Hub. The `torch` runtime ignores the setting. To export
+`int8` ahead of time:
+
+```bash
+RAG_OPENVINO_WEIGHT_FORMAT=int8 make openvino-export    # -> models/openvino/<model name>-int8/
+RAG_OPENVINO_WEIGHT_FORMAT=int8 ./ovms/export_models.sh ovms/models-int8
+```
+
+An OVMS models folder holds one export, of one weight format, recorded in its
+`weight-format` file (see "OpenVINO Model Server").
+
+Verified on an 8-CPU machine on 15 November 2026. The in-process `int8` export
+of the reranker took 13 seconds and holds 110.6 MB of 8-bit weights, against
+442.5 MB of 32-bit floats at `fp32`. `ovms/export_models.sh` exported `fp32` into
+a new folder and recorded it, and an OVMS export made before the setting was
+served as `int8`. On `int8` both servers served the same again, 1.56 and 1.57
+requests a second on one reranker alone, against 1.0 each at `fp32`. Ranking
+quality on `int8` weights is still unchecked.
+
 ## OpenVINO Model Server
 
 `ovms/versions.env` is the single pin of the OpenVINO Model Server version,
@@ -844,9 +887,22 @@ downloads `export_model.py` and its `requirements.txt` from the OVMS repository 
 separate environment, which it needs: the exporter pins its own
 sentence-transformers and OpenVINO versions and would downgrade this project's),
 then runs `rerank_ov` and `embeddings_ov --pooling CLS`
-with `--weight-format int8`. The result is `config_reranker.json`,
-`config_embedder.json` and one directory per model; the configs reference the
-model directories relatively, so the tree can be mounted anywhere.
+with `--weight-format` set to `RAG_OPENVINO_WEIGHT_FORMAT` (`fp32` by default,
+or `int8`). The result is `config_reranker.json`, `config_embedder.json`, one
+directory per model and a one-line `weight-format` file, written last; the
+configs reference the model directories relatively, so the tree can be mounted
+anywhere.
+
+A models folder holds one export, of one weight format. A folder holding a
+config but no `weight-format` file was exported before the setting existed and
+holds `int8`. The script refuses to export into a folder of another weight
+format, since OVMS's exporter skips a model folder that exists and would leave
+the old weights under the new label: export into another folder instead. An
+OVMS App whose folder holds another format than `RAG_OPENVINO_WEIGHT_FORMAT`
+asks stops before OVMS starts and names both ways out: set
+`RAG_OPENVINO_WEIGHT_FORMAT` to the format found, or point
+`RAG_OVMS_MODELS_DIR` at another folder, where the asked format is exported on
+first start.
 
 **On Domino the export is optional.** An OVMS role (`RAG_ROLE=ovms-reranker` /
 `ovms-embedder`) that finds its `config_*.json` missing under
@@ -952,7 +1008,7 @@ apps can reach in Project → Settings → Environment variables, then run `make
 
 **Publishing.** For each app (Apps → Publish): entry point
 `domino/app.sh`, the environment from the table, a CPU tier with
-at least 4 cores (the int8 OVMS models and the in-process models are CPU-bound;
+at least 4 cores (the OVMS models and the in-process models are CPU-bound;
 8 cores for the monolith is a fair baseline) and the variables above (project
 variables are inherited by every app, so use one project per app when two apps
 need different values). Publish the OVMS apps first, copy their URLs from the

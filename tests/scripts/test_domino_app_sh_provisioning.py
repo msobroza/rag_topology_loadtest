@@ -110,6 +110,7 @@ def test_a_present_config_is_served_without_any_export(
     models = tmp_path / "models"
     models.mkdir()
     (models / "config_reranker.json").write_text("{}")
+    (models / "weight-format").write_text("fp32\n")
 
     result = run_app(
         tmp_path,

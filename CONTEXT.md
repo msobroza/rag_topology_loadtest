@@ -68,6 +68,10 @@ _Avoid_: canonical format, native format, default format
 What runs an in-process model: `openvino` on files exported beforehand, or `torch`.
 _Avoid_: backend (that is the adapter kind), engine, device
 
+**Weight format**:
+What an OpenVINO export stores its weights as: `fp32` (32-bit floats) or `int8` (weights stored as 8-bit integers). One setting, `RAG_OPENVINO_WEIGHT_FORMAT`, read by both exports: the in-process one and OVMS's. Servers are compared on the same weight format.
+_Avoid_: precision alone, quantization (`int8` here compresses the weights only)
+
 **Workflow app**:
 The process that serves the RAG workflow over HTTP.
 _Avoid_: service, API, RAG app, server

@@ -112,12 +112,17 @@ def started_env(tmp_path: Path, name: str) -> list[str]:
     return (tmp_path / f"{name}.env").read_text().splitlines()
 
 
-def models_dir(tmp_path: Path) -> Path:
-    """A models folder holding both OVMS configs, so no OVMS role exports."""
+def models_dir(tmp_path: Path, weight_format: str = "fp32") -> Path:
+    """A models folder holding both OVMS configs, so no OVMS role exports.
+
+    Its ``weight-format`` record says ``weight_format``; fp32 is what app.sh asks
+    for when RAG_OPENVINO_WEIGHT_FORMAT is unset.
+    """
     models = tmp_path / "models"
     models.mkdir()
     (models / "config_reranker.json").write_text("{}")
     (models / "config_embedder.json").write_text("{}")
+    (models / "weight-format").write_text(f"{weight_format}\n")
     return models
 
 
