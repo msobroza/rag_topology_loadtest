@@ -116,6 +116,11 @@ rule 4 (only component packages in `adapters/`, their layout, and no port
 implemented anywhere else) and rule 6. The fake Domino (`src/fake_domino/`) is a
 test double, not part of the product, and the rule does not apply to it.
 
+Measurements go in `experiments/`, not in the code: one folder per sitting, with its
+question, its settings and the statistics of its runs (see
+[experiments/README.md](experiments/README.md)). They are records, and the rules above do
+not apply to them.
+
 ### The tree
 
 ```text
@@ -268,6 +273,7 @@ src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test doub
   server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
   emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
+experiments/        the registry of every measurement: one folder per sitting (README.md, experiments*.yaml, results.csv)
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)

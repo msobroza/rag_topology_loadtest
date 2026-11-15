@@ -1,0 +1,11 @@
+run,experiment,users,type,name,requests,failures,requests_per_s,p50_ms,p95_ms,p99_ms,max_ms
+cache-sitting1-u5,cache-sitting1,5,POST,/retrieve,87,0,0.732,6200,6800,7100,7138
+cache-sitting1-u5,cache-sitting1,5,STAGE,/retrieve:embed,87,0,0.732,63,120,310,312
+cache-sitting1-u5,cache-sitting1,5,STAGE,/retrieve:rerank,87,0,0.732,6100,6700,6800,6781
+cache-sitting1-u5,cache-sitting1,5,STAGE,/retrieve:retrieve,87,0,0.732,14,31,180,184
+cache-sitting1-u5,cache-sitting1,5,,Aggregated,348,0,2.928,1300,6600,6800,7138
+cache-sitting2-u5,cache-sitting2,5,POST,/retrieve,87,0,0.730,6300,6700,7200,7169
+cache-sitting2-u5,cache-sitting2,5,STAGE,/retrieve:embed,87,0,0.730,72,130,300,304
+cache-sitting2-u5,cache-sitting2,5,STAGE,/retrieve:rerank,87,0,0.730,6100,6500,6700,6723
+cache-sitting2-u5,cache-sitting2,5,STAGE,/retrieve:retrieve,87,0,0.730,15,46,270,268
+cache-sitting2-u5,cache-sitting2,5,,Aggregated,348,0,2.922,1300,6600,6700,7169
