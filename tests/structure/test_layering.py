@@ -55,7 +55,8 @@ ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # For the defaults of the four RAG_* values a load test sends, nothing else.
     "rag_load_test.loadtest.loadtest_settings": {"config"},
     # The deploy tool reads the workflow settings, to know the components a
-    # topology alias names (ADR 0003); the rest of deploy reads them through it.
+    # topology alias names (ADR 0003) and to check the overrides against them;
+    # the rest of deploy reads them through it.
     "rag_load_test.deploy.workflow_components": {"config"},
 }
 LOCUSTFILE = REPO_ROOT / "locustfile.py"  # the load-test client's file, outside src

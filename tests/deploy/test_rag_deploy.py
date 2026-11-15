@@ -18,6 +18,7 @@ from domino_deploy_helpers import (
     APPS_URL,
     CACHE_FILE,
     DEPLOY_YAML,
+    DEPLOY_YAML_OVERRIDES,
     ENV_1,
     INSTANCES_URL,
     NO_ENVIRONMENT,
@@ -347,17 +348,18 @@ def test_deploy_passes_each_apps_settings_to_it(run_main: RunMain) -> None:
     assert code == 0, err
     scripts = [str(body.version.entryScript) for body in apps.creates]
     assert len(scripts) == 2  # split-reranker, from `topology` in the file
+    # Each App's own free list, then the overrides every App gets.
     assert scripts[0].startswith(
-        "export RAG_COMPONENTS__RERANKER__SOURCE_ID='/mnt/data/models/bge reranker'\n"
         "export RAG_ES_URL=https://es.test:9200\n"
         "export RAG_MODEL_WORKERS=2\n"
+        f"{DEPLOY_YAML_OVERRIDES}"
         "export RAG_ROLE=model-server\n"
         "export RAG_MODEL_SERVER_COMPONENT=reranker\n"
         "export RAG_MODEL_SERVER_KIND=fastapi\n"
     )
     assert scripts[1].startswith(
-        "export RAG_COMPONENTS__RERANKER__SOURCE_ID='/mnt/data/models/bge reranker'\n"
         "export RAG_ES_URL=https://es.test:9200\n"
+        f"{DEPLOY_YAML_OVERRIDES}"
         "export RAG_ROLE=workflow\n"
     )
     for entry in scripts:

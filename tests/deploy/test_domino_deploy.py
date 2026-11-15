@@ -12,6 +12,7 @@ from domino_deploy_helpers import (
     AGENT_EXPORTS,
     BOOTSTRAP_AND_EXEC,
     DEPLOY_YAML,
+    DEPLOY_YAML_OVERRIDES,
     INSTANCES_URL,
     LAUNCH,
     MONOLITH_EXPORTS,
@@ -41,9 +42,9 @@ def script(part: str, settings: DeploySettings, urls: dict[str, str]) -> str:
     return entry_script(settings.for_app(part), settings, topology, urls, LAUNCH)
 
 
-def with_settings(part: str, values: dict[str, str], **overrides: object) -> DeploySettings:  # fmt: skip
+def with_settings(part: str, values: dict[str, str], **given: object) -> DeploySettings:  # fmt: skip
     """Settings where ``rag-<part>``'s own block sets ``values``."""
-    return make_settings(apps={part: {"settings": values}}, **overrides)
+    return make_settings(apps={part: {"settings": values}}, **given)
 
 
 @pytest.mark.parametrize("part", ["embedder", "reranker"])
@@ -129,33 +130,42 @@ def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
     )
 
 
-def test_an_agent_keeps_the_tracing_and_extras_its_settings_set() -> None:
-    values = {"RAG_DOMINO__TRACING": "0", "RAG_BOOTSTRAP_EXTRAS": "domino,dev"}
-    settings = with_settings("workflow", values, topology="monolith")
+def test_an_agent_keeps_the_tracing_its_overrides_set_and_its_own_extras() -> None:
+    # Domino tracing is a value of the workflow file, the extras a variable of
+    # the launch script: each where it belongs.
+    values = {"RAG_BOOTSTRAP_EXTRAS": "domino,dev"}
+    overrides = {"domino": {"tracing": False}}
+    settings = with_settings(
+        "workflow", values, topology="monolith", overrides=overrides
+    )
     assert script("workflow", settings, {}) == (
         "export RAG_BOOTSTRAP_EXTRAS=domino,dev\n"
-        "export RAG_DOMINO__TRACING=0\n"
+        "export RAG_DOMINO__TRACING=false\n"
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
-def test_app_settings_come_first_so_computed_exports_win() -> None:
-    values = {"RAG_ES_URL": "https://es.test/?a&b", "RAG_TOPOLOGY_ALIAS": "split-all"}
-    settings = with_settings("workflow", values, topology="monolith")
+def test_app_settings_then_overrides_come_first_so_computed_exports_win() -> None:
+    values = {"RAG_ES_URL": "https://es.test/?a&b", "RAG_ROLE": "model-server"}
+    overrides = {"components": {"reranker": {"backend": "none"}}}
+    settings = with_settings(
+        "workflow", values, topology="monolith", overrides=overrides
+    )
     assert script("workflow", settings, {}) == (
         "export RAG_ES_URL='https://es.test/?a&b'\n"
-        "export RAG_TOPOLOGY_ALIAS=split-all\n"
+        "export RAG_ROLE=model-server\n"
+        "export RAG_COMPONENTS__RERANKER__BACKEND=none\n"
         "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
-def test_a_run_label_in_the_settings_replaces_the_computed_one() -> None:
-    values = {"RAG_RUN_LABEL": "split-reranker-8cores"}
-    settings = with_settings("workflow", values, topology="split-reranker")
+def test_a_run_label_in_the_overrides_replaces_the_computed_one() -> None:
+    overrides = {"run_label": "split-reranker-8cores"}
+    settings = make_settings(topology="split-reranker", overrides=overrides)
     urls = {"reranker": "https://domino.test/apps/r1"}
     assert script("workflow", settings, urls) == (
         "export RAG_RUN_LABEL=split-reranker-8cores\n"
@@ -248,8 +258,8 @@ def test_each_app_is_published_with_its_own_settings(
     ]
     reranker_script = str(apps.creates[0].version.entryScript)
     assert reranker_script.startswith(
-        "export RAG_COMPONENTS__RERANKER__SOURCE_ID='/mnt/data/models/bge reranker'\n"
         "export RAG_ES_URL=https://es.test:9200\nexport RAG_MODEL_WORKERS=2\n"
+        f"{DEPLOY_YAML_OVERRIDES}"
     )
 
 
@@ -266,13 +276,11 @@ def test_a_secret_is_refused_before_anything_is_sent() -> None:
 
 def test_a_placeholder_is_refused_before_anything_is_sent() -> None:
     apps = FakeDominoApps(["Running"])
-    settings = with_settings(
-        "embedder", {"RAG_COMPONENTS__EMBEDDER__SOURCE_ID": "/d/<dataset>"}
-    )
+    settings = with_settings("embedder", {"RAG_OVMS_MODELS_DIR": "/d/<dataset>"})
     with pytest.raises(DominoDeployError) as caught:
         run_deploy(apps, settings, "all")
     assert str(caught.value).startswith(
-        "RAG_COMPONENTS__EMBEDDER__SOURCE_ID in apps.embedder.settings of deploy.yaml still holds"
+        "RAG_OVMS_MODELS_DIR in apps.embedder.settings of deploy.yaml still holds"
     )
     assert apps.received == []
 

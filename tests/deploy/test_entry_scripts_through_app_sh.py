@@ -11,7 +11,9 @@ alone, never from a Role string, so a Role or a kind that app.sh does not handle
 or maps to another server fails here rather than at App start on Domino. The
 aliases are the three of deploy.example.yaml and a fourth added to the table;
 the kinds are every registered one for every model server App, and FastAPI
-beside OVMS.
+beside OVMS. And the overrides, written in the workflow file's shape, reach
+the workflow App and a model server App as variables that their settings read
+back to the same values, over the workflow file.
 """
 
 from __future__ import annotations
@@ -32,7 +34,9 @@ from launch_script_stand_ins import (
     stand_in_env,
     started_env,
 )
+from rag_load_test.application.stages.base_stage import STAGE_TYPES
 from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.config.shared_settings import DefaultHttpSettings
 from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from rag_load_test.deploy.deploy_settings import DeploySettings
 from rag_load_test.deploy.model_server_kinds.base_model_server_kind import (
@@ -62,11 +66,20 @@ KINDS = {
 }
 
 
-def settings_for(alias: str, kinds: str, bundle: str = "") -> DeploySettings:
+def settings_for(
+    alias: str,
+    kinds: str,
+    bundle: str = "",
+    overrides: dict[str, object] | None = None,
+) -> DeploySettings:
     """The test settings, each model server App's kind set in its own block."""
     apps = {part: {"server": kind} for part, kind in KINDS[kinds].items()}
     return make_settings(
-        topology=alias, topology_alias=ALIASES, apps=apps, ovms_bundle=bundle
+        topology=alias,
+        topology_alias=ALIASES,
+        apps=apps,
+        ovms_bundle=bundle,
+        overrides=overrides or {},
     )
 
 
@@ -98,11 +111,15 @@ def expected_label(alias: str, kinds: str) -> str:
 
 
 def run_entry_script(
-    tmp_path: Path, alias: str, part: str, kinds: str
+    tmp_path: Path,
+    alias: str,
+    part: str,
+    kinds: str,
+    overrides: dict[str, object] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     """Write ``rag-<part>``'s entry script as rag-deploy would, then run it."""
     bin_dir, models = make_stand_ins(tmp_path), models_dir(tmp_path)
-    settings = settings_for(alias, kinds, str(ovms_bundle(tmp_path)))
+    settings = settings_for(alias, kinds, str(ovms_bundle(tmp_path)), overrides)
     topology = resolve_topology(settings)
     servers = topology.served if part == "workflow" else []
     urls = {server: APP_URLS[server] for server in servers}
@@ -153,15 +170,8 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
 ) -> None:
     result, _ = run_entry_script(tmp_path, alias, "workflow", kinds)
     assert result.returncode == 0, result.stderr
-    # The settings rag-serve reads from what app.sh started it with, and nothing
-    # else: no RAG_* of the shell but the workflow file the tests read.
-    for name in [n for n in os.environ if n.startswith("RAG_")]:
-        if name != WORKFLOW_FILE_VARIABLE:
-            monkeypatch.delenv(name)
-    for line in started_env(tmp_path, "venv-rag-serve"):
-        monkeypatch.setenv(*line.split("=", 1))
 
-    settings = RagSettings(_env_file=None)
+    settings = read_back(tmp_path, monkeypatch, "venv-rag-serve")
 
     components = settings.components
     placed = {
@@ -182,3 +192,64 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
         alias,
         expected_label(alias, kinds),
     )
+
+
+def read_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_in: str
+) -> RagSettings:
+    """The settings an App reads from what app.sh started ``stand_in`` with.
+
+    Nothing else: no RAG_* of the shell but the workflow file the tests read.
+    """
+    for name in [n for n in os.environ if n.startswith("RAG_")]:
+        if name != WORKFLOW_FILE_VARIABLE:
+            monkeypatch.delenv(name)
+    for line in started_env(tmp_path, stand_in):
+        monkeypatch.setenv(*line.split("=", 1))
+    return RagSettings(_env_file=None)
+
+
+# A site's values in the workflow file's shape, one of each kind: whole and
+# decimal numbers, a boolean, a text with spaces and shell symbols, a list, a
+# value of a component, one of a stage and a label.
+SITE_OVERRIDES: dict[str, object] = {
+    "http": {"timeout_s": 45, "retries": 0, "backoff_s": 0.5},
+    "components": {
+        "llm": {"http": {"timeout_s": 90.5}},  # the file's is 120
+        "vector_store": {"elasticsearch": {"url": "https://es.site:9200/?a=b&c d"}},
+        "embedder": {"query_prefix": "passage: "},
+    },
+    "domino": {"tracing": False},
+    "local_models": {"cpus": 1.5},
+    "graph": {
+        "stages": {"rerank": {"top_k": 5}},
+        "edges": [["START", "embed", "retrieve", "rerank"], ["generate", "END"]],
+    },
+    "run_label": "site-a",
+}
+STARTED = {"workflow": "venv-rag-serve", "reranker": "venv-rag-model-server"}
+
+
+@pytest.mark.parametrize("part", list(STARTED))
+def test_every_app_reads_each_override_back_to_its_value_over_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str
+) -> None:
+    result, _ = run_entry_script(
+        tmp_path, "split-reranker", part, "fastapi", SITE_OVERRIDES
+    )
+    assert result.returncode == 0, result.stderr
+
+    settings = read_back(tmp_path, monkeypatch, STARTED[part])
+
+    assert settings.http == DefaultHttpSettings(timeout_s=45, retries=0, backoff_s=0.5)
+    components = settings.components
+    assert components["llm"].http.timeout_s == 90.5
+    url = components["vector_store"].elasticsearch.url
+    assert url == "https://es.site:9200/?a=b&c d"
+    assert components["embedder"].query_prefix == "passage: "
+    assert (settings.domino.tracing, settings.local_models.cpus) == (False, 1.5)
+    assert settings.graph.edges == SITE_OVERRIDES["graph"]["edges"]  # type: ignore[index]
+    # A stage's own settings are its stage type's, which reads the text back.
+    rerank = settings.graph.stages["rerank"].stage_settings
+    assert STAGE_TYPES.get("rerank").settings_type.model_validate(rerank).top_k == 5
+    assert settings.run_label == "site-a"

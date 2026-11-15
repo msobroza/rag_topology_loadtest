@@ -87,9 +87,15 @@ defaults:
   environment_id: "${environment_id}"
   hardware_tier_id: "${default_tier}"
   settings:
-    RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: "${es_url}"
-    RAG_LOCAL_MODELS__OPENVINO_DIR: "${dataset_path}/openvino"
     RAG_OVMS_MODELS_DIR: "${dataset_path}/ovms-models"
+# The site's values of the workflow file, for every App.
+overrides:
+  components:
+    vector_store:
+      elasticsearch:
+        url: "${es_url}"
+  local_models:
+    openvino_dir: "${dataset_path}/openvino"
 DEPLOY
 }
 

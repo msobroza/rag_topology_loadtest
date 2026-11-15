@@ -14,8 +14,11 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 from dotenv import dotenv_values
 
+from rag_load_test.deploy.deploy_settings import DeploySettings
+from rag_load_test.deploy.overrides import override_exports
 from rag_load_test.entrypoints.rag_calibrate import main
 from repo_paths import REPO_ROOT
 from sentence_transformers_fakes import (
@@ -28,6 +31,8 @@ RERANK_KEYS = [
     "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE",
 ]
 EMBED_KEYS = ["RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS"]
+# Where the second comment of each component says to pin it in deploy.yaml.
+OVERRIDES_HINT = "deploy.yaml, under overrides.components"
 
 
 @pytest.fixture
@@ -61,7 +66,9 @@ def test_both_components_by_default(
     comments = [line for line in lines if line.startswith("#")]
     assert [comment.split(":")[0] for comment in comments] == [
         "# embedder (embed)",
+        f"# {OVERRIDES_HINT}",
         "# reranker (rerank)",
+        f"# {OVERRIDES_HINT}",
     ]
     assert [line.split("=")[0] for line in lines if "=" in line and line[0] != "#"] == [
         *EMBED_KEYS,
@@ -125,6 +132,26 @@ def test_stdout_is_comments_and_assignments_that_read_back_as_an_env_file(
     assert all(value is not None and int(value) >= 1 for value in pinned.values())
 
 
+def test_what_it_prints_pins_the_same_values_under_the_overrides(
+    fake_weights: FakeSentenceTransformersModule,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([]) == 0
+
+    out = capsys.readouterr().out
+    hints = [
+        line.removeprefix(f"# {OVERRIDES_HINT}: ")
+        for line in out.splitlines()
+        if line.startswith(f"# {OVERRIDES_HINT}: ")
+    ]
+    # Each line is one entry of overrides.components in deploy.yaml, and the
+    # deploy tool exports it under the variables the .env lines name.
+    components = {k: v for hint in hints for k, v in yaml.safe_load(hint).items()}
+    assert list(components) == ["embedder", "reranker"]
+    exports = override_exports(DeploySettings(overrides={"components": components}))
+    assert exports == dotenv_values(stream=io.StringIO(out))
+
+
 def test_the_comment_says_when_the_budget_cut_the_search_short(
     fake_weights: FakeSentenceTransformersModule,
     capsys: pytest.CaptureFixture[str],
@@ -134,7 +161,7 @@ def test_the_comment_says_when_the_budget_cut_the_search_short(
 
     assert main(["--only", "reranker"]) == 0
 
-    [comment, *assignments] = stdout_lines(capsys)
+    [comment, _, *assignments] = stdout_lines(capsys)
     assert "; tried 1 candidate in " in comment
     assert comment.endswith(", cut short by RAG_CALIBRATION__BUDGET_S=1e-09")
     assert assignments == [
@@ -155,7 +182,7 @@ def test_the_logs_stay_off_stdout(
     assert "stage_calibrated" in events
     out = capsys.readouterr().out
     assert "stage_calibrated" not in out
-    assert "{" not in out
+    assert not [line for line in out.splitlines() if line.startswith("{")]
 
 
 def test_a_bad_setting_is_one_stderr_line_naming_the_value(

@@ -95,7 +95,7 @@ The tree is three applications over one shared domain. The domain
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names (ADR 0003) |
+   | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003) |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
 
 2. **Commands.** A command lives in its own application, in a module named
@@ -128,7 +128,9 @@ The tree is three applications over one shared domain. The domain
    implementations share; `openers/` holds one opener per component type and
    Backend, a module each named `<type>_on_<backend>.py`, registered by type
    and Backend (rule 6), and an opener takes its component's settings in the
-   workflow file's shape (`config/component_settings.py`); the one factory,
+   workflow file's shape (`config/component_settings.py`); the deploy tool,
+   which may not import them, reads a type's Backends from these module names
+   (`deploy/registered_backends.py`, held to the registries by a test); the one factory,
    `component_factory.py`, opens a component once with the opener of its type
    and Backend, so a new Backend is one new module in `openers/` and no
    factory is edited; `registered_names.py` refuses an unknown Backend or API
@@ -310,9 +312,11 @@ src/rag_load_test/
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
     rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
   deploy/           the deploy tool: rag-deploy on Domino 6.2
-    deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App), RAG_DEPLOY_* overrides; Placement (local or served)
-    workflow_components.py  the components of the workflow file the workflow App reads: name, type, backend; the variable of a component's value
-    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal
+    deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), RAG_DEPLOY_* overrides; Placement (local or served); override_values, each override by its path
+    workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
+    overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
+    registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
+    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
     model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
       base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
       fastapi_kind.py  fastapi: rag-model-server, an embedder or a reranker on the /v3 routes
@@ -802,7 +806,7 @@ before the app serves, with one line in the server's log.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RAG_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `rag-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
-| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+reranker=local+llm=api+vector_store=elasticsearch` for the packaged file); `rag-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own; letters, digits and `._+=:-`, 1 to 128 characters |
+| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+reranker=local+llm=api+vector_store=elasticsearch` for the packaged file); `rag-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `rag-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
 | `RAG_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory and the packaged one (environment only, not `.env`) |
 | `RAG_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `RAG_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_COMPONENTS__LLM__API__API_KEY` or `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `RAG_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `RAG_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
@@ -942,7 +946,8 @@ in-process model as an App would (the component's `source_id`,
 whatever its backend says. It
 searches every parameter, even one already pinned: revisiting it is the point.
 `RAG_CALIBRATION__BUDGET_S` and `RAG_CALIBRATION__ROUNDS` apply as set. Standard
-output holds only `.env` lines: one comment per component, then the
+output holds only `.env` lines: for each component a comment, a second comment
+with its entry for `overrides.components` of `deploy.yaml`, then the
 environment paths of its `local` block that pin the choice. The logs go to
 standard error.
 
@@ -952,12 +957,15 @@ RAG_CALIBRATION__ROUNDS=3 RAG_CALIBRATION__BUDGET_S=600 rag-calibrate --only rer
 ```
 
 On a 2-CPU machine under `openvino` it printed this in 96 s (GCP sitting of
-2026-11-15, under the variable names of the time; the seconds vary):
+2026-11-15, shown with today's variable names and with the `deploy.yaml`
+comments it did not print yet; the seconds vary):
 
 ```
 # embedder (embed): timed on 2 CPUs under openvino, 0.193 s per request; tried 2 candidates in 24.8 s
+# deploy.yaml, under overrides.components: embedder: {local: {threads: 1}}
 RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS=1
 # reranker (rerank): timed on 2 CPUs under openvino, 4.691 s per request; tried 6 candidates in 68.2 s
+# deploy.yaml, under overrides.components: reranker: {local: {threads: 2, batch_size: 1}}
 RAG_COMPONENTS__RERANKER__LOCAL__THREADS=2
 RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE=1
 ```
@@ -966,8 +974,21 @@ There a batch size of 1 took 4.69 s and one of 2 took 4.77 s, against 7.06 s for
 one batch of 20: the two smallest are within a few percent, so either may win a
 run. An App of the same tier chose 2 at its own start that day.
 
-Put these lines in `deploy.yaml`'s `settings` or in `.env`. Then an App starts
-without calibrating, and every replica of the tier runs the same values. The
+To pin them on Domino, put each component's entry, the text after
+`overrides.components:` in its second comment, under `overrides.components` of
+`deploy.yaml`, beside the component's other overrides (`rag-deploy` refuses the
+variables themselves in a `settings` list, naming this place):
+
+```yaml
+overrides:
+  components:
+    embedder: {local: {threads: 1}}
+    reranker: {source_id: /domino/datasets/local/<dataset>/models/..., local: {threads: 2, batch_size: 1}}
+```
+
+Every App then gets them, and on a laptop the `KEY=VALUE` lines go in `.env`
+as they are (`rag-calibrate >> .env`). Either way an App starts without
+calibrating, and every replica of the tier runs the same values. The
 embedder prints `RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS` only: its batch size is
 not searched. A name that is no embedder or reranker of the workflow file is a
 usage error.
@@ -1292,7 +1313,8 @@ everywhere), and calls each served component with the run token: `--domino`
 says the app runs on Domino. A component on `api`, the LLM's included, keeps
 its own key. `RAG_COMPONENTS__RERANKER__BACKEND=none`
 and `fake` backends pass through untouched. The run label ends up in every response, so set a distinct
-`RAG_RUN_LABEL` when testing several hardware tiers or model servers.
+`RAG_RUN_LABEL` when testing several hardware tiers or model servers (`run_label`
+under the overrides of `deploy.yaml`, with `rag-deploy`).
 
 **Environments.** `domino/Dockerfile` has two targets built from the project
 root (commands in its header): `rag` starts from
@@ -1438,7 +1460,9 @@ every setting in one place. Top-level keys say what to deploy (`topology`,
 `RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
 `RAG_DEPLOY_FILE` names another file. `defaults` applies to every App and
 `apps.<workflow|served component>` to one, each App taking its own value, else the
-default (a block keyed by anything else is refused):
+default (a block keyed by anything else is refused). `overrides` holds this
+site's values of the workflow file, in the workflow file's own shape, for every
+App:
 
 ```yaml
 defaults:
@@ -1446,7 +1470,6 @@ defaults:
   environment_revision_id: rev-7   # optional: one build of env-123; "" = Domino chooses
   hardware_tier_id: small          # "" = the project's default tier
   server: fastapi                  # every model server App's kind, unless its own block says
-  settings: {RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: https://es.example:9200}
 apps:
   workflow:
     kind: agent                    # the default for the workflow; model servers are apps
@@ -1455,26 +1478,57 @@ apps:
     server: ovms                   # this model server App alone is OVMS (needs ovms_bundle)
     environment_id: env-456        # its own environment, so not rev-7: Domino chooses
     hardware_tier_id: cpu-16
-    settings: {RAG_COMPONENTS__RERANKER__SOURCE_ID: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR}
+    settings: {RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models}
+overrides:                         # the workflow file's shape
+  http: {timeout_s: 30, retries: 2, backoff_s: 0.2}
+  components:
+    llm:          {http: {timeout_s: 120}}
+    vector_store: {elasticsearch: {url: "https://es.example:9200"}}
+    reranker:     {source_id: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR}
 ```
 
-`settings` are each App's environment variables (merged with the defaults', the
-App's winning; YAML numbers and booleans are exported as strings), for example
-`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__EMBEDDER__SOURCE_ID` / `RAG_COMPONENTS__RERANKER__SOURCE_ID` (a local folder such as
+**Overrides.** The store's URL, the model paths (a local folder such as
 `/domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0` works as well as a
-Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
-`/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
+Hugging Face id), the timeouts and retries of calls, the values `rag-calibrate`
+prints: what differs per site is written under `overrides`, so no one
+hand-writes a nested variable name. Before anything is published, `rag-deploy`
+checks them against the workflow settings of the workflow file the workflow App
+reads: each key must be a value of that file, in the block it is in (a misspelt
+key is refused, naming it and its place: `overrides.components.llm.http in
+deploy.yaml has no key 'timout_s'`), a component or a stage must be one the
+file declares, and the file with the overrides over it must make settings the
+workflow app accepts (each value's type and range, a URL for a component on
+`api`). A stage's own settings (`graph.stages.rerank.top_k`) are its stage
+type's, which checks them when the workflow app starts. Then every App, the
+workflow App and each model server App, exports each override under the
+variable the workflow settings read for its path (`RAG_` and the path joined by
+`__`: `components.llm.http.timeout_s` is
+`RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S`), so an override wins over the workflow
+file; a list, such as `graph.edges`, is exported as JSON, which the settings
+read back.
+
+`settings` are each App's environment variables for what its launch script
+reads that is no value of the workflow file (merged with the defaults', the
+App's winning; YAML numbers and booleans are exported as strings), for example
+`RAG_OVMS_MODELS_DIR` (for example `/domino/datasets/local/<dataset>/ovms-models`),
+`RAG_BOOTSTRAP_EXTRAS` or `RAG_WORKFLOW_FILE`. A value of the workflow file
+written there, such as `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, is
+refused before anything is published, naming the place under `overrides` where
+it belongs. `rag-deploy` sets `RAG_ROLE`,
 a model server's `RAG_MODEL_SERVER_COMPONENT` and `RAG_MODEL_SERVER_KIND`, what
 its kind's script reads (`RAG_OVMS_BUNDLE` for `ovms`), the workflow App's
 `RAG_TOPOLOGY_ALIAS`, `RAG_COMPONENTS__<COMPONENT>__BACKEND` of each component the
 topology alias names and `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
 one (the model server App's URL plus the route its kind declares for its type,
-`/v3/rerank` or `/v3/embeddings`), and `RAG_BOOTSTRAP` itself (they win), and
-`RAG_RUN_LABEL` unless the settings set it. Secrets stay in
-Domino's project or user environment variables, because `settings` are written
-into the Apps' launch scripts. `rag-deploy` refuses, in any block, a setting
-whose name ends in `_API_KEY` (such as `RAG_COMPONENTS__LLM__API__API_KEY` or
-`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) unless its value is empty or `domino`, which names the run's
+`/v3/rerank` or `/v3/embeddings`), and `RAG_BOOTSTRAP` itself (they win over the
+settings and the overrides, which come first in the launch script), and
+`RAG_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
+Domino's project or user environment variables, because `settings` and
+`overrides` are written into the Apps' launch scripts. `rag-deploy` refuses, in
+any block, a setting whose name ends in `_API_KEY` (such as
+`RAG_COMPONENTS__LLM__API__API_KEY` or
+`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`), and an `api_key` under
+`overrides`, unless its value is empty or `domino`, which names the run's
 token and is not a secret. A misspelt key is refused with its name.
 
 **Topology aliases.** Where each component runs is a deployment matter, so the
@@ -1500,9 +1554,9 @@ component, in the workflow file's order, then the workflow App, whose launch
 script gets `RAG_COMPONENTS__<COMPONENT>__BACKEND` for every component the row
 names and `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` for every served one. A
 component the row does not name keeps the backend the workflow file (or the
-App's `settings`) gives it: to deploy the reranker on `none` or an `api`
+`overrides`) gives it: to deploy the reranker on `none` or an `api`
 endpoint, leave it out of the row, since a named component's backend is the
-row's and wins over `settings`. A cell says only where a component runs; how it
+row's and wins over `overrides`. A cell says only where a component runs; how it
 is served (`server`, the model-server kind, the environment, the hardware tier)
 is in its App's block. A served component may have any name: its App is
 `<app_name_prefix>-<component>` and is told the component. The run label is the
@@ -1521,7 +1575,10 @@ is redeployed.
 
 Before anything is published, `rag-deploy` refuses a `topology` that is not a
 key of the table, a row naming a component the workflow file does not declare, a
-cell other than `local` or `served`, a model-server kind no class is registered
+cell other than `local` or `served`, a row putting a component on a backend its
+type does not have (naming the type's backends: the vector store or the LLM on
+`local`, which the workflow App would otherwise refuse when it starts; a type's
+backends are its registered openers, rule 5), a model-server kind no class is registered
 under (naming the kinds), a served component its App's kind cannot serve (naming
 the kinds that can, or, when none can, each kind and what it serves: a served
 LLM is refused, since neither `fastapi` nor `ovms` serves one), and an alias
@@ -1532,8 +1589,9 @@ to 128 characters). Each message names the value and what was expected.
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
 that field is the only API-level difference), `kind: app` with `STANDARD`. The
 workflow is an Agent unless told otherwise: its launch script also exports
-`RAG_DOMINO__TRACING=1` and `RAG_BOOTSTRAP_EXTRAS=domino` (unless its settings set
-them), and `app.sh` then installs `.[domino]`, the extra that brings the tracing
+`RAG_DOMINO__TRACING=1` (unless the overrides set `domino.tracing`) and
+`RAG_BOOTSTRAP_EXTRAS=domino` (unless its settings set it), and `app.sh` then
+installs `.[domino]`, the extra that brings the tracing
 library. An existing App of the other kind is not converted: `rag-deploy` stops
 and says to delete it in Domino or change `kind`.
 
@@ -1598,12 +1656,15 @@ make deploy-dry-run      # rag-deploy --dry-run deploy all: nothing is sent to D
 ```
 
 prints each App `rag-deploy` would publish for the chosen topology alias (kind,
-environment, environment revision, hardware tier, autoscaling, entry script),
-with every check of a real deploy; `RAG_DEPLOY_TOPOLOGY=<alias> make
-deploy-dry-run` shows another alias. One of them: no value may still hold an `<angle-bracket>` placeholder
-from the example (in the `settings` of the Apps being deployed, their
-`environment_id`, `environment_revision_id` and `hardware_tier_id`, and
-`ovms_bundle`). The example copied unchanged stops on the first one:
+environment, environment revision, hardware tier, autoscaling, entry script:
+what the App receives, its `settings`, then every override, then what
+`rag-deploy` sets itself), with every check of a real deploy;
+`RAG_DEPLOY_TOPOLOGY=<alias> make deploy-dry-run` shows another alias. One of
+them: no value may still hold an `<angle-bracket>` placeholder from the example
+(in the `settings` of the Apps being deployed, their `environment_id`,
+`environment_revision_id` and `hardware_tier_id`, `ovms_bundle`, and the
+`overrides`, which every App gets). The example copied unchanged stops on the
+first one:
 
 ```
 rag-deploy: error: environment_id in defaults of deploy.yaml still holds the example placeholder '<environment id>': replace it with a real value

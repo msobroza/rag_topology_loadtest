@@ -36,6 +36,11 @@ from emulation_terraform import (
     variables,
 )
 
+from rag_load_test.deploy.deploy_settings import DeploySettings
+from rag_load_test.deploy.overrides import (
+    check_overrides,
+    refuse_workflow_settings_in_free_lists,
+)
 from repo_paths import REPO_ROOT
 
 
@@ -128,11 +133,26 @@ def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     documented = set(re.findall(r"^[ #]*(\w+):", example, re.M))
     assert set(deploy) <= documented
     assert set(deploy["defaults"]) <= documented
-    assert set(deploy["defaults"]["settings"]) == {
-        "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
-        "RAG_LOCAL_MODELS__OPENVINO_DIR",
-        "RAG_OVMS_MODELS_DIR",
+    # The free list holds only what the launch script reads; the values of the
+    # workflow file are overrides, which rag-deploy checks against it.
+    assert set(deploy["defaults"]["settings"]) == {"RAG_OVMS_MODELS_DIR"}
+    assert deploy["overrides"] == {
+        "components": {"vector_store": {"elasticsearch": {"url": "dummy-es_url"}}},
+        "local_models": {"openvino_dir": "dummy-dataset_path/openvino"},
     }
+
+
+def test_the_generated_deploy_yaml_passes_rag_deploys_checks_of_its_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A value of the workflow file in a free list, or a misspelt override, would
+    # stop every deploy of the emulation before anything is published.
+    path = tmp_path / "deploy.yaml"
+    path.write_text(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
+    monkeypatch.setenv("RAG_DEPLOY_FILE", str(path))
+    settings = DeploySettings()
+    refuse_workflow_settings_in_free_lists(settings)
+    check_overrides(settings)
 
 
 def test_the_generated_deploy_yaml_defines_the_examples_topology_aliases() -> None:

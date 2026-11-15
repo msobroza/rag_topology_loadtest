@@ -3,11 +3,12 @@
 An App calibrates each in-process model parameter left at 0 when it starts, and
 every start and every replica does it again. This command does it once, on a
 machine of the App's hardware tier that holds the models, and prints what it
-found as ``.env`` lines: one ``#`` comment per component, then the
+found as ``.env`` lines: for each component a ``#`` comment, a second one with
+its entry for ``overrides.components`` of ``deploy.yaml``, then the
 environment paths of its ``local`` block that pin the choice, as
-``KEY=VALUE`` lines. Pinned in ``deploy.yaml``'s ``settings`` or ``.env``,
-they make an App start without calibrating, and every replica run the same
-values.
+``KEY=VALUE`` lines. Pinned under the overrides of ``deploy.yaml`` or in
+``.env``, they make an App start without calibrating, and every replica run
+the same values.
 
 It calibrates the component ``--only`` names, else every embedder and reranker
 of the workflow file. Each model loads as an App would load it (``RAG_*``
@@ -27,6 +28,8 @@ import asyncio
 import logging
 import sys
 from collections.abc import Sequence
+
+import yaml
 
 from ..composition.calibrated_stages import ComponentCalibration
 from ..composition.composition_root import CompositionRoot
@@ -53,17 +56,20 @@ EXPECTED_ERRORS = (
 
 
 def env_lines(calibration: ComponentCalibration) -> list[str]:
-    """Return a component's lines for a ``.env`` file: one comment, then its settings.
+    """Return a component's lines for a ``.env`` file: two comments, then its settings.
 
     Args:
         calibration: One component's calibration.
 
     Returns:
-        The ``#`` comment, then one ``KEY=VALUE`` line per pinned setting.
+        The ``#`` comment, the ``#`` line of its entry under
+        ``overrides.components`` of ``deploy.yaml``, then one ``KEY=VALUE``
+        line per pinned setting.
 
     Example:
         >>> env_lines(calibration)[1:]
-        ['RAG_COMPONENTS__RERANKER__LOCAL__THREADS=2',
+        ['# deploy.yaml, under overrides.components: reranker: {local: ...}',
+         'RAG_COMPONENTS__RERANKER__LOCAL__THREADS=2',
          'RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE=2']
     """
     report = calibration.report
@@ -72,7 +78,19 @@ def env_lines(calibration: ComponentCalibration) -> list[str]:
         f"# {calibration.component} ({report.stage}): {where}, "
         f"{_choice(report)}; {_search(report)}"
     )
-    return [comment, *(f"{name}={value}" for name, value in calibration.pinned.items())]
+    pinned = (f"{name}={value}" for name, value in calibration.pinned.items())
+    return [comment, _overrides_line(calibration), *pinned]
+
+
+def _overrides_line(calibration: ComponentCalibration) -> str:
+    # One line, in the workflow file's shape, under the components of the
+    # overrides; a comment, so the output still appends to .env as it is.
+    entry = {calibration.component: {"local": calibration.local}}
+    flow = yaml.safe_dump(
+        entry, default_flow_style=True, sort_keys=False, width=sys.maxsize
+    ).strip()
+    inner = flow.removeprefix("{").removesuffix("}")
+    return f"# deploy.yaml, under overrides.components: {inner}"
 
 
 def _choice(report: CalibrationReport) -> str:
@@ -184,7 +202,8 @@ def _parser() -> argparse.ArgumentParser:
         prog=PROG,
         description="Calibrate the in-process embedders and rerankers on this "
         "machine and print the environment paths that pin the result, as .env "
-        "lines.",
+        "lines, each component's after a comment that gives its entry under "
+        "overrides.components of deploy.yaml.",
     )
     parser.add_argument(
         "--only",

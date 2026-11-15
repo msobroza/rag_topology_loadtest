@@ -6,7 +6,9 @@ their running instances answer on and each component's backend. Every entry
 script runs ``domino/app.sh`` in one of two Roles: the workflow app, or a model
 server told its component and its model-server kind. What else a kind's launch
 script reads, and what a kind refuses, is the kind's class's to say
-(``model_server_kinds/``), so the flow here is the same for every kind.
+(``model_server_kinds/``), so the flow here is the same for every kind. Every
+entry script also exports the overrides, this site's values of the workflow
+file (``overrides.py``).
 """
 
 from __future__ import annotations
@@ -36,6 +38,11 @@ from .deploy_settings import (
 )
 from .endpoint_url import endpoint_url
 from .model_server_kinds.base_model_server_kind import model_server_kind
+from .overrides import (
+    check_overrides,
+    override_exports,
+    refuse_workflow_settings_in_free_lists,
+)
 from .topology_alias import ResolvedTopology, resolve_topology
 from .workflow_components import component_variable
 
@@ -43,8 +50,9 @@ LAUNCH_SCRIPT = "domino/app.sh"  # relative to the repository root
 # An Agent is an App whose configurationType is AISYSTEM: the only API-level
 # difference (assumed to be what the UI's "Deploy Agent" sends).
 CONFIGURATION_TYPES: dict[AppKind, str] = {"app": "STANDARD", "agent": "AISYSTEM"}
-# Exported by an Agent unless its settings set them: Domino tracing, and the
-# [domino] extra that brings its library.
+# Exported by an Agent unless its overrides or its settings set them: Domino
+# tracing (domino.tracing of the workflow file), and the [domino] extra that
+# brings its library (a variable of the launch script).
 AGENT_EXPORTS = {"RAG_DOMINO__TRACING": "1", "RAG_BOOTSTRAP_EXTRAS": "domino"}
 
 
@@ -86,11 +94,12 @@ def entry_script(
     r"""Write the shell that exports one App's settings, then runs ``launch_script``.
 
     Each App carries its own environment variables: ``app.settings`` first, then
-    the computed ones, which therefore win.
+    every override, then the computed ones, which therefore win.
 
     Args:
         app: The App's merged settings.
-        settings: The whole deploy settings, for what a model-server kind reads.
+        settings: The whole deploy settings, for the overrides and what a
+            model-server kind reads.
         topology: The topology alias deployed, resolved.
         urls: Where the model server Apps answer (workflow App only).
         launch_script: Absolute path of ``domino/app.sh``.
@@ -103,14 +112,21 @@ def entry_script(
         >>> entry_script(app, settings, topology, {}, "/repos/rag/domino/app.sh")
         'export RAG_ROLE=model-server\n...\nexec bash /repos/rag/domino/app.sh'
     """
+    overrides = override_exports(settings)
+    given = {**app.settings, **overrides}  # what the computed defaults yield to
     if app.part == WORKFLOW_APP:
-        computed = _workflow_exports(topology, urls, app.settings)
+        computed = _workflow_exports(topology, urls, given)
     else:
         computed = _model_server_exports(app.part, settings, topology)
     if app.kind == "agent":
-        computed |= {k: v for k, v in AGENT_EXPORTS.items() if k not in app.settings}
+        computed |= {k: v for k, v in AGENT_EXPORTS.items() if k not in given}
     # The generic environment has nothing installed: app.sh installs it first.
-    exports = [*app.settings.items(), *computed.items(), ("RAG_BOOTSTRAP", "1")]
+    exports = [
+        *app.settings.items(),
+        *overrides.items(),
+        *computed.items(),
+        ("RAG_BOOTSTRAP", "1"),
+    ]
     lines = [f"export {name}={shlex.quote(value)}" for name, value in exports]
     return "\n".join([*lines, f"exec bash {shlex.quote(launch_script)}"])
 
@@ -131,10 +147,11 @@ def _model_server_exports(
 def _workflow_exports(
     topology: ResolvedTopology,
     urls: Mapping[AppPart, str],
-    app_settings: Mapping[str, str],
+    given: Mapping[str, str],
 ) -> dict[str, str]:
     # The backends below place each component (ADR 0003); the alias is only the
-    # label the workflow app reports as its X-RAG-Topology header.
+    # label the workflow app reports as its X-RAG-Topology header. The run
+    # label is a default: a run_label under overrides names a variant.
     exports: dict[str, str] = {
         "RAG_ROLE": WORKFLOW_ROLE,
         "RAG_TOPOLOGY_ALIAS": topology.alias,
@@ -145,7 +162,7 @@ def _workflow_exports(
             # The settings take the full route; an App URL may end with a "/".
             url = urls[name].rstrip("/") + topology.served_route(name)
             exports[component_variable(name, "served", "url")] = url
-    if "RAG_RUN_LABEL" not in app_settings:
+    if "RAG_RUN_LABEL" not in given:
         exports["RAG_RUN_LABEL"] = topology.run_label()
     return exports
 
@@ -273,11 +290,13 @@ def deploy(
 ) -> None:
     """Publish ``target``, or every App the topology alias needs, in order.
 
-    Settings holding secrets, a topology alias that does not resolve against
-    the workflow file (``resolve_topology``), placeholders, no environment id, a
-    default environment revision without the default environment, or settings
-    a model-server kind of the Apps cannot start with (a missing OVMS bundle)
-    are refused first, with ``DominoDeployError``. Redeploying a model server
+    Settings holding secrets, a value of the workflow file in a free list,
+    overrides the workflow settings refuse (``check_overrides``), a topology
+    alias that does not resolve against the workflow file
+    (``resolve_topology``), placeholders, no environment id, a default
+    environment revision without the default environment, or settings a
+    model-server kind of the Apps cannot start with (a missing OVMS bundle) are
+    refused first, with ``DominoDeployError``. Redeploying a model server
     prints a note that the workflow App still calls its old instance.
 
     Args:
@@ -294,6 +313,8 @@ def deploy(
         >>> deploy(client, DeploySettings(), "all", launch_script=path)
     """
     refuse_secrets(settings)
+    refuse_workflow_settings_in_free_lists(settings)
+    check_overrides(settings)
     topology = resolve_topology(settings)
     needed = topology.app_parts()
     if target != "all" and target not in needed:

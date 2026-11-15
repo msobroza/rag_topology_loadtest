@@ -1,8 +1,10 @@
 """rag-deploy's settings: ``deploy.yaml``, overridden by ``RAG_DEPLOY_*`` variables.
 
 Top-level keys say what to deploy and how ``rag-deploy`` talks to Domino;
-``defaults`` and ``apps.<part>`` say how each App runs. ``deploy.example.yaml``
-documents every key.
+``defaults`` and ``apps.<part>`` say how each App runs, their ``settings``
+being the variables its launch script reads; ``overrides`` holds this site's
+values of the workflow file, in its shape, which every App gets.
+``deploy.example.yaml`` documents every key.
 
 Example:
     >>> DeploySettings().for_app("workflow").kind
@@ -13,11 +15,12 @@ Example:
 
 from __future__ import annotations
 
+import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic_settings import (
@@ -174,6 +177,10 @@ class DeploySettings(BaseSettings):
     # Keyed by workflow or by a served component's name: any other key is
     # refused once the workflow file is read (topology_alias.py).
     apps: dict[AppPart, AppBlock] = {}
+    # This site's values of the workflow file, in its shape (the store's URL,
+    # the model paths, the timeouts of calls), for every App. Checked against
+    # the workflow settings once the workflow file is read (overrides.py).
+    overrides: dict[str, Any] = {}
 
     @classmethod
     def settings_customise_sources(
@@ -372,6 +379,72 @@ def _values_used(
         yield "hardware_tier_id", name, block.hardware_tier_id or ""
         for key, value in block.settings.items():
             yield key, f"{name}.settings", value
+    # Every App gets the overrides, so any deploy uses each of them.
+    for override in override_values(settings.overrides):
+        yield override.place, "overrides", override.text
+
+
+class OverrideValue(NamedTuple):
+    """One value under ``overrides``: its path in the workflow file, as exported."""
+
+    path: tuple[str, ...]  # its levels, from a top-level key of the workflow file
+    text: str  # what the launch script exports, which the settings read back
+
+    @property
+    def place(self) -> str:
+        """The path, its levels joined by dots: ``components.llm.http.timeout_s``."""
+        return ".".join(self.path)
+
+
+def override_values(
+    overrides: Mapping[str, object], path: tuple[str, ...] = ()
+) -> list[OverrideValue]:
+    """List each value under ``overrides``, by its path, as the shell exports it.
+
+    A mapping is a block of the workflow file, so its keys are the next level;
+    anything else is one value.
+
+    Args:
+        overrides: The ``overrides`` block, or a block below it.
+        path: Where that block is in the workflow file.
+
+    Returns:
+        Each value, in the order the file gives them.
+
+    Example:
+        >>> override_values({"http": {"retries": 0, "backoff_s": 0.5}})
+        [OverrideValue(path=('http', 'retries'), text='0'), ...]
+    """
+    values: list[OverrideValue] = []
+    for key, value in overrides.items():
+        below = (*path, str(key))
+        if isinstance(value, Mapping):
+            values += override_values(value, below)
+        else:
+            values.append(OverrideValue(below, override_text(value)))
+    return values
+
+
+def override_text(value: object) -> str:
+    """Write a value of the workflow file as the variable the settings read back.
+
+    Args:
+        value: A value under ``overrides``.
+
+    Returns:
+        A list as JSON, which the settings decode for a list setting; a
+        boolean as the shell spells it; None as "" (it is refused before
+        anything is published); anything else as its text.
+
+    Example:
+        >>> override_text([["START", "retrieve", "END"]])
+        '[["START", "retrieve", "END"]]'
+    """
+    if isinstance(value, list):
+        return json.dumps(value, default=str)
+    if isinstance(value, bool):
+        return str(value).lower()
+    return "" if value is None else str(value)
 
 
 def _secrets_in(values: dict[str, str]) -> list[str]:

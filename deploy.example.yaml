@@ -3,29 +3,32 @@
 # example /repos/<project>) in a Domino Workspace of the one project that hosts all
 # the Apps: the Apps run domino/app.sh by that absolute path.
 #
-# Secrets do NOT go here: every `settings` value is written into an App's launch
-# script. Keep every API key (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
+# Secrets do NOT go here: every `settings` and `overrides` value is written into
+# an App's launch script. Keep every API key
+# (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
 # RAG_COMPONENTS__LLM__API__API_KEY,
 # any bearer token for RAG_COMPONENTS__EMBEDDER__API__API_KEY or
 # RAG_COMPONENTS__RERANKER__API__API_KEY) in Domino's project or user environment
-# variables: rag-deploy refuses a setting ending with _API_KEY in this file
-# unless it is empty or `domino`.
+# variables: rag-deploy refuses a setting ending with _API_KEY, or an api_key
+# under overrides, unless it is empty or `domino`.
 #
 # Unknown keys are refused. A RAG_DEPLOY_<KEY> environment variable overrides a
 # top-level key, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`; RAG_DEPLOY_FILE
 # names another file. rag-deploy also reads the workflow file the workflow App
 # reads (RAG_WORKFLOW_FILE in its settings, else as rag-serve finds it), to know
-# the components a topology alias names.
+# the components a topology alias names and to check the overrides.
 
 # The topology deployed: one of the topology aliases below.
 topology: split-all
 # Each topology alias says where the components it names run: local, in the
 # workflow App's process, or served, by a model server App of its own (named
 # <app_name_prefix>-<component>). The names are the workflow file's components.
-# A component an alias does not name keeps the backend the workflow file gives
-# it (here the LLM, on api). A served component is served by the model-server
-# kind of its App (`server` below), of any name; a component no registered kind
-# can serve (an LLM, today) is refused before anything is published. A new alias
+# A component an alias does not name keeps the backend the workflow file (or the
+# overrides below) gives it (here the LLM, on api). A served component is served
+# by the model-server kind of its App (`server` below), of any name; a component
+# no registered kind can serve (an LLM, today), or put on a backend its type does
+# not have (the vector store or the LLM on local), is refused before anything is
+# published. A new alias
 # is one more row: rag-deploy publishes one App per served component, then the
 # workflow App, and writes each named component's backend and served URL into
 # the workflow App's launch script (the workflow app has no topology rule of its
@@ -80,28 +83,17 @@ defaults:
   # own: fastapi (rag-model-server) | ovms (OpenVINO Model Server). Each kind is
   # one registered class and one launch script, domino/model_servers/<kind>.sh.
   server: fastapi
-  # Environment variables for the App, exported by its launch script. rag-deploy
-  # itself sets RAG_ROLE (workflow or model-server), RAG_MODEL_SERVER_COMPONENT
-  # and RAG_MODEL_SERVER_KIND, RAG_TOPOLOGY_ALIAS, RAG_COMPONENTS__<COMPONENT>__BACKEND of each
-  # component the topology alias names and RAG_COMPONENTS__<COMPONENT>__SERVED__URL
-  # of each served one, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those win), and
-  # RAG_RUN_LABEL unless set here. A value of the workflow file is set by the
-  # variable its path names, its levels joined by __.
-  settings:
-    # Required: the Elasticsearch cluster every workflow App queries.
-    RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: "https://<elasticsearch host>:9200"
-    # The model paths (each component's source_id) are here, not per App,
-    # because which App loads a model depends on the topology (the workflow
-    # loads the embedder in split-reranker and both models in monolith). A
-    # Hugging Face id works as well as a folder; a model server serves it under
-    # its alias, the folder's last part, as the workflow App calls it.
-    RAG_COMPONENTS__EMBEDDER__SOURCE_ID: /domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0
-    RAG_COMPONENTS__RERANKER__SOURCE_ID: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
-    # Where rag-export-openvino wrote the in-process models (a model without a
-    # folder there is converted in memory at every start):
-    # RAG_LOCAL_MODELS__OPENVINO_DIR: /domino/datasets/local/<dataset>/openvino
-    # The folder holding config_<component>.json of each component ovms serves:
-    # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
+  # The variables the launch script reads that are no value of the workflow
+  # file, exported by the App's launch script: RAG_OVMS_MODELS_DIR,
+  # RAG_BOOTSTRAP_EXTRAS, RAG_WORKFLOW_FILE (the workflow file the Apps read,
+  # from the repository root), ... A value of the workflow file goes under
+  # overrides below: written here, it is refused, naming its place there.
+  # rag-deploy itself sets RAG_ROLE (workflow or model-server),
+  # RAG_MODEL_SERVER_COMPONENT and RAG_MODEL_SERVER_KIND, RAG_OVMS_BUNDLE and
+  # RAG_BOOTSTRAP (those win).
+  # settings:
+  #   # The folder holding config_<component>.json of each component ovms serves:
+  #   RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 
 # One block per App, keyed by workflow or by the name of a served component (a
 # key that is neither is refused), for what really differs per App: kind (app | agent),
@@ -112,8 +104,8 @@ defaults:
 # the defaults' settings, this block's winning).
 apps:
   # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
-  # An Agent also gets RAG_DOMINO__TRACING=1 and RAG_BOOTSTRAP_EXTRAS=domino unless
-  # its settings set them.
+  # An Agent also gets RAG_DOMINO__TRACING=1 unless the overrides set
+  # domino.tracing, and RAG_BOOTSTRAP_EXTRAS=domino unless its settings set it.
   workflow:
     kind: agent
     autoscaling: {min_replicas: 1, max_replicas: 2}
@@ -125,5 +117,39 @@ apps:
     kind: app
     # server: ovms  # this App alone served by OVMS (needs ovms_bundle)
     # hardware_tier_id: <a tier with 16 cores>
-    # settings:
-    #   RAG_LOCAL_MODELS__WORKERS: "2"  # torch runtime only; openvino runs one call at a time
+
+# This site's values of the workflow file, in its own shape (components, graph,
+# local_models, calibration, http, domino, run_label), for every App: each one is
+# exported under the variable its path names (RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S
+# for components.llm.http.timeout_s) and wins over the workflow file. They are
+# checked against the workflow settings before anything is published: a key the
+# workflow file has no place for, a component or stage it does not declare, an
+# api_key, or a value the workflow app would refuse stops the deploy, naming its
+# place. rag-deploy's own exports win over them: RAG_TOPOLOGY_ALIAS, and the
+# backend and served URL of each component the topology alias names. The run
+# label is the alias plus each served component's kind unless run_label is set
+# here (to name a variant, such as a hardware tier).
+overrides:
+  components:
+    # Required: the Elasticsearch cluster every workflow App queries.
+    vector_store: {elasticsearch: {url: "https://<elasticsearch host>:9200"}}
+    # The model paths (each component's source_id) are here, for every App,
+    # because which App loads a model depends on the topology (the workflow
+    # loads the embedder in split-reranker and both models in monolith). A
+    # Hugging Face id works as well as a folder; a model server serves it under
+    # its alias, the folder's last part, as the workflow App calls it.
+    embedder:
+      source_id: /domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0
+    reranker:
+      source_id: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
+      # What rag-calibrate printed for it, so no App calibrates at start-up:
+      # local: {threads: 2, batch_size: 1}
+    # How patiently one component is called, over the shared http block below:
+    # llm: {http: {timeout_s: 120}}
+  # Where rag-export-openvino wrote the in-process models (a model without a
+  # folder there is converted in memory at every start), and how many model
+  # calls run at once (torch only; openvino runs one call at a time):
+  # local_models: {openvino_dir: /domino/datasets/local/<dataset>/openvino, workers: 2}
+  # The default timeout, retries and backoff of every call to a served or api
+  # component:
+  # http: {timeout_s: 30, retries: 2, backoff_s: 0.2}

@@ -54,6 +54,8 @@ class ComponentCalibration:
 
     Example:
         >>> calibration = await composition.calibration("reranker")
+        >>> calibration.local
+        {'threads': 2, 'batch_size': 2}
         >>> calibration.pinned
         {'RAG_COMPONENTS__RERANKER__LOCAL__THREADS': 2,
          'RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE': 2}
@@ -63,7 +65,15 @@ class ComponentCalibration:
     report: CalibrationReport
     cpus: float  # the CPUs the thread budget counted here
     runtime: str  # what ran the model: openvino or torch
-    pinned: dict[str, int]  # the environment paths that pin the choice
+    local: dict[str, int]  # the settings of its local block that pin the choice
+
+    @property
+    def pinned(self) -> dict[str, int]:
+        """The environment paths of the settings that pin the choice, and values."""
+        return {
+            RagSettings.variable_of("components", self.component, "local", name): value
+            for name, value in self.local.items()
+        }
 
 
 def candidates(setting: int, top: int) -> tuple[int, ...]:
@@ -119,12 +129,12 @@ async def component_calibration(
         limits=local_models.calibration_limits,
     )
     report = calibrated.report
-    pinned = {
-        RagSettings.variable_of("components", component, "local", setting): value
-        for setting, value in stage.pinned_settings(report.chosen).items()
-    }
     return ComponentCalibration(
-        component, report, cpus=cpus, runtime=local_models.runtime, pinned=pinned
+        component,
+        report,
+        cpus=cpus,
+        runtime=local_models.runtime,
+        local=stage.pinned_settings(report.chosen),
     )
 
 

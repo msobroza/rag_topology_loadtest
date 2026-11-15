@@ -119,11 +119,12 @@ def test_the_workspace_machine_is_never_spot() -> None:
 def test_every_app_keeps_its_models_under_the_dataset_path() -> None:
     deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
     settings = deploy["defaults"]["settings"]
+    local_models = deploy["overrides"]["local_models"]  # a value of the workflow file
 
     openvino, ovms = common_constant("DATASET_OPENVINO"), common_constant(
         "DATASET_OVMS"
     )
-    assert settings["RAG_LOCAL_MODELS__OPENVINO_DIR"] == f"{DATASET_PATH}/{openvino}"
+    assert local_models["openvino_dir"] == f"{DATASET_PATH}/{openvino}"
     assert settings["RAG_OVMS_MODELS_DIR"] == f"{DATASET_PATH}/{ovms}"
 
 

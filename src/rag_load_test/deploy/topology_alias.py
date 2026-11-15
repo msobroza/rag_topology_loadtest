@@ -8,9 +8,10 @@ kind serves each served component, what to write into the workflow App's
 launch script (each backend the row gives, each served URL, the alias as a
 label and the run label: the workflow app holds no topology rule of its own),
 and refuses, before anything is published, an alias the table
-lacks, a row naming a component the workflow file does not declare, a served
-component its model-server kind cannot serve, and an alias that makes no valid
-run label.
+lacks, a row naming a component the workflow file does not declare, a row
+putting a component on a backend its type does not have (the vector store or
+the LLM on ``local``), a served component its model-server kind cannot serve,
+and an alias that makes no valid run label.
 
 Example:
     >>> topology = resolve_topology(DeploySettings())
@@ -33,6 +34,7 @@ from .model_server_kinds.base_model_server_kind import (
     MODEL_SERVER_KINDS,
     model_server_kind,
 )
+from .registered_backends import registered_backends
 from .workflow_components import (
     WorkflowComponent,
     read_workflow_components,
@@ -122,8 +124,9 @@ def resolve_topology(settings: DeploySettings) -> ResolvedTopology:
         DominoDeployError: If the workflow file cannot be read, ``apps`` has a
             block that is neither ``workflow`` nor a component of it, the alias
             is not in ``topology_alias``, its row names a component the file
-            does not declare, it serves a component its model-server kind
-            cannot serve, or it would make no valid run label.
+            does not declare or puts one on a backend its type does not have,
+            it serves a component its model-server kind cannot serve, or it
+            would make no valid run label.
 
     Example:
         >>> resolve_topology(DeploySettings(topology="monolith")).app_parts()
@@ -135,6 +138,7 @@ def resolve_topology(settings: DeploySettings) -> ResolvedTopology:
     row = _row_of(settings)
     _refuse_an_unknown_component(settings.topology, row, path, components)
     placements = {name: row[name] for name in components if name in row}
+    _refuse_a_backend_its_type_lacks(settings.topology, placements, components)
     served = [name for name, cell in placements.items() if cell == SERVED]
     kinds = {name: settings.for_app(name).server for name in served}
     topology = ResolvedTopology(settings.topology, placements, components, kinds)
@@ -170,6 +174,26 @@ def _refuse_an_unknown_component(
         f"which the workflow file {str(path)!r} does not declare: a row names "
         f"components of that file ({_names(list(components))})"
     )
+
+
+def _refuse_a_backend_its_type_lacks(
+    alias: str,
+    placements: dict[str, Placement],
+    components: dict[str, WorkflowComponent],
+) -> None:
+    # The workflow App would refuse it at start-up (no opener for the type and
+    # backend), after the model server Apps were published.
+    for name, placement in placements.items():
+        type_ = components[name].type
+        backends = registered_backends(type_)
+        if placement in backends:
+            continue
+        raise DominoDeployError(
+            f"topology alias {alias!r} in {deploy_file()} puts component {name!r}, "
+            f"of type {type_!r}, on {placement!r}, a backend its type does not "
+            f"have (its backends: {_names(list(backends))}): leave {name!r} out of "
+            "the row to keep the backend the workflow file gives it"
+        )
 
 
 def _refuse_what_its_kind_cannot_serve(topology: ResolvedTopology, name: str) -> None:

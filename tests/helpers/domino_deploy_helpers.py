@@ -84,11 +84,12 @@ def no_sleep(_seconds: float) -> None:
     pass
 
 
-def make_settings(**overrides: object) -> DeploySettings:
+def make_settings(**given: object) -> DeploySettings:
     """DeploySettings with every App on ``env-1``; a stray deploy.yaml cannot leak in.
 
     Every key the tests depend on is passed, and passed values beat the file.
-    The topology aliases are the three of deploy.example.yaml.
+    The topology aliases are the three of deploy.example.yaml; no overrides
+    unless ``overrides`` is given.
     """
     values: dict[str, object] = {
         "app_name_prefix": "rag",
@@ -99,7 +100,8 @@ def make_settings(**overrides: object) -> DeploySettings:
         "domino_host": "",
         "defaults": {"environment_id": "env-1"},
         "apps": {},
-        **overrides,
+        "overrides": {},
+        **given,
     }
     return DeploySettings(**values)  # type: ignore[arg-type]
 
@@ -117,7 +119,9 @@ topology_alias:
   split-all: {embedder: served, reranker: served}
 """
 
-# The owner's example, with a split-reranker topology so it deploys two Apps.
+# The owner's example, with a split-reranker topology so it deploys two Apps. The
+# free lists hold variables that are no value of the workflow file; the model
+# paths are overrides, for every App.
 DEPLOY_YAML = "topology: split-reranker\n" + TOPOLOGY_ALIAS_YAML + """\
 project_id: ""
 
@@ -127,7 +131,6 @@ defaults:
   server: fastapi
   settings:
     RAG_ES_URL: https://es.test:9200
-    RAG_COMPONENTS__RERANKER__SOURCE_ID: /mnt/data/models/bge reranker
 
 apps:
   workflow:
@@ -137,13 +140,23 @@ apps:
     kind: app
     hardware_tier_id: cpu-8
     settings:
-      RAG_COMPONENTS__EMBEDDER__SOURCE_ID: /mnt/data/models/bge-small
+      RAG_BOOTSTRAP_EXTRAS: dev
   reranker:
     kind: app
     hardware_tier_id: cpu-16
     settings:
       RAG_MODEL_WORKERS: 2
+
+overrides:
+  components:
+    reranker: {source_id: /mnt/data/models/bge reranker}
+    embedder: {source_id: /mnt/data/models/bge-small}
 """
+# What every App of DEPLOY_YAML exports after its free list: the overrides.
+DEPLOY_YAML_OVERRIDES = (
+    "export RAG_COMPONENTS__RERANKER__SOURCE_ID='/mnt/data/models/bge reranker'\n"
+    "export RAG_COMPONENTS__EMBEDDER__SOURCE_ID=/mnt/data/models/bge-small\n"
+)
 
 
 # --- rag-deploy end to end: main over the fake Domino (fixtures and helpers) ---

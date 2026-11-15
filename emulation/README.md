@@ -114,9 +114,10 @@ on every machine) with the project's virtualenv on `PATH`, and with
 `DOMINO_API_PROXY=http://localhost:8899`, `DOMINO_PROJECT_ID` and
 `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
 set, as a Domino Workspace would have them (the Project environment variables are
-exported too). `deploy.yaml` is already written for this emulation; edit it as on
-Domino (topology, per-App blocks, each model server App's `server`), or override
-the topology with `RAG_DEPLOY_TOPOLOGY`.
+exported too). `deploy.yaml` is already written for this emulation, the
+Elasticsearch URL and the OpenVINO folder under its `overrides`; edit it as on
+Domino (topology, per-App blocks, each model server App's `server`, the
+overrides), or override the topology with `RAG_DEPLOY_TOPOLOGY`.
 
 The first sitting builds the index and exports the models, then keeps both in the
 cache bucket:

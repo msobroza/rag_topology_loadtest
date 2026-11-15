@@ -49,19 +49,22 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
         hardware_tier_id="small",
         autoscaling=Autoscaling(min_replicas=1, max_replicas=4),
         server="fastapi",
-        settings={
-            "RAG_COMPONENTS__RERANKER__SOURCE_ID": "/mnt/data/models/bge reranker",
-            "RAG_ES_URL": "https://es.test:9200",
-        },
+        settings={"RAG_ES_URL": "https://es.test:9200"},
     )
     embedder = settings.for_app("embedder")
     assert (embedder.kind, embedder.hardware_tier_id) == ("app", "cpu-8")
     assert embedder.autoscaling is None
     assert list(embedder.settings) == [  # merged, sorted by name
-        "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
-        "RAG_COMPONENTS__RERANKER__SOURCE_ID",
+        "RAG_BOOTSTRAP_EXTRAS",
         "RAG_ES_URL",
     ]
+    # The overrides are the deploy's, for every App, in the file's own shape.
+    assert settings.overrides == {
+        "components": {
+            "reranker": {"source_id": "/mnt/data/models/bge reranker"},
+            "embedder": {"source_id": "/mnt/data/models/bge-small"},
+        }
+    }
 
 
 def test_an_apps_settings_win_over_the_defaults(deploy_file: Path) -> None:
@@ -190,6 +193,7 @@ def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
         "http_timeout_s": 30.0,
         "http_retries": 2,
         "run_token_url": "http://localhost:8899/access-token",
+        "overrides": {},  # the workflow file as it is
     }
     assert settings.for_app("reranker").environment_id == ""
     assert settings.for_app("reranker").server == "fastapi"
@@ -302,6 +306,12 @@ def placeholder_message(key: str, block: str, value: str, path: Path) -> str:
             "the top level",
             "/domino/datasets/local/<dataset>/ovms.tar.gz",
         ),
+        (
+            "overrides: {components: {embedder: {source_id: /d/<dataset>/m}}}",
+            "components.embedder.source_id",
+            "overrides",
+            "/d/<dataset>/m",
+        ),
     ],
 )
 def test_a_placeholder_left_in_a_value_is_refused(
@@ -316,6 +326,18 @@ def test_a_placeholder_left_in_a_value_is_refused(
 def test_placeholders_of_apps_not_deployed_are_left_alone(deploy_file: Path) -> None:
     deploy_file.write_text("apps: {embedder: {settings: {RAG_X: /d/<dataset>}}}\n")
     refuse_placeholders(DeploySettings(), ["reranker", "workflow"])
+
+
+def test_a_placeholder_in_the_overrides_is_refused_whichever_apps_deploy(
+    deploy_file: Path,
+) -> None:
+    # Every App gets every override, so the workflow App alone uses each one.
+    deploy_file.write_text("overrides: {local_models: {openvino_dir: /d/<dataset>}}\n")
+    with pytest.raises(DominoDeployError) as caught:
+        refuse_placeholders(DeploySettings(), ["workflow"])
+    assert str(caught.value) == placeholder_message(
+        "local_models.openvino_dir", "overrides", "/d/<dataset>", deploy_file
+    )
 
 
 def test_a_comparison_is_not_mistaken_for_a_placeholder(deploy_file: Path) -> None:
@@ -427,17 +449,19 @@ def test_the_example_file_copied_as_is_stops_on_its_first_placeholder(
     assert str(caught.value) == message
 
 
-def test_the_example_file_lists_the_model_paths_once_for_every_app(
+def test_the_example_file_writes_the_store_and_the_model_paths_as_overrides(
     deploy_file: Path,
 ) -> None:
     deploy_file.write_text(EXAMPLE_YAML.read_text())
     settings = DeploySettings()
+    # Once, in the workflow file's shape, for every App; no free list holds them.
+    components = settings.overrides["components"]
+    assert set(components) == {"vector_store", "embedder", "reranker"}
+    assert components["vector_store"]["elasticsearch"]["url"].startswith("https://")
+    assert "source_id" in components["embedder"]
+    assert "source_id" in components["reranker"]
     for part in ("embedder", "reranker", "workflow"):
-        assert {
-            "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
-            "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
-            "RAG_COMPONENTS__RERANKER__SOURCE_ID",
-        } <= set(settings.for_app(part).settings)
+        assert settings.for_app(part).settings == {}
     assert settings.for_app("workflow").kind == "agent"
 
 
