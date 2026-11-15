@@ -1,9 +1,10 @@
 # Emulation: an emulated Domino on Google Cloud
 
-**Nothing here has been applied.** No `terraform plan`, `apply` or `validate` has
-run against this configuration, and no machine has booted these scripts. The
-files are checked only by parsing (`tests/emulation/`). Read the list
-"Not verified" below before the first apply.
+**Applied on 14 November 2026.** That day `plan` and `apply` created the machines,
+the three topologies were deployed through the emulated Domino and measured on
+real models, and two later sittings tried the cache bucket. "Verified on 14
+November 2026" and "Not verified" at the end say what ran and what has not;
+`tests/emulation/` still checks the files only by parsing them.
 
 The emulation is temporary: it lets the owner rehearse a Domino deployment, and
 compare topologies, before the real Domino is available. All of it lives in this
@@ -94,7 +95,7 @@ cp emulation/terraform/terraform.tfvars.example emulation/terraform/terraform.tf
 make -C emulation init BUCKET=<bucket name>
 make -C emulation plan
 make -C emulation apply
-make -C emulation ready         # repeat until every machine says done (about 5-10 min)
+make -C emulation ready         # repeat until every machine says done (about 2 min)
 ```
 
 `ready` reads each machine's guest attribute `rag-emulation/startup`
@@ -315,35 +316,61 @@ Elasticsearch machines Spot VMs. `cache_bucket` names the cache bucket (default 
 machine that stands in for a Domino Dataset: the Apps and the Workspace's ingestion
 keep their exported models in it.
 
+## Verified on 14 November 2026
+
+One sitting, before the cache bucket and the Spot machines existed: five
+on-demand machines (a 4-CPU Workspace through `workspace_machine_type`, three
+`n2-standard-8` pool machines, Elasticsearch on an `n2-standard-4`), FastAPI model
+servers, the French corpus. It showed:
+
+- `plan` (5 to add) and `apply`; every machine reported `done` about 2 minutes after
+  `apply`, the Workspace and the pool machines with their clone at the commit id
+  that `git_ref` named.
+- The startup scripts on Ubuntu 22.04, including what had only been parsed until
+  then: the `ubuntu` user and its passwordless `sudo` (the emulated Domino starts
+  each App with `sudo systemd-run`), uv's release tarball, Secret Manager over the
+  REST API with the metadata server's token (the SSH key), the socat forwarder,
+  Docker from Ubuntu's `docker.io` package and Elasticsearch on its data folder.
+- `scheduling.max_run_duration` with `instance_termination_action = "DELETE"` on
+  `STANDARD` machines: the API accepted it. The deletion itself was not observed
+  (see below).
+- `rag-domino-emulation` with the flags the Workspace's startup script gives it:
+  it read `placement.json`, placed each App on a free pool machine over SSH, and
+  proxied every call. The workflow App fetched its token from `localhost:8899`
+  through the forwarder and called the model servers through the proxy.
+- `rag-fetch-corpus` and `rag-ingest` with the French analyzer (1,223 documents,
+  1,592 passages).
+- The three topologies, each deployed in turn on the same machines: `deploy` of
+  `split-all` was done about 11 minutes after `apply` and the corpus ingested
+  after 19, the two running side by side, then `monolith` and `split-reranker`.
+- The proxy under load: six `/retrieve` runs through it (`split-all` at 5, 10, 15
+  and 20 users, `monolith` and `split-reranker` at 10), with no failed request.
+
+The two sittings of that evening, on Spot machines with the cache bucket, are
+measured under "The cache bucket".
+
 ## Not verified
 
-Nothing here has been applied. In particular:
+Not shown by the runs of 14 November 2026:
 
-- No `terraform init`, `validate`, `plan` or `apply` has run: the resource
-  arguments were written from the `google` provider's documentation, not checked
-  by Terraform. Provider range `>= 6.0, < 8.0`, `tls ~> 4.0`.
-- `scheduling.max_run_duration` with `instance_termination_action = "DELETE"` on a
-  `STANDARD` (not Spot) machine with the default `automatic_restart`: accepted by
-  the API per its documentation, not tried.
-- The startup scripts have only been parsed (`bash -n`, and `shellcheck` where
-  installed) after rendering; none has run on Ubuntu 22.04. Untested in
-  particular: the `ubuntu` user and passwordless `sudo`, uv's release tarball
-  layout (`uv_version = 0.8.0`), `git fetch` of a commit id, Secret Manager access
-  over the REST API with the metadata server's token, the socat forwarder, Docker
-  from Ubuntu's `docker.io` package, Elasticsearch's start with this data folder.
-- `enable-oslogin = FALSE` on the machines: an organisation policy that requires
-  OS Login would break both the emulated Domino's SSH and `gcloud compute ssh ubuntu@...`.
+- `terraform validate` on its own, and which provider versions the ranges
+  `>= 6.0, < 8.0` (`google`) and `~> 4.0` (`tls`) picked: `plan` and `apply` ran,
+  but the versions were not recorded.
+- The deletion at the end of `max_run_hours` of an on-demand (`STANDARD`) machine
+  with the default `automatic_restart`: every machine that day was deleted by hand
+  before its deadline.
+- `enable-oslogin = FALSE` on the machines worked in a project that does not
+  require OS Login; an organisation policy that requires it would break both the
+  emulated Domino's SSH and `gcloud compute ssh ubuntu@...`.
 - The cost figures are approximate and were not read from a current price list.
-- The Cloud Shell setup script (pinned Terraform 1.12.2, the bucket flags) has not
-  run.
-- `rag-domino-emulation` (its flags, its reading of `placement.json` and
-  `project.env`, its SSH placement with `systemd-run`) and `rag-fetch-corpus` are
-  built elsewhere; this configuration matches the agreed contract but has not run
-  against them.
-- Whether Apps reach `localhost:8899` through the forwarder (it listens on
-  127.0.0.1 only, not `::1`) and the emulated Domino's proxy under load.
-- The time until every machine is ready, and whether 50 GB per pool machine is
-  enough for every model-server choice.
+- The Cloud Shell setup script (pinned Terraform 1.12.2, the bucket flags): the
+  notes of that day do not show it running.
+- `rag-domino-emulation` handing the Apps a Project environment variable from
+  `project.env`, and `/query` (generation) through the emulation: only `/retrieve`
+  was measured.
+- OVMS: no OVMS App was deployed, so the OVMS bundle on the pool machines, the
+  OVMS export, and whether 50 GB per pool machine is enough for it are untried.
+  The FastAPI model servers fit.
 - Of the cache bucket and the Spot machines (the rest ran on 14 November 2026, see
   "The cache bucket"):
   - a Spot machine taken back by Google, and the recovery steps of "Spot machines";
