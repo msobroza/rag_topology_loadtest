@@ -2,8 +2,8 @@
 
 A CPU-bound stage plugs in by subclassing ``BaseCalibratedStage``: it says how
 to load its adapter for a thread count, how to give a loaded one another batch
-size, and how to serve one request of the usual size. ``calibrate`` does the
-rest, the same way for every stage:
+size, how to serve one request of the usual size, and which settings pin a
+tuning. ``calibrate`` does the rest, the same way for every stage:
 
 - the first thread count (the thread budget's share) is loaded and every batch
   size is timed on it, the whole request first;
@@ -14,16 +14,18 @@ rest, the same way for every stage:
 - once ``budget_s`` has passed no new trial starts, the first always runs.
 
 Only the adapter of the fastest thread count so far is kept, so two models are
-never held longer than one comparison. One ``stage_calibrated`` JSON line
-reports the choice and every trial.
+never held longer than one comparison. The result is the adapter and a
+``CalibrationReport`` of the choice and every trial; one ``stage_calibrated``
+JSON line logs that report.
 
 Example:
-    >>> reranker = await calibrate(
+    >>> calibrated = await calibrate(
     ...     RerankStage(model, pool, settings),
     ...     threads=(2, 1),
     ...     batch_sizes=(20, 10, 5, 2, 1),
     ...     limits=CalibrationLimits(budget_s=90.0, rounds=1),
     ... )
+    >>> reranker = calibrated.adapter
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Generic, TypeVar
 
-from ...domain.calibration import StageTuning, TimedTrial, fastest
+from ...domain.calibration import CalibrationReport, StageTuning, TimedTrial, fastest
 from ..json_log import log_json
 
 T = TypeVar("T")
@@ -49,6 +51,7 @@ class BaseCalibratedStage(ABC, Generic[T]):
         ...     async def loaded(self, threads): ...
         ...     def rebatched(self, adapter, batch_size): ...
         ...     async def serve_sample(self, adapter): ...
+        ...     def pinned_settings(self, tuning): ...
     """
 
     stage: ClassVar[str]  # the stage's name as the timings report it: embed, rerank
@@ -84,6 +87,20 @@ class BaseCalibratedStage(ABC, Generic[T]):
             adapter: The adapter under trial.
         """
 
+    @abstractmethod
+    def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
+        """Return the environment variables that pin ``tuning`` for this stage.
+
+        Only the parameters calibration searches for this stage are named, so
+        an App started with them calibrates nothing.
+
+        Args:
+            tuning: The tuning to pin, usually a calibration's choice.
+
+        Returns:
+            Variable name to value, as ``.env`` or ``deploy.yaml`` takes them.
+        """
+
 
 @dataclass(frozen=True)
 class CalibrationLimits:
@@ -93,6 +110,14 @@ class CalibrationLimits:
     rounds: int  # timed requests per trial, after one warm-up
 
 
+@dataclass(frozen=True)
+class Calibrated(Generic[T]):
+    """A calibrated stage's adapter, and the report of how it was chosen."""
+
+    adapter: T  # under the chosen tuning
+    report: CalibrationReport
+
+
 async def calibrate(
     stage: BaseCalibratedStage[T],
     *,
@@ -100,11 +125,12 @@ async def calibrate(
     batch_sizes: Sequence[int],
     limits: CalibrationLimits,
     clock: Callable[[], float] = time.perf_counter,
-) -> T:
+) -> Calibrated[T]:
     """Return the stage's adapter under the fastest of the candidate tunings.
 
     With one candidate of each parameter (both fixed by the settings), the model
-    loads once and nothing is timed or logged.
+    loads once and nothing is timed or logged; the report then holds that tuning,
+    no trial and 0 seconds.
 
     Args:
         stage: The CPU-bound stage to calibrate.
@@ -114,20 +140,38 @@ async def calibrate(
         clock: Seconds, as ``time.perf_counter`` gives them.
 
     Returns:
-        The adapter of the fastest thread count, at the fastest batch size.
+        The adapter of the fastest thread count, at the fastest batch size, and
+        the report of the search.
 
     Example:
-        >>> embedder = await calibrate(
+        >>> calibrated = await calibrate(
         ...     EmbedStage(model, pool, settings), threads=(4, 2, 1),
         ...     batch_sizes=(64,), limits=CalibrationLimits(90.0, 1))
+        >>> calibrated.report.chosen
+        StageTuning(threads=2, batch_size=64)
     """
     if len(threads) == 1 and len(batch_sizes) == 1:
-        return stage.rebatched(await stage.loaded(threads[0]), batch_sizes[0])
+        return await _fixed(stage, StageTuning(threads[0], batch_sizes[0]), limits)
     started = clock()
     first = await stage.loaded(threads[0])
     search = _Search(stage, first, limits, clock, started)
     del first  # from here on the search alone holds a model
     return await search.run(threads, batch_sizes)
+
+
+async def _fixed(
+    stage: BaseCalibratedStage[T], tuning: StageTuning, limits: CalibrationLimits
+) -> Calibrated[T]:
+    adapter = stage.rebatched(await stage.loaded(tuning.threads), tuning.batch_size)
+    report = CalibrationReport(
+        stage=stage.stage,
+        chosen=tuning,
+        trials=(),
+        seconds=0.0,
+        budget_s=limits.budget_s,
+        cut_short=False,
+    )
+    return Calibrated(adapter, report)
 
 
 class _Search(Generic[T]):
@@ -155,7 +199,9 @@ class _Search(Generic[T]):
         self._trials: list[TimedTrial] = []
         self._cut_short = False
 
-    async def run(self, threads: Sequence[int], batch_sizes: Sequence[int]) -> T:
+    async def run(
+        self, threads: Sequence[int], batch_sizes: Sequence[int]
+    ) -> Calibrated[T]:
         for batch_size in batch_sizes:
             if not self._may_start():
                 break
@@ -194,21 +240,31 @@ class _Search(Generic[T]):
         self._cut_short = True
         return False
 
-    def _finish(self) -> T:
-        chosen = fastest(self._trials)
-        self._log(chosen)
-        return self._stage.rebatched(self._kept, chosen.batch_size)
-
-    def _log(self, chosen: StageTuning) -> None:
-        log_json(
-            event="stage_calibrated",
+    def _finish(self) -> Calibrated[T]:
+        report = CalibrationReport(
             stage=self._stage.stage,
-            chosen={"threads": chosen.threads, "batch_size": chosen.batch_size},
-            trials=[_trial_fields(trial) for trial in self._trials],
-            seconds=round(self._clock() - self._started, 3),
+            chosen=fastest(self._trials),
+            trials=tuple(self._trials),
+            seconds=self._clock() - self._started,
             budget_s=self._limits.budget_s,
             cut_short=self._cut_short,
         )
+        _log(report)
+        adapter = self._stage.rebatched(self._kept, report.chosen.batch_size)
+        return Calibrated(adapter, report)
+
+
+def _log(report: CalibrationReport) -> None:
+    chosen = report.chosen
+    log_json(
+        event="stage_calibrated",
+        stage=report.stage,
+        chosen={"threads": chosen.threads, "batch_size": chosen.batch_size},
+        trials=[_trial_fields(trial) for trial in report.trials],
+        seconds=round(report.seconds, 3),
+        budget_s=report.budget_s,
+        cut_short=report.cut_short,
+    )
 
 
 def _trial_fields(trial: TimedTrial) -> dict[str, float]:

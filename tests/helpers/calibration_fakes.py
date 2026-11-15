@@ -98,3 +98,6 @@ class FakeCalibratedStage(BaseCalibratedStage[FakeStageAdapter]):
         nth = self.served.count(tuning)
         self.served.append(tuning)
         self._clock.advance(durations[min(nth, len(durations) - 1)])
+
+    def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
+        return {"FAKE_THREADS": tuning.threads, "FAKE_BATCH_SIZE": tuning.batch_size}

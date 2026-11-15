@@ -29,7 +29,7 @@ from rag_load_test.composition.calibrated_stages import (
 )
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.calibration import calibration_sample
+from rag_load_test.domain.calibration import StageTuning, calibration_sample
 from rag_load_test.infrastructure.local_models.local_model import LocalModel
 from rag_load_test.infrastructure.local_models.model_pool import model_executor
 from rag_load_test.infrastructure.local_models.native_threads import NativeThreadScope
@@ -234,6 +234,45 @@ async def test_the_embed_sample_is_one_question_with_the_query_prefix(
     await EmbedStage(TORCH_MODEL, pool, settings).serve_sample(embedder)
 
     assert model.texts == [[f"query: {calibration_sample(1).question}"]]
+
+
+# --- the settings that pin a tuning --------------------------------------------------
+
+
+def test_the_rerank_stage_is_pinned_by_its_threads_and_batch_size(
+    settings_factory: SettingsFactory, pool: ThreadPoolExecutor
+) -> None:
+    stage = RerankStage(TORCH_MODEL, pool, settings_factory())
+
+    pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
+
+    assert pinned == {"RAG_RERANK_THREADS": 2, "RAG_RERANK_BATCH_SIZE": 5}
+
+
+def test_the_embed_stage_is_pinned_by_its_threads_only(
+    settings_factory: SettingsFactory, pool: ThreadPoolExecutor
+) -> None:
+    stage = EmbedStage(TORCH_MODEL, pool, settings_factory())
+
+    pinned = stage.pinned_settings(StageTuning(threads=3, batch_size=64))
+
+    assert pinned == {"RAG_EMBEDDING_THREADS": 3}
+
+
+def test_pinned_settings_read_back_as_the_tuning(
+    settings_factory: SettingsFactory,
+    pool: ThreadPoolExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pinned = RerankStage(TORCH_MODEL, pool, settings_factory()).pinned_settings(
+        StageTuning(threads=2, batch_size=5)
+    )
+    for name, value in pinned.items():
+        monkeypatch.setenv(name, str(value))
+
+    settings = settings_factory()
+
+    assert (settings.rerank_threads, settings.rerank_batch_size) == (2, 5)
 
 
 # --- recording models ----------------------------------------------------------------

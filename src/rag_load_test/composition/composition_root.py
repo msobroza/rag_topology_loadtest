@@ -38,7 +38,9 @@ from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseLexicalSearch, BaseVectorStore
 from ..application.rag_dependencies import RagDependencies
 from ..config.rag_settings import RagSettings
+from ..domain.roles import ModelServerPart
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
+from .calibrated_stages import ComponentCalibration
 from .embedder_factory import EmbedderFactory
 from .http_resources import HttpResources
 from .llm_factory import LLMFactory
@@ -183,3 +185,26 @@ class CompositionRoot:
             >>> reranker = await composition.local_reranker()
         """
         return await self._rerankers.open_local()
+
+    async def calibration(self, part: ModelServerPart) -> ComponentCalibration:
+        """Calibrate one component's in-process model on this machine, on demand.
+
+        The model loads as an App would load it, whatever the Backend says, and
+        every parameter calibration chooses is searched, pinned or not, under
+        the settings' budget and rounds. A ready-made port is not timed.
+
+        Args:
+            part: ``embedder`` or ``reranker``.
+
+        Returns:
+            The report, the CPUs and runtime it ran on, and the settings that
+            pin the choice.
+
+        Example:
+            >>> calibration = await composition.calibration("reranker")
+            >>> calibration.pinned
+            {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+        """
+        if part == "embedder":
+            return await self._embedders.calibration()
+        return await self._rerankers.calibration()

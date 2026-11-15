@@ -3,8 +3,9 @@
 At start-up a CPU-bound stage (embed or rerank on an in-process model) is timed
 under each candidate batch size and thread count left at 0 by the settings, and
 keeps the fastest. This module holds the rules, no clock and no model: which
-candidates (``halvings``), which trial wins (``fastest``) and the request every
-candidate serves (``calibration_sample``). The loop is
+candidates (``halvings``), which trial wins (``fastest``), what a calibration
+reports (``CalibrationReport``) and the request every candidate serves
+(``calibration_sample``). The loop is
 ``infrastructure/local_models/stage_calibration.py``.
 
 Example:
@@ -38,6 +39,32 @@ class TimedTrial:
 
     tuning: StageTuning
     seconds: float
+
+
+@dataclass(frozen=True)
+class CalibrationReport:
+    """What one calibration of a stage found: its choice and every trial.
+
+    Example:
+        >>> trial = TimedTrial(StageTuning(2, 2), 2.94)
+        >>> report = CalibrationReport("rerank", StageTuning(2, 2), (trial,),
+        ...                            seconds=68.4, budget_s=90.0, cut_short=False)
+        >>> report.chosen_seconds
+        2.94
+    """
+
+    stage: str  # the stage's name: embed, rerank
+    chosen: StageTuning
+    trials: tuple[TimedTrial, ...]  # in the order tried; none when nothing was timed
+    seconds: float  # spent calibrating, loads included; 0 when nothing was timed
+    budget_s: float
+    cut_short: bool  # the budget stopped the search before every candidate ran
+
+    @property
+    def chosen_seconds(self) -> float | None:
+        """The seconds one request took under the choice; None when none was timed."""
+        timed = [trial.seconds for trial in self.trials if trial.tuning == self.chosen]
+        return min(timed, default=None)
 
 
 @dataclass(frozen=True)
