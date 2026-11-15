@@ -69,6 +69,7 @@ rag-compare = "rag_load_test.loadtest.rag_compare:compare_main"
 rag-model-server = "rag_load_test.entrypoints.rag_model_server:main"
 rag-served-models = "rag_load_test.entrypoints.rag_served_models:main"
 rag-export-openvino = "rag_load_test.entrypoints.rag_export_openvino:main"
+rag-calibrate = "rag_load_test.entrypoints.rag_calibrate:main"
 rag-fetch-corpus = "rag_load_test.entrypoints.rag_fetch_corpus:main"
 rag-deploy = "rag_load_test.deploy.rag_deploy:main"
 rag-fake-domino = "fake_domino.server:main"
@@ -103,6 +104,9 @@ filterwarnings = [
 line-length = 88
 target-version = "py311"
 src = ["src", "tests/helpers"]
+# vulture's input, a list of bare names, not code: a bare `ruff check .` then
+# agrees with `make lint`, which never passes it.
+extend-exclude = ["vulture_whitelist.py"]
 
 [tool.ruff.lint]
 # Preview is on for DOC501 alone: explicit-preview-rules keeps every other

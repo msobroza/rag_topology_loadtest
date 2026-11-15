@@ -124,9 +124,11 @@ def test_settings_field_set_is_pinned() -> None:
     # decision. The tunables (top-k, index, batch sizes, workers, HTTP, Domino token,
     # seed size, HTTP backoff), the prompts and the thread-budget inputs were
     # moved or added here on purpose; so were Chroma, the retrieval mode and the
-    # in-process model runtime. Each model component (embedding, rerank,
+    # in-process model runtime, and the two limits of calibration. Each model component (embedding, rerank,
     # generation) has one block of settings, its endpoint in four *_api_* fields.
     assert sorted(RagSettings.model_fields) == [
+        "calibration_budget_s",
+        "calibration_rounds",
         "chroma_collection",
         "chroma_path",
         "chroma_url",

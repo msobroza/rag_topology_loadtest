@@ -43,6 +43,11 @@ START = (
     "sudo systemd-run --unit=rag-app --uid=ubuntu "
     '--working-directory="$HOME" --property=TimeoutStopSec=10 bash "$HOME"/rag-app.sh'
 )
+STOP = (
+    "sudo systemctl stop rag-app.service 2>/dev/null; "
+    "sudo systemctl reset-failed rag-app.service 2>/dev/null; "
+    "! systemctl is-active --quiet rag-app.service"
+)
 SCRIPT = "export RAG_ES_PASSWORD='s3cret'\nexec bash domino/app.sh\n"
 
 
@@ -75,6 +80,33 @@ def test_a_start_whose_ssh_times_out_raises_naming_the_machine() -> None:
     runner = FakeCommandRunner(CommandError("ssh timed out after 20.0 s"))
     with pytest.raises(AppLaunchError, match=r"^ssh to 10.10.0.21: ssh timed out"):
         launcher(runner).start(MACHINE, SCRIPT)
+
+
+def test_stop_stops_and_resets_the_unit() -> None:
+    runner = FakeCommandRunner()
+    launcher(runner).stop(MACHINE)
+    assert runner.calls == [([*SSH, STOP], None, 20.0)]
+
+
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        (CommandResult(1, "", "still active\n"), "exit 1: still active"),
+        (CommandError("ssh timed out after 20.0 s"), "ssh timed out after 20.0 s"),
+    ],
+)
+def test_a_stop_that_fails_is_logged_not_raised(
+    answer: CommandResult | CommandError,
+    error: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="fake_domino")
+    launcher(FakeCommandRunner(answer)).stop(MACHINE)
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert '"event": "app_stop_failed"' in record.message
+    assert '"machine": "10.10.0.21"' in record.message
+    assert error in record.message
 
 
 @pytest.mark.parametrize(

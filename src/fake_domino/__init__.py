@@ -7,6 +7,6 @@ what it serves of the API and of a run. ``server`` builds it
 (``create_fake_domino``, ``rag-fake-domino``); an extension may build on it
 through ``create_fake_domino``'s keyword arguments and the ``instances`` seam,
 and nothing here depends on one. It imports nothing from ``rag_load_test``;
-inside the product only ``rag_load_test/deploy/cli.py`` (``--dry-run``) imports
+inside the product only ``rag_load_test/deploy/rag_deploy.py`` (``--dry-run``) imports
 it, both rules checked by ``tests/structure/test_layering.py``.
 """

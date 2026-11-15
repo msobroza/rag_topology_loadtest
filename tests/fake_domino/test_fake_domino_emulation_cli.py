@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fake_domino.emulation.placement import AppPlacer
 from fake_domino.emulation.proxy_settings import (
     FakeDominoProxySettings,
+    ReplicaBalancing,
     UnauthenticatedResponse,
 )
 from fake_domino.emulation.server import main
@@ -38,6 +39,7 @@ def test_without_flags_the_proxy_has_its_defaults() -> None:
         keep_prefix=False,
         upstreams={},
         forward_timeout_seconds=30.0,
+        replica_balancing=ReplicaBalancing.ROUND_ROBIN,
     )
 
 
@@ -54,6 +56,8 @@ def test_the_proxy_flags_fill_its_settings() -> None:
             "redirect",
             "--forward-timeout",
             "5",
+            "--replica-balancing",
+            "connection-random",
         ]
     )
     assert app.state.fake_domino_proxy.settings == FakeDominoProxySettings(
@@ -65,6 +69,7 @@ def test_the_proxy_flags_fill_its_settings() -> None:
             "rag-workflow": "http://127.0.0.1:8000/",
         },
         forward_timeout_seconds=5.0,
+        replica_balancing=ReplicaBalancing.CONNECTION_RANDOM,
     )
 
 
@@ -86,6 +91,14 @@ def test_the_command_refuses_an_unknown_unauthenticated_mode(
     with pytest.raises(SystemExit):
         main(["--unauthenticated", "403"], serve=lambda app, host, port: None)
     assert "invalid choice: '403'" in capsys.readouterr().err
+
+
+def test_the_command_refuses_an_unknown_replica_balancing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        main(["--replica-balancing", "least-busy"], serve=lambda app, host, port: None)
+    assert "invalid choice: 'least-busy'" in capsys.readouterr().err
 
 
 # --- placement (the emulation) ---

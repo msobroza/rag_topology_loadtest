@@ -37,12 +37,19 @@ class LocalModel:
                 ``NativeThreadScope`` instead.
 
         Returns:
-            Nothing for ``torch``; for ``openvino``, the backend and its
-            inference thread count.
+            Nothing for ``torch``; for ``openvino``, the backend, its inference
+            thread count and leave to run them on hyper-threads.
         """
         if self.runtime == "torch":
             return {}
-        ov_config = {"INFERENCE_NUM_THREADS": str(threads)}
+        # In its latency mode OpenVINO keeps to physical cores: asked for 2 threads
+        # on one core with two hyper-threads, it reported INFERENCE_NUM_THREADS=1
+        # and left the second CPU idle (GCP sitting of 2026-11-15). Allowed the
+        # hyper-threads it ran 2, and a rerank request took 2.94 s instead of 3.38.
+        ov_config = {
+            "INFERENCE_NUM_THREADS": str(threads),
+            "ENABLE_HYPER_THREADING": "YES",
+        }
         return {"backend": "openvino", "model_kwargs": {"ov_config": ov_config}}
 
 

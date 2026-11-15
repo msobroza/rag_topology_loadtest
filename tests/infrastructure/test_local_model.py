@@ -64,13 +64,25 @@ def test_torch_load_arguments_are_empty() -> None:
     assert LocalModel("m", "m", "torch").load_arguments(3) == {}
 
 
-def test_openvino_load_arguments_pick_the_backend_and_cap_its_threads() -> None:
+def test_openvino_load_arguments_pick_the_backend_and_its_threads() -> None:
     arguments = LocalModel("m", "m", "openvino").load_arguments(3)
 
     assert arguments == {
         "backend": "openvino",
-        "model_kwargs": {"ov_config": {"INFERENCE_NUM_THREADS": "3"}},
+        "model_kwargs": {
+            "ov_config": {"INFERENCE_NUM_THREADS": "3", "ENABLE_HYPER_THREADING": "YES"}
+        },
     }
+
+
+def test_openvino_is_allowed_the_hyper_threads_it_is_given() -> None:
+    # Without it, asked for 2 threads on one core with two hyper-threads, OpenVINO
+    # ran 1 (GCP sitting of 2026-11-15).
+    ov_config = LocalModel("m", "m", "openvino").load_arguments(2)["model_kwargs"][
+        "ov_config"
+    ]
+
+    assert ov_config["ENABLE_HYPER_THREADING"] == "YES"
 
 
 def test_openvino_load_arguments_are_a_fresh_dict_each_call() -> None:

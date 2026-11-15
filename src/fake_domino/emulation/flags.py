@@ -10,7 +10,11 @@ import argparse
 from pathlib import Path
 
 from ..server import FAKE_DOMINO_PORT
-from .proxy_settings import FakeDominoProxySettings, UnauthenticatedResponse
+from .proxy_settings import (
+    FakeDominoProxySettings,
+    ReplicaBalancing,
+    UnauthenticatedResponse,
+)
 
 
 def emulation_parser() -> argparse.ArgumentParser:
@@ -34,6 +38,7 @@ def emulation_parser() -> argparse.ArgumentParser:
     proxy = parser.add_argument_group("App proxy")
     _add_forwarding_flags(proxy, FakeDominoProxySettings())
     _add_identity_flags(proxy, FakeDominoProxySettings())
+    _add_balancing_flag(proxy, FakeDominoProxySettings())
     return parser
 
 
@@ -64,7 +69,7 @@ def _add_forwarding_flags(
         default=[],
         type=_upstream,
         metavar="NAME=URL",
-        help="where the App named NAME runs (repeatable; wins over its machine)",
+        help="where the App named NAME runs (repeatable; wins over its machines)",
     )
     proxy.add_argument(
         "--keep-prefix",
@@ -76,6 +81,19 @@ def _add_forwarding_flags(
         type=float,
         metavar="SECONDS",
         default=defaults.forward_timeout_seconds,
+    )
+
+
+def _add_balancing_flag(
+    proxy: argparse._ArgumentGroup, defaults: FakeDominoProxySettings
+) -> None:
+    # Which of an App's machines answers a request.
+    proxy.add_argument(
+        "--replica-balancing",
+        default=defaults.replica_balancing.value,
+        choices=[rule.value for rule in ReplicaBalancing],
+        help="how requests spread over an App's machines: each request to the "
+        "next in turn, or one random machine per caller connection",
     )
 
 

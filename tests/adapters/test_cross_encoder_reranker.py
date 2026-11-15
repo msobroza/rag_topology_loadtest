@@ -79,3 +79,24 @@ async def test_from_pretrained_loads_the_source_with_the_runtime_arguments(
     assert fake_loading.loads == [("CrossEncoder", model.source, expected)]
     assert await reranker.ready() == (True, "org/name")
     assert reranker.scope.threads == 3
+
+
+async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
+    executor: ThreadPoolExecutor,
+) -> None:
+    model, scope = FakeCrossEncoder([0.25, 0.75]), RecordingScope(2)
+    reranker = CrossEncoderReranker(
+        model, executor, model_name="fake-ce", batch_size=20, scope=scope
+    )
+
+    rebatched = reranker.with_batch_size(2)
+    await rebatched.rerank("q", scored_passages("a", "b"), top_n=1)
+
+    assert type(rebatched) is CrossEncoderReranker
+    assert rebatched is not reranker
+    assert [call["batch_size"] for call in model.calls] == [2]
+    assert rebatched.scope is scope
+    assert await rebatched.ready() == (True, "fake-ce")
+    assert [t.startswith("rag-model") for t in scope.ran_on] == [True]  # its pool
+    await reranker.rerank("q", scored_passages("a"), top_n=1)
+    assert [call["batch_size"] for call in model.calls] == [2, 20]  # unchanged

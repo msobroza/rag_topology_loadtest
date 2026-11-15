@@ -21,6 +21,13 @@ class UnauthenticatedResponse(StrEnum):
     REDIRECT = "redirect"  # a browser-facing proxy: 302 to the login page
 
 
+class ReplicaBalancing(StrEnum):
+    """How the proxy spreads an App's requests over its replicas (undocumented)."""
+
+    ROUND_ROBIN = "round-robin"  # each request to the next replica, per App
+    CONNECTION_RANDOM = "connection-random"  # each connection to one random replica
+
+
 @dataclass(frozen=True)
 class FakeDominoProxySettings:
     """How the fake wraps an App the way Domino's App proxy does.
@@ -33,6 +40,9 @@ class FakeDominoProxySettings:
         upstreams: Base URL of the running App, by App name, e.g.
             ``{"rag-reranker": "http://127.0.0.1:9001"}``.
         forward_timeout_seconds: Timeout of each forwarded request.
+        replica_balancing: How requests are spread over an App's replicas
+            (its machines): each request in turn, or one random replica per
+            caller connection.
 
     Example:
         >>> FakeDominoProxySettings(upstreams={"rag-reranker": "http://127.0.0.1:9001"})
@@ -43,3 +53,4 @@ class FakeDominoProxySettings:
     keep_prefix: bool = False
     upstreams: Mapping[str, str] = field(default_factory=dict)
     forward_timeout_seconds: float = 30.0
+    replica_balancing: ReplicaBalancing = ReplicaBalancing.ROUND_ROBIN

@@ -4,8 +4,8 @@ Emulation only, and removable as one folder: it builds on the core's
 ``create_fake_domino`` (routes served first, a lifespan, its Swagger text) and
 plugs ``AppPlacer`` into the core's ``BaseInstanceScheduler`` seam. In front of each
 App URL the proxy checks credentials and rewrites headers as Domino's does;
-with ``--placement FILE`` each App runs on a free machine of its hardware tier,
-started over SSH. It stays one process: its Apps live in memory.
+with ``--placement FILE`` each App runs on free machines of its hardware tier
+(one per replica), started over SSH. It stays one process: its Apps live in memory.
 
 Example:
     >>> main(["--placement", "/etc/fake-domino/placement.json"])  # then /docs
@@ -32,7 +32,11 @@ from .placement import AppPlacer
 from .placement_settings import load_placement
 from .project_env import load_project_env
 from .proxy_routes import _identity_router, _proxy_router
-from .proxy_settings import FakeDominoProxySettings, UnauthenticatedResponse
+from .proxy_settings import (
+    FakeDominoProxySettings,
+    ReplicaBalancing,
+    UnauthenticatedResponse,
+)
 from .ssh_launcher import SshAppLauncher
 from .tiers import _placed_tiers_router
 
@@ -100,6 +104,7 @@ def main(
         keep_prefix=args.keep_prefix,
         upstreams=dict(args.upstream),
         forward_timeout_seconds=args.forward_timeout,
+        replica_balancing=ReplicaBalancing(args.replica_balancing),
     )
     placer = _placer(parser, args.placement, args.project_env)
     apps = FakeDominoApps(scheduler=placer)

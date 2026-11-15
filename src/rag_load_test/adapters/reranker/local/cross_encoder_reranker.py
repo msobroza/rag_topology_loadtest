@@ -102,6 +102,30 @@ class CrossEncoderReranker(BaseReranker):
         scores = await run_blocking(self._executor, self.scope.run, predict)
         return top_by_score(passages, [float(s) for s in scores], top_n)
 
+    def with_batch_size(self, batch_size: int) -> CrossEncoderReranker:
+        """Return this adapter at another batch size, on the same loaded model.
+
+        Calibration times one loaded model under several batch sizes, and a load
+        is the expensive part.
+
+        Args:
+            batch_size: Query-passage pairs per ``predict`` batch.
+
+        Returns:
+            A new adapter sharing the model, the pool, the model name and the
+            thread scope.
+
+        Example:
+            >>> smaller = adapter.with_batch_size(2)
+        """
+        return CrossEncoderReranker(
+            self._model,
+            self._executor,
+            model_name=self.model_name,
+            batch_size=batch_size,
+            scope=self.scope,
+        )
+
     async def ready(self) -> tuple[bool, str]:
         """Report ready: the model was loaded when the object was built.
 
