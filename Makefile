@@ -91,13 +91,13 @@ calibrate: ## Calibrate the in-process embedder + reranker on this machine; prin
 deploy: ## On Domino: publish (or redeploy) every App of the topology (settings in deploy.yaml)
 	$(BIN)rag-deploy deploy all
 
-deploy-embedder: ## On Domino: publish (or redeploy) the rag-embedder App only
+deploy-embedder: ## On Domino: publish (or redeploy) the embedder App only
 	$(BIN)rag-deploy deploy embedder
 
-deploy-reranker: ## On Domino: publish (or redeploy) the rag-reranker App only
+deploy-reranker: ## On Domino: publish (or redeploy) the reranker App only
 	$(BIN)rag-deploy deploy reranker
 
-deploy-workflow: ## On Domino: publish (or redeploy) the rag-workflow App only
+deploy-workflow: ## On Domino: publish (or redeploy) the workflow App only
 	$(BIN)rag-deploy deploy workflow
 
 status: ## On Domino: each App's status and instance URL, then the workflow App's /readyz
@@ -109,7 +109,7 @@ deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is
 fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow
 	$(BIN)rag-fake-domino --behaviour $(BEHAVIOUR)
 
-loadtest-domino: ## On Domino: loadtest against rag-workflow: make loadtest-domino RUN_NAME=split-all
+loadtest-domino: ## On Domino: loadtest against the workflow App: make loadtest-domino RUN_NAME=split-all
 	host=$$($(BIN)rag-deploy url workflow) && \
 		RAG_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
 		$(MAKE) loadtest HOST="$$host"

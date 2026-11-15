@@ -24,7 +24,12 @@ from repo_paths import REPO_ROOT
 @pytest.fixture
 def deploy_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """The path RAG_DEPLOY_FILE names; nothing from the shell leaks in."""
-    for name in ("RAG_DEPLOY_TOPOLOGY", "RAG_DEPLOY_PROJECT_ID", "DOMINO_PROJECT_ID"):
+    for name in (
+        "RAG_DEPLOY_TOPOLOGY",
+        "RAG_DEPLOY_PROJECT_ID",
+        "RAG_DEPLOY_APP_NAME_PREFIX",
+        "DOMINO_PROJECT_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
     path = tmp_path / "deploy.yaml"
     monkeypatch.setenv("RAG_DEPLOY_FILE", str(path))
@@ -37,6 +42,7 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
     assert settings.topology == "split-reranker"
     assert settings.for_app("workflow") == AppSettings(
         part="workflow",
+        name="rag-workflow",
         kind="agent",
         environment_id="env-123",
         environment_revision_id="",
@@ -172,6 +178,7 @@ def test_rag_deploy_variables_override_the_file(
 def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
     settings = DeploySettings()
     assert settings.model_dump(exclude={"defaults", "apps"}) == {
+        "app_name_prefix": "rag",
         "topology": "split-all",
         "model_server": "fastapi",
         "project_id": "",

@@ -104,7 +104,7 @@ def _run_command(
     if args.command == "status":
         print_status(client, settings)
     if args.command == "url":
-        app = require_app(client, args.part)
+        app = require_app(client, settings, args.part)
         print(endpoint_url(client, app, settings.domino_host))
 
 

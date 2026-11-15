@@ -1058,7 +1058,7 @@ project that hosts all the Apps:
 
 ```bash
 cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, model server
-make deploy                           # model server Apps first, then rag-workflow with their URLs
+make deploy                           # model server Apps first, then the workflow App with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
 make compare
@@ -1066,7 +1066,8 @@ make compare
 
 `rag-deploy` (behind these targets) calls Domino's beta Apps API through
 `DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
-as the topology needs. The Apps install their own dependencies when they start
+as the topology needs (their names follow `app_name_prefix`: see "App names"
+below). The Apps install their own dependencies when they start
 (`domino/app.sh` with `RAG_BOOTSTRAP=1`), into a virtualenv on Python 3.11, so any
 environment with `uv` works, but the first start is slower and needs access to
 the package index and the Hugging Face Hub. An environment without Python 3.11
@@ -1079,10 +1080,11 @@ mount the repository at the same path); elsewhere it refuses to publish.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
-`model_server`, `project_id`, `ovms_bundle`, `domino_host`) and how to talk to
-Domino (`wait_timeout_s`, `poll_interval_s`, `no_instance_grace_s`,
-`http_timeout_s`, `http_retries`, `run_token_url`); a `RAG_DEPLOY_<KEY>` variable
-overrides one, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
+`model_server`, `project_id`, `app_name_prefix`, `ovms_bundle`, `domino_host`)
+and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
+`no_instance_grace_s`, `http_timeout_s`, `http_retries`, `run_token_url`); a
+`RAG_DEPLOY_<KEY>` variable overrides one, e.g.
+`RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
 `RAG_DEPLOY_FILE` names another file. `defaults` applies to every App and
 `apps.<embedder|reranker|workflow>` to one, each App taking its own value, else the
 default:
@@ -1142,6 +1144,20 @@ a revision but no environment.
 (`enabled`, `minReplicas`, `maxReplicas`, `targetCpuAvgUtilizationPct`). Replicas
 are pods behind one instance, so scaling does not change the instance URL below.
 
+**App names.** Each App is named `<app_name_prefix>-<part>`, the part being
+`embedder`, `reranker` or `workflow`: `rag-embedder`, `rag-reranker` and
+`rag-workflow` with the default prefix, `rag`. `rag-deploy` creates, finds and
+reports every App by that name (a deploy, `make status`, `rag-deploy url` and the
+note after a model server is redeployed), so two use cases with two prefixes share
+one Domino project, each with its own Apps. The `make` targets keep the part's
+name (`make deploy-workflow`). A prefix is lowercase letters and digits in words
+joined by single hyphens, starting with a letter (`rag`, `qp-rag`); any other is
+refused before anything is published. That rule is `rag-deploy`'s own, not
+Domino's: the Apps API reference gives an App's name as a plain string, and we
+found no rule of Domino's for it. Since an App is found by its name, a new prefix
+creates new Apps, and the Apps under the old one keep running until they are
+deleted by hand in Domino.
+
 **Redeploying, never a second App.** `rag-deploy` remembers each App's id in
 `.rag-deploy-cache.json` (git-ignored, per project; a dry run keeps it in memory).
 It looks an App up by that id first, then by exact name, and remembers it either
@@ -1159,10 +1175,10 @@ the URL alone is what `rag-deploy url <part>` prints, what `make status` shows a
 checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
 own `url` stays in the messages that point at its page or logs. The instance id
 changes at every redeploy, so after `make deploy-embedder` or `make
-deploy-reranker` alone, `rag-deploy` reminds you that `rag-workflow` still calls
-the previous instance: run `make deploy-workflow`. Every model server call in a
-split topology goes through Domino's proxy: it is part of what the split
-topologies measure on Domino.
+deploy-reranker` alone, `rag-deploy` reminds you that the workflow App
+(`rag-workflow` by default) still calls the previous instance: run `make
+deploy-workflow`. Every model server call in a split topology goes through
+Domino's proxy: it is part of what the split topologies measure on Domino.
 
 One-time prerequisites that stay manual: install the package in the Workspace
 (`make install-dev`, or `uv pip install -e ".[loadtest]"`), `make ingest`, and for
@@ -1241,6 +1257,9 @@ Domino**:
    environment when an Agent starts.
 7. A version sent with `environmentRevisionId` starts on that revision of its
    environment (the field is in Domino's Public API spec 6.3.1, optional there).
+8. Domino accepts every App name that `app_name_prefix`'s rule allows. The rule is
+   `rag-deploy`'s own; a name Domino refuses stops the deploy at that App's
+   creation, with Domino's answer.
 
 If one of these fails, the step-by-step section below is the fallback.
 

@@ -10,7 +10,7 @@ import os
 import shlex
 import time
 from collections.abc import Callable, Mapping
-from typing import Literal
+from typing import Literal, NoReturn
 
 from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
 from ..domain.roles import (
@@ -200,7 +200,9 @@ def publish_app(
     launch_script: str,
     sleep: Callable[[float], None] = time.sleep,
 ) -> DominoApp:
-    """Create ``rag-<part>`` or post a new version to it, then wait until Running.
+    """Create ``part``'s App or post a new version to it, then wait until Running.
+
+    The App is found and created by its name, ``<app_name_prefix>-<part>``.
 
     Prints the App's endpoint once Running.
 
@@ -285,11 +287,7 @@ def deploy(
     refuse_secrets(settings)
     needed = apps_for_topology(settings.topology)
     if target != "all" and target not in needed:
-        names = ", ".join(f"rag-{part}" for part in needed)
-        raise DominoDeployError(
-            f"the {settings.topology} topology does not use App rag-{target}; "
-            f"it needs: {names}"
-        )
+        _refuse_an_app_the_topology_does_not_use(settings, target, needed)
     parts = needed if target == "all" else [target]
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, parts)
@@ -299,28 +297,39 @@ def deploy(
             client, settings, part, urls, launch_script=launch_script, sleep=sleep
         )
     if target in ("embedder", "reranker"):
-        _note_the_workflow_calls_the_old_instance(client, target)
+        _note_the_workflow_calls_the_old_instance(client, settings, target)
+
+
+def _refuse_an_app_the_topology_does_not_use(
+    settings: DeploySettings, target: AppPart, needed: list[AppPart]
+) -> NoReturn:
+    names = ", ".join(settings.app_name(part) for part in needed)
+    raise DominoDeployError(
+        f"the {settings.topology} topology does not use App "
+        f"{settings.app_name(target)}; it needs: {names}"
+    )
 
 
 def _note_the_workflow_calls_the_old_instance(
-    client: DominoAppsClient, part: AppPart
+    client: DominoAppsClient, settings: DeploySettings, part: AppPart
 ) -> None:
     # The workflow App holds the model server's instance URL, which a redeploy changes.
-    if client.find("rag-workflow") is not None:
+    workflow = settings.app_name("workflow")
+    if client.find(workflow) is not None:
         print(
-            f"rag-workflow still calls the previous rag-{part} instance: "
-            "run make deploy-workflow"
+            f"{workflow} still calls the previous {settings.app_name(part)} "
+            "instance: run make deploy-workflow"
         )
 
 
 def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> None:
     _refuse_a_default_revision_alone(settings)
-    for part in parts:
-        if not settings.for_app(part).environment_id:
+    for app in map(settings.for_app, parts):
+        if not app.environment_id:
             raise DominoDeployError(
-                f"No environment_id for App rag-{part}: set defaults.environment_id "
-                f"(or apps.{part}.environment_id) in {deploy_file()}; it is the id "
-                "of the Domino compute environment the App runs in"
+                f"No environment_id for App {app.name}: set defaults.environment_id "
+                f"(or apps.{app.part}.environment_id) in {deploy_file()}; it is the "
+                "id of the Domino compute environment the App runs in"
             )
     if settings.model_server != "ovms" or parts == ["workflow"]:
         return
@@ -369,16 +378,21 @@ def model_server_urls(
         {'embedder': ..., ...}
     """
     return {
-        part: endpoint_url(client, require_app(client, part), settings.domino_host)
+        part: endpoint_url(
+            client, require_app(client, settings, part), settings.domino_host
+        )
         for part in model_servers_for_topology(settings.topology)
     }
 
 
-def require_app(client: DominoAppsClient, part: AppPart) -> DominoApp:
-    """Find the deployed ``rag-<part>`` App.
+def require_app(
+    client: DominoAppsClient, settings: DeploySettings, part: AppPart
+) -> DominoApp:
+    """Find ``part``'s deployed App, by its name ``<app_name_prefix>-<part>``.
 
     Args:
         client: Apps API client for the project.
+        settings: The deploy settings, for the App's name.
         part: The App to find.
 
     Returns:
@@ -389,13 +403,15 @@ def require_app(client: DominoAppsClient, part: AppPart) -> DominoApp:
             target.
 
     Example:
-        >>> require_app(client, "workflow").url
+        >>> require_app(client, DeploySettings(), "workflow").url
         'https://domino.example/apps/a1'
     """
-    app = client.find(f"rag-{part}")
+    name = settings.app_name(part)
+    app = client.find(name)
     if app is None:
+        # The make target is named after the part, whatever the prefix.
         raise DominoDeployError(
-            f"App rag-{part} is not deployed in project {client.project_id}: "
+            f"App {name} is not deployed in project {client.project_id}: "
             f"run make deploy-{part}"
         )
     return app

@@ -113,6 +113,7 @@ class AppSettings:
     """One App's settings once its own values and the defaults are merged."""
 
     part: AppPart
+    name: str  # in Domino: <app_name_prefix>-<part>
     kind: AppKind
     environment_id: str
     environment_revision_id: str  # "" = none: Domino chooses the revision
@@ -120,10 +121,13 @@ class AppSettings:
     autoscaling: Autoscaling | None
     settings: dict[str, str] = field(default_factory=dict)
 
-    @property
-    def name(self) -> str:
-        """The App's name in Domino, ``rag-<part>``."""
-        return f"rag-{self.part}"
+
+# Our rule, not Domino's: the Apps API reference this tool follows gives an App's
+# name as a plain string, and we found no rule of Domino's for it. So the prefix
+# keeps to a conservative shape: lowercase words of letters and digits joined by
+# single hyphens, starting with a letter. It never makes "-workflow", "rag--workflow"
+# or a name with a space, a slash or a capital.
+_APP_NAME_PREFIX = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
 
 class DeploySettings(BaseSettings):
@@ -131,6 +135,9 @@ class DeploySettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RAG_DEPLOY_", extra="forbid")
 
+    # Each App is named <app_name_prefix>-<part>, so that two use cases with two
+    # prefixes can share one Domino project.
+    app_name_prefix: str = "rag"
     topology: Topology = "split-all"
     model_server: ModelServerKind = "fastapi"
     project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
@@ -173,14 +180,41 @@ class DeploySettings(BaseSettings):
         yaml_file = YamlConfigSettingsSource(settings_cls, yaml_file=deploy_file())
         return init_settings, env_settings, yaml_file
 
+    @field_validator("app_name_prefix")
+    @classmethod
+    def _a_valid_app_name_prefix(cls, value: str) -> str:
+        if _APP_NAME_PREFIX.fullmatch(value):
+            return value
+        raise ValueError(
+            f"app_name_prefix {value!r} would not make a valid App name: it must be "
+            "lowercase letters and digits in words joined by single hyphens, "
+            "starting with a letter, such as 'rag' or 'qp-rag' (rag-deploy's rule, "
+            "not Domino's)"
+        )
+
     @model_validator(mode="after")
     def _project_from_the_workspace(self) -> DeploySettings:
         # The example's `project_id: ""` means "not set", not "".
         self.project_id = self.project_id or os.environ.get("DOMINO_PROJECT_ID", "")
         return self
 
+    def app_name(self, part: AppPart) -> str:
+        """Name ``part``'s App in Domino: ``<app_name_prefix>-<part>``.
+
+        Args:
+            part: The App part.
+
+        Returns:
+            The App's exact name, by which it is created and found.
+
+        Example:
+            >>> DeploySettings(app_name_prefix="qp-rag").app_name("workflow")
+            'qp-rag-workflow'
+        """
+        return f"{self.app_name_prefix}-{part}"
+
     def for_app(self, part: AppPart) -> AppSettings:
-        """Merge ``rag-<part>``'s settings: its own value, else the default.
+        """Merge ``part``'s App settings: its own value, else the default.
 
         ``settings`` entries are merged key by key, the App's own winning. The
         default environment revision goes only with the default environment: an
@@ -200,6 +234,7 @@ class DeploySettings(BaseSettings):
         environment_id, revision_id = _environment_of(own, shared)
         return AppSettings(
             part=part,
+            name=self.app_name(part),
             kind=own.kind or shared.kind or DEFAULT_KIND[part],
             environment_id=environment_id,
             environment_revision_id=revision_id,

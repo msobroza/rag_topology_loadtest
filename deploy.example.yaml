@@ -19,6 +19,13 @@ topology: split-all
 model_server: fastapi
 # The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
 project_id: ""
+# Each App is named <app_name_prefix>-<part> (part: embedder, reranker, workflow),
+# so two use cases with two prefixes share one project. Lowercase letters and
+# digits in words joined by single hyphens, starting with a letter, e.g. qp-rag:
+# rag-deploy's own rule (we found none of Domino's), checked before anything is
+# published. An App is found by its name, so a new prefix creates new Apps; delete
+# the old ones by hand in Domino.
+app_name_prefix: rag
 # Required for ovms: the OVMS bundle as the Apps see it (project files or a Dataset),
 # either a folder with bin/ovms and lib/ or the release .tar.gz, for example
 # /domino/datasets/local/<dataset>/ovms.tar.gz

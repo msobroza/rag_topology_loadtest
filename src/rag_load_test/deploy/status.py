@@ -25,7 +25,8 @@ from .endpoint_url import endpoint_url
 def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
     """Print one line per App the topology needs, then the workflow App's /readyz.
 
-    The /readyz lines appear only when the workflow App is Running.
+    Each App is looked up by its name, ``<app_name_prefix>-<part>``. The /readyz
+    lines appear only when the workflow App is Running.
 
     Args:
         client: Apps API client for the project.
@@ -36,21 +37,23 @@ def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
         rag-workflow   Running   https://...
     """
     endpoint: str | None = None
-    for part in apps_for_topology(settings.topology):  # the workflow App is last
-        app = client.find(f"rag-{part}")
+    names = [settings.app_name(part) for part in apps_for_topology(settings.topology)]
+    width = max(map(len, names)) + 2  # a column as wide as the longest name
+    for name in names:  # the workflow App is last
+        app = client.find(name)
         endpoint = None
         if app is not None and app.status == "Running":
             endpoint = endpoint_url(client, app, settings.domino_host)
-        print(_status_line(f"rag-{part}", app, endpoint))
+        print(_status_line(f"{name:<{width}}", app, endpoint))
     if endpoint is not None:
         lines = readiness_lines(client.http, endpoint, settings.run_token_url)
         print("\n".join(lines))
 
 
-def _status_line(name: str, app: DominoApp | None, endpoint: str | None) -> str:
+def _status_line(column: str, app: DominoApp | None, endpoint: str | None) -> str:
     if app is None:
-        return f"{name:<14} not deployed"
-    return f"{name:<14} {app.status or 'no instance':<14} {endpoint or app.url}"
+        return f"{column} not deployed"
+    return f"{column} {app.status or 'no instance':<14} {endpoint or app.url}"
 
 
 def readiness_lines(http: httpx.Client, url: str, token_url: str) -> list[str]:

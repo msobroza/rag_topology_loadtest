@@ -69,6 +69,7 @@ def make_settings(**overrides: object) -> DeploySettings:
     Every key the tests depend on is passed, and passed values beat the file.
     """
     values: dict[str, object] = {
+        "app_name_prefix": "rag",
         "topology": "split-all",
         "model_server": "fastapi",
         "project_id": "proj-1",
