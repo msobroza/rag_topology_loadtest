@@ -2,6 +2,8 @@
 
 The RAG became the first use case of a toolkit, `query_processing`. A use case is a package of its own that installs the toolkit, `query_processing_rag_usecase` for the RAG, and it holds settings only: the workflow file, the deploy settings example, the environment example, the load-test questions and a Makefile. Every line of code stays in the toolkit, the four RAG stage types included, so that a second use case is a package of files.
 
+Amended by [ADR 0006](0006-a-use-case-holds-the-implementations-that-are-its-own.md): a use case also holds the implementations that are its own.
+
 ## Considered options
 
 - **One package.** Rejected: the toolkit's settings would keep the RAG's models, prompts and sizes as defaults, and the owner wants the use case installable on its own.

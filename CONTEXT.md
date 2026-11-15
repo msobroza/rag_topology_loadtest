@@ -1,6 +1,6 @@
 # query_processing
 
-A toolkit and its use cases. A use case declares its workflow and where its components run in two files; the toolkit serves the workflow, deploys it on Domino in the topology chosen, and drives it with a Locust suite so that topologies can be compared. They are two distributions: the toolkit, `query_processing`, holds all the code, and each use case holds settings only. The RAG is the first use case.
+A toolkit and its use cases. A use case declares its workflow and where its components run in two files; the toolkit serves the workflow, deploys it on Domino in the topology chosen, and drives it with a Locust suite so that topologies can be compared. They are two distributions: the toolkit, `query_processing`, holds what any use case can assemble, and each use case holds its settings and the implementations that are its own. The RAG is the first use case.
 
 ## Language
 
@@ -11,12 +11,12 @@ What every use case is built from: the stage types, the components and their bac
 _Avoid_: framework, library, platform
 
 **Use case**:
-One application of the toolkit, in a package of its own that installs it: the settings of its workflow, components and topologies. RAG is the first, in `query_processing_rag_usecase`.
+One application of the toolkit, in a package of its own that installs it: the settings of its workflow, components and topologies, and the implementations, trained models and data that are its own. RAG is the first, in `query_processing_rag_usecase`.
 _Avoid_: project, app (that is what Domino publishes), workflow (a use case has one, and more besides)
 
 ### Applications
 
-The toolkit's code is three applications over one shared domain, all in the `query_processing` distribution. A use case's distribution has no code: each application runs in the use case's directory and reads its files. The README's "Where a file goes" places each.
+The toolkit's code is three applications over one shared domain, all in the `query_processing` distribution. A use case's distribution holds only what is its own: each application runs in the use case's directory, reads its files and loads its code. The README's "Where a file goes" places each.
 
 **RAG system**:
 What runs on Domino and what prepares a use case's data and models: the workflow app, the model server, ingestion, the corpus and the model export.
@@ -33,12 +33,16 @@ _Avoid_: load tester, the client, Locust (that is the tool it runs on)
 ### Code structure
 
 **Port**:
-The abstract class one part of the workflow is used through: `BaseEmbedder`, `BaseReranker`, `BaseVectorStore` with `BaseLexicalSearch`, `BaseLLM`.
+The abstract class one part of the workflow is used through: `BaseEmbedder`, `BaseReranker`, `BaseVectorStore` with `BaseLexicalSearch`, `BaseLLM`, `BaseRouter`. A use case can add one for a component type of its own.
 _Avoid_: interface, protocol, and "ports" for what builds them (that is the composition root)
 
 **Adapter**:
 An implementation of a port, one per backend. Only ports and their implementations are adapters.
 _Avoid_: adapter for code that implements no port (that is infrastructure)
+
+**Request and answer**:
+What a component takes and what it gives: two domain classes, one pair for each component type. A stage's reads fill the request, and its writes take the answer.
+_Avoid_: input and output, payload, and "response" for the answer (that is what comes back on the wire)
 
 **Infrastructure**:
 Technical code that implements no port: the HTTP client pieces, the local model runtime, the corpora download, the log format.
@@ -59,7 +63,7 @@ The name a topology is chosen by, defined in the deploy settings: `monolith`, `s
 _Avoid_: alias alone (that is a served model's name), profile, preset
 
 **Component**:
-A named thing a stage calls that has a backend: a model (the embedder, the reranker, the LLM) or the vector store. Its type is the port it is used through, and components of one type have settings shaped the same way.
+A named thing a stage calls that has a backend: a model (the embedder, the reranker, the LLM, a router) or the vector store. Its type is the port it is used through, and components of one type have settings shaped the same way. Every component is called the same way: a request in, an answer out.
 _Avoid_: model, service, resource, dependency
 
 **Backend**:
@@ -75,7 +79,7 @@ The request and response shapes an endpoint speaks, named after whoever defined 
 _Avoid_: provider, vendor, protocol, contract
 
 **Standard format**:
-The one API format each component uses on the wire: OpenAI's for embedding and generation, Cohere's for rerank. OVMS, our model server and any gateway are called in it, and an in-process model follows the same contract. An API that speaks another shape is reached through an adapter that presents it as the standard.
+The one API format each component uses on the wire: OpenAI's for embedding and generation, Cohere's for rerank, and one of our own where no outside format exists, as for the router. OVMS, our model server and any gateway are called in it, and an in-process model follows the same contract. An API that speaks another shape is reached through an adapter that presents it as the standard.
 _Avoid_: canonical format, native format, default format
 
 **Runtime**:
@@ -180,11 +184,11 @@ _Avoid_: cache (alone), state bucket (that is Terraform's)
 ### Workflow
 
 **Stage**:
-One step of the workflow graph, calling the component it names. The RAG workflow has four, in order: embed, retrieve, rerank, generate. Timings are reported per stage.
+One step of the workflow graph: it hands the fields it reads to the component it names, and writes the fields the answer fills. Timings are reported per stage.
 _Avoid_: step, node, phase
 
 **Stage type**:
-The registered behaviour a stage is an instance of. A new kind of step is a new stage type.
+The registered behaviour of a stage that does more than call its component: `generate` renders a prompt, and `retrieve` reads different fields in each retrieval mode. A stage that only calls needs none.
 _Avoid_: node type, stage adapter (a stage implements no port)
 
 **CPU-bound stage**:
@@ -196,15 +200,35 @@ Timing a CPU-bound stage under each candidate batch size and thread count, and k
 _Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
 
 **Edge**:
-A link from one stage to the next. A conditional edge asks an edge condition and goes one way on yes and another on no.
+A link from one stage to the next. A conditional edge asks an edge condition and goes the way its answer names.
 _Avoid_: link, transition, arrow
 
 **Edge condition**:
-A registered yes-or-no question about the workflow state, asked by a conditional edge.
+A registered question about the workflow state, asked by a conditional edge. Its answer is yes or no, or one label out of a known set.
 _Avoid_: condition (alone), predicate, guard, rule
 
+**Router**:
+A component that chooses, for a query, one route out of its own list. A use case can have several, each with its routes.
+_Avoid_: classifier, selector, dispatcher
+
+**Route**:
+One answer a router can choose: a name, what it means, and the utterances that exemplify it. An HTTP path is not called a route on its own: those are the /v3 routes.
+_Avoid_: class, label, intent, category
+
+**Route choice**:
+The route a router chose for one query, with its confidence.
+_Avoid_: decision, prediction
+
+**Utterance**:
+A message that exemplifies a route. A router learns its routes from their utterances.
+_Avoid_: example, sample, training query
+
+**Metadata filter**:
+The conditions a passage's metadata must meet for it to be retrieved. Each names one metadata field, and all must hold; the client can send some with a message, and a stage can add more.
+_Avoid_: filters (alone), where clause, facet
+
 **Mode**:
-How far a request runs through the stages: `query` runs all four, `retrieve` stops after rerank.
+How far a request runs through the stages: `query` runs every stage, `retrieve` stops after rerank.
 
 **Retrieval mode**:
 How the retrieve stage finds candidates: `dense` (by vector), `lexical` (by words, ranked by the store) or `hybrid` (both, fused by reciprocal rank). A lexical workflow has no embed stage.
@@ -223,16 +247,16 @@ _Avoid_: exchange, round
 The turns that belong together, in order.
 _Avoid_: thread, session, dialogue
 
-**History**:
-The turns of the conversation before the current one, as the workflow receives them. There is none today: every question is answered on its own.
-_Avoid_: memory, context (that is the passages given to the LLM)
+**Conversational history**:
+The turns of the conversation before the current one. The client sends them with each request: the workflow keeps no conversation.
+_Avoid_: history (alone), memory, context (that is the passages given to the LLM)
 
 **Conversational query**:
-The user's message as sent in a turn. It may lean on the history.
+The user's message of the current turn, as sent. It may lean on the conversational history, and it is never part of it.
 _Avoid_: raw query, user query
 
 **Standalone query**:
-The same request made self-contained, which the stages search with. Today it is the message itself, since there is no history.
+The conversational query made self-contained, which the stages search with. A message that leans on nothing is its own standalone query.
 _Avoid_: rewritten query, condensed question
 
 **Channel**:

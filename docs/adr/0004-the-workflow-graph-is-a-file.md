@@ -2,6 +2,8 @@
 
 So that a use case can change its graph without code, and a new step is one registered stage type, the graph is declared in `workflow.yaml`: the stages, each calling a named component, then `edges` and `conditional_edges` spelled with LangGraph's own argument names (`source`, `path`, `path_map`, `START`, `END`). A conditional edge names a registered edge condition: a function of the workflow state that returns a bool.
 
+Amended by [ADR 0007](0007-an-edge-condition-can-answer-with-a-label.md), where an edge condition can also answer with a label, and by [ADR 0008](0008-every-component-is-called-the-same-way.md), where the file states each stage's fields.
+
 ## Considered options
 
 - **A graph built in Python for each use case.** Rejected: a use case holds settings only (ADR 0005).
