@@ -14,11 +14,13 @@ from model_api_fakes import (
     endpoint_client,
     passages,
 )
-from rag_load_test.adapters.reranker.api.api_reranker import ApiReranker
-from rag_load_test.adapters.reranker.api.cohere_rerank_format import CohereRerankFormat
-from rag_load_test.adapters.reranker.base_reranker import BaseReranker
-from rag_load_test.domain.api_endpoint import ApiEndpoint
-from rag_load_test.domain.errors import RagDependencyError
+from query_processing.adapters.reranker.api.api_reranker import ApiReranker
+from query_processing.adapters.reranker.api.cohere_rerank_format import (
+    CohereRerankFormat,
+)
+from query_processing.adapters.reranker.base_reranker import BaseReranker
+from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.errors import RagDependencyError
 
 URL = "https://rerank.test/v2/rerank"
 MODEL = "rerank-v3.5"

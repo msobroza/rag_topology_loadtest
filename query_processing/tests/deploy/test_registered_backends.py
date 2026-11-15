@@ -1,6 +1,6 @@
-"""The backends of each component type, as rag-deploy reads them without importing.
+"""The backends of each component type, as qp-deploy reads them without importing.
 
-rag-deploy may not import the composition root, so it takes a type's backends
+qp-deploy may not import the composition root, so it takes a type's backends
 from the names of its opener modules. These tests hold that view to what the
 openers register: a backend is what is registered, not a list written for the
 deploy tool.
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.composition.openers.component_openers import OPENERS_BY_TYPE
-from rag_load_test.deploy.registered_backends import registered_backends
+from query_processing.composition.openers.component_openers import OPENERS_BY_TYPE
+from query_processing.deploy.registered_backends import registered_backends
 
 
 @pytest.mark.parametrize("component_type", sorted(OPENERS_BY_TYPE))

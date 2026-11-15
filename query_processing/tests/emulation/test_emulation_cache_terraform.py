@@ -126,14 +126,14 @@ def test_every_app_keeps_its_models_under_the_dataset_path() -> None:
         "DATASET_OVMS"
     )
     assert local_models["openvino_dir"] == f"{DATASET_PATH}/{openvino}"
-    assert settings["RAG_OVMS_MODELS_DIR"] == f"{DATASET_PATH}/{ovms}"
+    assert settings["QP_OVMS_MODELS_DIR"] == f"{DATASET_PATH}/{ovms}"
 
 
 def test_the_workspace_shell_ingests_with_the_dataset_folder() -> None:
     shell = heredoc(render("scripts/workspace.sh.tftpl"), "SHELLENV")
     openvino = common_constant("DATASET_OPENVINO")
 
-    assert f"export RAG_LOCAL_MODELS__OPENVINO_DIR='{DATASET_PATH}/{openvino}'" in shell
+    assert f"export QP_LOCAL_MODELS__OPENVINO_DIR='{DATASET_PATH}/{openvino}'" in shell
 
 
 def test_the_dataset_path_default_is_a_domino_dataset_folder() -> None:
@@ -153,10 +153,10 @@ def test_the_pool_warms_what_app_sh_installs_at_every_app_start() -> None:
         'uv pip install --python "$venv/bin/python" "$@"',
     ]
     # The pool, at the clone's paths: an Agent's toolkit, then the use case of
-    # RAG_USE_CASE_DIR, the directory rag-deploy runs from.
-    venv = 'uv venv "$HOME/rag-venv" --python "$(cat "$1/.python-version")"'
+    # QP_USE_CASE_DIR, the directory qp-deploy runs from.
+    venv = 'uv venv "$HOME/qp-venv" --python "$(cat "$1/.python-version")"'
     install = (
-        'uv pip install --python "$HOME/rag-venv/bin/python" '
+        'uv pip install --python "$HOME/qp-venv/bin/python" '
         f'"$1/{TOOLKIT_ROOT.name}[domino]" "$1/{USE_CASE_ROOT.name}"'
     )
     for warmed in (venv, install):

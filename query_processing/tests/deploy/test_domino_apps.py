@@ -27,19 +27,19 @@ from domino_deploy_helpers import (
     no_sleep,
 )
 from fake_domino.state import FakeDominoApps
-from rag_load_test.deploy.app_id_cache import AppIdCache
-from rag_load_test.deploy.apps_client import (
+from query_processing.deploy.app_id_cache import AppIdCache
+from query_processing.deploy.apps_client import (
     DominoApp,
     DominoAppsClient,
     DominoDeployError,
 )
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.publish import publish_app
-from rag_load_test.deploy.topology_alias import resolve_topology
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.publish import publish_app
+from query_processing.deploy.topology_alias import resolve_topology
 
 
 def sent(body: BaseModel) -> dict[str, object]:
-    """A recorded request body as rag-deploy sent it (no defaults filled in)."""
+    """A recorded request body as qp-deploy sent it (no defaults filled in)."""
     return body.model_dump(exclude_unset=True)
 
 
@@ -71,7 +71,7 @@ def test_publish_creates_the_app_with_the_documented_body() -> None:
             "version": {
                 "entryScript": (
                     f"{model_server_exports('reranker', 'ovms')}"
-                    "export RAG_OVMS_BUNDLE=/mnt/code/ovms\n"
+                    "export QP_OVMS_BUNDLE=/mnt/code/ovms\n"
                     f"{BOOTSTRAP_AND_EXEC}"
                 ),
                 "environmentId": "env-1",
@@ -89,7 +89,7 @@ def test_the_workflow_is_created_as_an_agent() -> None:
     assert apps.creates[0].configurationType == "AISYSTEM"
     assert app.configuration_type == "AISYSTEM"  # echoed back by the fake
     assert apps.creates[0].version.entryScript == (
-        "export RAG_ROLE=workflow\nexport RAG_TOPOLOGY_ALIAS=monolith\n"
+        "export QP_ROLE=workflow\nexport QP_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 

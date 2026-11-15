@@ -1,7 +1,7 @@
 """``emulation/machine/`` and the restore at boot, against stand-ins on ``PATH``.
 
 ``curl`` plays the metadata server, the cache bucket and Elasticsearch;
-``chown`` and ``rag-served-models`` are stand-ins too
+``chown`` and ``qp-served-models`` are stand-ins too
 (``tests/emulation/emulation_machine_fakes.py``). The scripts run with the
 system's bash, so they stay within bash 3.2 and BSD tools, as on macOS.
 """
@@ -30,8 +30,8 @@ from emulation_machine_fakes import (
     run_machine_script,
 )
 
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.entrypoints.rag_served_models import served_model_lines
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.entrypoints.qp_served_models import served_model_lines
 
 MACHINE_SCRIPTS = (CACHE_BUCKET_SH, INDEX_SNAPSHOT_SH)
 SNAPSHOT = "quebec-insurance-french-snowflake-snowflake-arctic-embed-l-v2.0"
@@ -65,12 +65,12 @@ def models_save(machine: FakeMachine, **env: str) -> str:
 
 
 def snapshot(machine: FakeMachine, *args: str) -> subprocess.CompletedProcess[str]:
-    env = {"RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL": ES_URL}
+    env = {"QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL": ES_URL}
     return run_machine_script(machine, INDEX_SNAPSHOT_SH, *args, **env)
 
 
-def test_the_stand_in_prints_what_rag_served_models_prints(
-    settings_factory: Callable[..., RagSettings],
+def test_the_stand_in_prints_what_qp_served_models_prints(
+    settings_factory: Callable[..., WorkflowSettings],
 ) -> None:
     # Regression: the stand-in kept an older output (EMBEDDER_SOURCE_MODEL=...)
     # after the command changed, so index_snapshot.sh passed here and could name
@@ -246,11 +246,11 @@ def test_snapshot_restore_of_a_missing_snapshot_names_it(machine: FakeMachine) -
     assert "make -C emulation corpus corpus-save" in result.stderr
 
 
-def test_index_snapshot_without_rag_es_url_names_it(machine: FakeMachine) -> None:
+def test_index_snapshot_without_the_es_url_names_it(machine: FakeMachine) -> None:
     result = run_machine_script(machine, INDEX_SNAPSHOT_SH, "list")
 
     assert result.returncode != 0
-    assert "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL" in result.stderr
+    assert "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL" in result.stderr
     assert machine.es_calls() == []
 
 

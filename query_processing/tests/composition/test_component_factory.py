@@ -19,17 +19,16 @@ from typing import Any
 
 import pytest
 
-from rag_components import FAKE_BACKENDS, without_shell_settings
-from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
-from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
+from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
-from rag_load_test.composition.component_factory import ComponentFactory
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.composition.http_resources import HttpResources
-from rag_load_test.composition.local_model_resources import LocalModelResources
-from rag_load_test.composition.openers.component_openers import (
+from query_processing.composition.component_factory import ComponentFactory
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.composition.http_resources import HttpResources
+from query_processing.composition.local_model_resources import LocalModelResources
+from query_processing.composition.openers.component_openers import (
     EMBEDDER_OPENERS,
     LLM_OPENERS,
     RERANKER_OPENERS,
@@ -37,10 +36,11 @@ from rag_load_test.composition.openers.component_openers import (
     ComponentOpeners,
     SharedResources,
 )
-from rag_load_test.composition.resource_scope import ResourceScope
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.infrastructure.local_models.cpu_count import ContainerCpus
+from query_processing.composition.resource_scope import ResourceScope
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.errors import RagDependencyError
+from query_processing.infrastructure.local_models.cpu_count import ContainerCpus
+from rag_components import FAKE_BACKENDS, without_shell_settings
 from repo_paths import TOOLKIT_ROOT
 
 # Each component type's openers, and the backends registered for it: today's.
@@ -57,7 +57,7 @@ async def no_embedder() -> Any:
 
 
 def factory_for(
-    settings: RagSettings, scope: ResourceScope, **supplied: object
+    settings: WorkflowSettings, scope: ResourceScope, **supplied: object
 ) -> ComponentFactory:
     """The factory, given what ``CompositionRoot`` gives it."""
     http = HttpResources(settings, scope)
@@ -87,7 +87,7 @@ def test_each_component_type_has_one_opener_per_backend_value(
 
 
 async def test_an_unknown_backend_fails_naming_the_known_ones(
-    settings_factory: Callable[..., RagSettings],
+    settings_factory: Callable[..., WorkflowSettings],
 ) -> None:
     # The settings take any backend name: the opener's registry refuses it.
     settings = settings_factory(
@@ -108,7 +108,9 @@ async def test_an_unknown_backend_fails_naming_the_known_ones(
 # --- once per process, and what is handed in ---------------------------------------------
 
 
-async def test_a_component_opens_once_per_scope(fake_settings: RagSettings) -> None:
+async def test_a_component_opens_once_per_scope(
+    fake_settings: WorkflowSettings,
+) -> None:
     reranker = fake_settings.components["reranker"]
     async with ResourceScope("test") as scope:
         factory = factory_for(fake_settings, scope)
@@ -119,7 +121,7 @@ async def test_a_component_opens_once_per_scope(fake_settings: RagSettings) -> N
 
 
 async def test_two_components_of_one_type_open_apart(
-    fake_settings: RagSettings,
+    fake_settings: WorkflowSettings,
 ) -> None:
     reranker = fake_settings.components["reranker"]
     async with ResourceScope("test") as scope:
@@ -132,7 +134,7 @@ async def test_two_components_of_one_type_open_apart(
 
 
 async def test_a_supplied_port_is_used_as_given_even_outside_a_scope(
-    fake_settings: RagSettings,
+    fake_settings: WorkflowSettings,
 ) -> None:
     supplied = FakeLLM()
     factory = factory_for(fake_settings, ResourceScope("test"), llm=supplied)
@@ -154,7 +156,7 @@ class ClosingRecorderStore(InMemoryVectorStore):
 
 
 async def test_a_supplied_port_is_never_closed(
-    settings_factory: Callable[..., RagSettings],
+    settings_factory: Callable[..., WorkflowSettings],
 ) -> None:
     # The elasticsearch opener closes the store it opens when the scope ends.
     settings = settings_factory(
@@ -205,12 +207,12 @@ import json
 
 from fastapi.testclient import TestClient
 
-import rag_load_test
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.entrypoints.rag_serve import create_app
+import query_processing
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.entrypoints.qp_serve import create_app
 
-settings = RagSettings(
+settings = WorkflowSettings(
     _env_file=None,
     components={
         "embedder": {"backend": "fake"},
@@ -224,7 +226,7 @@ with TestClient(create_app(CompositionRoot(settings))) as client:
     answer = client.post("/retrieve", json={"question": "vacation days"}).json()
 passages = answer["passages"]
 print(json.dumps({
-    "package": rag_load_test.__file__,
+    "package": query_processing.__file__,
     "retrieval": [passage["retrieval_score"] for passage in passages],
     "rerank": [passage["rerank_score"] for passage in passages],
 }))
@@ -232,16 +234,16 @@ print(json.dumps({
 
 
 def test_a_new_backend_is_one_new_module(tmp_path: Path) -> None:
-    package = tmp_path / "src" / "rag_load_test"
+    package = tmp_path / "src" / "query_processing"
     shutil.copytree(
-        TOOLKIT_ROOT / "src" / "rag_load_test",
+        TOOLKIT_ROOT / "src" / "query_processing",
         package,
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     opener = package / "composition" / "openers" / "reranker_on_reversed.py"
     opener.write_text(REVERSED_RERANKER_OPENER, encoding="utf-8")
     (tmp_path / "driver.py").write_text(DRIVER, encoding="utf-8")
-    # No RAG_* variable of this shell, and the copy ahead of any installed package.
+    # No QP_* variable of this shell, and the copy ahead of any installed package.
     env = without_shell_settings(os.environ)
     env["PYTHONPATH"] = str(tmp_path / "src")
 

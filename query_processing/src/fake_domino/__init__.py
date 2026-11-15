@@ -4,9 +4,9 @@
 reference, ``state`` the fake's Apps and scripted behaviours, ``instances`` the
 seam that decides what an instance reports, ``apps_routes`` and ``stand_ins``
 what it serves of the API and of a run. ``server`` builds it
-(``create_fake_domino``, ``rag-fake-domino``); an extension may build on it
+(``create_fake_domino``, ``qp-fake-domino``); an extension may build on it
 through ``create_fake_domino``'s keyword arguments and the ``instances`` seam,
-and nothing here depends on one. It imports nothing from ``rag_load_test``;
-inside the product only ``rag_load_test/deploy/rag_deploy.py`` (``--dry-run``) imports
+and nothing here depends on one. It imports nothing from ``query_processing``;
+inside the product only ``query_processing/deploy/qp_deploy.py`` (``--dry-run``) imports
 it, both rules checked by ``tests/structure/test_layering.py``.
 """

@@ -4,7 +4,7 @@ A fake ``curl`` answers the metadata server's token URL, treats a folder as the
 cache bucket (Cloud Storage's XML API: GET gives the file or a 404, ``-T`` stores
 it; the JSON API lists it) and plays a small Elasticsearch whose snapshots are
 files in another folder. It records every call's argv, and the Elasticsearch calls
-as ``METHOD path body`` lines. ``chown`` and ``rag-served-models`` are stand-ins
+as ``METHOD path body`` lines. ``chown`` and ``qp-served-models`` are stand-ins
 too, so nothing needs root, the ``ubuntu`` user or the project installed. Lives
 here, not in ``tests/helpers``, because it goes away with the emulation.
 
@@ -34,7 +34,7 @@ ES_URL = "http://es.test:9200"
 TOKEN = "fake-token"
 EMBEDDER = "Snowflake/snowflake-arctic-embed-l-v2.0"
 RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
-# What rag-served-models prints for those two: one line per served model, its
+# What qp-served-models prints for those two: one line per served model, its
 # name, type, source id and alias. The reranker comes first here, so that a
 # script must pick the embedder by its type, not by its place. A test holds
 # these lines to the real command's.
@@ -178,7 +178,7 @@ def write_stand_in(path: Path, text: str) -> None:
 
 
 def make_machine(tmp_path: Path) -> FakeMachine:
-    """Stand-ins for curl, chown and rag-served-models, an empty bucket and dataset."""
+    """Stand-ins for curl, chown and qp-served-models, an empty bucket and dataset."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     write_stand_in(bin_dir / "curl", f"#!{sys.executable}\n{FAKE_CURL}")
@@ -186,7 +186,7 @@ def make_machine(tmp_path: Path) -> FakeMachine:
         bin_dir / "chown", f'#!/usr/bin/env bash\necho "$@" >> "{tmp_path}/chown.log"\n'
     )
     write_stand_in(
-        bin_dir / "rag-served-models",
+        bin_dir / "qp-served-models",
         "#!/usr/bin/env bash\ncat <<'LINES'\n"
         + "\n".join(SERVED_MODEL_LINES)
         + "\nLINES\n",
@@ -200,13 +200,13 @@ def make_machine(tmp_path: Path) -> FakeMachine:
 
 
 def machine_env(machine: FakeMachine, **env: str) -> dict[str, str]:
-    """The stand-ins first on PATH, the fakes' settings, no RAG_* from the shell."""
-    inherited = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
+    """The stand-ins first on PATH, the fakes' settings, no QP_* from the shell."""
+    inherited = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
     return {
         **inherited,
         "PATH": f"{machine.bin_dir}:{os.environ['PATH']}",
         "TMPDIR": str(machine.root),
-        "RAG_EMULATION_CACHE_ENV": str(machine.cache_env),
+        "QP_EMULATION_CACHE_ENV": str(machine.cache_env),
         "FAKE_STATE_DIR": str(machine.root),
         "FAKE_ES_URL": ES_URL,
         "FAKE_ES_PASSAGES": str(PASSAGES),
@@ -244,7 +244,7 @@ def restore_from_common_sh(
             prefix,
             str(machine.dataset),
         ],
-        env=machine_env(machine, RAG_EMULATION_SOURCED="1"),
+        env=machine_env(machine, QP_EMULATION_SOURCED="1"),
         capture_output=True,
         text=True,
         timeout=60,

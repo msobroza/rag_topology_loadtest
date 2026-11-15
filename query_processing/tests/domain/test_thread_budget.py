@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.domain.thread_budget import ThreadBudget, plan_thread_budget
+from query_processing.domain.thread_budget import ThreadBudget, plan_thread_budget
 
 # --- torch: the thread cap is per call, so calls share the CPUs -------------------
 

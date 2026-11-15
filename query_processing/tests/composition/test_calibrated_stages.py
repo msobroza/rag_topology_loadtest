@@ -15,27 +15,29 @@ from typing import Any
 
 import pytest
 
-from rag_graphs import rag_graph
-from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
+from query_processing.adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
-from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
+from query_processing.adapters.reranker.local.cross_encoder_reranker import (
     CrossEncoderReranker,
 )
-from rag_load_test.composition.calibrated_stages import (
+from query_processing.composition.calibrated_stages import (
     CalibratedEmbedStage,
     CalibratedRerankStage,
     candidates,
 )
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.calibration import StageTuning, calibration_sample
-from rag_load_test.infrastructure.local_models.local_model import LocalModel
-from rag_load_test.infrastructure.local_models.model_pool import model_executor
-from rag_load_test.infrastructure.local_models.native_threads import NativeThreadScope
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.calibration import StageTuning, calibration_sample
+from query_processing.infrastructure.local_models.local_model import LocalModel
+from query_processing.infrastructure.local_models.model_pool import model_executor
+from query_processing.infrastructure.local_models.native_threads import (
+    NativeThreadScope,
+)
+from rag_graphs import rag_graph
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 TORCH_MODEL = LocalModel("org/name", "org/name", "torch")
 RERANKER = "fixture-org/fixture-reranker"
 
@@ -56,7 +58,7 @@ def pool() -> Any:
 
 def four_thread_settings(
     settings_factory: SettingsFactory, **overrides: object
-) -> RagSettings:
+) -> WorkflowSettings:
     """torch, 4 CPUs, 1 worker: each model's share of the budget is 4 threads."""
     return settings_factory(
         local_models__runtime="torch",
@@ -80,9 +82,9 @@ def tried(line: dict[str, Any]) -> list[tuple[int, int]]:
 
 
 async def open_reranker(
-    settings: RagSettings, caplog: pytest.LogCaptureFixture
+    settings: WorkflowSettings, caplog: pytest.LogCaptureFixture
 ) -> CrossEncoderReranker:
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         async with CompositionRoot(settings) as composition:
             reranker = await composition.local_reranker("reranker")
     assert isinstance(reranker, CrossEncoderReranker)
@@ -90,9 +92,9 @@ async def open_reranker(
 
 
 async def open_embedder(
-    settings: RagSettings, caplog: pytest.LogCaptureFixture
+    settings: WorkflowSettings, caplog: pytest.LogCaptureFixture
 ) -> SentenceTransformerEmbedder:
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         async with CompositionRoot(settings) as composition:
             embedder = await composition.local_embedder("embedder")
     assert isinstance(embedder, SentenceTransformerEmbedder)
@@ -303,7 +305,7 @@ def test_pinned_settings_read_back_as_the_tuning(
     pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
     for setting, value in pinned.items():
         path = ("components", "reranker", "local", setting)
-        monkeypatch.setenv(RagSettings.variable_of(*path), str(value))
+        monkeypatch.setenv(WorkflowSettings.variable_of(*path), str(value))
 
     local = settings_factory().components["reranker"].local
 

@@ -1,4 +1,4 @@
-"""Tests of ``AppIdCache``: the App ids rag-deploy remembers, per project."""
+"""Tests of ``AppIdCache``: the App ids qp-deploy remembers, per project."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.deploy.app_id_cache import AppIdCache
-from rag_load_test.deploy.apps_client import DominoDeployError
+from query_processing.deploy.app_id_cache import AppIdCache
+from query_processing.deploy.apps_client import DominoDeployError
 
 
 def test_a_remembered_id_is_read_back_from_the_file(tmp_path: Path) -> None:
-    path = tmp_path / ".rag-deploy-cache.json"
+    path = tmp_path / ".qp-deploy-cache.json"
     AppIdCache(str(path)).remember("proj-1", "rag-workflow", "app-7")
     assert json.loads(path.read_text()) == {"proj-1": {"rag-workflow": "app-7"}}
     assert AppIdCache(str(path)).get("proj-1", "rag-workflow") == "app-7"
@@ -58,5 +58,5 @@ def test_a_file_that_cannot_be_read_names_its_path(tmp_path: Path, text: str) ->
         AppIdCache(str(path))
     assert str(caught.value) == (
         f"{path} is not an App id cache ({{project id: {{App name: App id}}}}): "
-        "delete it and rag-deploy finds the Apps by name again"
+        "delete it and qp-deploy finds the Apps by name again"
     )

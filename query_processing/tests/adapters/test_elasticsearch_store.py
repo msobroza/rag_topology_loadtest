@@ -13,11 +13,11 @@ from elastic_transport import JsonSerializer
 from elasticsearch.helpers.vectorstore import AsyncDenseVectorStrategy, DistanceMetric
 from langchain_elasticsearch import AsyncElasticsearchStore
 
-from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store import (
+from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
-from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.passages import Passage
+from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.passages import Passage
 
 INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
 

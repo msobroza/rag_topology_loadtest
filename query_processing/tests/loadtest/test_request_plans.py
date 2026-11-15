@@ -7,7 +7,7 @@ import random
 import pytest
 
 from loadtest_settings_helpers import settings_from
-from rag_load_test.loadtest.request_plans import (
+from query_processing.loadtest.request_plans import (
     RequestPlan,
     RequestPool,
     build_request_pool,

@@ -16,9 +16,11 @@ from typing import Any
 
 import numpy as np
 
-from rag_load_test.domain.passages import ScoredPassage
-from rag_load_test.infrastructure.local_models.local_model import LocalModel
-from rag_load_test.infrastructure.local_models.native_threads import NativeThreadScope
+from query_processing.domain.passages import ScoredPassage
+from query_processing.infrastructure.local_models.local_model import LocalModel
+from query_processing.infrastructure.local_models.native_threads import (
+    NativeThreadScope,
+)
 
 
 class RecordingScope(NativeThreadScope):

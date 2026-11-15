@@ -2,18 +2,18 @@
 
 A thin adapter: the run's configuration is ``LoadTestSettings``, and what to
 send, what a response becomes in the statistics and the target record are
-decided in ``rag_load_test.loadtest`` (``request_plans``, ``response_checks``,
+decided in ``query_processing.loadtest`` (``request_plans``, ``response_checks``,
 ``target_record``); this file does the I/O and reads nothing else.
-``RAG_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
+``QP_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
-model server directly. Rerank requests carry ``RAG_TOP_K_RETRIEVE`` documents and
-``RAG_TOP_K_RERANK`` as ``top_n``, like the workflow; ``RAG_LOADTEST_QUESTIONS``
+model server directly. Rerank requests carry ``QP_TOP_K_RETRIEVE`` documents and
+``QP_TOP_K_RERANK`` as ``top_n``, like the workflow; ``QP_LOADTEST_QUESTIONS``
 sets how many distinct synthetic questions the users ask, unless
-``RAG_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask instead (what
-``rag-fetch-corpus`` writes, or plain text). Each user waits
-``RAG_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests;
-``RAG_LOADTEST_SHAPE=step`` steps through ``RAG_LOADTEST_STEP_USERS`` users,
-``RAG_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written
+``QP_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask instead (what
+``qp-fetch-corpus`` writes, or plain text). Each user waits
+``QP_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests;
+``QP_LOADTEST_SHAPE=step`` steps through ``QP_LOADTEST_STEP_USERS`` users,
+``QP_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written
 and its statistics file is rewritten with the final numbers.
 """
 
@@ -28,16 +28,16 @@ from typing import Any
 from locust import FastHttpUser, LoadTestShape, between, events, task
 from locust import stats as locust_stats
 
-from rag_load_test.loadtest.loadtest_settings import LoadTestSettings
-from rag_load_test.loadtest.request_plans import (
+from query_processing.loadtest.loadtest_settings import LoadTestSettings
+from query_processing.loadtest.request_plans import (
     RequestPlan,
     build_request_pool,
     plan_embeddings_request,
     plan_rag_request,
     plan_rerank_request,
 )
-from rag_load_test.loadtest.response_checks import STAGE_REQUEST_TYPE, judge_response
-from rag_load_test.loadtest.target_record import (
+from query_processing.loadtest.response_checks import STAGE_REQUEST_TYPE, judge_response
+from query_processing.loadtest.target_record import (
     TargetPair,
     target_pair,
     write_target_record,
@@ -137,7 +137,7 @@ if SETTINGS.step_shape:
     STEP_USERS, STEP_SECONDS = SETTINGS.step_users, SETTINGS.step_seconds
 
     class StepLoadShape(LoadTestShape):  # locust picks up shape classes defined here
-        """Ramp through ``RAG_LOADTEST_STEP_USERS``, one step per ``_STEP_SECONDS``."""
+        """Ramp through ``QP_LOADTEST_STEP_USERS``, one step per ``_STEP_SECONDS``."""
 
         def tick(self) -> tuple[int, float] | None:
             """Return the step's users and spawn rate, or ``None`` after the last step.
@@ -171,7 +171,7 @@ def write_final_stats_on_stop(environment: Any, **_kwargs: Any) -> None:
     Locust rewrites that file once a second while it runs and only closes it as
     it shuts down (``StatsCSVFileWriter`` in Locust 2.47). A run that ends between
     two writes, as one stopped by ``--run-time`` does, would leave its last
-    partial second out of the file ``rag-compare`` reads. Every user has stopped
+    partial second out of the file ``qp-compare`` reads. Every user has stopped
     when ``test_stop`` fires, so the statistics are final here. Nothing is
     written without ``--csv``.
 

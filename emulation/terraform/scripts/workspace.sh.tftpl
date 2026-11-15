@@ -19,8 +19,8 @@ CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 
 # The repository's one virtualenv, at the clone's root, with the toolkit installed from
-# query_processing/ with the loadtest and emulation extras (rag-deploy, rag-ingest,
-# rag-fetch-corpus, locust and rag-domino-emulation) and the RAG use case from
+# query_processing/ with the loadtest and emulation extras (qp-deploy, qp-ingest,
+# qp-fetch-corpus, locust and qp-domino-emulation) and the RAG use case from
 # query_processing_rag_usecase/, in one command: no package index has the toolkit.
 install_project() {
   if [ ! -x "$REPO_PATH/.venv/bin/python" ]; then
@@ -49,7 +49,7 @@ SSHCONFIG
 }
 
 # placement.json (the pools, from Terraform) and project.env (the Project
-# environment variables, from Secret Manager, or empty): what rag-domino-emulation reads.
+# environment variables, from Secret Manager, or empty): what qp-domino-emulation reads.
 write_fake_domino_config() {
   install -d -m 755 "$CONFIG_DIR"
   cat >"$CONFIG_DIR/placement.json.part" <<'PLACEMENT'
@@ -64,21 +64,22 @@ PLACEMENT
   fi
 }
 
-# deploy.yaml for this emulation, once, in the use case's directory where rag-deploy
+# deploy.yaml for this emulation, once, in the use case's directory where qp-deploy
 # runs (and the Apps run their role's command): later edits (topology, per-App
 # blocks) stay.
-# The topology and each App's model-server kind keep rag-deploy's defaults;
-# RAG_DEPLOY_TOPOLOGY overrides the one, a server key in deploy.yaml (defaults or
+# The topology and each App's model-server kind keep qp-deploy's defaults;
+# QP_DEPLOY_TOPOLOGY overrides the one, a server key in deploy.yaml (defaults or
 # an App's block) the other. The topology aliases are the example's
-# three, which rag-deploy needs: no alias is defined in its code. Every App reads
+# three, which qp-deploy needs: no alias is defined in its code. Every App reads
 # and writes its models in the dataset folder of its machine, as on Domino (the
 # folder names are common.sh's).
 write_deploy_yaml() {
   [ ! -e "$REPO_PATH/query_processing_rag_usecase/deploy.yaml" ] || return 0
   as_ubuntu tee "$REPO_PATH/query_processing_rag_usecase/deploy.yaml" >/dev/null <<'DEPLOY'
-# Written by the emulation's startup script (emulation/terraform): rag-deploy talks
+# Written by the emulation's startup script (emulation/terraform): qp-deploy talks
 # to the fake Domino on this machine. Keys are documented in deploy.example.yaml.
 # Apps run on pool machines, so they are handed URLs on this machine's address.
+app_name_prefix: qp-rag
 topology_alias:
   monolith: {embedder: local, reranker: local}
   split-reranker: {embedder: local, reranker: served}
@@ -91,7 +92,7 @@ defaults:
   environment_id: "${environment_id}"
   hardware_tier_id: "${default_tier}"
   settings:
-    RAG_OVMS_MODELS_DIR: "${dataset_path}/ovms-models"
+    QP_OVMS_MODELS_DIR: "${dataset_path}/ovms-models"
 # The site's values of the workflow file, for every App.
 overrides:
   components:
@@ -110,8 +111,8 @@ write_shell_environment() {
 # Written by the emulation's startup script at every boot; sourced by ~/.bashrc.
 export DOMINO_API_PROXY='http://localhost:${domino_port}'
 export DOMINO_PROJECT_ID='${domino_project_id}'
-export RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL='${es_url}'
-export RAG_LOCAL_MODELS__OPENVINO_DIR='${dataset_path}/openvino'
+export QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL='${es_url}'
+export QP_LOCAL_MODELS__OPENVINO_DIR='${dataset_path}/openvino'
 export PATH="${repo_path}/.venv/bin:$PATH"
 while IFS= read -r line || [ -n "$line" ]; do
   case $line in '' | '#'*) continue ;; esac
@@ -127,7 +128,7 @@ ensure_ubuntu_user
 apt_install git curl make python3 ca-certificates
 install_uv "$UV_VERSION"
 sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
-# Only the OpenVINO exports: what rag-ingest loads on this machine.
+# Only the OpenVINO exports: what qp-ingest loads on this machine.
 write_cache_config "$CACHE_BUCKET" "$DATASET_PATH"
 restore_cached_models "$CACHE_BUCKET" "$CACHE_OPENVINO_PREFIX" "$DATASET_PATH"
 install_project
@@ -136,7 +137,7 @@ write_fake_domino_config
 write_deploy_yaml
 write_shell_environment
 
-install_service rag-domino-emulation <<UNIT
+install_service qp-domino-emulation <<UNIT
 [Unit]
 Description=The fake Domino (Apps API, run token, App proxy) of the emulation
 Wants=network-online.target
@@ -148,7 +149,7 @@ Group=ubuntu
 WorkingDirectory=$REPO_PATH
 Environment=HOME=/home/ubuntu
 Environment=PATH=$REPO_PATH/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=$REPO_PATH/.venv/bin/rag-domino-emulation --host 0.0.0.0 --port $DOMINO_PORT --placement $CONFIG_DIR/placement.json --project-env $CONFIG_DIR/project.env
+ExecStart=$REPO_PATH/.venv/bin/qp-domino-emulation --host 0.0.0.0 --port $DOMINO_PORT --placement $CONFIG_DIR/placement.json --project-env $CONFIG_DIR/project.env
 Restart=always
 RestartSec=5
 

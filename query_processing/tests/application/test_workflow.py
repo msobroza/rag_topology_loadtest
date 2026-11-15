@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.reranker.none.no_reranker import NoReranker
+from query_processing.application.rag_dependencies import RagDependencies
+from query_processing.application.workflow import CompiledWorkflow, stage_timings
+from query_processing.application.workflow_builder import build_workflow
+from query_processing.application.workflow_state import initial_state
+from query_processing.domain.corpus import synthetic_questions
+from query_processing.domain.prompts import RagPrompts
 from rag_graphs import rag_graph
-from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
-from rag_load_test.application.rag_dependencies import RagDependencies
-from rag_load_test.application.workflow import CompiledWorkflow, stage_timings
-from rag_load_test.application.workflow_builder import build_workflow
-from rag_load_test.application.workflow_state import initial_state
-from rag_load_test.domain.corpus import synthetic_questions
-from rag_load_test.domain.prompts import RagPrompts
 from workflow_fakes import (
     ChainNameRecorder,
     DenseOnlyStore,

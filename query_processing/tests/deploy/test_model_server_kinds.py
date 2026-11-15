@@ -3,7 +3,7 @@
 What a kind declares is checked against what serves it: every registered kind
 has its launch script and every script a registered kind, each script defines
 the two functions app.sh calls, and the FastAPI kind's routes and probe are
-where ``rag-model-server`` answers. Then the deploy settings: the kind of each
+where ``qp-model-server`` answers. Then the deploy settings: the kind of each
 model server App, its own or the default.
 """
 
@@ -17,16 +17,16 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
-from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.model_server_kinds.base_model_server_kind import (
+from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.model_server_kinds.base_model_server_kind import (
     MODEL_SERVER_KINDS,
     model_server_kind,
 )
-from rag_load_test.entrypoints.rag_model_server import create_model_server
+from query_processing.entrypoints.qp_model_server import create_model_server
 from repo_paths import TOOLKIT_ROOT
 
 LAUNCH_SCRIPTS = TOOLKIT_ROOT / "domino" / "model_servers"
@@ -83,8 +83,8 @@ def test_an_unknown_kind_names_every_registered_one() -> None:
 
 
 @pytest.mark.parametrize("component_type", ["embedder", "reranker"])
-def test_rag_model_server_answers_on_the_routes_and_probe_of_the_fastapi_kind(
-    settings_factory: Callable[..., RagSettings], component_type: str
+def test_qp_model_server_answers_on_the_routes_and_probe_of_the_fastapi_kind(
+    settings_factory: Callable[..., WorkflowSettings], component_type: str
 ) -> None:
     settings = settings_factory()
     alias = settings.components[component_type].alias
@@ -106,9 +106,13 @@ def test_rag_model_server_answers_on_the_routes_and_probe_of_the_fastapi_kind(
 
 @pytest.fixture
 def deploy_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """The path RAG_DEPLOY_FILE names; no deploy.yaml of the shell is read."""
+    """The path QP_DEPLOY_FILE names; no deploy.yaml of the shell is read.
+
+    The prefix every deploy file must name is given by its variable.
+    """
     path = tmp_path / "deploy.yaml"
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(path))
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(path))
+    monkeypatch.setenv("QP_DEPLOY_APP_NAME_PREFIX", "rag")
     return path
 
 

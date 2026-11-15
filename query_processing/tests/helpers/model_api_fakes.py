@@ -13,11 +13,13 @@ from typing import Any
 
 import httpx
 
-from rag_load_test.domain.api_endpoint import ApiEndpoint
-from rag_load_test.domain.passages import ScoredPassage
-from rag_load_test.infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
-from rag_load_test.infrastructure.endpoint.bearer_token import BearerToken
-from rag_load_test.infrastructure.http.http_policy import HttpPolicy
+from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.passages import ScoredPassage
+from query_processing.infrastructure.endpoint.api_endpoint_client import (
+    ApiEndpointClient,
+)
+from query_processing.infrastructure.endpoint.bearer_token import BearerToken
+from query_processing.infrastructure.http.http_policy import HttpPolicy
 
 TOKEN_URL = "http://token.test/access-token"
 TIMEOUT_S = 12.5

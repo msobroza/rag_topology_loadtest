@@ -1,6 +1,6 @@
 """Shared fixtures of the RAG use case's tests: its own files, and no model weights.
 
-The tests import only what the toolkit installs (``rag_load_test``,
+The tests import only what the toolkit installs (``query_processing``,
 ``fake_domino``), never the toolkit's tests, and run each command from this use
 case's directory, as its Makefile does.
 """
@@ -27,12 +27,12 @@ USE_CASE_DIR = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def use_case_dir(monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Run from the use case's directory, with no RAG_* or DOMINO_* of the shell.
+    """Run from the use case's directory, with no QP_* or DOMINO_* of the shell.
 
-    A variable left in the shell, such as ``RAG_WORKFLOW_FILE``, would point a
+    A variable left in the shell, such as ``QP_WORKFLOW_FILE``, would point a
     command away from the use case's own files.
     """
-    for name in [n for n in os.environ if n.startswith(("RAG_", "DOMINO_"))]:
+    for name in [n for n in os.environ if n.startswith(("QP_", "DOMINO_"))]:
         monkeypatch.delenv(name)
     monkeypatch.chdir(USE_CASE_DIR)
     return USE_CASE_DIR

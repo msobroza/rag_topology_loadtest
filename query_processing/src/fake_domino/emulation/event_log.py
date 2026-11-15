@@ -1,7 +1,7 @@
 """The fake's log format: one JSON object per line, with named fields.
 
 The product's own ``log_json`` is not imported: ``fake_domino`` imports nothing
-from ``rag_load_test``.
+from ``query_processing``.
 
 Example:
     >>> log_event(logging.WARNING, event="app_start_failed", machine="10.10.0.21")

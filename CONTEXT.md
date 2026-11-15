@@ -23,11 +23,11 @@ What runs on Domino and what prepares its data and models: the workflow app, the
 _Avoid_: the app, the service, the product (the product is all three applications)
 
 **Deploy tool**:
-What publishes the Apps of a topology on Domino: `rag-deploy`.
+What publishes the Apps of a topology on Domino: `qp-deploy`.
 _Avoid_: deployer, the CLI
 
 **Load-test client**:
-What drives a target and compares runs: the Locust file and `rag-compare`.
+What drives a target and compares runs: the Locust file and `qp-compare`.
 _Avoid_: load tester, the client, Locust (that is the tool it runs on)
 
 ### Code structure
@@ -192,7 +192,7 @@ A stage whose work runs in the App's own process, on its CPUs: embed and rerank 
 _Avoid_: heavy stage, compute stage
 
 **Calibration**:
-Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest. An App does it at start-up, only for a parameter the settings leave at 0; `rag-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
+Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest. An App does it at start-up, only for a parameter the settings leave at 0; `qp-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
 _Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
 
 **Edge**:

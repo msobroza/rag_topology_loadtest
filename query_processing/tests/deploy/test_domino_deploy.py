@@ -1,4 +1,4 @@
-"""Tests of ``rag_load_test.deploy`` below ``rag_deploy.main``: entry scripts,
+"""Tests of ``query_processing.deploy`` below ``qp_deploy.main``: entry scripts,
 ``deploy`` and the launch script. Settings: test_deploy_settings.
 """
 
@@ -23,15 +23,15 @@ from domino_deploy_helpers import (
     no_sleep,
 )
 from fake_domino.state import FakeDominoApps
-from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.publish import (
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.publish import (
     LaunchPaths,
     deploy,
     entry_script,
     launch_paths,
 )
-from rag_load_test.deploy.topology_alias import resolve_topology
+from query_processing.deploy.topology_alias import resolve_topology
 from repo_paths import REPO_ROOT, TOOLKIT_ROOT
 
 # Which Apps each topology alias needs is tested in
@@ -53,15 +53,15 @@ def with_settings(part: str, values: dict[str, str], **given: object) -> DeployS
 def test_ovms_model_server_script_exports_the_bundle_after_app_settings(
     part: str,
 ) -> None:
-    own = {"settings": {"RAG_OVMS_MODELS_DIR": "/mnt/data/ovms-models"}}
+    own = {"settings": {"QP_OVMS_MODELS_DIR": "/mnt/data/ovms-models"}}
     settings = make_settings(
         apps={part: {**own, "server": "ovms"}},
         ovms_bundle="/mnt/code/ovms bundle.tar.gz",
     )
     assert script(part, settings, {}) == (
-        "export RAG_OVMS_MODELS_DIR=/mnt/data/ovms-models\n"
+        "export QP_OVMS_MODELS_DIR=/mnt/data/ovms-models\n"
         f"{model_server_exports(part, 'ovms')}"
-        "export RAG_OVMS_BUNDLE='/mnt/code/ovms bundle.tar.gz'\n"
+        "export QP_OVMS_BUNDLE='/mnt/code/ovms bundle.tar.gz'\n"
         f"{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -77,7 +77,7 @@ def test_fastapi_model_server_script_names_its_component_and_kind(part: str) -> 
 def test_split_all_workflow_script_quotes_urls_and_names_the_run() -> None:
     settings = with_settings(
         "workflow",
-        {"RAG_ES_URL": "https://es.test:9200"},
+        {"QP_ES_URL": "https://es.test:9200"},
         topology="split-all",
         defaults={"environment_id": "env-1", "server": "ovms"},
         ovms_bundle="/mnt/code/ovms",
@@ -87,14 +87,14 @@ def test_split_all_workflow_script_quotes_urls_and_names_the_run() -> None:
         "embedder": "https://domino.test/apps/e1",
     }
     assert script("workflow", settings, urls) == (
-        "export RAG_ES_URL=https://es.test:9200\n"
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-all\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
-        "export RAG_COMPONENTS__EMBEDDER__SERVED__URL=https://domino.test/apps/e1/v3/embeddings\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        "export RAG_COMPONENTS__RERANKER__SERVED__URL='https://domino.test/apps/r'\"'\"'1/v3/rerank'\n"
-        "export RAG_RUN_LABEL=split-all+embedder=ovms+reranker=ovms\n"
+        "export QP_ES_URL=https://es.test:9200\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-all\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=served\n"
+        "export QP_COMPONENTS__EMBEDDER__SERVED__URL=https://domino.test/apps/e1/v3/embeddings\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        "export QP_COMPONENTS__RERANKER__SERVED__URL='https://domino.test/apps/r'\"'\"'1/v3/rerank'\n"
+        "export QP_RUN_LABEL=split-all+embedder=ovms+reranker=ovms\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -103,12 +103,12 @@ def test_split_reranker_workflow_script_has_only_the_reranker_url() -> None:
     settings = make_settings(topology="split-reranker")
     urls = {"reranker": "https://domino.test/apps/r1"}
     assert script("workflow", settings, urls) == (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-reranker\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
-        "export RAG_RUN_LABEL=split-reranker+reranker=fastapi\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-reranker\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=local\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        "export QP_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
+        "export QP_RUN_LABEL=split-reranker+reranker=fastapi\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -116,8 +116,8 @@ def test_split_reranker_workflow_script_has_only_the_reranker_url() -> None:
 def test_monolith_workflow_script_has_local_backends_and_no_url() -> None:
     settings = make_settings(topology="monolith")
     assert script("workflow", settings, {}) == (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=monolith\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -126,8 +126,8 @@ def test_monolith_workflow_script_has_local_backends_and_no_url() -> None:
 def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
     settings = make_settings(topology="monolith", apps={"workflow": {"kind": "app"}})
     assert script("workflow", settings, {}) == (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=monolith\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -135,32 +135,32 @@ def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
 def test_an_agent_keeps_the_tracing_its_overrides_set_and_its_own_extras() -> None:
     # Domino tracing is a value of the workflow file, the extras a variable of
     # the launch script: each where it belongs.
-    values = {"RAG_BOOTSTRAP_EXTRAS": "domino,dev"}
+    values = {"QP_BOOTSTRAP_EXTRAS": "domino,dev"}
     overrides = {"domino": {"tracing": False}}
     settings = with_settings(
         "workflow", values, topology="monolith", overrides=overrides
     )
     assert script("workflow", settings, {}) == (
-        "export RAG_BOOTSTRAP_EXTRAS=domino,dev\n"
-        "export RAG_DOMINO__TRACING=false\n"
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=monolith\n"
+        "export QP_BOOTSTRAP_EXTRAS=domino,dev\n"
+        "export QP_DOMINO__TRACING=false\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
 def test_app_settings_then_overrides_come_first_so_computed_exports_win() -> None:
-    values = {"RAG_ES_URL": "https://es.test/?a&b", "RAG_ROLE": "model-server"}
+    values = {"QP_ES_URL": "https://es.test/?a&b", "QP_ROLE": "model-server"}
     overrides = {"components": {"reranker": {"backend": "none"}}}
     settings = with_settings(
         "workflow", values, topology="monolith", overrides=overrides
     )
     assert script("workflow", settings, {}) == (
-        "export RAG_ES_URL='https://es.test/?a&b'\n"
-        "export RAG_ROLE=model-server\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=none\n"
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=monolith\n"
+        "export QP_ES_URL='https://es.test/?a&b'\n"
+        "export QP_ROLE=model-server\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=none\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -170,12 +170,12 @@ def test_a_run_label_in_the_overrides_replaces_the_computed_one() -> None:
     settings = make_settings(topology="split-reranker", overrides=overrides)
     urls = {"reranker": "https://domino.test/apps/r1"}
     assert script("workflow", settings, urls) == (
-        "export RAG_RUN_LABEL=split-reranker-8cores\n"
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-reranker\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
+        "export QP_RUN_LABEL=split-reranker-8cores\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-reranker\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=local\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        "export QP_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -205,17 +205,17 @@ def test_a_use_case_outside_the_repository_says_where_it_looked(
         launch_paths(str(tmp_path))
     assert str(caught.value) == (
         f"no query_processing/domino/app.sh in {tmp_path} or any directory above "
-        "it: run rag-deploy from a use case's directory in the repository (for "
+        "it: run qp-deploy from a use case's directory in the repository (for "
         "example /repos/<project>/<use case>, beside query_processing/), where the "
         "Apps run the role's command"
     )
 
 
 def test_every_entry_script_names_the_use_case_after_what_wins_over_it() -> None:
-    # A free list cannot move the Apps' working directory: rag-deploy's own wins.
-    own = {"RAG_USE_CASE_DIR": "/elsewhere"}
+    # A free list cannot move the Apps' working directory: qp-deploy's own wins.
+    own = {"QP_USE_CASE_DIR": "/elsewhere"}
     entry = script("reranker", with_settings("reranker", own), {})
-    assert entry.splitlines()[0] == "export RAG_USE_CASE_DIR=/elsewhere"
+    assert entry.splitlines()[0] == "export QP_USE_CASE_DIR=/elsewhere"
     assert entry.endswith(BOOTSTRAP_AND_EXEC)
 
 
@@ -232,13 +232,13 @@ def test_deploy_all_for_split_all_creates_three_apps_in_order() -> None:
         "rag-workflow",
     ]
     assert apps.creates[2].version.entryScript == (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-all\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
-        "export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-all\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=served\n"
+        f"export QP_COMPONENTS__EMBEDDER__SERVED__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"export QP_COMPONENTS__RERANKER__SERVED__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
+        "export QP_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -268,8 +268,8 @@ def test_each_app_is_published_with_its_own_settings(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     (tmp_path / "deploy.yaml").write_text(DEPLOY_YAML)
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(tmp_path / "deploy.yaml"))
-    monkeypatch.delenv("RAG_DEPLOY_TOPOLOGY", raising=False)
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(tmp_path / "deploy.yaml"))
+    monkeypatch.delenv("QP_DEPLOY_TOPOLOGY", raising=False)
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, DeploySettings(project_id="proj-1"), "all")
     published = [
@@ -282,29 +282,29 @@ def test_each_app_is_published_with_its_own_settings(
     ]
     reranker_script = str(apps.creates[0].version.entryScript)
     assert reranker_script.startswith(
-        "export RAG_ES_URL=https://es.test:9200\nexport RAG_MODEL_WORKERS=2\n"
+        "export QP_ES_URL=https://es.test:9200\nexport QP_MODEL_WORKERS=2\n"
         f"{DEPLOY_YAML_OVERRIDES}"
     )
 
 
 def test_a_secret_is_refused_before_anything_is_sent() -> None:
     apps = FakeDominoApps(["Running"])
-    settings = with_settings("embedder", {"RAG_ES_API_KEY": "secret"})
+    settings = with_settings("embedder", {"QP_ES_API_KEY": "secret"})
     with pytest.raises(DominoDeployError) as caught:
         run_deploy(apps, settings, "all")
     assert str(caught.value).startswith(
-        "RAG_ES_API_KEY is set in deploy.yaml under apps.embedder.settings"
+        "QP_ES_API_KEY is set in deploy.yaml under apps.embedder.settings"
     )
     assert apps.received == []
 
 
 def test_a_placeholder_is_refused_before_anything_is_sent() -> None:
     apps = FakeDominoApps(["Running"])
-    settings = with_settings("embedder", {"RAG_OVMS_MODELS_DIR": "/d/<dataset>"})
+    settings = with_settings("embedder", {"QP_OVMS_MODELS_DIR": "/d/<dataset>"})
     with pytest.raises(DominoDeployError) as caught:
         run_deploy(apps, settings, "all")
     assert str(caught.value).startswith(
-        "RAG_OVMS_MODELS_DIR in apps.embedder.settings of deploy.yaml still holds"
+        "QP_OVMS_MODELS_DIR in apps.embedder.settings of deploy.yaml still holds"
     )
     assert apps.received == []
 

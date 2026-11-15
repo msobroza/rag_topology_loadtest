@@ -12,8 +12,8 @@ import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from rag_load_test.domain.calibration import StageTuning
-from rag_load_test.infrastructure.local_models.stage_calibration import (
+from query_processing.domain.calibration import StageTuning
+from query_processing.infrastructure.local_models.stage_calibration import (
     BaseCalibratedStage,
 )
 

@@ -31,7 +31,7 @@ def on_tier(tier: str | None) -> dict[str, object]:
 
 def test_a_new_app_takes_a_free_machine_of_its_tier_and_starts_there() -> None:
     launcher = FakeAppLauncher()
-    http = http_to(placed_apps(launcher, {"RAG_ES_PASSWORD": "s3cret"}))
+    http = http_to(placed_apps(launcher, {"QP_ES_PASSWORD": "s3cret"}))
     created = http.post(APPS_PATH, json={**CREATE_BODY, "version": on_tier("cpu-16")})
     assert created.status_code == 200
     assert created.json()["currentVersion"]["currentInstance"]["status"] == "Preparing"
@@ -42,7 +42,7 @@ def test_a_new_app_takes_a_free_machine_of_its_tier_and_starts_there() -> None:
         "export DOMINO_RUN_HOST_PATH=/fake-owner/fake-project/r/notebookSession/app-1-v1-i/\n"
         in script
     )
-    assert script.endswith("export RAG_ES_PASSWORD=s3cret\nexec bash domino/app.sh\n")
+    assert script.endswith("export QP_ES_PASSWORD=s3cret\nexec bash domino/app.sh\n")
 
 
 def test_an_empty_or_missing_tier_is_the_default_one() -> None:
@@ -133,7 +133,7 @@ def test_a_start_ssh_cannot_make_is_failed_logged_and_not_a_crash(
     launcher = FakeAppLauncher()
     launcher.unreachable.add("10.10.0.21")
     launcher.states["10.10.0.21"] = AppRunState.RUNNING  # an older App still runs
-    http = http_to(placed_apps(launcher, {"RAG_ES_PASSWORD": "s3cret"}))
+    http = http_to(placed_apps(launcher, {"QP_ES_PASSWORD": "s3cret"}))
     created = http.post(APPS_PATH, json=CREATE_BODY)
     assert created.status_code == 200
     assert statuses_seen(http, created.json()["id"], 2) == ["Failed", "Failed"]

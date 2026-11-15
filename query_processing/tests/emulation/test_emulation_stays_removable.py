@@ -18,7 +18,7 @@ import pytest
 from repo_paths import REPO_ROOT, TOOLKIT_ROOT
 
 EMULATION_PACKAGE = "fake_domino.emulation"
-EMULATION_COMMAND = "rag-domino-emulation"
+EMULATION_COMMAND = "qp-domino-emulation"
 # Paths are relative to the repository; the toolkit's files are under this.
 TOOLKIT = f"{TOOLKIT_ROOT.relative_to(REPO_ROOT).as_posix()}/"
 # Where the emulation lives, and the few shared files that name it (each of them
@@ -40,8 +40,8 @@ SHARED_FILES_THAT_NAME_IT = {
 USE_CASE = "query_processing_rag_usecase/"
 # The project's own settings: what the owner reads to configure a real Domino.
 PROJECT_SETTINGS_FILES = (
-    f"{TOOLKIT}src/rag_load_test/config/rag_settings.py",
-    f"{TOOLKIT}src/rag_load_test/deploy/deploy_settings.py",
+    f"{TOOLKIT}src/query_processing/config/workflow_settings.py",
+    f"{TOOLKIT}src/query_processing/deploy/deploy_settings.py",
     f"{TOOLKIT}Makefile",
     f"{USE_CASE}deploy.example.yaml",
     f"{USE_CASE}.env.example",

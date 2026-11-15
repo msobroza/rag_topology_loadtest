@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.adapters.reranker.api.cohere_rerank_format import CohereRerankFormat
+from query_processing.adapters.reranker.api.cohere_rerank_format import (
+    CohereRerankFormat,
+)
 
 
 def test_rerank_request_has_the_cohere_shape() -> None:

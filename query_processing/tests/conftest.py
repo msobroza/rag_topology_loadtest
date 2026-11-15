@@ -23,12 +23,12 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
+from query_processing.application.rag_dependencies import RagDependencies
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE, unknown_keys
+from query_processing.config.workflow_settings import WorkflowSettings
 from rag_components import FAKE_BACKENDS, settings_at_paths
 from rag_graphs import FIXTURE_WORKFLOW
-from rag_load_test.application.rag_dependencies import RagDependencies
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE, unknown_keys
 
 # The toolkit ships no workflow file, and no test of it reads a use case's: this
 # is the one place the tests are given theirs (helpers/fixture_workflow.yaml,
@@ -41,7 +41,7 @@ os.environ[WORKFLOW_FILE_VARIABLE] = str(FIXTURE_WORKFLOW)
 def _the_fixture_workflow_file(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test reads the tests' own workflow file, unless it says otherwise.
 
-    A ``workflow.yaml`` left in the working directory, or ``RAG_WORKFLOW_FILE``
+    A ``workflow.yaml`` left in the working directory, or ``QP_WORKFLOW_FILE``
     set in the shell or by an earlier test, would change the graph the tests
     run. A test names another file with the variable, or unsets it to find one
     in the working directory; an autouse fixture is set up before the test's own.
@@ -50,8 +50,8 @@ def _the_fixture_workflow_file(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def settings_factory() -> Callable[..., RagSettings]:
-    """RagSettings without reading a stray ``.env``; keyword overrides allowed.
+def settings_factory() -> Callable[..., WorkflowSettings]:
+    """WorkflowSettings without reading a stray ``.env``; keyword overrides allowed.
 
     A keyword names a setting, or a value of the workflow file by its path
     (``components__reranker__backend``); either is merged into the file. A
@@ -60,28 +60,30 @@ def settings_factory() -> Callable[..., RagSettings]:
     removed would run on the file's real backends.
     """
 
-    def make(**overrides: object) -> RagSettings:
+    def make(**overrides: object) -> WorkflowSettings:
         values = settings_at_paths(**overrides)
-        unknown = unknown_keys(values, RagSettings)
+        unknown = unknown_keys(values, WorkflowSettings)
         if unknown:
             raise TypeError(
                 f"settings_factory: {', '.join(map(repr, unknown))} is no setting; "
-                "expected a field of RagSettings or a path below one, such as "
+                "expected a field of WorkflowSettings or a path below one, such as "
                 "components__vector_store__backend"
             )
-        return RagSettings(_env_file=None, **values)
+        return WorkflowSettings(_env_file=None, **values)
 
     return make
 
 
 @pytest.fixture
-def fake_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
+def fake_settings(
+    settings_factory: Callable[..., WorkflowSettings],
+) -> WorkflowSettings:
     """Every backend set to ``fake``: no weights, no network, no Elasticsearch."""
     return settings_factory(**FAKE_BACKENDS)
 
 
 @pytest.fixture
-async def fake_deps(fake_settings: RagSettings) -> AsyncIterator[RagDependencies]:
+async def fake_deps(fake_settings: WorkflowSettings) -> AsyncIterator[RagDependencies]:
     """The four fake ports, opened from settings over the seeded in-memory store."""
     async with CompositionRoot(fake_settings) as composition:
         yield await composition.workflow_dependencies()

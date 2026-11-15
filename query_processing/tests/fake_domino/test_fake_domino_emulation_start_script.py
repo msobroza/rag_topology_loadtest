@@ -16,9 +16,9 @@ RUN = DominoRunVariables(
 
 
 def test_the_script_exports_in_order_then_runs_the_entry_script_unchanged() -> None:
-    entry = "export RAG_ROLE=workflow\nexec bash domino/app.sh"
+    entry = "export QP_ROLE=workflow\nexec bash domino/app.sh"
     script = compose_start_script(
-        RUN, "http://localhost:8899", {"RAG_ES_URL": "http://es:9200"}, entry
+        RUN, "http://localhost:8899", {"QP_ES_URL": "http://es:9200"}, entry
     )
     assert script == (
         "export DOMINO_API_PROXY=http://localhost:8899\n"
@@ -27,18 +27,18 @@ def test_the_script_exports_in_order_then_runs_the_entry_script_unchanged() -> N
         "export DOMINO_APP_ID=app-1\n"
         "export DOMINO_APP_VERSION_ID=app-1-v2\n"
         "export DOMINO_RUN_HOST_PATH=/fake-owner/fake-project/r/notebookSession/app-1-v2-i/\n"
-        "export RAG_ES_URL=http://es:9200\n"
-        "export RAG_ROLE=workflow\n"
+        "export QP_ES_URL=http://es:9200\n"
+        "export QP_ROLE=workflow\n"
         "exec bash domino/app.sh\n"
     )
 
 
 def test_values_are_shell_quoted_and_the_entry_scripts_exports_win() -> None:
     awkward = 'it\'s $HOME `x` "q" ; rm -rf /'
-    project_env = {"SECRET": awkward, "RAG_TOPOLOGY_ALIAS": "monolith"}
+    project_env = {"SECRET": awkward, "QP_TOPOLOGY_ALIAS": "monolith"}
     entry = (
-        "export RAG_TOPOLOGY_ALIAS=split-all\n"
-        'printf "%s\\n%s" "$SECRET" "$RAG_TOPOLOGY_ALIAS"'
+        "export QP_TOPOLOGY_ALIAS=split-all\n"
+        'printf "%s\\n%s" "$SECRET" "$QP_TOPOLOGY_ALIAS"'
     )
     script = compose_start_script(RUN, "http://localhost:8899", project_env, entry)
     ran = subprocess.run(

@@ -3,18 +3,18 @@
 # own snapshot API and its built-in `gcs` repository type (emulation/README.md, "The
 # cache bucket"). No credential is configured: on Compute Engine the repository uses
 # the Elasticsearch machine's service account. Run in the Workspace's clone, from
-# the use case's directory (make -C emulation corpus-save), where rag-served-models
+# the use case's directory (make -C emulation corpus-save), where qp-served-models
 # finds the use case's workflow file:
 #   index_snapshot.sh save <prefix>      snapshot the index as <prefix>-<embedder>
 #   index_snapshot.sh restore <prefix>   replace the index with that snapshot
 #   index_snapshot.sh list               each snapshot's name, state, end time and metadata
-# Reads RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL (required),
-# RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX (default rag_passages) and the bucket
-# from /etc/rag-emulation/cache.env (RAG_EMULATION_CACHE_ENV names another, for tests).
+# Reads QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL (required),
+# QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX (default rag_passages) and the bucket
+# from /etc/rag-emulation/cache.env (QP_EMULATION_CACHE_ENV names another, for tests).
 set -euo pipefail
 
 # common.sh is the startup scripts' prelude; with this set it only defines functions.
-export RAG_EMULATION_SOURCED=1
+export QP_EMULATION_SOURCED=1
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../terraform/scripts/common.sh
@@ -27,10 +27,10 @@ SNAPSHOT_BASE_PATH=elasticsearch
 # curl's status for an Elasticsearch 404 (curl's own codes stop at 99).
 ES_NOT_FOUND=100
 
-ES_URL=${RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL:-}
+ES_URL=${QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL:-}
 [ -n "$ES_URL" ] \
-  || die "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL is not set; expected Elasticsearch's URL (http://<address>:9200), as the Workspace's shell exports it"
-ES_INDEX=${RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX:-rag_passages}
+  || die "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL is not set; expected Elasticsearch's URL (http://<address>:9200), as the Workspace's shell exports it"
+ES_INDEX=${QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX:-rag_passages}
 CACHE_BUCKET=$(cache_config_value CACHE_BUCKET)
 
 # es_call <method> <path> [json body]: Elasticsearch's answer on stdout for a 2xx,
@@ -77,15 +77,15 @@ register_repository() {
 # snapshot_name <prefix>: <prefix>-<embedder source model>, lowercased, every
 # character outside [a-z0-9._-] made "-". An index is only valid for the embedder
 # and the analyzer it was built with: a changed embedder must miss the cache, not
-# restore a stale index. rag-served-models prints one line per served model, its
+# restore a stale index. qp-served-models prints one line per served model, its
 # words shell-quoted: name, type, source id, alias. The first embedder's line is
 # read with awk and its quotes dropped, never evaluated. awk reads every line
 # (no early exit), so the command never writes into a closed pipe.
 snapshot_name() {
   local embedder
-  embedder=$(rag-served-models | awk '$2 == "embedder" && !seen { print $3; seen = 1 }' | tr -d "'")
+  embedder=$(qp-served-models | awk '$2 == "embedder" && !seen { print $3; seen = 1 }' | tr -d "'")
   [ -n "$embedder" ] \
-    || die "rag-served-models printed no embedder line (<name> embedder <source id> <alias>); expected the project's virtualenv on PATH, as in the Workspace's shell, and the use case's directory as the working directory"
+    || die "qp-served-models printed no embedder line (<name> embedder <source id> <alias>); expected the project's virtualenv on PATH, as in the Workspace's shell, and the use case's directory as the working directory"
   printf '%s-%s\n' "$1" "$embedder" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g'
 }
 
@@ -133,7 +133,7 @@ for snapshot in json.load(sys.stdin)["snapshots"]:
 }
 
 # main <command> [prefix]: the snapshot's name is settled before any call, so a
-# failing rag-served-models stops the script instead of naming a snapshot "".
+# failing qp-served-models stops the script instead of naming a snapshot "".
 main() {
   local name=""
   case ${1:-} in

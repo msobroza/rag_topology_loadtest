@@ -8,11 +8,11 @@ import httpx
 import pytest
 
 from model_api_fakes import HttpClients, ScriptedRoute, endpoint_client
-from rag_load_test.adapters.llm.api.api_llm import ApiLLM
-from rag_load_test.adapters.llm.api.openai_chat_format import OpenAIChatFormat
-from rag_load_test.adapters.llm.base_llm import BaseLLM
-from rag_load_test.domain.api_endpoint import ApiEndpoint
-from rag_load_test.domain.errors import RagDependencyError
+from query_processing.adapters.llm.api.api_llm import ApiLLM
+from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
+from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.errors import RagDependencyError
 
 URL = "https://gateway.test/v1/chat/completions"
 MODEL = "gpt-test"

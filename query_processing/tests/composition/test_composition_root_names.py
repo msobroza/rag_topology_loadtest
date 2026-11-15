@@ -6,18 +6,18 @@ from collections.abc import Callable
 
 import pytest
 
-from rag_components import FAKE_BACKENDS
-from rag_graphs import rag_graph
-from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
-from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
-from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
-from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
+from query_processing.adapters.reranker.none.no_reranker import NoReranker
+from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from rag_components import FAKE_BACKENDS
+from rag_graphs import rag_graph
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
 
 
@@ -56,7 +56,7 @@ async def test_two_components_of_one_type_open_as_two(
 
 
 async def test_a_component_is_opened_by_its_name_and_its_type(
-    fake_settings: RagSettings,
+    fake_settings: WorkflowSettings,
 ) -> None:
     async with CompositionRoot(fake_settings) as composition:
         with pytest.raises(ValueError, match="'reranker' is of type 'reranker', not"):
@@ -85,7 +85,7 @@ async def test_ingestion_embeds_with_the_embedder_named_when_there_are_two(
 
 
 async def test_ingestion_refuses_a_name_that_is_no_embedder(
-    fake_settings: RagSettings,
+    fake_settings: WorkflowSettings,
 ) -> None:
     async with CompositionRoot(fake_settings) as composition:
         with pytest.raises(ValueError, match="'reranker' is not an embedder"):

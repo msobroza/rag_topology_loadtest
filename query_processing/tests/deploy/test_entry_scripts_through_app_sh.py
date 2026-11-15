@@ -1,8 +1,8 @@
-"""The join: every entry script rag-deploy writes, run through the real domino/app.sh.
+"""The join: every entry script qp-deploy writes, run through the real domino/app.sh.
 
-The deploy tool and the launch script agree on variable names (``RAG_ROLE``,
-``RAG_MODEL_SERVER_COMPONENT``, ``RAG_MODEL_SERVER_KIND``, ``RAG_TOPOLOGY_ALIAS``,
-``RAG_OVMS_BUNDLE``, ``RAG_BOOTSTRAP``, ``RAG_USE_CASE_DIR``, each component's
+The deploy tool and the launch script agree on variable names (``QP_ROLE``,
+``QP_MODEL_SERVER_COMPONENT``, ``QP_MODEL_SERVER_KIND``, ``QP_TOPOLOGY_ALIAS``,
+``QP_OVMS_BUNDLE``, ``QP_BOOTSTRAP``, ``QP_USE_CASE_DIR``, each component's
 backend and served URL) without sharing code. For each combination the deploy
 tool can produce (a topology alias, one of its Apps, the model-server kinds of
 the Apps) the script it writes is run by bash with the launch script's stand-in
@@ -35,16 +35,16 @@ from launch_script_stand_ins import (
     started_env,
     started_in,
 )
-from rag_load_test.application.stages.base_stage import STAGE_TYPES
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.shared_settings import DefaultHttpSettings
-from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.model_server_kinds.base_model_server_kind import (
+from query_processing.application.stages.base_stage import STAGE_TYPES
+from query_processing.config.shared_settings import DefaultHttpSettings
+from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.model_server_kinds.base_model_server_kind import (
     MODEL_SERVER_KINDS,
 )
-from rag_load_test.deploy.publish import LaunchPaths, entry_script
-from rag_load_test.deploy.topology_alias import resolve_topology
+from query_processing.deploy.publish import LaunchPaths, entry_script
+from query_processing.deploy.topology_alias import resolve_topology
 
 APP_URLS = {
     "embedder": "https://domino.test/apps/e1",
@@ -95,13 +95,13 @@ COMBINATIONS = [
 def expected_start(part: str, kinds: str, models: Path) -> tuple[str, str]:
     """``(stand-in, argv)`` app.sh must start for an App part and the Apps' kinds.
 
-    Every script bootstraps (``RAG_BOOTSTRAP=1``), so the project's commands run
+    Every script bootstraps (``QP_BOOTSTRAP=1``), so the project's commands run
     from the venv ``uv`` made and OVMS from the bundle.
     """
     if part == "workflow":
-        return "venv-rag-serve", "--host 0.0.0.0 --port 8888 --domino"
+        return "venv-qp-serve", "--host 0.0.0.0 --port 8888 --domino"
     if KINDS[kinds][part] == "fastapi":
-        return "venv-rag-model-server", f"--serve {part} --host 0.0.0.0 --port 8888"
+        return "venv-qp-model-server", f"--serve {part} --host 0.0.0.0 --port 8888"
     return "bundle-ovms", f"--rest_port 8888 --config_path {models}/config_{part}.json"
 
 
@@ -118,7 +118,7 @@ def run_entry_script(
     kinds: str,
     overrides: dict[str, object] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
-    """Write ``rag-<part>``'s entry script as rag-deploy would, then run it."""
+    """Write ``rag-<part>``'s entry script as qp-deploy would, then run it."""
     bin_dir, models = make_stand_ins(tmp_path), models_dir(tmp_path)
     settings = settings_for(alias, kinds, str(ovms_bundle(tmp_path)), overrides)
     topology = resolve_topology(settings)
@@ -128,7 +128,7 @@ def run_entry_script(
     use_case.mkdir()
     launch = LaunchPaths(str(APP_SH), str(use_case))
     script = entry_script(settings.for_app(part), settings, topology, urls, launch)
-    env = stand_in_env(tmp_path, bin_dir, RAG_OVMS_MODELS_DIR=str(models))
+    env = stand_in_env(tmp_path, bin_dir, QP_OVMS_MODELS_DIR=str(models))
     result = subprocess.run(
         ["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60
     )
@@ -165,7 +165,7 @@ def test_each_entry_script_starts_its_app_through_app_sh(
     # In the use case's directory, where it finds the use case's workflow file.
     assert started_in(tmp_path, server) == tmp_path / "use_case"
     if part == "workflow":
-        assert f"RAG_TOPOLOGY_ALIAS={alias}" in started_env(tmp_path, server)
+        assert f"QP_TOPOLOGY_ALIAS={alias}" in started_env(tmp_path, server)
 
 
 @pytest.mark.parametrize(
@@ -177,7 +177,7 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
     result, _ = run_entry_script(tmp_path, alias, "workflow", kinds)
     assert result.returncode == 0, result.stderr
 
-    settings = read_back(tmp_path, monkeypatch, "venv-rag-serve")
+    settings = read_back(tmp_path, monkeypatch, "venv-qp-serve")
 
     components = settings.components
     placed = {
@@ -202,17 +202,17 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
 
 def read_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stand_in: str
-) -> RagSettings:
+) -> WorkflowSettings:
     """The settings an App reads from what app.sh started ``stand_in`` with.
 
-    Nothing else: no RAG_* of the shell but the workflow file the tests read.
+    Nothing else: no QP_* of the shell but the workflow file the tests read.
     """
-    for name in [n for n in os.environ if n.startswith("RAG_")]:
+    for name in [n for n in os.environ if n.startswith("QP_")]:
         if name != WORKFLOW_FILE_VARIABLE:
             monkeypatch.delenv(name)
     for line in started_env(tmp_path, stand_in):
         monkeypatch.setenv(*line.split("=", 1))
-    return RagSettings(_env_file=None)
+    return WorkflowSettings(_env_file=None)
 
 
 # A site's values in the workflow file's shape, one of each kind: whole and
@@ -233,7 +233,7 @@ SITE_OVERRIDES: dict[str, object] = {
     },
     "run_label": "site-a",
 }
-STARTED = {"workflow": "venv-rag-serve", "reranker": "venv-rag-model-server"}
+STARTED = {"workflow": "venv-qp-serve", "reranker": "venv-qp-model-server"}
 
 
 @pytest.mark.parametrize("part", list(STARTED))

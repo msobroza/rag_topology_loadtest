@@ -15,8 +15,8 @@ from model_api_fakes import (
     bearer,
     token_text,
 )
-from rag_load_test.domain.api_endpoint import DOMINO_RUN_TOKEN
-from rag_load_test.domain.errors import RagDependencyError
+from query_processing.domain.api_endpoint import DOMINO_RUN_TOKEN
+from query_processing.domain.errors import RagDependencyError
 
 
 @pytest.fixture

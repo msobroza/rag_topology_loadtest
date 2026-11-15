@@ -7,8 +7,8 @@
 # Usage: ovms/export_models.sh [MODELS_DIR]   (default: ovms/models in the working
 # directory, the use case's, as every output of a command)
 # Needs: HF Hub access to download the source models; a Python with pip; this
-# package installed (`make install`) so `rag-served-models` is on PATH, run where it
-# finds the use case's workflow file (its directory, or RAG_WORKFLOW_FILE).
+# package installed (`make install`) so `qp-served-models` is on PATH, run where it
+# finds the use case's workflow file (its directory, or QP_WORKFLOW_FILE).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -18,12 +18,12 @@ source "$HERE/versions.env"
 
 # The served models are pinned by the workflow file, not here. Asked of the
 # command, not "$PYTHON -m", because $PYTHON may be a separate exporter virtualenv.
-if ! command -v rag-served-models >/dev/null 2>&1; then
-  echo "export_models.sh: rag-served-models not found on PATH; install this package (make install) so the command is available" >&2
+if ! command -v qp-served-models >/dev/null 2>&1; then
+  echo "export_models.sh: qp-served-models not found on PATH; install this package (make install) so the command is available" >&2
   exit 1
 fi
 # Assigned first so a failing command stops the script (a pipe would hide it).
-SERVED_MODELS=$(rag-served-models)
+SERVED_MODELS=$(qp-served-models)
 
 MODELS_DIR=${1:-$PWD/ovms/models}
 EXPORT_DIR="$MODELS_DIR/.export"
@@ -78,7 +78,7 @@ fetch_if_missing requirements.txt
 
 "$PYTHON" -m pip install -r "$EXPORT_DIR/requirements.txt"
 
-# One line per model, its words shell-quoted by rag-served-models: eval only
+# One line per model, its words shell-quoted by qp-served-models: eval only
 # splits them back into the four arguments. Read on fd 3, so that the exporter
 # cannot read the lines still to come from its standard input.
 while IFS= read -r served <&3; do

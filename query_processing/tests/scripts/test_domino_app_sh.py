@@ -28,7 +28,7 @@ from launch_script_stand_ins import (
     started_in,
     write_fake,
 )
-from rag_load_test.domain.roles import Role
+from query_processing.domain.roles import Role
 from repo_paths import TOOLKIT_ROOT
 
 
@@ -50,9 +50,9 @@ def run_app(
     )
 
 
-def rag_serve_env(tmp_path: Path) -> list[str]:
-    """The RAG_* variables rag-serve was started with, one ``NAME=value`` each."""
-    return started_env(tmp_path, "rag-serve")
+def qp_serve_env(tmp_path: Path) -> list[str]:
+    """The QP_* variables qp-serve was started with, one ``NAME=value`` each."""
+    return started_env(tmp_path, "qp-serve")
 
 
 # --- the workflow app --------------------------------------------------------------
@@ -64,21 +64,21 @@ def test_the_workflow_role_is_the_default_and_sets_nothing_of_its_own(
     result = run_app(tmp_path, bin_dir)
 
     assert result.returncode == 0, result.stderr
-    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
+    assert log(tmp_path, "qp-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
     # Python reads backends, URLs and auth from its own variables; app.sh adds none.
-    assert rag_serve_env(tmp_path) == []
+    assert qp_serve_env(tmp_path) == []
 
 
 @pytest.mark.parametrize("alias", ["monolith", "split-all", "split-embedder"])
 def test_the_workflow_role_passes_any_topology_alias_through_untouched(
     tmp_path: Path, bin_dir: Path, alias: str
 ) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE="workflow", RAG_TOPOLOGY_ALIAS=alias)
+    result = run_app(tmp_path, bin_dir, QP_ROLE="workflow", QP_TOPOLOGY_ALIAS=alias)
 
     assert result.returncode == 0, result.stderr
-    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
-    expected = ["RAG_ROLE=workflow", f"RAG_TOPOLOGY_ALIAS={alias}"]
-    assert rag_serve_env(tmp_path) == expected
+    assert log(tmp_path, "qp-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
+    expected = ["QP_ROLE=workflow", f"QP_TOPOLOGY_ALIAS={alias}"]
+    assert qp_serve_env(tmp_path) == expected
 
 
 def test_workflow_role_passes_backends_and_auth_through_untouched(
@@ -87,20 +87,18 @@ def test_workflow_role_passes_backends_and_auth_through_untouched(
     result = run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="workflow",
-        RAG_COMPONENTS__RERANKER__BACKEND="none",
-        RAG_COMPONENTS__RERANKER__SERVED__URL="http://a/v3/rerank",
+        QP_ROLE="workflow",
+        QP_COMPONENTS__RERANKER__BACKEND="none",
+        QP_COMPONENTS__RERANKER__SERVED__URL="http://a/v3/rerank",
     )
 
     assert result.returncode == 0, result.stderr
-    env = rag_serve_env(tmp_path)
-    assert "RAG_COMPONENTS__RERANKER__BACKEND=none" in env
-    assert "RAG_COMPONENTS__RERANKER__SERVED__URL=http://a/v3/rerank" in env
+    env = qp_serve_env(tmp_path)
+    assert "QP_COMPONENTS__RERANKER__BACKEND=none" in env
+    assert "QP_COMPONENTS__RERANKER__SERVED__URL=http://a/v3/rerank" in env
+    assert not any(line.startswith("QP_COMPONENTS__EMBEDDER__BACKEND=") for line in env)
     assert not any(
-        line.startswith("RAG_COMPONENTS__EMBEDDER__BACKEND=") for line in env
-    )
-    assert not any(
-        line.startswith("RAG_COMPONENTS__RERANKER__API__API_KEY=") for line in env
+        line.startswith("QP_COMPONENTS__RERANKER__API__API_KEY=") for line in env
     )
 
 
@@ -111,19 +109,19 @@ def test_workflow_role_passes_backends_and_auth_through_untouched(
 def test_app_sh_starts_every_role_of_the_domain(
     tmp_path: Path, bin_dir: Path, role: str
 ) -> None:
-    env = {**model_server_env("fastapi", "embedder"), "RAG_ROLE": role}
+    env = {**model_server_env("fastapi", "embedder"), "QP_ROLE": role}
 
     result = run_app(tmp_path, bin_dir, **env)
 
     assert result.returncode == 0, result.stderr
-    assert log(tmp_path, "rag-serve") + log(tmp_path, "rag-model-server") != ""
+    assert log(tmp_path, "qp-serve") + log(tmp_path, "qp-model-server") != ""
 
 
 @pytest.mark.parametrize("role", ["bogus", "monolith", "ovms-reranker"])
 def test_an_unknown_role_is_rejected(tmp_path: Path, bin_dir: Path, role: str) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE=role)
+    result = run_app(tmp_path, bin_dir, QP_ROLE=role)
     assert result.returncode == 1
-    assert f"unknown RAG_ROLE '{role}'; expected workflow or model-server" in (
+    assert f"unknown QP_ROLE '{role}'; expected workflow or model-server" in (
         result.stderr
     )
 
@@ -132,11 +130,11 @@ def test_a_model_server_without_its_component_names_the_variable(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     result = run_app(
-        tmp_path, bin_dir, RAG_ROLE="model-server", RAG_MODEL_SERVER_KIND="fastapi"
+        tmp_path, bin_dir, QP_ROLE="model-server", QP_MODEL_SERVER_KIND="fastapi"
     )
     assert result.returncode == 1
-    assert "RAG_MODEL_SERVER_COMPONENT is not set" in result.stderr
-    assert log(tmp_path, "rag-model-server") == ""
+    assert "QP_MODEL_SERVER_COMPONENT is not set" in result.stderr
+    assert log(tmp_path, "qp-model-server") == ""
 
 
 @pytest.mark.parametrize("kind", ["", "vllm", "../app", "Fast API"])
@@ -145,11 +143,11 @@ def test_a_kind_without_a_launch_script_names_the_kinds_that_have_one(
 ) -> None:
     result = run_app(tmp_path, bin_dir, **model_server_env(kind, "reranker"))
     assert result.returncode == 1
-    assert f"app.sh[model-server {kind} reranker]: RAG_MODEL_SERVER_KIND='{kind}'" in (
+    assert f"app.sh[model-server {kind} reranker]: QP_MODEL_SERVER_KIND='{kind}'" in (
         result.stderr
     )
     assert "expected one of: fastapi ovms" in result.stderr
-    assert (log(tmp_path, "rag-model-server"), log(tmp_path, "ovms")) == ("", "")
+    assert (log(tmp_path, "qp-model-server"), log(tmp_path, "ovms")) == ("", "")
 
 
 @pytest.mark.parametrize("component", ["reranker", "coarse"])
@@ -159,7 +157,7 @@ def test_a_fastapi_model_server_serves_the_component_it_is_named(
     result = run_app(tmp_path, bin_dir, **model_server_env("fastapi", component))
     assert result.returncode == 0, result.stderr
     assert (
-        log(tmp_path, "rag-model-server").strip()
+        log(tmp_path, "qp-model-server").strip()
         == f"--serve {component} --host 0.0.0.0 --port 8888"
     )
 
@@ -175,7 +173,7 @@ def test_an_ovms_model_server_serves_its_components_config_directly_by_default(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_MODELS_DIR=str(models),
     )
     assert result.returncode == 0, result.stderr
     assert (
@@ -195,7 +193,7 @@ def test_an_ovms_model_server_of_any_name_serves_its_own_config(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "coarse"),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_MODELS_DIR=str(models),
     )
 
     assert result.returncode == 0, result.stderr
@@ -212,8 +210,8 @@ def test_prefix_proxy_puts_nginx_in_front_of_ovms(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "embedder"),
-        RAG_OVMS_MODELS_DIR=str(models),
-        RAG_OVMS_PREFIX_PROXY="1",
+        QP_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_PREFIX_PROXY="1",
         DOMINO_RUN_HOST_PATH="/apps/abc123/",
     )
     # The fakes exit at once, so app.sh reports the death and exits non-zero.
@@ -239,8 +237,8 @@ def test_prefix_proxy_without_a_prefix_only_forwards_root(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_OVMS_MODELS_DIR=str(models),
-        RAG_OVMS_PREFIX_PROXY="1",
+        QP_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_PREFIX_PROXY="1",
         DOMINO_RUN_HOST_PATH="",
     )
     conf = (tmp_path / "nginx.conf").read_text()
@@ -253,25 +251,25 @@ def test_prefix_proxy_without_a_prefix_only_forwards_root(
 
 def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -> None:
     models = models_dir(tmp_path)
-    run_app(tmp_path, bin_dir, RAG_ROLE="workflow")
+    run_app(tmp_path, bin_dir, QP_ROLE="workflow")
     run_app(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_MODELS_DIR=str(models),
     )
     assert (log(tmp_path, "uv"), log(tmp_path, "apt-get")) == ("", "")
-    assert log(tmp_path, "rag-serve") != ""
+    assert log(tmp_path, "qp-serve") != ""
     assert log(tmp_path, "ovms") != ""
 
 
 @pytest.mark.parametrize(
     ("env", "server", "argv"),
     [
-        ({"RAG_ROLE": "workflow"}, "rag-serve", "--host 0.0.0.0 --port 8888 --domino"),
+        ({"QP_ROLE": "workflow"}, "qp-serve", "--host 0.0.0.0 --port 8888 --domino"),
         (
             model_server_env("fastapi", "embedder"),
-            "rag-model-server",
+            "qp-model-server",
             "--serve embedder --host 0.0.0.0 --port 8888",
         ),
     ],
@@ -279,9 +277,9 @@ def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -
 def test_bootstrap_installs_the_toolkit_in_a_venv_before_serving(
     tmp_path: Path, bin_dir: Path, env: dict[str, str], server: str, argv: str
 ) -> None:
-    result = run_app(tmp_path, bin_dir, **env, RAG_BOOTSTRAP="1")
+    result = run_app(tmp_path, bin_dir, **env, QP_BOOTSTRAP="1")
     assert result.returncode == 0, result.stderr
-    venv = tmp_path / "home" / "rag-venv"
+    venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",  # the project's Python, from .python-version
         f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
@@ -292,7 +290,7 @@ def test_bootstrap_installs_the_toolkit_in_a_venv_before_serving(
 
 
 @pytest.mark.parametrize(
-    "env", [{"RAG_ROLE": "workflow"}, model_server_env("fastapi", "reranker")]
+    "env", [{"QP_ROLE": "workflow"}, model_server_env("fastapi", "reranker")]
 )
 def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
     tmp_path: Path, bin_dir: Path, env: dict[str, str]
@@ -305,12 +303,12 @@ def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
         tmp_path,
         bin_dir,
         **env,
-        RAG_BOOTSTRAP="1",
-        RAG_BOOTSTRAP_EXTRAS="domino",
-        RAG_USE_CASE_DIR=str(use_case),
+        QP_BOOTSTRAP="1",
+        QP_BOOTSTRAP_EXTRAS="domino",
+        QP_USE_CASE_DIR=str(use_case),
     )
     assert result.returncode == 0, result.stderr
-    venv = tmp_path / "home" / "rag-venv"
+    venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines()[1] == (
         f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}[domino] {use_case}"
     )
@@ -322,8 +320,8 @@ def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
 @pytest.mark.parametrize(
     ("env", "server"),
     [
-        ({"RAG_ROLE": "workflow"}, "rag-serve"),
-        (model_server_env("fastapi", "embedder"), "rag-model-server"),
+        ({"QP_ROLE": "workflow"}, "qp-serve"),
+        (model_server_env("fastapi", "embedder"), "qp-model-server"),
         (model_server_env("ovms", "reranker"), "ovms"),
     ],
 )
@@ -339,8 +337,8 @@ def test_the_roles_command_runs_in_the_use_cases_directory(
         tmp_path,
         bin_dir,
         **env,
-        RAG_USE_CASE_DIR=str(use_case),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_USE_CASE_DIR=str(use_case),
+        QP_OVMS_MODELS_DIR=str(models),
     )
     assert result.returncode == 0, result.stderr
     assert started_in(tmp_path, server) == use_case
@@ -355,9 +353,9 @@ def test_the_prefix_proxy_reads_the_toolkits_config_from_the_use_case(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_USE_CASE_DIR=str(use_case),
-        RAG_OVMS_MODELS_DIR=str(models_dir(tmp_path)),
-        RAG_OVMS_PREFIX_PROXY="1",
+        QP_USE_CASE_DIR=str(use_case),
+        QP_OVMS_MODELS_DIR=str(models_dir(tmp_path)),
+        QP_OVMS_PREFIX_PROXY="1",
         DOMINO_RUN_HOST_PATH="/apps/abc123/",
     )
     # The fakes exit at once, so app.sh reports the death and exits non-zero.
@@ -381,19 +379,19 @@ def test_without_a_use_case_the_command_runs_where_app_sh_started(
         timeout=60,
     )
     assert result.returncode == 0, result.stderr
-    assert started_in(tmp_path, "rag-serve") == started
+    assert started_in(tmp_path, "qp-serve") == started
 
 
 def test_a_use_case_directory_that_is_missing_is_named(
     tmp_path: Path, bin_dir: Path
 ) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_USE_CASE_DIR=str(tmp_path / "gone"))
+    result = run_app(tmp_path, bin_dir, QP_USE_CASE_DIR=str(tmp_path / "gone"))
     assert result.returncode == 1
     assert (
-        f"RAG_USE_CASE_DIR='{tmp_path / 'gone'}' is no directory; expected the use "
-        "case's directory, as rag-deploy sets it"
+        f"QP_USE_CASE_DIR='{tmp_path / 'gone'}' is no directory; expected the use "
+        "case's directory, as qp-deploy sets it"
     ) in result.stderr
-    assert log(tmp_path, "rag-serve") == ""
+    assert log(tmp_path, "qp-serve") == ""
 
 
 def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
@@ -404,9 +402,9 @@ def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_BOOTSTRAP="1",
-        RAG_OVMS_BUNDLE=str(bundle),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_BOOTSTRAP="1",
+        QP_OVMS_BUNDLE=str(bundle),
+        QP_OVMS_MODELS_DIR=str(models),
     )
     assert result.returncode == 0, result.stderr
     assert log(tmp_path, "sudo").splitlines() == [
@@ -435,9 +433,9 @@ def test_bootstrap_unpacks_a_bundle_tarball(tmp_path: Path, bin_dir: Path) -> No
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "embedder"),
-        RAG_BOOTSTRAP="1",
-        RAG_OVMS_BUNDLE=str(tarball),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_BOOTSTRAP="1",
+        QP_OVMS_BUNDLE=str(tarball),
+        QP_OVMS_MODELS_DIR=str(models),
     )
     assert result.returncode == 0, result.stderr
     assert log(tmp_path, "bundle-ovms").strip() == (
@@ -455,9 +453,9 @@ def test_bootstrap_runs_apt_get_directly_as_root(tmp_path: Path, bin_dir: Path) 
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_BOOTSTRAP="1",
-        RAG_OVMS_BUNDLE=str(bundle),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_BOOTSTRAP="1",
+        QP_OVMS_BUNDLE=str(bundle),
+        QP_OVMS_MODELS_DIR=str(models),
     )
     assert log(tmp_path, "sudo") == ""
     assert len(log(tmp_path, "apt-get").splitlines()) == 2
@@ -471,10 +469,10 @@ def test_bootstrap_installs_nginx_only_with_the_prefix_proxy(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_BOOTSTRAP="1",
-        RAG_OVMS_BUNDLE=str(bundle),
-        RAG_OVMS_MODELS_DIR=str(models),
-        RAG_OVMS_PREFIX_PROXY="1",
+        QP_BOOTSTRAP="1",
+        QP_OVMS_BUNDLE=str(bundle),
+        QP_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_PREFIX_PROXY="1",
     )
     assert log(tmp_path, "apt-get").splitlines()[1] == (
         "install -y --no-install-recommends libxml2 curl nginx"
@@ -485,15 +483,15 @@ def test_bootstrap_installs_nginx_only_with_the_prefix_proxy(
 def test_bootstrap_without_a_bundle_names_the_variable(
     tmp_path: Path, bin_dir: Path, bundle: str | None
 ) -> None:
-    env = {"RAG_OVMS_BUNDLE": bundle} if bundle else {}
+    env = {"QP_OVMS_BUNDLE": bundle} if bundle else {}
     result = run_app(
         tmp_path,
         bin_dir,
         **model_server_env("ovms", "reranker"),
-        RAG_BOOTSTRAP="1",
+        QP_BOOTSTRAP="1",
         **env,
     )
     assert result.returncode == 1
-    assert "RAG_OVMS_BUNDLE" in result.stderr
+    assert "QP_OVMS_BUNDLE" in result.stderr
     assert log(tmp_path, "apt-get") == ""
     assert log(tmp_path, "ovms") == ""

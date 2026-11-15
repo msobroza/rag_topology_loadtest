@@ -12,12 +12,12 @@ from collections.abc import Callable
 
 import pytest
 
-from rag_load_test.composition.calibrated_stages import ComponentCalibration
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
+from query_processing.composition.calibrated_stages import ComponentCalibration
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersMod
 
 def four_cpu_settings(
     settings_factory: SettingsFactory, **overrides: object
-) -> RagSettings:
+) -> WorkflowSettings:
     """torch, 4 CPUs, 1 worker, every Backend fake: the share is 4 threads."""
     return settings_factory(
         local_models__runtime="torch",
@@ -43,7 +43,7 @@ def four_cpu_settings(
     )
 
 
-async def calibration_of(part: str, settings: RagSettings) -> ComponentCalibration:
+async def calibration_of(part: str, settings: WorkflowSettings) -> ComponentCalibration:
     async with CompositionRoot(settings) as composition:
         return await composition.calibration(part)
 
@@ -68,8 +68,8 @@ async def test_the_reranker_is_searched_even_when_the_settings_pin_it(
     assert [threads for threads, _ in trials[5:]] == [2, 1]
     chosen = calibration.report.chosen
     assert calibration.pinned == {
-        "RAG_COMPONENTS__RERANKER__LOCAL__THREADS": chosen.threads,
-        "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": chosen.batch_size,
+        "QP_COMPONENTS__RERANKER__LOCAL__THREADS": chosen.threads,
+        "QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": chosen.batch_size,
     }
     assert (calibration.cpus, calibration.runtime) == (4.0, "torch")
 
@@ -87,7 +87,7 @@ async def test_the_embedder_searches_its_threads_at_the_configured_batch_size(
     assert tried(calibration) == [(4, 16), (2, 16), (1, 16)]
     assert calibration.report.stage == "embed"
     assert calibration.pinned == {
-        "RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS": calibration.report.chosen.threads
+        "QP_COMPONENTS__EMBEDDER__LOCAL__THREADS": calibration.report.chosen.threads
     }
 
 

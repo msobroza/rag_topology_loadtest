@@ -177,7 +177,7 @@ def test_an_app_with_no_upstream_answers_502_except_for_readyz() -> None:
     assert response.status_code == 502
     assert response.text == (
         "no upstream configured for App 'rag-workflow' "
-        "(rag-fake-domino --upstream rag-workflow=URL)"
+        "(qp-fake-domino --upstream rag-workflow=URL)"
     )
     assert http.get("/apps/app-2/readyz", headers=RUN_TOKEN_AUTH).status_code == 200
     assert upstream.seen == []
@@ -225,7 +225,7 @@ def test_one_pooled_client_forwards_every_request_and_closes_on_shutdown() -> No
 
 def test_readyz_stand_in_answers_on_the_apps_url_when_no_upstream_runs() -> None:
     http = http_to(FakeDominoApps())
-    script = "export RAG_TOPOLOGY_ALIAS=split-all\nexec bash domino/app.sh"
+    script = "export QP_TOPOLOGY_ALIAS=split-all\nexec bash domino/app.sh"
     create(http, "rag-workflow", version={"entryScript": script})
     response = http.get("/apps/app-1/readyz", headers=RUN_TOKEN_AUTH)
     assert response.status_code == 200

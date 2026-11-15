@@ -1,6 +1,6 @@
 """The RAG's workflow file: it loads, its graph builds, and the workflow app answers.
 
-The app is built from the settings rag-serve builds, from this directory, where
+The app is built from the settings qp-serve builds, from this directory, where
 it finds ``workflow.yaml`` with no flag, and driven through its HTTP API. Every
 component is moved to its fake backend by the variable its path names, as on a
 laptop: no weights, no store, no network. What the file pins (the RAG's models,
@@ -15,15 +15,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from rag_load_test.application.graph_check import check_graph
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.composition.registered_names import check_registered_names
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.entrypoints.rag_serve import create_app
+from query_processing.application.graph_check import check_graph
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.composition.registered_names import check_registered_names
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.entrypoints.qp_serve import create_app
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
 FAKE_BACKENDS = {
-    f"RAG_COMPONENTS__{name}__BACKEND": "fake"
+    f"QP_COMPONENTS__{name}__BACKEND": "fake"
     for name in ("EMBEDDER", "RERANKER", "LLM", "VECTOR_STORE")
 }
 STAGES = ["embed", "retrieve", "rerank", "generate"]
@@ -34,16 +34,16 @@ SYSTEM_PROMPT = (
 USER_PROMPT = "Context:\n{context}\n\nQuestion: {question}"
 
 
-def settings_here() -> RagSettings:
-    """The settings rag-serve builds here, refused as it refuses them at start-up."""
-    settings = RagSettings(_env_file=None)  # type: ignore[call-arg]
+def settings_here() -> WorkflowSettings:
+    """The settings qp-serve builds here, refused as it refuses them at start-up."""
+    settings = WorkflowSettings(_env_file=None)  # type: ignore[call-arg]
     check_registered_names(settings)
     check_graph(settings.graph, settings.component_types())
     return settings
 
 
 @pytest.fixture
-def all_fake(use_case_dir: Path, monkeypatch: pytest.MonkeyPatch) -> RagSettings:
+def all_fake(use_case_dir: Path, monkeypatch: pytest.MonkeyPatch) -> WorkflowSettings:
     """This directory's workflow file, every component on its fake backend."""
     for name, value in FAKE_BACKENDS.items():
         monkeypatch.setenv(name, value)
@@ -52,7 +52,7 @@ def all_fake(use_case_dir: Path, monkeypatch: pytest.MonkeyPatch) -> RagSettings
 
 @pytest.mark.parametrize("path", ["/retrieve", "/query"])
 def test_the_workflow_file_builds_a_graph_that_answers(
-    all_fake: RagSettings, path: str
+    all_fake: WorkflowSettings, path: str
 ) -> None:
     with TestClient(create_app(CompositionRoot(all_fake))) as app:
         response = app.post(path, json={"question": QUESTION})
@@ -142,10 +142,10 @@ def test_the_load_test_sends_a_model_server_the_sizes_of_the_files_stages(
 ) -> None:
     # The toolkit defaults neither: the environment example states the RAG's.
     example = (use_case_dir / ".env.example").read_text(encoding="utf-8")
-    sizes = dict(re.findall(r"^(RAG_TOP_K_\w+)=(\d+)", example, re.M))
+    sizes = dict(re.findall(r"^(QP_TOP_K_\w+)=(\d+)", example, re.M))
     stages = settings_here().graph.stages
 
     assert sizes == {
-        "RAG_TOP_K_RETRIEVE": str(stages["retrieve"].stage_settings["top_k"]),
-        "RAG_TOP_K_RERANK": str(stages["rerank"].stage_settings["top_k"]),
+        "QP_TOP_K_RETRIEVE": str(stages["retrieve"].stage_settings["top_k"]),
+        "QP_TOP_K_RERANK": str(stages["rerank"].stage_settings["top_k"]),
     }

@@ -13,16 +13,16 @@ import pytest
 
 from cpu_fakes import FakeCpuCounter
 from local_model_fakes import FakeOneRequestModule
-from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
+from query_processing.adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
-from rag_load_test.adapters.vector_store.base_vector_store import BaseLexicalSearch
-from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.passages import Passage, ScoredPassage
-from rag_load_test.infrastructure.local_models.local_model import (
+from query_processing.adapters.vector_store.base_vector_store import BaseLexicalSearch
+from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.passages import Passage, ScoredPassage
+from query_processing.infrastructure.local_models.local_model import (
     exported_model_dir,
     local_model,
 )
@@ -31,7 +31,7 @@ from sentence_transformers_fakes import (
     fake_openvino_modules,
 )
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 
 
 # --- Chroma ----------------------------------------------------------------------
@@ -96,7 +96,7 @@ def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersMod
 
 def local_settings(
     settings_factory: SettingsFactory, **overrides: object
-) -> RagSettings:
+) -> WorkflowSettings:
     """In-process models on a known CPU budget; everything else fake.
 
     The calibration budget is too small for a second trial, so each model loads
@@ -111,7 +111,7 @@ def local_settings(
     )
 
 
-def folders(settings: RagSettings, models_dir: Path) -> tuple[Path, Path]:
+def folders(settings: WorkflowSettings, models_dir: Path) -> tuple[Path, Path]:
     """Where the embedder and the reranker are exported under ``models_dir``."""
     return (
         exported_model_dir(str(models_dir), settings.components["embedder"].source_id),
@@ -163,7 +163,7 @@ async def test_a_first_openvino_start_exports_each_model_then_loads_its_folder(
     )
     embedder_dir, reranker_dir = folders(settings, tmp_path)
 
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         async with CompositionRoot(settings) as composition:
             embedder = await composition.local_embedder("embedder")
             await composition.local_reranker("reranker")
@@ -295,7 +295,7 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
 
 def exported_settings(
     settings_factory: SettingsFactory, models_dir: Path
-) -> RagSettings:
+) -> WorkflowSettings:
     """Default settings (openvino, 4 workers), both models exported already.
 
     The calibration budget is too small for a second trial, so each model keeps
@@ -327,7 +327,7 @@ async def test_openvino_runs_one_call_on_every_cpu_and_logs_the_runtime(
 ) -> None:
     settings = exported_settings(settings_factory, tmp_path)
     container = FakeCpuCounter(8, "container")
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         async with CompositionRoot(settings, container_cpus=container) as composition:
             embedder = await composition.local_embedder("embedder")
 

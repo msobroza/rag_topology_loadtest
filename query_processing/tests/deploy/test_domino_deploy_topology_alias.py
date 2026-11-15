@@ -29,10 +29,10 @@ from domino_deploy_helpers import (
 )
 from fake_domino.server import create_fake_domino
 from fake_domino.state import FakeDominoApps
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.publish import deploy
 from rag_graphs import FIXTURE_WORKFLOW
-from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.publish import deploy
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 EMBEDDINGS = "/v3/embeddings"
@@ -74,28 +74,28 @@ TODAYS_APPS = {
 }
 WORKFLOW_EXPORTS = {
     "monolith": (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=monolith\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=local\n"
-        "export RAG_RUN_LABEL=monolith\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=monolith\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=local\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=local\n"
+        "export QP_RUN_LABEL=monolith\n"
     ),
     "split-reranker": (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-reranker\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={served_url(1, RERANK)}\n"
-        "export RAG_RUN_LABEL=split-reranker+reranker=fastapi\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-reranker\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=local\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"export QP_COMPONENTS__RERANKER__SERVED__URL={served_url(1, RERANK)}\n"
+        "export QP_RUN_LABEL=split-reranker+reranker=fastapi\n"
     ),
     "split-all": (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-all\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={served_url(2, RERANK)}\n"
-        "export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-all\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=served\n"
+        f"export QP_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"export QP_COMPONENTS__RERANKER__SERVED__URL={served_url(2, RERANK)}\n"
+        "export QP_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
     ),
 }
 
@@ -144,7 +144,7 @@ def test_the_run_label_names_each_served_component_and_its_own_server_kind(
     )
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, settings)
-    assert workflow_script(apps).endswith(f"export RAG_RUN_LABEL={label}\n")
+    assert workflow_script(apps).endswith(f"export QP_RUN_LABEL={label}\n")
 
 
 # --- an alias added to the table ---------------------------------------------------
@@ -157,12 +157,12 @@ def test_a_fourth_alias_in_the_table_deploys_with_no_change_in_code() -> None:
     # The workflow app holds no topology rule: it is told the alias as it is,
     # a label for its header, and every backend is written.
     assert workflow_script(apps) == (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-embedder\n"
-        "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
-        "export RAG_COMPONENTS__RERANKER__BACKEND=local\n"
-        "export RAG_RUN_LABEL=split-embedder+embedder=fastapi\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-embedder\n"
+        "export QP_COMPONENTS__EMBEDDER__BACKEND=served\n"
+        f"export QP_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
+        "export QP_COMPONENTS__RERANKER__BACKEND=local\n"
+        "export QP_RUN_LABEL=split-embedder+embedder=fastapi\n"
     )
 
 
@@ -183,9 +183,9 @@ def test_a_component_the_alias_does_not_name_keeps_the_workflow_files_backend(
     run_deploy(apps, with_alias(alias, row))
     assert created(apps) == [*names, "rag-workflow"]
     script = workflow_script(apps)
-    named = set(re.findall(r"RAG_COMPONENTS__(\w+?)__BACKEND", script))
+    named = set(re.findall(r"QP_COMPONENTS__(\w+?)__BACKEND", script))
     assert named == {name.upper() for name in row}
-    assert f"export RAG_TOPOLOGY_ALIAS={alias}\n" in script
+    assert f"export QP_TOPOLOGY_ALIAS={alias}\n" in script
 
 
 @pytest.mark.parametrize("alias", [*TOPOLOGY_ALIASES, "split-embedder"])
@@ -196,9 +196,9 @@ def test_the_workflow_app_is_told_the_alias_and_no_topology_to_apply(
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, make_settings(topology=alias, topology_alias=table))
     exported = re.findall(
-        r"^export (RAG_TOPOLOGY\w*)=(.*)$", workflow_script(apps), re.M
+        r"^export (QP_TOPOLOGY\w*)=(.*)$", workflow_script(apps), re.M
     )
-    assert exported == [("RAG_TOPOLOGY_ALIAS", alias)]
+    assert exported == [("QP_TOPOLOGY_ALIAS", alias)]
 
 
 def test_the_workflow_file_the_workflow_app_names_is_the_one_read(
@@ -210,13 +210,13 @@ def test_the_workflow_file_the_workflow_app_names_is_the_one_read(
         "  embedder: {backend: local, source_id: org/e}\n"
         "  reranker_fr: {type: reranker, backend: local, source_id: org/r}\n"
     )
-    own = {"settings": {"RAG_WORKFLOW_FILE": str(workflow)}}
-    # The tests' file, which RAG_WORKFLOW_FILE names here, has no reranker_fr.
+    own = {"settings": {"QP_WORKFLOW_FILE": str(workflow)}}
+    # The tests' file, which QP_WORKFLOW_FILE names here, has no reranker_fr.
     settings = with_alias("fr", {"reranker_fr": "local"}, apps={"workflow": own})
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, settings)
     script = workflow_script(apps)
-    assert "export RAG_COMPONENTS__RERANKER_FR__BACKEND=local\n" in script
+    assert "export QP_COMPONENTS__RERANKER_FR__BACKEND=local\n" in script
 
 
 # --- refused before anything is published ------------------------------------------
@@ -282,7 +282,7 @@ def test_a_served_component_of_any_name_gets_a_model_server_app_of_its_own(
         "  embedder: {backend: local, source_id: org/e}\n"
         "  reranker_fr: {type: reranker, backend: local, source_id: org/r}\n"
     )
-    monkeypatch.setenv("RAG_WORKFLOW_FILE", str(workflow))
+    monkeypatch.setenv("QP_WORKFLOW_FILE", str(workflow))
     settings = with_alias(
         "split-fr",
         {"reranker_fr": "served"},
@@ -296,11 +296,11 @@ def test_a_served_component_of_any_name_gets_a_model_server_app_of_its_own(
     assert model_server.startswith(model_server_exports("reranker_fr", server))
     url = served_url(1, RERANK)
     assert workflow_script(apps) == (
-        "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY_ALIAS=split-fr\n"
-        "export RAG_COMPONENTS__RERANKER_FR__BACKEND=served\n"
-        f"export RAG_COMPONENTS__RERANKER_FR__SERVED__URL={url}\n"
-        f"export RAG_RUN_LABEL=split-fr+reranker_fr={server}\n"
+        "export QP_ROLE=workflow\n"
+        "export QP_TOPOLOGY_ALIAS=split-fr\n"
+        "export QP_COMPONENTS__RERANKER_FR__BACKEND=served\n"
+        f"export QP_COMPONENTS__RERANKER_FR__SERVED__URL={url}\n"
+        f"export QP_RUN_LABEL=split-fr+reranker_fr={server}\n"
     )
 
 
@@ -371,7 +371,7 @@ def test_a_dry_run_of_each_alias_shows_its_apps_and_scripts(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch, alias: str, names: list[str]
 ) -> None:
     # deploy.yaml holds the three aliases' table (domino_env).
-    monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", alias)
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", alias)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, err) == (0, "")
     report = out[out.index("Dry run: ") :]

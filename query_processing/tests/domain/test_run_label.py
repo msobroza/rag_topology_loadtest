@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.domain.run_label import default_run_label, validate_run_label
+from query_processing.domain.run_label import default_run_label, validate_run_label
 
 # --- default run labels ----------------------------------------------------------
 
@@ -42,7 +42,7 @@ def test_the_default_run_label_is_a_valid_run_label() -> None:
 def test_a_default_run_label_no_header_can_carry_says_to_set_one(
     backends: dict[str, str],
 ) -> None:
-    with pytest.raises(ValueError, match="set RAG_RUN_LABEL") as caught:
+    with pytest.raises(ValueError, match="set QP_RUN_LABEL") as caught:
         default_run_label(backends)
 
     message = str(caught.value)
@@ -66,10 +66,10 @@ def test_valid_run_labels_pass_unchanged(label: str) -> None:
 
 @pytest.mark.parametrize("label", ["", "x" * 129, "has space", "new\nline", "é"])
 def test_invalid_run_labels_name_the_value_and_the_shape(label: str) -> None:
-    with pytest.raises(ValueError, match="RAG_RUN_LABEL=") as caught:
+    with pytest.raises(ValueError, match="QP_RUN_LABEL=") as caught:
         validate_run_label(label)
 
     message = str(caught.value)
-    assert f"RAG_RUN_LABEL={label!r}" in message
+    assert f"QP_RUN_LABEL={label!r}" in message
     assert "letters, digits and ._+=:-" in message
     assert "1 to 128 characters" in message

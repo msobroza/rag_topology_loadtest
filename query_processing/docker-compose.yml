@@ -7,11 +7,11 @@
 # The workflow app finds each service through the workflow file (its components
 # block), or through the variable a value's path names:
 #   elasticsearch  components.vector_store.elasticsearch.url, such as
-#                  http://localhost:9200 (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
+#                  http://localhost:9200 (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
 #   ovms-reranker  components.reranker.served.url with backend: served
-#                  (RAG_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank)
+#                  (QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank)
 #   ovms-embedder  components.embedder.served.url with backend: served
-#                  (RAG_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings)
+#                  (QP_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings)
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0

@@ -6,12 +6,12 @@ from collections.abc import Callable
 
 import pytest
 
-from rag_load_test.composition.http_resources import HttpResources
-from rag_load_test.composition.resource_scope import ResourceScope
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.infrastructure.http.http_policy import HttpPolicy
+from query_processing.composition.http_resources import HttpResources
+from query_processing.composition.resource_scope import ResourceScope
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.infrastructure.http.http_policy import HttpPolicy
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 
 
 @pytest.mark.parametrize(

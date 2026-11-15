@@ -1,9 +1,9 @@
-"""The reranker of ``RAG_COMPONENTS__RERANKER__BACKEND=none``: retrieval order, no model."""
+"""The reranker of ``QP_COMPONENTS__RERANKER__BACKEND=none``: retrieval order, no model."""
 
 from __future__ import annotations
 
-from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
-from rag_load_test.domain.passages import ScoredPassage
+from query_processing.adapters.reranker.none.no_reranker import NoReranker
+from query_processing.domain.passages import ScoredPassage
 
 
 def scored_passages(*ids: str) -> list[ScoredPassage]:

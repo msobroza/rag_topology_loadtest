@@ -1,7 +1,7 @@
 """Where the emulation's Apps run: the placement file Terraform writes.
 
 Emulation only (Domino has no such file): each hardware tier is a pool of
-machines, and the fake reaches them over SSH. ``rag-fake-domino --placement
+machines, and the fake reaches them over SSH. ``qp-fake-domino --placement
 FILE`` loads it; without one the fake only records Apps, as before. Keys beyond
 the documented shape are refused, so a misspelt one is reported, not ignored;
 the optional ones (timeouts, the unit name) have the defaults below.

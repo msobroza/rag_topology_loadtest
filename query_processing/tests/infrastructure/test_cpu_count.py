@@ -9,8 +9,8 @@ import httpx
 import pytest
 
 from cpu_fakes import FakeCpuCounter
-from rag_load_test.infrastructure.http.http_policy import HttpPolicy
-from rag_load_test.infrastructure.local_models.cpu_count import (
+from query_processing.infrastructure.http.http_policy import HttpPolicy
+from query_processing.infrastructure.local_models.cpu_count import (
     ContainerCpus,
     DominoHardwareTierCpus,
     FixedCpus,
@@ -69,7 +69,7 @@ async def test_a_403_gives_none_and_one_warning(
     def forbidden(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, text="missing ViewHardwareTiers")
 
-    with caplog.at_level("WARNING", logger="rag_load_test"):
+    with caplog.at_level("WARNING", logger="query_processing"):
         assert await tier_cpus(forbidden).cpus() is None
 
     [warning] = warnings_logged(caplog)
@@ -87,7 +87,7 @@ async def test_a_connect_error_is_retried_then_gives_none(
         attempts.append(1)
         raise httpx.ConnectError("refused")
 
-    with caplog.at_level("WARNING", logger="rag_load_test"):
+    with caplog.at_level("WARNING", logger="query_processing"):
         assert await tier_cpus(refused).cpus() is None
 
     assert len(attempts) == 3  # the first attempt and NO_WAIT.retries=2
@@ -110,7 +110,7 @@ async def test_an_unusable_body_gives_none_and_one_warning(
     caplog: pytest.LogCaptureFixture,
     response: httpx.Response,
 ) -> None:
-    with caplog.at_level("WARNING", logger="rag_load_test"):
+    with caplog.at_level("WARNING", logger="query_processing"):
         assert await tier_cpus(lambda request: response).cpus() is None
 
     assert len(warnings_logged(caplog)) == 1

@@ -14,23 +14,23 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.application.edge_conditions.edge_condition import EdgeCondition
-from rag_load_test.application.stages.base_stage import BaseStage, StageSettings
-from rag_load_test.application.workflow import CompiledWorkflow
-from rag_load_test.application.workflow_builder import (
+from query_processing.application.edge_conditions.edge_condition import EdgeCondition
+from query_processing.application.stages.base_stage import BaseStage, StageSettings
+from query_processing.application.workflow import CompiledWorkflow
+from query_processing.application.workflow_builder import (
     build_workflow,
     langgraph_name,
     open_stage,
     path_map,
     timed,
 )
-from rag_load_test.application.workflow_state import WorkflowState, initial_state
-from rag_load_test.domain.graph_description import (
+from query_processing.application.workflow_state import WorkflowState, initial_state
+from query_processing.domain.graph_description import (
     ConditionalEdge,
     GraphDescription,
     StageDescription,
 )
-from rag_load_test.domain.registry import Registry
+from query_processing.domain.registry import Registry
 from workflow_fakes import ChainNameRecorder
 
 

@@ -2,7 +2,7 @@
 
 ``/apps/{app_id}/{path}`` (secure identity propagation on) and
 ``/{owner}/{project}/r/notebookSession/{instance_id}/{path}`` (the legacy shape
-``rag-deploy`` builds), every HTTP method and any sub-path, handed to
+``qp-deploy`` builds), every HTTP method and any sub-path, handed to
 ``FakeAppProxy``; and Keycloak's ``certs`` (JWKS) route, which needs no credential.
 
 Example:

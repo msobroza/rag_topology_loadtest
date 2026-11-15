@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.domain.registry import Registry, import_package_modules
+from query_processing.domain.registry import Registry, import_package_modules
 
 Greeting = Callable[[str], str]
 
@@ -64,12 +64,12 @@ def test_two_registries_of_one_sort_of_entry_stay_apart() -> None:
 # --- a package that imports its own modules ------------------------------------------
 
 REGISTRY_MODULE = """
-from rag_load_test.domain.registry import Registry
+from query_processing.domain.registry import Registry
 
 COLOURS = Registry("colour")
 """
 PACKAGE_INIT = """
-from rag_load_test.domain.registry import import_package_modules
+from query_processing.domain.registry import import_package_modules
 
 import_package_modules(__name__, __path__)
 """

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.domain.graph_description import (
+from query_processing.domain.graph_description import (
     ConditionalEdge,
     GraphDescription,
     StageDescription,

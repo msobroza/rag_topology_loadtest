@@ -3,7 +3,7 @@
 Four checks, each a pure function shown failing on a literal input first:
 every command of the product lives in a module named after it, in its
 application's package; the README's module tree lists every package and module
-of ``rag_load_test`` and nothing else; no two modules share a file name; the
+of ``query_processing`` and nothing else; no two modules share a file name; the
 adapters hold only the component packages, each with its port in
 ``base_<component>.py`` and one directory per Backend holding one implementation
 of the port, the ``api`` directory implementing both ``served`` and ``api``, and
@@ -19,7 +19,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
 
-from rag_load_test.composition.openers.component_openers import (
+from query_processing.composition.openers.component_openers import (
     EMBEDDER_OPENERS,
     LLM_OPENERS,
     RERANKER_OPENERS,
@@ -27,12 +27,12 @@ from rag_load_test.composition.openers.component_openers import (
 )
 from repo_paths import REPO_ROOT, TOOLKIT_ROOT
 
-PACKAGE = TOOLKIT_ROOT / "src" / "rag_load_test"
+PACKAGE = TOOLKIT_ROOT / "src" / "query_processing"
 # The two tools have one command each, in their own package; every other command
 # of the product belongs to the RAG system, whose commands are in entrypoints.
-COMMAND_HOME = {"rag-deploy": "deploy", "rag-compare": "loadtest"}
+COMMAND_HOME = {"qp-deploy": "deploy", "qp-compare": "loadtest"}
 RAG_SYSTEM_COMMAND_HOME = "entrypoints"
-TREE_ROOT = "src/rag_load_test/"  # where the README's tree of the product starts
+TREE_ROOT = "src/query_processing/"  # where the README's tree of the product starts
 TREE_INDENT = 2  # spaces per level in the tree
 TOOLKIT_FOLDER = f"{TOOLKIT_ROOT.name}/"  # what the README's tree nests it in
 
@@ -45,8 +45,8 @@ def misplaced_commands(scripts: dict[str, str], package: Path) -> list[str]:
 
     Example::
 
-        misplaced_commands({"rag-serve": "rag_load_test.entrypoints.app:main"}, PACKAGE)
-        # ["rag-serve -> rag_load_test.entrypoints.app, expected ...rag_serve"]
+        misplaced_commands({"qp-serve": "query_processing.entrypoints.app:main"}, PACKAGE)
+        # ["qp-serve -> query_processing.entrypoints.app, expected ...qp_serve"]
     """
     wrong = []
     for command, target in sorted(scripts.items()):
@@ -54,7 +54,7 @@ def misplaced_commands(scripts: dict[str, str], package: Path) -> list[str]:
         if module.startswith("fake_domino."):
             continue  # the fake Domino is outside the product
         home = COMMAND_HOME.get(command, RAG_SYSTEM_COMMAND_HOME)
-        expected = f"rag_load_test.{home}.{command.replace('-', '_')}"
+        expected = f"query_processing.{home}.{command.replace('-', '_')}"
         if module != expected:
             wrong.append(f"{command} -> {module}, expected {expected}")
         elif not (package / home / f"{command.replace('-', '_')}.py").is_file():
@@ -64,18 +64,18 @@ def misplaced_commands(scripts: dict[str, str], package: Path) -> list[str]:
 
 def test_the_command_rule_on_literal_scripts() -> None:
     scripts = {
-        "rag-serve": "rag_load_test.entrypoints.workflow_api:main",  # wrong name
-        "rag-deploy": "rag_load_test.entrypoints.rag_deploy:main",  # wrong package
-        "rag-ingest": "rag_load_test.entrypoints.rag_ingest:main",
-        "rag-gone": "rag_load_test.entrypoints.rag_gone:main",  # no such file
-        "rag-fake-domino": "fake_domino.server:main",
+        "qp-serve": "query_processing.entrypoints.workflow_api:main",  # wrong name
+        "qp-deploy": "query_processing.entrypoints.qp_deploy:main",  # wrong package
+        "qp-ingest": "query_processing.entrypoints.qp_ingest:main",
+        "qp-gone": "query_processing.entrypoints.qp_gone:main",  # no such file
+        "qp-fake-domino": "fake_domino.server:main",
     }
     assert misplaced_commands(scripts, PACKAGE) == [
-        "rag-deploy -> rag_load_test.entrypoints.rag_deploy, "
-        "expected rag_load_test.deploy.rag_deploy",
-        "rag-gone -> rag_load_test.entrypoints.rag_gone, which has no file",
-        "rag-serve -> rag_load_test.entrypoints.workflow_api, "
-        "expected rag_load_test.entrypoints.rag_serve",
+        "qp-deploy -> query_processing.entrypoints.qp_deploy, "
+        "expected query_processing.deploy.qp_deploy",
+        "qp-gone -> query_processing.entrypoints.qp_gone, which has no file",
+        "qp-serve -> query_processing.entrypoints.workflow_api, "
+        "expected query_processing.entrypoints.qp_serve",
     ]
 
 
@@ -83,7 +83,7 @@ def test_every_command_lives_in_a_module_named_after_it() -> None:
     pyproject = tomllib.loads((TOOLKIT_ROOT / "pyproject.toml").read_text("utf-8"))
     scripts = pyproject["project"]["scripts"]
 
-    assert any(target.startswith("rag_load_test.") for target in scripts.values())
+    assert any(target.startswith("query_processing.") for target in scripts.values())
     assert misplaced_commands(scripts, PACKAGE) == []
 
 
@@ -91,7 +91,7 @@ def test_every_command_lives_in_a_module_named_after_it() -> None:
 
 
 def readme_tree(readme: str) -> set[str]:
-    """The paths the README's tree lists under ``src/rag_load_test/``.
+    """The paths the README's tree lists under ``src/query_processing/``.
 
     A package is listed as ``name/``, a file by its name; each level is indented
     two spaces more than its parent. Lines that name no file or folder (wrapped
@@ -99,7 +99,7 @@ def readme_tree(readme: str) -> set[str]:
 
     Example::
 
-        readme_tree("```text\\nsrc/rag_load_test/\\n  domain/\\n    ports.py  x\\n```")
+        readme_tree("```text\\nsrc/query_processing/\\n  domain/\\n    ports.py  x\\n```")
         # {"domain/", "domain/ports.py"}
     """
     listed: set[str] = set()
@@ -142,11 +142,11 @@ def _indent(line: str) -> int:
 
 
 def tree_root_folder(readme: str) -> str:
-    """The folder the README's tree nests ``src/rag_load_test/`` in, "" for none.
+    """The folder the README's tree nests ``src/query_processing/`` in, "" for none.
 
     Example::
 
-        tree_root_folder("```text\\nqp/\\n  src/rag_load_test/\\n```")   # "qp/"
+        tree_root_folder("```text\\nqp/\\n  src/query_processing/\\n```")   # "qp/"
     """
     lines = readme.splitlines()
     start = _tree_start(lines)
@@ -199,7 +199,7 @@ def tree_mismatches(listed: set[str], package: Path) -> list[str]:
 LITERAL_README = """## Code layout
 
 ```text
-src/rag_load_test/
+src/query_processing/
   __init__.py       the package
   domain/           no I/O
     ports.py        the ports, described on
@@ -215,7 +215,7 @@ src/fake_domino/    another package: not read
 
 LITERAL_NESTED_README = """```text
 toolkit/            the distribution
-  src/rag_load_test/
+  src/query_processing/
     domain/
       ports.py      the ports
   src/fake_domino/  another package: not read

@@ -1,9 +1,9 @@
-"""ovms/export_models.sh asks ``rag-served-models``; fake binaries record argv here.
+"""ovms/export_models.sh asks ``qp-served-models``; fake binaries record argv here.
 
 PATH is the fakes plus /usr/bin:/bin only, so neither a real ``curl``, a real
-exporter Python nor an installed ``rag-served-models`` can be reached, and the
+exporter Python nor an installed ``qp-served-models`` can be reached, and the
 models directory is under ``tmp_path``: nothing touches the network or the repo.
-Each embedder and reranker ``rag-served-models`` lists is exported under its
+Each embedder and reranker ``qp-served-models`` lists is exported under its
 component's name, whatever the name.
 """
 
@@ -20,7 +20,7 @@ from repo_paths import TOOLKIT_ROOT
 EXPORT_SH = TOOLKIT_ROOT / "ovms" / "export_models.sh"
 SYSTEM_PATH = "/usr/bin:/bin"  # dirname, mkdir, env: what the script itself needs
 
-# Quoted the way rag-served-models quotes, so the script's eval is exercised too:
+# Quoted the way qp-served-models quotes, so the script's eval is exercised too:
 # name, type, source id, alias. The reranker is named after no type.
 FAKE_SERVED_MODELS = """\
 embedder embedder org/custom-embed custom-embed
@@ -88,7 +88,7 @@ def export_call(tmp_path: Path, task: str) -> str:
 def test_each_served_model_is_exported_under_its_component_name(
     tmp_path: Path, bin_dir: Path
 ) -> None:
-    write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
+    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
 
     result = run_export(tmp_path, bin_dir)
 
@@ -109,7 +109,7 @@ def test_without_a_folder_the_models_land_in_the_working_directorys_ovms_models(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     # The working directory is the use case's: every output of a command is there.
-    write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
+    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
 
     result = run_export(tmp_path, bin_dir, with_folder=False)
 
@@ -124,7 +124,7 @@ def test_a_served_model_of_another_type_stops_the_export(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     lines = "llm llm org/chat chat\n"
-    write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{lines}EOF\n")
+    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{lines}EOF\n")
 
     result = run_export(tmp_path, bin_dir)
 
@@ -134,19 +134,19 @@ def test_a_served_model_of_another_type_stops_the_export(
     )
 
 
-def test_without_rag_served_models_the_export_fails_before_any_download(
+def test_without_qp_served_models_the_export_fails_before_any_download(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     result = run_export(tmp_path, bin_dir)
 
     assert result.returncode != 0
-    assert "rag-served-models" in result.stderr
+    assert "qp-served-models" in result.stderr
     assert "make install" in result.stderr
     assert calls(tmp_path, "curl") == []
     assert calls(tmp_path, "python") == []
 
 
-def test_path_hides_any_installed_rag_served_models() -> None:
+def test_path_hides_any_installed_qp_served_models() -> None:
     # Guards the failure test above: it is only meaningful if PATH has no real one.
     for directory in SYSTEM_PATH.split(os.pathsep):
-        assert not (Path(directory) / "rag-served-models").exists()
+        assert not (Path(directory) / "qp-served-models").exists()

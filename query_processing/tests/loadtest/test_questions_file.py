@@ -1,4 +1,4 @@
-"""``RAG_LOADTEST_QUESTIONS_FILE``: the users ask a corpus's own questions."""
+"""``QP_LOADTEST_QUESTIONS_FILE``: the users ask a corpus's own questions."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from loadtest_settings_helpers import settings_from
-from rag_load_test.loadtest.request_plans import (
+from query_processing.loadtest.request_plans import (
     build_request_pool,
     load_questions,
     plan_embeddings_request,
@@ -17,7 +17,7 @@ from rag_load_test.loadtest.request_plans import (
 )
 from repo_paths import TOOLKIT_ROOT
 
-QUESTIONS_FILE = "RAG_LOADTEST_QUESTIONS_FILE"
+QUESTIONS_FILE = "QP_LOADTEST_QUESTIONS_FILE"
 
 
 def written(tmp_path: Path, text: str, name: str = "questions.jsonl") -> Path:
@@ -94,7 +94,7 @@ def test_the_locustfile_asks_the_questions_of_the_file(
 ) -> None:
     path = written(tmp_path, '{"question": "Qui paie ?"}\n')
     monkeypatch.setenv(QUESTIONS_FILE, str(path))
-    monkeypatch.setenv("RAG_LOADTEST_QUESTIONS", "40")  # does not apply to a file
+    monkeypatch.setenv("QP_LOADTEST_QUESTIONS", "40")  # does not apply to a file
     spec = importlib.util.spec_from_file_location(
         "locustfile_with_questions_file", TOOLKIT_ROOT / "locustfile.py"
     )

@@ -125,9 +125,9 @@ def env_file(tmp_path: Path, text: str) -> Path:
 
 
 def test_project_env_lines_are_read_in_order_without_comments(tmp_path: Path) -> None:
-    text = "# secrets\nRAG_ES_PASSWORD=s3 cr=t\n\n  # indented\nB=\nA_1='q'\nB=2\n"
+    text = "# secrets\nQP_ES_PASSWORD=s3 cr=t\n\n  # indented\nB=\nA_1='q'\nB=2\n"
     assert load_project_env(env_file(tmp_path, text)) == {
-        "RAG_ES_PASSWORD": "s3 cr=t",
+        "QP_ES_PASSWORD": "s3 cr=t",
         "B": "2",
         "A_1": "'q'",
     }

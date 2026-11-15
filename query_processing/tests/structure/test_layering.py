@@ -1,8 +1,8 @@
 """The import rule, read from the source with ``ast``: what each of the nine
-packages of ``rag_load_test`` may import (the table in the README's "Where a file
-goes"). And the mock rule: ``fake_domino`` imports nothing from ``rag_load_test``,
-and only ``deploy/rag_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
-mock's own tests, in ``tests/fake_domino/``, import nothing from ``rag_load_test``
+packages of ``query_processing`` may import (the table in the README's "Where a file
+goes"). And the mock rule: ``fake_domino`` imports nothing from ``query_processing``,
+and only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
+mock's own tests, in ``tests/fake_domino/``, import nothing from ``query_processing``
 either. And the one-way rule: no file of the toolkit's source names a use case."""
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ import pytest
 
 from repo_paths import TOOLKIT_ROOT
 
-PACKAGE = TOOLKIT_ROOT / "src" / "rag_load_test"
+PACKAGE = TOOLKIT_ROOT / "src" / "query_processing"
 FAKE_DOMINO = PACKAGE.parent / "fake_domino"
-FAKE_DOMINO_IMPORTERS = {Path("deploy") / "rag_deploy.py"}  # relative to PACKAGE
-# Package -> the packages of rag_load_test its modules may import.
+FAKE_DOMINO_IMPORTERS = {Path("deploy") / "qp_deploy.py"}  # relative to PACKAGE
+# Package -> the packages of query_processing its modules may import.
 MAY_IMPORT: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
@@ -49,16 +49,16 @@ MAY_IMPORT: dict[str, set[str]] = {
 }
 # A port: adapters/<component>/base_<component>.py. The application depends on
 # the ports and on nothing else of the adapters; a port imports only the domain.
-PORT_MODULE = re.compile(r"rag_load_test\.adapters\.(\w+)\.base_\1")
+PORT_MODULE = re.compile(r"query_processing\.adapters\.(\w+)\.base_\1")
 MAY_IMPORT_PORTS = {"application"}
 # The named exceptions: one module each, allowed more than its package.
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
-    # For the defaults of the four RAG_* values a load test sends, nothing else.
-    "rag_load_test.loadtest.loadtest_settings": {"config"},
+    # For the defaults of the four QP_* values a load test sends, nothing else.
+    "query_processing.loadtest.loadtest_settings": {"config"},
     # The deploy tool reads the workflow settings, to know the components a
     # topology alias names (ADR 0003) and to check the overrides against them;
     # the rest of deploy reads them through it.
-    "rag_load_test.deploy.workflow_components": {"config"},
+    "query_processing.deploy.workflow_components": {"config"},
 }
 LOCUSTFILE = TOOLKIT_ROOT / "locustfile.py"  # the load-test client's file, outside src
 
@@ -68,7 +68,7 @@ def module_name(path: Path) -> str:
 
     Example::
 
-        module_name(PACKAGE / "domain" / "passages.py")   # "rag_load_test.domain.passages"
+        module_name(PACKAGE / "domain" / "passages.py")   # "query_processing.domain.passages"
     """
     parts = path.relative_to(PACKAGE.parent).with_suffix("").parts
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
@@ -83,38 +83,38 @@ def importer_name(path: Path) -> str:
     Example::
 
         importer_name(PACKAGE / "adapters" / "llm" / "api" / "__init__.py")
-        # "rag_load_test.adapters.llm.api.__init__"
+        # "query_processing.adapters.llm.api.__init__"
     """
     return ".".join(path.relative_to(PACKAGE.parent).with_suffix("").parts)
 
 
 def imported_product_modules(module: str, source: str) -> list[tuple[int, str]]:
-    """``(line, module)`` for every import of a module of ``rag_load_test``.
+    """``(line, module)`` for every import of a module of ``query_processing``.
 
     Relative imports are resolved against ``module``, at any depth.
 
     Example::
 
-        imported_product_modules("rag_load_test.adapters.llm.api.api_llm",
+        imported_product_modules("query_processing.adapters.llm.api.api_llm",
                                  "from ....domain.passages import Passage")
-        # [(1, "rag_load_test.domain.passages")]
+        # [(1, "query_processing.domain.passages")]
     """
     home = module.split(".")[:-1]  # the package a relative import starts from
     found = []
     for node in ast.walk(ast.parse(source)):
         for imported in _imported_modules(node, home):
             parts = imported.split(".")
-            if parts[0] == "rag_load_test" and len(parts) > 1:
+            if parts[0] == "query_processing" and len(parts) > 1:
                 found.append((node.lineno, imported))
     return found
 
 
 def imported_packages(module: str, source: str) -> list[tuple[int, str]]:
-    """``(line, package)`` for every import of a package of ``rag_load_test``.
+    """``(line, package)`` for every import of a package of ``query_processing``.
 
     Example::
 
-        imported_packages("rag_load_test.adapters.llm.api.api_llm",
+        imported_packages("query_processing.adapters.llm.api.api_llm",
                           "from ....domain.passages import Passage")   # [(1, "domain")]
     """
     return [
@@ -143,9 +143,9 @@ def forbidden_imports(module: str, source: str) -> list[str]:
 
     Example::
 
-        forbidden_imports("rag_load_test.domain.passages",
+        forbidden_imports("query_processing.domain.passages",
                           "from ..adapters import embedder")
-        # ["rag_load_test.domain.passages:1 imports rag_load_test.adapters"]
+        # ["query_processing.domain.passages:1 imports query_processing.adapters"]
     """
     package = module.split(".")[1]
     allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
@@ -159,7 +159,7 @@ def forbidden_imports(module: str, source: str) -> list[str]:
 
 
 def test_the_import_reader_on_literal_sources() -> None:
-    nested = "rag_load_test.adapters.llm.api.api_llm"
+    nested = "query_processing.adapters.llm.api.api_llm"
     assert imported_packages(nested, "from ....domain.passages import x") == [
         (1, "domain")
     ]
@@ -167,51 +167,56 @@ def test_the_import_reader_on_literal_sources() -> None:
         (1, "adapters")
     ]
     assert imported_packages(nested, "from .... import config") == [(1, "config")]
-    assert imported_packages(nested, "import rag_load_test.deploy.status") == [
+    assert imported_packages(nested, "import query_processing.deploy.status") == [
         (1, "deploy")
     ]
     assert imported_packages(nested, "import httpx\nfrom http import HTTPStatus") == []
     package_init = importer_name(PACKAGE / "adapters" / "llm" / "api" / "__init__.py")
-    assert package_init == "rag_load_test.adapters.llm.api.__init__"
+    assert package_init == "query_processing.adapters.llm.api.__init__"
     assert imported_packages(package_init, "from ....domain.registry import x") == [
         (1, "domain")
     ]
-    assert forbidden_imports(package_init, "from ....config import rag_settings") == [
-        f"{package_init}:1 imports rag_load_test.config"
-    ]
+    assert forbidden_imports(
+        package_init, "from ....config import workflow_settings"
+    ) == [f"{package_init}:1 imports query_processing.config"]
 
 
 def test_the_import_table_on_literal_sources() -> None:
     assert forbidden_imports(
-        "rag_load_test.domain.passages", "from ..adapters import embedder"
-    ) == ["rag_load_test.domain.passages:1 imports rag_load_test.adapters"]
+        "query_processing.domain.passages", "from ..adapters import embedder"
+    ) == ["query_processing.domain.passages:1 imports query_processing.adapters"]
     assert forbidden_imports(
-        "rag_load_test.loadtest.request_plans", "\nfrom ..config import rag_settings"
-    ) == ["rag_load_test.loadtest.request_plans:2 imports rag_load_test.config"]
+        "query_processing.loadtest.request_plans",
+        "\nfrom ..config import workflow_settings",
+    ) == ["query_processing.loadtest.request_plans:2 imports query_processing.config"]
     port = "from ..adapters.embedder.base_embedder import BaseEmbedder"
-    assert forbidden_imports("rag_load_test.application.workflow", port) == []
-    assert forbidden_imports("rag_load_test.config.rag_settings", port) != []
+    assert forbidden_imports("query_processing.application.workflow", port) == []
+    assert forbidden_imports("query_processing.config.workflow_settings", port) != []
     fake = "from ..adapters.embedder.fake.fake_embedder import FakeEmbedder"
-    assert forbidden_imports("rag_load_test.application.workflow", fake) == [
-        "rag_load_test.application.workflow:1 imports "
-        "rag_load_test.adapters.embedder.fake.fake_embedder"
+    assert forbidden_imports("query_processing.application.workflow", fake) == [
+        "query_processing.application.workflow:1 imports "
+        "query_processing.adapters.embedder.fake.fake_embedder"
     ]
-    ports = "from ..config.rag_settings import RagSettings"
-    root = "rag_load_test.composition.composition_root"
+    ports = "from ..config.workflow_settings import WorkflowSettings"
+    root = "query_processing.composition.composition_root"
     assert forbidden_imports(root, ports) == []
-    assert forbidden_imports("rag_load_test.infrastructure.json_log", ports) != []
-    absolute = "from rag_load_test.config.rag_settings import RagSettings"
-    port_module = "rag_load_test.adapters.embedder.base_embedder"
+    assert forbidden_imports("query_processing.infrastructure.json_log", ports) != []
+    absolute = "from query_processing.config.workflow_settings import WorkflowSettings"
+    port_module = "query_processing.adapters.embedder.base_embedder"
     assert forbidden_imports(port_module, absolute) != []
     adapter = "from ..adapters.embedder.fake.fake_embedder import FakeEmbedder"
     assert forbidden_imports(root, adapter) == []
-    assert forbidden_imports("rag_load_test.entrypoints.rag_serve", adapter) != []
-    settings = "from ..config.rag_settings import RagSettings"
-    assert forbidden_imports("rag_load_test.loadtest.loadtest_settings", settings) == []
+    assert forbidden_imports("query_processing.entrypoints.qp_serve", adapter) != []
+    settings = "from ..config.workflow_settings import WorkflowSettings"
+    assert (
+        forbidden_imports("query_processing.loadtest.loadtest_settings", settings) == []
+    )
     workflow = "from ..config.workflow_file import workflow_file"
-    assert forbidden_imports("rag_load_test.deploy.workflow_components", workflow) == []
-    assert forbidden_imports("rag_load_test.deploy.publish", workflow) == [
-        "rag_load_test.deploy.publish:1 imports rag_load_test.config.workflow_file"
+    assert (
+        forbidden_imports("query_processing.deploy.workflow_components", workflow) == []
+    )
+    assert forbidden_imports("query_processing.deploy.publish", workflow) == [
+        "query_processing.deploy.publish:1 imports query_processing.config.workflow_file"
     ]
 
 
@@ -252,13 +257,13 @@ def test_the_ports_import_only_the_domain() -> None:
 
 
 def test_the_locustfile_reads_only_the_load_test_client() -> None:
-    imported = absolute_imports(LOCUSTFILE, "rag_load_test")
+    imported = absolute_imports(LOCUSTFILE, "query_processing")
     offending = [
         f"locustfile.py:{line} imports {module}"
         for line, module in imported
-        if not module.startswith("rag_load_test.loadtest.")
+        if not module.startswith("query_processing.loadtest.")
     ]
-    assert imported, "the locustfile imports nothing from rag_load_test: wrong file?"
+    assert imported, "the locustfile imports nothing from query_processing: wrong file?"
     assert (
         not offending
     ), f"the locustfile may import only the loadtest package: {offending}"
@@ -271,7 +276,7 @@ def absolute_imports(path: Path, package: str) -> list[tuple[int, str]]:
 
     Example::
 
-        absolute_imports(PACKAGE / "deploy" / "rag_deploy.py", "fake_domino")
+        absolute_imports(PACKAGE / "deploy" / "qp_deploy.py", "fake_domino")
         # [(26, "fake_domino.api_shapes"), ...]
     """
     found = []
@@ -290,9 +295,9 @@ def test_fake_domino_imports_nothing_from_the_product() -> None:
     offending = [
         f"{path.relative_to(FAKE_DOMINO.parent)}:{line} imports {module}"
         for path in sorted(FAKE_DOMINO.rglob("*.py"))
-        for line, module in absolute_imports(path, "rag_load_test")
+        for line, module in absolute_imports(path, "query_processing")
     ]
-    assert not offending, f"fake_domino may not import rag_load_test: {offending}"
+    assert not offending, f"fake_domino may not import query_processing: {offending}"
 
 
 def test_the_fake_domino_tests_import_nothing_from_the_product() -> None:
@@ -300,13 +305,15 @@ def test_the_fake_domino_tests_import_nothing_from_the_product() -> None:
     offending = [
         f"{path.relative_to(tests.parent)}:{line} imports {module}"
         for path in sorted(tests.rglob("*.py"))
-        for line, module in absolute_imports(path, "rag_load_test")
+        for line, module in absolute_imports(path, "query_processing")
     ]
     assert tests.is_dir(), f"{tests} is where the fake Domino's own tests live"
-    assert not offending, f"tests/fake_domino may not import rag_load_test: {offending}"
+    assert (
+        not offending
+    ), f"tests/fake_domino may not import query_processing: {offending}"
 
 
-def test_only_rag_deploy_imports_fake_domino() -> None:
+def test_only_qp_deploy_imports_fake_domino() -> None:
     offending = [
         f"{path.relative_to(PACKAGE)}:{line} imports {module}"
         for path in sorted(PACKAGE.rglob("*.py"))
@@ -315,7 +322,7 @@ def test_only_rag_deploy_imports_fake_domino() -> None:
     ]
     assert (
         not offending
-    ), f"only deploy/rag_deploy.py may import fake_domino: {offending}"
+    ), f"only deploy/qp_deploy.py may import fake_domino: {offending}"
 
 
 # --- one way: a use case installs the toolkit, never the reverse --------------------

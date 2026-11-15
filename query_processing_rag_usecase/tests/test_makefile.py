@@ -37,13 +37,13 @@ def dry_run(directory: Path, target: str) -> list[str]:
 @pytest.mark.parametrize(
     ("target", "command"),
     [
-        ("serve", "rag-serve"),
-        ("ingest", "rag-ingest --synthetic 200"),
-        ("calibrate", "rag-calibrate"),
-        ("openvino-export", "rag-export-openvino"),
-        ("deploy", "rag-deploy deploy all"),
-        ("deploy-dry-run", "rag-deploy --dry-run deploy all"),
-        ("status", "rag-deploy status"),
+        ("serve", "qp-serve"),
+        ("ingest", "qp-ingest --synthetic 200"),
+        ("calibrate", "qp-calibrate"),
+        ("openvino-export", "qp-export-openvino"),
+        ("deploy", "qp-deploy deploy all"),
+        ("deploy-dry-run", "qp-deploy --dry-run deploy all"),
+        ("status", "qp-deploy status"),
     ],
 )
 def test_each_command_runs_here_with_no_flag(

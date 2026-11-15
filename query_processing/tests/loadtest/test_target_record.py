@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.loadtest.target_record import (
+from query_processing.loadtest.target_record import (
     TargetPair,
     TargetRecord,
     TargetSighting,

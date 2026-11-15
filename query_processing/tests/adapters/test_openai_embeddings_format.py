@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.adapters.embedder.api.openai_embeddings_format import (
+from query_processing.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
 

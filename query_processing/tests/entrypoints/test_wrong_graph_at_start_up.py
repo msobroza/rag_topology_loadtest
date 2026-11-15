@@ -1,4 +1,4 @@
-"""A workflow graph that cannot run is refused when ``rag-serve`` starts.
+"""A workflow graph that cannot run is refused when ``qp-serve`` starts.
 
 Each case writes the fixture's graph with one mistake into a workflow file and
 runs the command. The refusal is a usage error naming what is wrong and what
@@ -22,6 +22,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from uvicorn.lifespan.on import LifespanOn
 
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.entrypoints import qp_serve
+from query_processing.entrypoints.qp_serve import GraphRefusalInOneLine, create_app
 from rag_components import (
     FAKE_BACKEND_VARIABLES,
     FAKE_BACKENDS,
@@ -29,11 +34,6 @@ from rag_components import (
     shell_settings,
 )
 from rag_graphs import fixture_graph, rag_graph, write_workflow_file
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
-from rag_load_test.entrypoints import rag_serve
-from rag_load_test.entrypoints.rag_serve import GraphRefusalInOneLine, create_app
 from workflow_fakes import DenseOnlyStore
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
@@ -54,22 +54,22 @@ class FakeServer:
 
 @pytest.fixture
 def server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeServer:
-    """All-fake backends, no RAG_* from the shell, an empty directory, no real server."""
-    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
+    """All-fake backends, no QP_* from the shell, an empty directory, no real server."""
+    for name in shell_settings(os.environ, ("QP_", "DOMINO_")):
         monkeypatch.delenv(name)
     for name, value in FAKE_BACKEND_VARIABLES.items():
         monkeypatch.setenv(name, value)
     monkeypatch.chdir(tmp_path)
     fake = FakeServer()
-    monkeypatch.setattr(rag_serve.uvicorn, "run", fake.run)
+    monkeypatch.setattr(qp_serve.uvicorn, "run", fake.run)
     return fake
 
 
 def start_on(graph: Graph, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> int:
-    """Run ``rag-serve`` on a workflow file holding ``graph``; return its status."""
+    """Run ``qp-serve`` on a workflow file holding ``graph``; return its status."""
     workflow = write_workflow_file(tmp_path / "workflow.yaml", graph)
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
-    return rag_serve.main([])
+    return qp_serve.main([])
 
 
 # --- one mistake each: the change, then what the refusal says ----------------------
@@ -234,7 +234,7 @@ def test_a_graph_that_cannot_run_is_a_usage_error_before_anything_opens(
 
     assert exited.value.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("usage: rag-serve")
+    assert err.startswith("usage: qp-serve")
     assert "Traceback" not in err
     for words in said:
         assert words in err
@@ -278,7 +278,7 @@ async def start_under_uvicorn(app: Any, caplog: pytest.LogCaptureFixture) -> lis
 async def test_a_store_that_ranks_no_text_ends_the_start_up_in_one_line(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = RagSettings(
+    settings = WorkflowSettings(
         _env_file=None,  # type: ignore[call-arg]
         **settings_at_paths(**FAKE_BACKENDS, graph=rag_graph("lexical")),
     )
@@ -286,7 +286,7 @@ async def test_a_store_that_ranks_no_text_ends_the_start_up_in_one_line(
 
     [refusal, exiting] = await start_under_uvicorn(app, caplog)
 
-    assert refusal.startswith("rag-serve: cannot start: stage 'retrieve'")
+    assert refusal.startswith("qp-serve: cannot start: stage 'retrieve'")
     assert "retrieval_mode='lexical' needs a store that ranks text" in refusal
     assert "\n" not in refusal
     assert exiting == "Application startup failed. Exiting."

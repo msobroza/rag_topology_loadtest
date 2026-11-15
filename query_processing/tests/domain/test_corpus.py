@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from rag_load_test.domain.corpus import (
+from query_processing.domain.corpus import (
     TOPICS,
     SourceDocument,
     chunk,
     synthetic_corpus,
     synthetic_questions,
 )
-from rag_load_test.infrastructure.fake_text import tokenize
+from query_processing.infrastructure.fake_text import tokenize
 
 SLUGS = list(TOPICS)
 

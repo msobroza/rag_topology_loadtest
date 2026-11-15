@@ -32,18 +32,18 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-ingest: ## Index the synthetic corpus into Elasticsearch (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
-	$(BIN)rag-ingest --synthetic 200
+ingest: ## Index the synthetic corpus into Elasticsearch (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
+	$(BIN)qp-ingest --synthetic 200
 
-serve: ## Run the FastAPI service with this workflow file and the current RAG_* environment
-	$(BIN)rag-serve
+serve: ## Run the FastAPI service with this workflow file and the current QP_* environment
+	$(BIN)qp-serve
 
 model-server: ## Serve one component with FastAPI (OVMS contract): make model-server SERVE=reranker PORT=8011
-	$(BIN)rag-model-server --serve $(SERVE) --host 0.0.0.0 --port $(PORT)
+	$(BIN)qp-model-server --serve $(SERVE) --host 0.0.0.0 --port $(PORT)
 
 loadtest-models: ## Locust straight at a model server: make loadtest-models RUN_NAME=ovms-rerank HOST=http://host:8001 TARGET=rerank|embeddings
 	mkdir -p results
-	RAG_LOADTEST_TARGET=$(TARGET) $(BIN)locust -f $(LOCUSTFILE) --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME) \
+	QP_LOADTEST_TARGET=$(TARGET) $(BIN)locust -f $(LOCUSTFILE) --headless --host $(HOST) -u $(USERS) -r $(SPAWN_RATE) -t $(RUN_TIME) \
 		--csv results/$(RUN_NAME) --html results/$(RUN_NAME).html --only-summary
 
 loadtest: ## Headless locust run: make loadtest RUN_NAME=monolith HOST=http://host:8888
@@ -52,38 +52,38 @@ loadtest: ## Headless locust run: make loadtest RUN_NAME=monolith HOST=http://ho
 		--csv results/$(RUN_NAME) --html results/$(RUN_NAME).html --only-summary
 
 compare: ## Compare all runs found under results/ into results/comparison.md
-	$(BIN)rag-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
+	$(BIN)qp-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
 
 ovms-export: ## Export each embedder and reranker of the workflow file to ovms/models (needs HF access)
 	$(TOOLKIT)/ovms/export_models.sh
 
 openvino-export: ## Convert the in-process reranker + embedder to OpenVINO under models/openvino (needs HF access)
-	$(BIN)rag-export-openvino
+	$(BIN)qp-export-openvino
 
 calibrate: ## Calibrate the in-process embedder + reranker on this machine; prints the environment paths that pin them
-	$(BIN)rag-calibrate
+	$(BIN)qp-calibrate
 
 deploy: ## On Domino: publish (or redeploy) every App of the topology (settings in deploy.yaml)
-	$(BIN)rag-deploy deploy all
+	$(BIN)qp-deploy deploy all
 
 deploy-embedder: ## On Domino: publish (or redeploy) the embedder App only
-	$(BIN)rag-deploy deploy embedder
+	$(BIN)qp-deploy deploy embedder
 
 deploy-reranker: ## On Domino: publish (or redeploy) the reranker App only
-	$(BIN)rag-deploy deploy reranker
+	$(BIN)qp-deploy deploy reranker
 
 deploy-workflow: ## On Domino: publish (or redeploy) the workflow App only
-	$(BIN)rag-deploy deploy workflow
+	$(BIN)qp-deploy deploy workflow
 
 status: ## On Domino: each App's status and instance URL, then the workflow App's /readyz
-	$(BIN)rag-deploy status
+	$(BIN)qp-deploy status
 
 deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's settings and entry script
-	$(BIN)rag-deploy --dry-run deploy all
+	$(BIN)qp-deploy --dry-run deploy all
 
 loadtest-domino: ## On Domino: loadtest against the workflow App: make loadtest-domino RUN_NAME=split-all
-	host=$$($(BIN)rag-deploy url workflow) && \
-		RAG_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
+	host=$$($(BIN)qp-deploy url workflow) && \
+		QP_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
 		$(MAKE) loadtest HOST="$$host"
 
 infra-up: ## Start Elasticsearch (9200) + OVMS reranker (8001) + embedder (8002), serving ovms/models from here

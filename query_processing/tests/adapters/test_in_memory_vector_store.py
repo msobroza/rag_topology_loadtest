@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
     distinct_words,
 )
-from rag_load_test.domain.passages import Passage
+from query_processing.domain.passages import Passage
 
 
 async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> None:

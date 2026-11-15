@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 import pytest
 
-from rag_load_test.loadtest.loadtest_settings import LoadTestSettings
+from query_processing.loadtest.loadtest_settings import LoadTestSettings
 
 LOADTEST_VARIABLES = tuple(
     LoadTestSettings.variable_of(field) for field in LoadTestSettings.model_fields

@@ -55,7 +55,7 @@ def placer_of(apps: FakeDominoApps) -> AppPlacer:
 
 def test_two_replicas_take_two_machines_and_both_get_the_start_script() -> None:
     launcher = FakeAppLauncher()
-    apps = placed_apps(launcher, {"RAG_ES_PASSWORD": "s3cret"})
+    apps = placed_apps(launcher, {"QP_ES_PASSWORD": "s3cret"})
     create(http_to(apps), "rag-reranker", version=replicas(2))
     assert machines_started(launcher) == ["10.10.0.21", "10.10.0.22"]
     [first, second] = [script for _, script in launcher.starts]

@@ -37,8 +37,8 @@ from emulation_terraform import (
     variables,
 )
 
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.overrides import (
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.overrides import (
     check_overrides,
     refuse_workflow_settings_in_free_lists,
 )
@@ -119,7 +119,7 @@ def test_the_placement_file_matches_the_fake_dominos_contract() -> None:
 def test_the_fake_domino_runs_with_the_contracts_command_line() -> None:
     script = (SCRIPTS / "workspace.sh.tftpl").read_text(encoding="utf-8")
     command = (
-        "rag-domino-emulation --host 0.0.0.0 --port $DOMINO_PORT"
+        "qp-domino-emulation --host 0.0.0.0 --port $DOMINO_PORT"
         " --placement $CONFIG_DIR/placement.json --project-env $CONFIG_DIR/project.env"
     )
     assert command in script
@@ -138,7 +138,7 @@ def test_the_machines_install_both_and_deploy_from_the_use_cases_directory() -> 
     )
     installed = f'-e "./{toolkit}[loadtest,emulation]" -e ./{use_case}\' _ "$REPO_PATH"'
     assert installed in workspace
-    # rag-deploy runs in the use case's directory and reads its deploy.yaml there.
+    # qp-deploy runs in the use case's directory and reads its deploy.yaml there.
     assert f'tee "$REPO_PATH/{use_case}/deploy.yaml"' in workspace
     assert f'"$REPO_PATH/{toolkit}/ovms/versions.env"' in pool
     assert (USE_CASE_ROOT / "workflow.yaml").is_file()
@@ -153,31 +153,31 @@ def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     assert set(deploy) <= documented
     assert set(deploy["defaults"]) <= documented
     # The free list holds only what the launch script reads; the values of the
-    # workflow file are overrides, which rag-deploy checks against it.
-    assert set(deploy["defaults"]["settings"]) == {"RAG_OVMS_MODELS_DIR"}
+    # workflow file are overrides, which qp-deploy checks against it.
+    assert set(deploy["defaults"]["settings"]) == {"QP_OVMS_MODELS_DIR"}
     assert deploy["overrides"] == {
         "components": {"vector_store": {"elasticsearch": {"url": "dummy-es_url"}}},
         "local_models": {"openvino_dir": "dummy-dataset_path/openvino"},
     }
 
 
-def test_the_generated_deploy_yaml_passes_rag_deploys_checks_of_its_values(
+def test_the_generated_deploy_yaml_passes_qp_deploys_checks_of_its_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A value of the workflow file in a free list, or a misspelt override, would
     # stop every deploy of the emulation before anything is published.
     path = tmp_path / "deploy.yaml"
     path.write_text(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(path))
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(path))
     # Checked against the workflow file of the use case the emulation deploys.
-    monkeypatch.setenv("RAG_WORKFLOW_FILE", str(USE_CASE_ROOT / "workflow.yaml"))
+    monkeypatch.setenv("QP_WORKFLOW_FILE", str(USE_CASE_ROOT / "workflow.yaml"))
     settings = DeploySettings()
     refuse_workflow_settings_in_free_lists(settings)
     check_overrides(settings)
 
 
 def test_the_generated_deploy_yaml_defines_the_examples_topology_aliases() -> None:
-    # rag-deploy defines no alias in code: without the table it deploys nothing.
+    # qp-deploy defines no alias in code: without the table it deploys nothing.
     deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
     example = yaml.safe_load((USE_CASE_ROOT / "deploy.example.yaml").read_text())
     assert deploy["topology_alias"] == example["topology_alias"]
@@ -190,8 +190,8 @@ def test_the_workspace_shell_sets_only_variables_the_project_reads() -> None:
     assert exported == {
         "DOMINO_API_PROXY",
         "DOMINO_PROJECT_ID",
-        "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
-        "RAG_LOCAL_MODELS__OPENVINO_DIR",
+        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
+        "QP_LOCAL_MODELS__OPENVINO_DIR",
         "PATH",
     }
 

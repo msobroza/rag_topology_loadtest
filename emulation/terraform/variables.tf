@@ -91,7 +91,7 @@ variable "git_ref" {
 }
 
 variable "repo_path" {
-  description = "Absolute path of the clone on every machine: rag-deploy runs query_processing/domino/app.sh under this path on each App's machine."
+  description = "Absolute path of the clone on every machine: qp-deploy runs query_processing/domino/app.sh under this path on each App's machine."
   type        = string
   default     = "/repos/rag_topology_loadtest"
 
@@ -225,7 +225,7 @@ variable "ovms_bundle_path" {
 variable "project_env_secret" {
   description = <<-EOT
     Optional: the id of an existing Secret Manager secret, in var.project_id, whose
-    payload is KEY=VALUE lines (RAG_COMPONENTS__LLM__API__API_KEY=..., one per line): the Project
+    payload is KEY=VALUE lines (QP_COMPONENTS__LLM__API__API_KEY=..., one per line): the Project
     environment variables the fake Domino hands every App and the Workspace's shell.
     "" = none (an empty file).
   EOT
@@ -239,7 +239,7 @@ variable "project_env_secret" {
 }
 
 variable "domino_project_id" {
-  description = "DOMINO_PROJECT_ID in the Workspace's shell: the project rag-deploy publishes into."
+  description = "DOMINO_PROJECT_ID in the Workspace's shell: the project qp-deploy publishes into."
   type        = string
   default     = "emulation"
 
@@ -255,7 +255,7 @@ variable "environment_id" {
   default     = "emulation-environment"
 
   validation {
-    # rag-deploy refuses an <angle-bracket> placeholder; the value is quoted in YAML.
+    # qp-deploy refuses an <angle-bracket> placeholder; the value is quoted in YAML.
     condition     = can(regex("^[A-Za-z0-9._-]+$", var.environment_id))
     error_message = "environment_id must be letters, digits, '.', '_' or '-'."
   }

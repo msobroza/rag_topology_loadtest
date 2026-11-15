@@ -1,7 +1,7 @@
 """Stand-in binaries for running ``domino/app.sh`` without installing anything.
 
 ``ovms``, ``nginx``, ``rag-*``, ``uv``, ``sudo`` and ``apt-get`` are replaced by
-scripts that record their argv (and the ``RAG_*`` variables they were started
+scripts that record their argv (and the ``QP_*`` variables they were started
 with) under ``tmp_path``. Used by the launch script's own tests and by the
 deploy tests that run every entry script through it.
 
@@ -9,7 +9,7 @@ Example::
 
     bin_dir = make_stand_ins(tmp_path)
     subprocess.run(["bash", str(APP_SH)], env=stand_in_env(tmp_path, bin_dir))
-    log(tmp_path, "rag-serve")   # "--host 0.0.0.0 --port 8888 --domino\\n"
+    log(tmp_path, "qp-serve")   # "--host 0.0.0.0 --port 8888 --domino\\n"
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from pathlib import Path
 from repo_paths import TOOLKIT_ROOT
 
 APP_SH = TOOLKIT_ROOT / "domino" / "app.sh"
-FAKES = ("ovms", "nginx", "rag-serve", "rag-model-server", "apt-get")
-VENV_FAKES = ("rag-serve", "rag-model-server")  # what ``uv venv`` puts in a venv
+FAKES = ("ovms", "nginx", "qp-serve", "qp-model-server", "apt-get")
+VENV_FAKES = ("qp-serve", "qp-model-server")  # what ``uv venv`` puts in a venv
 PROXY_PAIR = {"ovms": "nginx", "nginx": "ovms"}  # run together behind the prefix proxy
 
 
@@ -45,7 +45,7 @@ def stay_until_the_other_is_done(tmp_path: Path, name: str) -> str:
     other_done = tmp_path / f"{PROXY_PAIR[name]}.done"
     return (
         f'touch "{tmp_path}/{name}.done"\n'
-        'if [ "${RAG_OVMS_PREFIX_PROXY:-}" = 1 ]; then\n'
+        'if [ "${QP_OVMS_PREFIX_PROXY:-}" = 1 ]; then\n'
         f'  for _ in $(seq 100); do [ -e "{other_done}" ] && break; sleep 0.1; done\n'
         "fi\n"
     )
@@ -54,7 +54,7 @@ def stay_until_the_other_is_done(tmp_path: Path, name: str) -> str:
 def make_stand_ins(tmp_path: Path) -> Path:
     """Fake binaries that append their argv (and nginx its config) to <name>.log.
 
-    Each also appends its ``RAG_*`` variables to <name>.env and the directory
+    Each also appends its ``QP_*`` variables to <name>.env and the directory
     it was started in to <name>.cwd; a fake installed in a venv by ``uv venv``
     logs to venv-<name>.log, venv-<name>.env and venv-<name>.cwd instead.
     """
@@ -65,7 +65,7 @@ def make_stand_ins(tmp_path: Path) -> Path:
         script.write_text(
             "#!/usr/bin/env bash\n"
             f'echo "$@" >> "{tmp_path}/{name}.log"\n'
-            f'env | grep "^RAG_" | sort >> "{tmp_path}/{name}.env" || true\n'
+            f'env | grep "^QP_" | sort >> "{tmp_path}/{name}.env" || true\n'
             f'pwd >> "{tmp_path}/{name}.cwd"\n'
             + (
                 f'[ "$1" = -c ] && cp "$2" "{tmp_path}/nginx.conf"\n'
@@ -81,7 +81,7 @@ def make_stand_ins(tmp_path: Path) -> Path:
     venv_fakes = "".join(
         "printf '#!/usr/bin/env bash\\n"
         f'echo "$@" >> {tmp_path}/venv-{name}.log\\n'
-        f'env | grep "^RAG_" | sort >> {tmp_path}/venv-{name}.env\\n'
+        f'env | grep "^QP_" | sort >> {tmp_path}/venv-{name}.env\\n'
         f"pwd >> {tmp_path}/venv-{name}.cwd\\n' "
         f'> "$2/bin/{name}"; chmod +x "$2/bin/{name}"\n'
         for name in VENV_FAKES
@@ -95,9 +95,9 @@ def make_stand_ins(tmp_path: Path) -> Path:
 
 
 def stand_in_env(tmp_path: Path, bin_dir: Path, **env: str) -> dict[str, str]:
-    """The environment to run app.sh in: the stand-ins first on PATH, no RAG_*."""
-    # A RAG_* variable from the developer's shell would leak into the role under test.
-    inherited = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
+    """The environment to run app.sh in: the stand-ins first on PATH, no QP_*."""
+    # A QP_* variable from the developer's shell would leak into the role under test.
+    inherited = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
     path = f"{bin_dir}:{os.environ['PATH']}"
@@ -107,9 +107,9 @@ def stand_in_env(tmp_path: Path, bin_dir: Path, **env: str) -> dict[str, str]:
 def model_server_env(kind: str, component: str) -> dict[str, str]:
     """The variables that make app.sh a model server of ``component`` by ``kind``."""
     return {
-        "RAG_ROLE": "model-server",
-        "RAG_MODEL_SERVER_KIND": kind,
-        "RAG_MODEL_SERVER_COMPONENT": component,
+        "QP_ROLE": "model-server",
+        "QP_MODEL_SERVER_KIND": kind,
+        "QP_MODEL_SERVER_COMPONENT": component,
     }
 
 
@@ -120,7 +120,7 @@ def log(tmp_path: Path, name: str) -> str:
 
 
 def started_env(tmp_path: Path, name: str) -> list[str]:
-    """The RAG_* variables the stand-in ``name`` was started with, ``NAME=value`` each."""
+    """The QP_* variables the stand-in ``name`` was started with, ``NAME=value`` each."""
     return (tmp_path / f"{name}.env").read_text().splitlines()
 
 

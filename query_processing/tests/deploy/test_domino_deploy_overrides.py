@@ -2,7 +2,7 @@
 
 Through ``deploy`` and ``main`` over the fake Domino, against the tests'
 workflow file: each override reaches every App's launch script under the
-variable of its path, after the App's free list and before rag-deploy's own
+variable of its path, after the App's free list and before qp-deploy's own
 exports; a workflow setting in a free list, a misspelt key, a secret, a
 placeholder or a value the workflow settings refuse stops the deploy before
 anything is sent to Domino. That the workflow app reads each override back to
@@ -28,15 +28,15 @@ from domino_deploy_helpers import (
     no_sleep,
 )
 from fake_domino.state import FakeDominoApps
-from rag_graphs import FIXTURE_WORKFLOW
-from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.deploy_settings import (
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_settings import (
     DeploySettings,
     OverrideValue,
     override_text,
     override_values,
 )
-from rag_load_test.deploy.publish import deploy
+from query_processing.deploy.publish import deploy
+from rag_graphs import FIXTURE_WORKFLOW
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 # A site's values, one of each kind: a number, a nested one, a text and a list.
@@ -49,11 +49,11 @@ SITE = {
     "graph": {"edges": [["START", "embed", "retrieve", "rerank"], ["generate", "END"]]},
 }
 SITE_EXPORTS = (
-    "export RAG_HTTP__TIMEOUT_S=45\n"
-    "export RAG_HTTP__RETRIES=0\n"
-    "export RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL=https://es.site:9200\n"
-    "export RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S=90.5\n"
-    "export RAG_GRAPH__EDGES='"
+    "export QP_HTTP__TIMEOUT_S=45\n"
+    "export QP_HTTP__RETRIES=0\n"
+    "export QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL=https://es.site:9200\n"
+    "export QP_COMPONENTS__LLM__HTTP__TIMEOUT_S=90.5\n"
+    "export QP_GRAPH__EDGES='"
     '[["START", "embed", "retrieve", "rerank"], ["generate", "END"]]'
     "'\n"
 )
@@ -115,7 +115,7 @@ def test_an_override_is_written_as_the_settings_read_it_back(
 
 
 def test_each_override_reaches_every_app_after_its_free_list() -> None:
-    free_list = {"settings": {"RAG_OVMS_MODELS_DIR": "/d/ovms"}}
+    free_list = {"settings": {"QP_OVMS_MODELS_DIR": "/d/ovms"}}
     settings = make_settings(apps={"reranker": free_list}, overrides=SITE)
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, settings)
@@ -123,14 +123,14 @@ def test_each_override_reaches_every_app_after_its_free_list() -> None:
     assert list(published) == ["rag-embedder", "rag-reranker", "rag-workflow"]
     assert published["rag-embedder"].startswith(SITE_EXPORTS)
     assert published["rag-reranker"].startswith(
-        f"export RAG_OVMS_MODELS_DIR=/d/ovms\n{SITE_EXPORTS}"
+        f"export QP_OVMS_MODELS_DIR=/d/ovms\n{SITE_EXPORTS}"
     )
     assert published["rag-workflow"].startswith(
-        f"{SITE_EXPORTS}export RAG_ROLE=workflow\n"
+        f"{SITE_EXPORTS}export QP_ROLE=workflow\n"
     )
 
 
-def test_rag_deploys_own_exports_win_over_an_override() -> None:
+def test_qp_deploys_own_exports_win_over_an_override() -> None:
     # The row places the reranker; an override of its backend comes first and
     # is replaced, as the README says of a component the row names.
     overrides = {
@@ -141,18 +141,18 @@ def test_rag_deploys_own_exports_win_over_an_override() -> None:
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, settings)
     workflow = scripts(apps)["rag-workflow"]
-    assert exported(workflow, "RAG_COMPONENTS__RERANKER__BACKEND") == "served"
-    assert exported(workflow, "RAG_TOPOLOGY_ALIAS") == "split-reranker"
+    assert exported(workflow, "QP_COMPONENTS__RERANKER__BACKEND") == "served"
+    assert exported(workflow, "QP_TOPOLOGY_ALIAS") == "split-reranker"
 
 
-def test_an_override_of_what_rag_deploy_only_defaults_wins() -> None:
+def test_an_override_of_what_qp_deploy_only_defaults_wins() -> None:
     overrides = {"run_label": "split-all-cpu16", "domino": {"tracing": False}}
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, make_settings(overrides=overrides))
     workflow = scripts(apps)["rag-workflow"]
-    assert exported(workflow, "RAG_RUN_LABEL") == "split-all-cpu16"
-    assert exported(workflow, "RAG_DOMINO__TRACING") == "false"
-    assert workflow.count("RAG_RUN_LABEL=") == 1
+    assert exported(workflow, "QP_RUN_LABEL") == "split-all-cpu16"
+    assert exported(workflow, "QP_DOMINO__TRACING") == "false"
+    assert workflow.count("QP_RUN_LABEL=") == 1
 
 
 def test_a_dry_run_shows_the_overrides_in_each_apps_entry_script(
@@ -163,7 +163,7 @@ def test_a_dry_run_shows_the_overrides_in_each_apps_entry_script(
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, err) == (0, "")
     report = out[out.index("Dry run: ") :]
-    line = "    export RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S=120\n"
+    line = "    export QP_COMPONENTS__LLM__HTTP__TIMEOUT_S=120\n"
     assert report.count(line) == 3  # the two model servers and the workflow
 
 
@@ -267,12 +267,12 @@ def test_an_empty_value_is_refused() -> None:
         (
             {"components": {"llm": {"api": {"api_key": "sk-1"}}}},
             "components.llm.api.api_key",
-            "RAG_COMPONENTS__LLM__API__API_KEY",
+            "QP_COMPONENTS__LLM__API__API_KEY",
         ),
         (
             {"components": {"vector_store": {"elasticsearch": {"api_key": "es-1"}}}},
             "components.vector_store.elasticsearch.api_key",
-            "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY",
+            "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY",
         ),
     ],
 )
@@ -292,7 +292,7 @@ def test_an_empty_or_domino_api_key_passes_through(value: str) -> None:
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, make_settings(overrides=overrides))
     workflow = scripts(apps)["rag-workflow"]
-    assert exported(workflow, "RAG_COMPONENTS__RERANKER__API__API_KEY") == (
+    assert exported(workflow, "QP_COMPONENTS__RERANKER__API__API_KEY") == (
         value or "''"
     )
 
@@ -320,8 +320,8 @@ def test_an_example_placeholder_is_refused() -> None:
         ),
         (  # a check of the whole: an api backend needs its URL
             {"components": {"reranker": {"backend": "api"}}},
-            "Value error, RAG_COMPONENTS__RERANKER__BACKEND='api' needs "
-            "RAG_COMPONENTS__RERANKER__API__URL, the full route of the endpoint (for "
+            "Value error, QP_COMPONENTS__RERANKER__BACKEND='api' needs "
+            "QP_COMPONENTS__RERANKER__API__URL, the full route of the endpoint (for "
             "example https://api.cohere.com/v2/rerank); got ''",
         ),
     ],
@@ -343,14 +343,14 @@ def test_a_value_the_workflow_settings_refuse_is_refused(
     [
         (
             "defaults",
-            "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
+            "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL",
             "components.vector_store.elasticsearch.url",
         ),
-        ("apps.reranker", "RAG_LOCAL_MODELS__WORKERS", "local_models.workers"),
-        ("apps.workflow", "RAG_RUN_LABEL", "run_label"),
+        ("apps.reranker", "QP_LOCAL_MODELS__WORKERS", "local_models.workers"),
+        ("apps.workflow", "QP_RUN_LABEL", "run_label"),
         (
             "apps.embedder",
-            "RAG_GRAPH__STAGES__RERANK__TOP_K",
+            "QP_GRAPH__STAGES__RERANK__TOP_K",
             "graph.stages.rerank.top_k",
         ),
     ],
@@ -373,9 +373,9 @@ def test_a_workflow_setting_in_a_free_list_is_refused_naming_its_place(
 
 def test_the_variables_the_launch_scripts_read_still_pass_through() -> None:
     values = {
-        "RAG_OVMS_MODELS_DIR": "/d/ovms-models",
-        "RAG_BOOTSTRAP_EXTRAS": "domino,dev",
-        "RAG_WORKFLOW_FILE": str(FIXTURE_WORKFLOW),
+        "QP_OVMS_MODELS_DIR": "/d/ovms-models",
+        "QP_BOOTSTRAP_EXTRAS": "domino,dev",
+        "QP_WORKFLOW_FILE": str(FIXTURE_WORKFLOW),
     }
     defaults = {"environment_id": "env-1", "settings": values}
     apps = FakeDominoApps(["Running"])

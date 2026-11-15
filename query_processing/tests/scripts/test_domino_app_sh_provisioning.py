@@ -4,7 +4,7 @@ domino/app.sh and the launch scripts of the model-server kinds are copied into a
 tree of their own whose ``ovms/export_models.sh`` is a fake, so the real exporter
 (pip, curl, the Hub) can never run. PATH holds only fakes and links to the few
 system tools the scripts use, so nothing installed on this machine (``uv``,
-``rag-served-models``, ``ovms``) is reached either.
+``qp-served-models``, ``ovms``) is reached either.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def logging_fake(path: Path, log_file: Path) -> None:
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
     """The launch scripts beside a fake export_models.sh that records argv, PYTHON
-    and the ``rag-served-models`` it found, then does what FAKE_EXPORT says:
+    and the ``qp-served-models`` it found, then does what FAKE_EXPORT says:
     ``writes`` the configs of the embedder, the reranker and a reranker named
     coarse, ``fails``, or ``writes-nothing``. Laid out as the repository is: the
     toolkit's directory, returned, with ``.python-version`` one level up."""
@@ -51,7 +51,7 @@ def tree(tmp_path: Path) -> Path:
     )
     write_fake(
         tree / "ovms" / "export_models.sh",
-        f'echo "$* PYTHON=$PYTHON served=$(command -v rag-served-models)"'
+        f'echo "$* PYTHON=$PYTHON served=$(command -v qp-served-models)"'
         f' >> "{tmp_path}/export.log"\n'
         f'pwd >> "{tmp_path}/export.cwd"\n'
         'case "$FAKE_EXPORT" in\n'
@@ -75,7 +75,7 @@ def bin_dir(tmp_path: Path) -> Path:
     venv_fakes = "".join(
         f"printf '#!/usr/bin/env bash\\n' > \"$2/bin/{name}\"; "
         f'chmod +x "$2/bin/{name}"\n'
-        for name in ("rag-served-models", "python")
+        for name in ("qp-served-models", "python")
     )
     write_fake(
         bin_dir / "uv",
@@ -124,7 +124,7 @@ def test_a_present_config_is_served_without_any_export(
     (models / "config_reranker.json").write_text("{}")
 
     result = run_app(
-        tmp_path, tree, bin_dir, "reranker", RAG_OVMS_MODELS_DIR=str(models)
+        tmp_path, tree, bin_dir, "reranker", QP_OVMS_MODELS_DIR=str(models)
     )
 
     assert result.returncode == 0, result.stderr
@@ -145,21 +145,21 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
         tree,
         bin_dir,
         component,
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_MODELS_DIR=str(models),
         FAKE_EXPORT="writes",
     )
 
     assert result.returncode == 0, result.stderr
     home = tmp_path / "home"
-    project, exporter = home / "rag-venv", home / EXPORTER_VENV
+    project, exporter = home / "qp-venv", home / EXPORTER_VENV
     assert log(tmp_path, "uv") == [
-        f"venv {project} --python 3.11",  # the project, for rag-served-models
+        f"venv {project} --python 3.11",  # the project, for qp-served-models
         f"pip install --python {project}/bin/python {tree}",
         f"venv {exporter} --seed --python 3.11",  # the exporter's own pins go here
     ]
     assert log(tmp_path, "export") == [
         f"{models} PYTHON={exporter}/bin/python "
-        f"served={project}/bin/rag-served-models"
+        f"served={project}/bin/qp-served-models"
     ]
     assert log(tmp_path, "ovms") == [
         f"--rest_port 8888 --config_path {models}/config_{component}.json"
@@ -170,7 +170,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
 def test_the_export_runs_in_the_use_cases_directory_after_installing_both(
     tmp_path: Path, tree: Path, bin_dir: Path
 ) -> None:
-    # rag-served-models finds the use case's workflow file in its directory.
+    # qp-served-models finds the use case's workflow file in its directory.
     use_case = tmp_path / "use_case"
     use_case.mkdir()
 
@@ -179,37 +179,37 @@ def test_the_export_runs_in_the_use_cases_directory_after_installing_both(
         tree,
         bin_dir,
         "reranker",
-        RAG_OVMS_MODELS_DIR=str(tmp_path / "models"),
-        RAG_USE_CASE_DIR=str(use_case),
+        QP_OVMS_MODELS_DIR=str(tmp_path / "models"),
+        QP_USE_CASE_DIR=str(use_case),
         FAKE_EXPORT="writes",
     )
 
     assert result.returncode == 0, result.stderr
-    project = tmp_path / "home" / "rag-venv"
+    project = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv")[1] == (
         f"pip install --python {project}/bin/python {tree} {use_case}"
     )
     assert (tmp_path / "export.cwd").read_text().splitlines() == [str(use_case)]
 
 
-def test_a_rag_served_models_already_on_path_is_used_as_is(
+def test_a_qp_served_models_already_on_path_is_used_as_is(
     tmp_path: Path, tree: Path, bin_dir: Path
 ) -> None:
-    write_fake(bin_dir / "rag-served-models", "")
+    write_fake(bin_dir / "qp-served-models", "")
 
     result = run_app(
         tmp_path,
         tree,
         bin_dir,
         "reranker",
-        RAG_OVMS_MODELS_DIR=str(tmp_path / "models"),
+        QP_OVMS_MODELS_DIR=str(tmp_path / "models"),
         FAKE_EXPORT="writes",
     )
 
     assert result.returncode == 0, result.stderr
     exporter = tmp_path / "home" / EXPORTER_VENV
     assert log(tmp_path, "uv") == [f"venv {exporter} --seed --python 3.11"]
-    assert log(tmp_path, "export")[0].endswith(f"served={bin_dir}/rag-served-models")
+    assert log(tmp_path, "export")[0].endswith(f"served={bin_dir}/qp-served-models")
 
 
 def test_bootstrap_installs_the_ovms_bundle_then_exports(
@@ -227,9 +227,9 @@ def test_bootstrap_installs_the_ovms_bundle_then_exports(
         tree,
         bin_dir,
         "reranker",
-        RAG_BOOTSTRAP="1",
-        RAG_OVMS_BUNDLE=str(bundle),
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_BOOTSTRAP="1",
+        QP_OVMS_BUNDLE=str(bundle),
+        QP_OVMS_MODELS_DIR=str(models),
         FAKE_EXPORT="writes",
     )
 
@@ -265,7 +265,7 @@ def test_an_export_that_yields_no_config_stops_the_model_server(
         tree,
         bin_dir,
         component,
-        RAG_OVMS_MODELS_DIR=str(models),
+        QP_OVMS_MODELS_DIR=str(models),
         FAKE_EXPORT=outcome,
     )
 
@@ -273,7 +273,7 @@ def test_an_export_that_yields_no_config_stops_the_model_server(
     assert f"app.sh[model-server ovms {component}]: " in result.stderr
     assert message in result.stderr
     assert "ovms/export_models.sh" in result.stderr
-    assert "RAG_OVMS_MODELS_DIR" in result.stderr
+    assert "QP_OVMS_MODELS_DIR" in result.stderr
     assert f"{models}/config_{component}.json" in result.stderr
     assert log(tmp_path, "ovms") == []
 
@@ -288,11 +288,11 @@ def test_without_uv_a_missing_config_says_what_is_needed(
         tree,
         bin_dir,
         "embedder",
-        RAG_OVMS_MODELS_DIR=str(tmp_path / "models"),
+        QP_OVMS_MODELS_DIR=str(tmp_path / "models"),
     )
 
     assert result.returncode == 1
     assert "OVMS config not found" in result.stderr
     assert "'uv'" in result.stderr
-    assert "RAG_OVMS_MODELS_DIR" in result.stderr
+    assert "QP_OVMS_MODELS_DIR" in result.stderr
     assert log(tmp_path, "export") == []

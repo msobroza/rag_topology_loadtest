@@ -18,6 +18,7 @@ from domino_deploy_helpers import (
     ENV_1,
     INSTANCES_URL,
     LAUNCH,
+    PREFIX_YAML,
     TOPOLOGY_ALIASES,
     RunMain,
     add_app,
@@ -27,10 +28,10 @@ from domino_deploy_helpers import (
 )
 from fake_domino.server import create_fake_domino
 from fake_domino.state import FakeDominoApps
-from rag_load_test.deploy.app_id_cache import AppIdCache
-from rag_load_test.deploy.apps_client import DominoAppsClient, DominoDeployError
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.publish import deploy
+from query_processing.deploy.app_id_cache import AppIdCache
+from query_processing.deploy.apps_client import DominoAppsClient, DominoDeployError
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.publish import deploy
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 QP_RAG = "app_name_prefix: qp-rag\n"
@@ -59,20 +60,35 @@ def redeployed(apps: FakeDominoApps) -> list[str]:
     return [app_id for app_id, _ in apps.new_versions]
 
 
-def test_with_no_prefix_set_the_apps_keep_their_names(
+NO_PREFIX = (
+    "app_name_prefix is not set: name the use case's Apps in the deploy file with "
+    "lowercase words joined by hyphens, such as app_name_prefix: qp-rag "
+    "(or QP_DEPLOY_APP_NAME_PREFIX=qp-rag)"
+)
+
+
+def test_without_a_prefix_the_settings_are_refused_naming_an_example(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("RAG_DEPLOY_APP_NAME_PREFIX", raising=False)
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(tmp_path / "absent.yaml"))
-    settings = DeploySettings(
-        project_id="proj-1",
-        topology_alias=TOPOLOGY_ALIASES,  # type: ignore[arg-type]
-        defaults={"environment_id": "e"},  # type: ignore[arg-type]
-    )
+    # The prefix names a use case, so the toolkit gives none by default.
+    monkeypatch.delenv("QP_DEPLOY_APP_NAME_PREFIX", raising=False)
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(tmp_path / "absent.yaml"))
+    with pytest.raises(ValidationError) as caught:
+        DeploySettings(
+            project_id="proj-1",
+            topology_alias=TOPOLOGY_ALIASES,  # type: ignore[arg-type]
+            defaults={"environment_id": "e"},  # type: ignore[arg-type]
+        )
+    assert NO_PREFIX in str(caught.value)
+
+
+def test_a_deploy_file_without_a_prefix_publishes_nothing(run_main: RunMain) -> None:
+    Path("deploy.yaml").write_text(ENV_1.replace(PREFIX_YAML, ""))
     apps = FakeDominoApps(["Running"])
-    run_deploy(apps, settings, "all")
-    assert settings.app_name_prefix == "rag"
-    assert created(apps) == ["rag-embedder", "rag-reranker", "rag-workflow"]
+    code, out, err = run_main(["deploy", "all"], create_fake_domino(apps))
+    assert (code, out) == (2, "")
+    assert NO_PREFIX in err
+    assert apps.received == []
 
 
 def test_with_a_prefix_every_app_is_created_found_and_reported_under_it(
@@ -180,7 +196,9 @@ def test_two_prefixes_in_one_project_make_two_sets_of_apps() -> None:
 
 
 def test_status_and_url_find_the_apps_under_the_prefix(run_main: RunMain) -> None:
-    Path("deploy.yaml").write_text(ENV_1 + QP_RAG + "topology: split-reranker\n")
+    Path("deploy.yaml").write_text(
+        ENV_1.replace(PREFIX_YAML, QP_RAG) + "topology: split-reranker\n"
+    )
     apps = FakeDominoApps([None])
     add_app(apps, "rag-reranker")  # another prefix's, in the same project
     add_app(apps, "qp-rag-reranker")
@@ -193,7 +211,7 @@ def test_status_and_url_find_the_apps_under_the_prefix(run_main: RunMain) -> Non
     code, _, err = run_main(["url", "workflow"], create_fake_domino(apps))
     assert (code, err.splitlines()[-1]) == (
         2,
-        "rag-deploy: error: App qp-rag-workflow is not deployed in project proj-1: "
+        "qp-deploy: error: App qp-rag-workflow is not deployed in project proj-1: "
         "run make deploy-workflow",
     )
 
@@ -201,8 +219,8 @@ def test_status_and_url_find_the_apps_under_the_prefix(run_main: RunMain) -> Non
 def test_the_prefix_can_come_from_the_environment(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_APP_NAME_PREFIX", "qp-rag")
-    monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", "monolith")
+    monkeypatch.setenv("QP_DEPLOY_APP_NAME_PREFIX", "qp-rag")
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "monolith")
     apps = FakeDominoApps(["Running"])
     code, out, _ = run_main(["deploy", "workflow"], create_fake_domino(apps))
     assert (code, created(apps)) == (0, ["qp-rag-workflow"])
@@ -228,7 +246,7 @@ def refusal(prefix: str) -> str:
     return (
         f"app_name_prefix {prefix!r} would not make a valid App name: it must be "
         "lowercase letters and digits in words joined by single hyphens, starting "
-        "with a letter, such as 'rag' or 'qp-rag' (rag-deploy's rule, not Domino's)"
+        "with a letter, such as 'rag' or 'qp-rag' (qp-deploy's rule, not Domino's)"
     )
 
 
@@ -246,7 +264,9 @@ def test_a_prefix_of_lowercase_words_is_accepted(prefix: str) -> None:
 
 
 def test_a_refused_prefix_publishes_nothing(run_main: RunMain) -> None:
-    Path("deploy.yaml").write_text(ENV_1 + "app_name_prefix: QP_RAG\n")
+    Path("deploy.yaml").write_text(
+        ENV_1.replace(PREFIX_YAML, "app_name_prefix: QP_RAG\n")
+    )
     apps = FakeDominoApps(["Running"])
     code, out, err = run_main(["deploy", "all"], create_fake_domino(apps))
     assert (code, out) == (2, "")

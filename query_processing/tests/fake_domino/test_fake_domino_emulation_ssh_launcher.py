@@ -48,7 +48,7 @@ STOP = (
     "sudo systemctl reset-failed rag-app.service 2>/dev/null; "
     "! systemctl is-active --quiet rag-app.service"
 )
-SCRIPT = "export RAG_ES_PASSWORD='s3cret'\nexec bash domino/app.sh\n"
+SCRIPT = "export QP_ES_PASSWORD='s3cret'\nexec bash domino/app.sh\n"
 
 
 def launcher(
@@ -140,7 +140,7 @@ def test_a_state_ssh_cannot_get_reads_as_still_starting_and_is_logged(
     answer: CommandResult | CommandError, caplog: pytest.LogCaptureFixture
 ) -> None:
     # Only the machine can say its App failed: an ssh hiccup must not make
-    # rag-deploy give up on an App that may be fine.
+    # qp-deploy give up on an App that may be fine.
     caplog.set_level(logging.WARNING, logger="fake_domino")
     probe = FakePortProbe((MACHINE, 8888))
     state = launcher(FakeCommandRunner(answer), probe).state(MACHINE)

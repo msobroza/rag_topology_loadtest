@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
-from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.passages import Passage
+from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
+from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.passages import Passage
 
 COLLECTION = "passages_under_test"  # any name: the adapter must use the one given
 

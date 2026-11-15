@@ -1,7 +1,7 @@
-"""Fixtures of the ``rag-deploy`` CLI tests: ``main`` run in a fake Workspace.
+"""Fixtures of the ``qp-deploy`` CLI tests: ``main`` run in a fake Workspace.
 
 Loaded by ``pytest_plugins = ["domino_deploy_fixtures"]`` (never imported by
-name, so pytest can rewrite its asserts) in ``test_rag_deploy.py`` and
+name, so pytest can rewrite its asserts) in ``test_qp_deploy.py`` and
 ``test_domino_deploy_dry_run.py``.
 """
 
@@ -14,7 +14,7 @@ import pytest
 from starlette.types import ASGIApp
 
 from domino_deploy_helpers import ENV_1, PROXY, RunMain
-from rag_load_test.deploy.rag_deploy import main
+from query_processing.deploy.qp_deploy import main
 
 
 @pytest.fixture
@@ -36,8 +36,8 @@ def domino_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "OVMS_BUNDLE",
         "APP_NAME_PREFIX",
     ):
-        monkeypatch.delenv(f"RAG_DEPLOY_{name}", raising=False)
-    monkeypatch.delenv("RAG_DEPLOY_DOMINO_HOST", raising=False)
+        monkeypatch.delenv(f"QP_DEPLOY_{name}", raising=False)
+    monkeypatch.delenv("QP_DEPLOY_DOMINO_HOST", raising=False)
     monkeypatch.setenv("DOMINO_API_PROXY", PROXY)
     monkeypatch.setenv("DOMINO_PROJECT_ID", "proj-1")
 

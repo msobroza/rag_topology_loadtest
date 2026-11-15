@@ -1,8 +1,8 @@
 """The RAG's deploy settings example: a dry run of each topology alias it defines.
 
-``rag-deploy --dry-run`` runs from this directory, as ``make deploy-dry-run``
+``qp-deploy --dry-run`` runs from this directory, as ``make deploy-dry-run``
 does, against the in-process fake Domino: it reads ``deploy.example.yaml``
-(through ``RAG_DEPLOY_FILE``, each example placeholder replaced by a real-looking
+(through ``QP_DEPLOY_FILE``, each example placeholder replaced by a real-looking
 value) and this directory's workflow file, and prints what it would publish.
 """
 
@@ -14,13 +14,13 @@ from pathlib import Path
 
 import pytest
 import yaml
-from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.deploy_settings import (
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_settings import (
     DeploySettings,
     refuse_placeholders,
     refuse_secrets,
 )
-from rag_load_test.deploy.rag_deploy import main
+from query_processing.deploy.qp_deploy import main
 
 # The Apps each topology alias publishes, by App part, in the order published:
 # one model server per served component, then the workflow App.
@@ -49,12 +49,12 @@ def filled_example(
     """The example with every <placeholder> made a real value, nothing else changed."""
     filled = tmp_path / "deploy.yaml"
     filled.write_text(re.sub(r"<([^<>]+)>", "real", example(use_case_dir)))
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(filled))
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(filled))
     return filled
 
 
 def dry_run(capsys: pytest.CaptureFixture[str]) -> tuple[int, str, str]:
-    """``rag-deploy --dry-run deploy all``; its exit code, stdout and stderr."""
+    """``qp-deploy --dry-run deploy all``; its exit code, stdout and stderr."""
     code = 0
     try:
         main(["--dry-run", "deploy", "all"])
@@ -88,15 +88,15 @@ def test_a_dry_run_of_each_topology_alias_publishes_its_apps(
     capsys: pytest.CaptureFixture[str],
     alias: str,
 ) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", alias)
-    prefix = DeploySettings().app_name_prefix
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", alias)
 
     code, out, err = dry_run(capsys)
 
     assert (code, err) == (0, "")
-    assert published(out) == [f"{prefix}-{part}" for part in TOPOLOGY_APPS[alias]]
-    assert f"    export RAG_RUN_LABEL={RUN_LABELS[alias]}\n" in out
-    assert f"    export RAG_TOPOLOGY_ALIAS={alias}\n" in out
+    # The RAG's Apps: qp-rag-workflow, qp-rag-embedder, qp-rag-reranker.
+    assert published(out) == [f"qp-rag-{part}" for part in TOPOLOGY_APPS[alias]]
+    assert f"    export QP_RUN_LABEL={RUN_LABELS[alias]}\n" in out
+    assert f"    export QP_TOPOLOGY_ALIAS={alias}\n" in out
 
 
 def test_every_app_runs_the_toolkits_launch_script_in_this_directory(
@@ -107,13 +107,13 @@ def test_every_app_runs_the_toolkits_launch_script_in_this_directory(
     assert code == 0
     launch_script = use_case_dir.parent / "query_processing" / "domino" / "app.sh"
     tail = (
-        f"    export RAG_USE_CASE_DIR={shlex.quote(str(use_case_dir))}\n"
-        "    export RAG_BOOTSTRAP=1\n"
+        f"    export QP_USE_CASE_DIR={shlex.quote(str(use_case_dir))}\n"
+        "    export QP_BOOTSTRAP=1\n"
         f"    exec bash {shlex.quote(str(launch_script))}\n"
     )
     assert out.count(tail) == len(TOPOLOGY_APPS["split-all"])  # the example's
     # This site's values, written once in the example, reach every App.
-    es_url = "RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL"
+    es_url = "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL"
     assert out.count(f"    export {es_url}=https://real:9200\n") == 3
     assert "  kind: agent (configurationType AISYSTEM)\n" in out
     # The example holds no revision: Domino keeps choosing it.
@@ -128,13 +128,13 @@ def test_the_example_copied_as_is_stops_on_a_placeholder(
 ) -> None:
     copied = tmp_path / "deploy.yaml"
     copied.write_text(example(use_case_dir))
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(copied))
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(copied))
 
     code, out, err = dry_run(capsys)
 
     assert (code, out) == (2, "")
     assert err.endswith(
-        f"rag-deploy: error: environment_id in defaults of {copied} still holds "
+        f"qp-deploy: error: environment_id in defaults of {copied} still holds "
         "the example placeholder '<environment id>': replace it with a real value\n"
     )
     with pytest.raises(DominoDeployError, match="<environment id>"):

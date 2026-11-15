@@ -9,23 +9,23 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from rag_components import FAKE_BACKENDS
-from rag_load_test.adapters.embedder.api.api_embedder import ApiEmbedder
-from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
-from rag_load_test.adapters.llm.api.api_llm import ApiLLM
-from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.reranker.api.api_reranker import ApiReranker
-from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
-from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
-from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
+from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from query_processing.adapters.llm.api.api_llm import ApiLLM
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.reranker.api.api_reranker import ApiReranker
+from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
+from query_processing.adapters.reranker.none.no_reranker import NoReranker
+from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
-from rag_load_test.composition.composition_root import CompositionRoot
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.errors import RagDependencyError
-from rag_load_test.domain.passages import ScoredPassage
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.passages import ScoredPassage
+from rag_components import FAKE_BACKENDS
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 EMBED_URL = "http://embedder.test/v3/embeddings"
 RERANK_URL = "https://rerank.test/v2/rerank"
 CHAT_URL = "https://gateway.test/v1/chat/completions"

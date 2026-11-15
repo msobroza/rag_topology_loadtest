@@ -1,5 +1,5 @@
-"""Tests of rag-deploy's settings: ``deploy.yaml``, its per-App blocks, the
-``RAG_DEPLOY_*`` overrides, the refused secrets and the project id fallback.
+"""Tests of qp-deploy's settings: ``deploy.yaml``, its per-App blocks, the
+``QP_DEPLOY_*`` overrides, the refused secrets and the project id fallback.
 """
 
 from __future__ import annotations
@@ -10,8 +10,8 @@ import pytest
 from pydantic import ValidationError
 
 from domino_deploy_helpers import DEPLOY_YAML
-from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.deploy_settings import (
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_settings import (
     AppSettings,
     Autoscaling,
     DeploySettings,
@@ -23,16 +23,16 @@ from rag_load_test.deploy.deploy_settings import (
 
 @pytest.fixture
 def deploy_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """The path RAG_DEPLOY_FILE names; nothing from the shell leaks in."""
-    for name in (
-        "RAG_DEPLOY_TOPOLOGY",
-        "RAG_DEPLOY_PROJECT_ID",
-        "RAG_DEPLOY_APP_NAME_PREFIX",
-        "DOMINO_PROJECT_ID",
-    ):
+    """The path QP_DEPLOY_FILE names; nothing from the shell leaks in.
+
+    The prefix every deploy file must name is given by its variable, so each
+    file below holds only what its test is about.
+    """
+    for name in ("QP_DEPLOY_TOPOLOGY", "QP_DEPLOY_PROJECT_ID", "DOMINO_PROJECT_ID"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("QP_DEPLOY_APP_NAME_PREFIX", "rag")
     path = tmp_path / "deploy.yaml"
-    monkeypatch.setenv("RAG_DEPLOY_FILE", str(path))
+    monkeypatch.setenv("QP_DEPLOY_FILE", str(path))
     return path
 
 
@@ -49,14 +49,14 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
         hardware_tier_id="small",
         autoscaling=Autoscaling(min_replicas=1, max_replicas=4),
         server="fastapi",
-        settings={"RAG_ES_URL": "https://es.test:9200"},
+        settings={"QP_ES_URL": "https://es.test:9200"},
     )
     embedder = settings.for_app("embedder")
     assert (embedder.kind, embedder.hardware_tier_id) == ("app", "cpu-8")
     assert embedder.autoscaling is None
     assert list(embedder.settings) == [  # merged, sorted by name
-        "RAG_BOOTSTRAP_EXTRAS",
-        "RAG_ES_URL",
+        "QP_BOOTSTRAP_EXTRAS",
+        "QP_ES_URL",
     ]
     # The overrides are the deploy's, for every App, in the file's own shape.
     assert settings.overrides == {
@@ -69,12 +69,12 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
 
 def test_an_apps_settings_win_over_the_defaults(deploy_file: Path) -> None:
     deploy_file.write_text(
-        "defaults: {settings: {RAG_ES_URL: https://shared.test, RAG_A: a}}\n"
-        "apps: {reranker: {settings: {RAG_ES_URL: https://own.test}}}\n"
+        "defaults: {settings: {QP_ES_URL: https://shared.test, QP_A: a}}\n"
+        "apps: {reranker: {settings: {QP_ES_URL: https://own.test}}}\n"
     )
     assert DeploySettings().for_app("reranker").settings == {
-        "RAG_A": "a",
-        "RAG_ES_URL": "https://own.test",
+        "QP_A": "a",
+        "QP_ES_URL": "https://own.test",
     }
 
 
@@ -130,24 +130,24 @@ def test_a_kind_in_the_defaults_applies_to_every_app(deploy_file: Path) -> None:
 
 def test_yaml_scalars_are_exported_as_strings(deploy_file: Path) -> None:
     deploy_file.write_text(
-        "defaults:\n  settings:\n    RAG_MODEL_WORKERS: 2\n    RAG_FLAG: true\n"
-        "    RAG_RATIO: 0.5\n    RAG_EMPTY: ''\n"
+        "defaults:\n  settings:\n    QP_MODEL_WORKERS: 2\n    QP_FLAG: true\n"
+        "    QP_RATIO: 0.5\n    QP_EMPTY: ''\n"
     )
     assert DeploySettings().for_app("embedder").settings == {
-        "RAG_EMPTY": "",
-        "RAG_FLAG": "true",
-        "RAG_MODEL_WORKERS": "2",
-        "RAG_RATIO": "0.5",
+        "QP_EMPTY": "",
+        "QP_FLAG": "true",
+        "QP_MODEL_WORKERS": "2",
+        "QP_RATIO": "0.5",
     }
 
 
 def test_a_setting_that_is_not_a_scalar_is_refused_with_its_name(
     deploy_file: Path,
 ) -> None:
-    deploy_file.write_text("defaults: {settings: {RAG_LIST: [1, 2]}}\n")
+    deploy_file.write_text("defaults: {settings: {QP_LIST: [1, 2]}}\n")
     with pytest.raises(ValidationError) as caught:
         DeploySettings()
-    assert "RAG_LIST must be a string, a number or a boolean, not [1, 2]" in str(
+    assert "QP_LIST must be a string, a number or a boolean, not [1, 2]" in str(
         caught.value
     )
 
@@ -169,19 +169,21 @@ def test_an_unknown_key_is_refused_with_its_name(
     assert where in str(caught.value)
 
 
-def test_rag_deploy_variables_override_the_file(
+def test_qp_deploy_variables_override_the_file(
     deploy_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deploy_file.write_text("topology: split-all\nwait_timeout_s: 30\n")
-    monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", "monolith")
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "monolith")
     settings = DeploySettings()
     assert (settings.topology, settings.wait_timeout_s) == ("monolith", 30.0)
 
 
-def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
+def test_without_a_file_every_value_but_the_prefix_is_its_default(
+    deploy_file: Path,
+) -> None:
     settings = DeploySettings()
-    assert settings.model_dump(exclude={"defaults", "apps"}) == {
-        "app_name_prefix": "rag",
+    # The prefix has no default: deploy_file gives it.
+    assert settings.model_dump(exclude={"defaults", "apps", "app_name_prefix"}) == {
         "topology": "split-all",
         "topology_alias": {},  # no alias in code: deploy.yaml defines them
         "project_id": "",
@@ -202,17 +204,17 @@ def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
 def test_deploy_yaml_in_the_working_directory_is_read_by_default(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("RAG_DEPLOY_FILE", raising=False)
-    monkeypatch.delenv("RAG_DEPLOY_TOPOLOGY", raising=False)
+    monkeypatch.delenv("QP_DEPLOY_FILE", raising=False)
+    monkeypatch.delenv("QP_DEPLOY_TOPOLOGY", raising=False)
     monkeypatch.chdir(tmp_path)
-    Path("deploy.yaml").write_text("topology: monolith\n")
+    Path("deploy.yaml").write_text("app_name_prefix: rag\ntopology: monolith\n")
     assert DeploySettings().topology == "monolith"
 
 
 def test_app_settings_come_from_the_file_only(
     deploy_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_ES_URL", "https://from-the-shell.test")
+    monkeypatch.setenv("QP_ES_URL", "https://from-the-shell.test")
     assert DeploySettings().for_app("workflow").settings == {}
 
 
@@ -265,14 +267,14 @@ def placeholder_message(key: str, block: str, value: str, path: Path) -> str:
     ("text", "key", "block", "value"),
     [
         (
-            "defaults: {settings: {RAG_ES_URL: 'https://<es host>:9200'}}",
-            "RAG_ES_URL",
+            "defaults: {settings: {QP_ES_URL: 'https://<es host>:9200'}}",
+            "QP_ES_URL",
             "defaults.settings",
             "https://<es host>:9200",
         ),
         (
-            "apps: {embedder: {settings: {RAG_COMPONENTS__EMBEDDER__SOURCE_ID: /d/<dataset>/m}}}",
-            "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
+            "apps: {embedder: {settings: {QP_COMPONENTS__EMBEDDER__SOURCE_ID: /d/<dataset>/m}}}",
+            "QP_COMPONENTS__EMBEDDER__SOURCE_ID",
             "apps.embedder.settings",
             "/d/<dataset>/m",
         ),
@@ -324,7 +326,7 @@ def test_a_placeholder_left_in_a_value_is_refused(
 
 
 def test_placeholders_of_apps_not_deployed_are_left_alone(deploy_file: Path) -> None:
-    deploy_file.write_text("apps: {embedder: {settings: {RAG_X: /d/<dataset>}}}\n")
+    deploy_file.write_text("apps: {embedder: {settings: {QP_X: /d/<dataset>}}}\n")
     refuse_placeholders(DeploySettings(), ["reranker", "workflow"])
 
 
@@ -341,7 +343,7 @@ def test_a_placeholder_in_the_overrides_is_refused_whichever_apps_deploy(
 
 
 def test_a_comparison_is_not_mistaken_for_a_placeholder(deploy_file: Path) -> None:
-    deploy_file.write_text("defaults: {settings: {RAG_RULE: 'a < b > c'}}\n")
+    deploy_file.write_text("defaults: {settings: {QP_RULE: 'a < b > c'}}\n")
     refuse_placeholders(DeploySettings(), ["workflow"])
 
 
@@ -359,20 +361,20 @@ def secret_message(name: str, path: Path, block: str) -> str:
 @pytest.mark.parametrize(
     ("text", "name", "block"),
     [
-        ("defaults: {settings: {RAG_ES_API_KEY: s}}", "RAG_ES_API_KEY", "defaults"),
+        ("defaults: {settings: {QP_ES_API_KEY: s}}", "QP_ES_API_KEY", "defaults"),
         (
-            "apps: {workflow: {settings: {RAG_COMPONENTS__LLM__API__API_KEY: sk-1}}}",
-            "RAG_COMPONENTS__LLM__API__API_KEY",
+            "apps: {workflow: {settings: {QP_COMPONENTS__LLM__API__API_KEY: sk-1}}}",
+            "QP_COMPONENTS__LLM__API__API_KEY",
             "apps.workflow",
         ),
         (
-            "apps: {workflow: {settings: {RAG_COMPONENTS__RERANKER__API__API_KEY: co-1}}}",
-            "RAG_COMPONENTS__RERANKER__API__API_KEY",
+            "apps: {workflow: {settings: {QP_COMPONENTS__RERANKER__API__API_KEY: co-1}}}",
+            "QP_COMPONENTS__RERANKER__API__API_KEY",
             "apps.workflow",
         ),
         (
-            "apps: {embedder: {settings: {RAG_COMPONENTS__EMBEDDER__API__API_KEY: dom_pat_abc123}}}",
-            "RAG_COMPONENTS__EMBEDDER__API__API_KEY",
+            "apps: {embedder: {settings: {QP_COMPONENTS__EMBEDDER__API__API_KEY: dom_pat_abc123}}}",
+            "QP_COMPONENTS__EMBEDDER__API__API_KEY",
             "apps.embedder",
         ),
         (
@@ -399,10 +401,10 @@ def test_a_secret_in_any_settings_block_is_refused(
 @pytest.mark.parametrize(
     "name",
     [
-        "RAG_COMPONENTS__EMBEDDER__API__API_KEY",
-        "RAG_COMPONENTS__RERANKER__API__API_KEY",
-        "RAG_COMPONENTS__LLM__API__API_KEY",
-        "RAG_ES_API_KEY",
+        "QP_COMPONENTS__EMBEDDER__API__API_KEY",
+        "QP_COMPONENTS__RERANKER__API__API_KEY",
+        "QP_COMPONENTS__LLM__API__API_KEY",
+        "QP_ES_API_KEY",
     ],
 )
 @pytest.mark.parametrize("value", ["domino", ""])
@@ -416,7 +418,9 @@ def test_an_empty_or_domino_api_key_passes_through(
 
 
 def test_only_a_name_ending_with_api_key_is_a_secret(deploy_file: Path) -> None:
-    values = "{RAG_API_KEY_FILE: /run/key, RAG_COMPONENTS__EMBEDDER__API__URL: 'http://e/v3'}"
+    values = (
+        "{QP_API_KEY_FILE: /run/key, QP_COMPONENTS__EMBEDDER__API__URL: 'http://e/v3'}"
+    )
     deploy_file.write_text(f"defaults: {{settings: {values}}}\n")
     refuse_secrets(DeploySettings())  # neither name ends with _API_KEY
 
@@ -440,7 +444,7 @@ def test_the_deploy_file_a_variable_names_must_exist(deploy_file: Path) -> None:
     with pytest.raises(DominoDeployError) as caught:
         require_deploy_file()
     assert str(caught.value) == (
-        f"RAG_DEPLOY_FILE names {str(deploy_file)!r}, which is no file: point it "
+        f"QP_DEPLOY_FILE names {str(deploy_file)!r}, which is no file: point it "
         "at the deploy settings, or unset it to read deploy.yaml here"
     )
     deploy_file.write_text("topology: monolith\n")
@@ -450,7 +454,7 @@ def test_the_deploy_file_a_variable_names_must_exist(deploy_file: Path) -> None:
 def test_without_a_variable_the_deploy_file_is_the_working_directorys(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("RAG_DEPLOY_FILE", raising=False)
+    monkeypatch.delenv("QP_DEPLOY_FILE", raising=False)
     monkeypatch.chdir(tmp_path)
     with pytest.raises(DominoDeployError, match="no deploy settings: ") as caught:
         require_deploy_file()
@@ -463,5 +467,5 @@ def test_an_explicit_project_id_wins_over_the_workspace(
     deploy_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DOMINO_PROJECT_ID", "proj-of-the-workspace")
-    monkeypatch.setenv("RAG_DEPLOY_PROJECT_ID", "proj-named-here")
+    monkeypatch.setenv("QP_DEPLOY_PROJECT_ID", "proj-named-here")
     assert DeploySettings().project_id == "proj-named-here"

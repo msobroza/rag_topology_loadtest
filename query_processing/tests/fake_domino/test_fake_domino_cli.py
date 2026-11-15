@@ -1,4 +1,4 @@
-"""``rag-fake-domino``: the behaviour it serves, on the run token's port."""
+"""``qp-fake-domino``: the behaviour it serves, on the run token's port."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def served_by(argv: list[str]) -> tuple[FastAPI, str, int]:
 
 def test_the_command_serves_the_named_behaviour_on_the_run_token_port() -> None:
     app, host, port = served_by(["--behaviour", "fails"])
-    # 8899 is where `rag-deploy status` asks for the run token (run_token_url)
+    # 8899 is where `qp-deploy status` asks for the run token (run_token_url)
     assert (host, port) == ("127.0.0.1", 8899)
     assert app.state.fake_domino_apps.statuses == ["Pending", "Failed"]
 

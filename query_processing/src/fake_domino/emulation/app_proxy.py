@@ -151,7 +151,7 @@ class FakeAppProxy:
         if upstream is None:
             return PlainTextResponse(
                 f"no upstream configured for App {name!r} "
-                f"(rag-fake-domino --upstream {name}=URL)",
+                f"(qp-fake-domino --upstream {name}=URL)",
                 status_code=HTTPStatus.BAD_GATEWAY,
             )
         issuer = f"{str(request.base_url).rstrip('/')}{KEYCLOAK_REALM_PATH}"

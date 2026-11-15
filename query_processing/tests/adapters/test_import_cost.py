@@ -16,21 +16,21 @@ HEAVY_MODULES = (
     "optimum",
 )
 ADAPTER_MODULES = (
-    "rag_load_test.adapters.embedder.local.sentence_transformer_embedder",
-    "rag_load_test.adapters.reranker.local.cross_encoder_reranker",
-    "rag_load_test.infrastructure.local_models.model_pool",
-    "rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store",
-    "rag_load_test.adapters.vector_store.chroma.chroma_store",
-    "rag_load_test.adapters.embedder.api.api_embedder",
-    "rag_load_test.adapters.reranker.api.api_reranker",
-    "rag_load_test.adapters.llm.api.api_llm",
-    "rag_load_test.adapters.reranker.none.no_reranker",
-    "rag_load_test.infrastructure.local_models.local_model",
-    "rag_load_test.infrastructure.local_models.openvino_export",
-    "rag_load_test.infrastructure.local_models.native_threads",
-    "rag_load_test.infrastructure.local_models.cpu_count",
+    "query_processing.adapters.embedder.local.sentence_transformer_embedder",
+    "query_processing.adapters.reranker.local.cross_encoder_reranker",
+    "query_processing.infrastructure.local_models.model_pool",
+    "query_processing.adapters.vector_store.elasticsearch.elasticsearch_store",
+    "query_processing.adapters.vector_store.chroma.chroma_store",
+    "query_processing.adapters.embedder.api.api_embedder",
+    "query_processing.adapters.reranker.api.api_reranker",
+    "query_processing.adapters.llm.api.api_llm",
+    "query_processing.adapters.reranker.none.no_reranker",
+    "query_processing.infrastructure.local_models.local_model",
+    "query_processing.infrastructure.local_models.openvino_export",
+    "query_processing.infrastructure.local_models.native_threads",
+    "query_processing.infrastructure.local_models.cpu_count",
     # Imports every opener, and so every adapter, whenever composition loads.
-    "rag_load_test.composition.openers",
+    "query_processing.composition.openers",
 )
 
 

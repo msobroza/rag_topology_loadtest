@@ -8,29 +8,29 @@ from typing import Any, get_type_hints
 import pytest
 from pydantic import ValidationError
 
-from rag_graphs import rag_graph
-from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
-from rag_load_test.adapters.llm.base_llm import BaseLLM
-from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.reranker.base_reranker import BaseReranker
-from rag_load_test.adapters.vector_store.base_vector_store import BaseVectorStore
-from rag_load_test.application.edge_conditions.edge_condition import EDGE_CONDITIONS
-from rag_load_test.application.edge_conditions.is_query_mode import is_query_mode
-from rag_load_test.application.rag_dependencies import RagDependencies
-from rag_load_test.application.stages.base_stage import STAGE_TYPES, StageSettings
-from rag_load_test.application.stages.embed_stage import EmbedSettings, EmbedStage
-from rag_load_test.application.stages.generate_stage import (
+from query_processing.adapters.embedder.base_embedder import BaseEmbedder
+from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.reranker.base_reranker import BaseReranker
+from query_processing.adapters.vector_store.base_vector_store import BaseVectorStore
+from query_processing.application.edge_conditions.edge_condition import EDGE_CONDITIONS
+from query_processing.application.edge_conditions.is_query_mode import is_query_mode
+from query_processing.application.rag_dependencies import RagDependencies
+from query_processing.application.stages.base_stage import STAGE_TYPES, StageSettings
+from query_processing.application.stages.embed_stage import EmbedSettings, EmbedStage
+from query_processing.application.stages.generate_stage import (
     GenerateSettings,
     GenerateStage,
 )
-from rag_load_test.application.stages.rerank_stage import RerankSettings, RerankStage
-from rag_load_test.application.stages.retrieve_stage import (
+from query_processing.application.stages.rerank_stage import RerankSettings, RerankStage
+from query_processing.application.stages.retrieve_stage import (
     RetrieveSettings,
     RetrieveStage,
     required_lexical_search,
 )
-from rag_load_test.application.workflow_builder import open_stage
-from rag_load_test.application.workflow_state import WorkflowState
+from query_processing.application.workflow_builder import open_stage
+from query_processing.application.workflow_state import WorkflowState
+from rag_graphs import rag_graph
 from workflow_fakes import (
     DenseOnlyStore,
     RecordingEmbedder,
@@ -171,7 +171,7 @@ def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:
     store = ScriptedStore([], [])
 
     assert required_lexical_search(store, "hybrid") is store
-    backend = "RAG_COMPONENTS__VECTOR_STORE__BACKEND"
+    backend = "QP_COMPONENTS__VECTOR_STORE__BACKEND"
     with pytest.raises(ValueError, match=rf"to elasticsearch \({backend} for the one"):
         required_lexical_search(DenseOnlyStore(), "lexical")
 

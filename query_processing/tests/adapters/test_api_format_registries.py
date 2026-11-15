@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.adapters.embedder.api.base_embedding_api_format import (
+from query_processing.adapters.embedder.api.base_embedding_api_format import (
     EMBEDDING_API_FORMATS,
 )
-from rag_load_test.adapters.embedder.api.openai_embeddings_format import (
+from query_processing.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
-from rag_load_test.adapters.llm.api.base_generation_api_format import (
+from query_processing.adapters.llm.api.base_generation_api_format import (
     GENERATION_API_FORMATS,
 )
-from rag_load_test.adapters.llm.api.openai_chat_format import OpenAIChatFormat
-from rag_load_test.adapters.reranker.api.base_rerank_api_format import (
+from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
+from query_processing.adapters.reranker.api.base_rerank_api_format import (
     RERANK_API_FORMATS,
 )
-from rag_load_test.adapters.reranker.api.cohere_rerank_format import CohereRerankFormat
-from rag_load_test.domain.registry import Registry
-from rag_load_test.domain.standard_formats import STANDARD_API_FORMATS
+from query_processing.adapters.reranker.api.cohere_rerank_format import (
+    CohereRerankFormat,
+)
+from query_processing.domain.registry import Registry
+from query_processing.domain.standard_formats import STANDARD_API_FORMATS
 
 REGISTRIES: dict[str, Registry[type]] = {
     "embedding": EMBEDDING_API_FORMATS,

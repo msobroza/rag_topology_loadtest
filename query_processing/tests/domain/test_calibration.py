@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.domain.calibration import (
+from query_processing.domain.calibration import (
     StageTuning,
     TimedTrial,
     calibration_sample,

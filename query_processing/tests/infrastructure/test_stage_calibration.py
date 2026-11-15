@@ -8,12 +8,12 @@ from collections.abc import Sequence
 import pytest
 
 from calibration_fakes import FakeCalibratedStage, FakeClock, FakeStageAdapter
-from rag_load_test.domain.calibration import (
+from query_processing.domain.calibration import (
     CalibrationReport,
     StageTuning,
     TimedTrial,
 )
-from rag_load_test.infrastructure.local_models.stage_calibration import (
+from query_processing.infrastructure.local_models.stage_calibration import (
     Calibrated,
     CalibrationLimits,
     calibrate,
@@ -62,7 +62,7 @@ async def test_fixed_parameters_load_once_and_time_nothing(
 ) -> None:
     clock = FakeClock()
     stage = FakeCalibratedStage(clock)
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         adapter = await run(stage, clock, threads=(2,), batch_sizes=(32,))
 
     assert adapter.tuning == tuning(2, 32)
@@ -105,7 +105,7 @@ async def test_the_warm_up_is_not_counted_and_a_trial_is_its_fewest_round(
     seconds = {tuning(2, 20): [100.0, 3.0, 2.0], tuning(2, 10): [0.5, 2.5, 2.5]}
     stage = FakeCalibratedStage(clock, seconds)
     limits = CalibrationLimits(budget_s=1000.0, rounds=2)
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         adapter = await run(stage, clock, (2,), (20, 10), limits)
 
     [line] = calibrated_lines(caplog)
@@ -123,7 +123,7 @@ async def test_the_budget_stops_new_trials_but_the_first_always_runs(
     clock = FakeClock()
     stage = FakeCalibratedStage(clock, default_s=10.0)
     limits = CalibrationLimits(budget_s=0.001, rounds=1)
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         adapter = await run(stage, clock, (2, 1), (20, 10, 5), limits)
 
     assert adapter.tuning == tuning(2, 20)  # today's: the share, the whole request
@@ -177,7 +177,7 @@ async def test_one_log_line_names_the_stage_the_choice_and_every_trial(
     clock = FakeClock()
     seconds = {tuning(2, 20): [5.4912], tuning(2, 10): [3.3801], tuning(1, 10): [4.0]}
     stage = FakeCalibratedStage(clock, seconds, load_s=1.0)
-    with caplog.at_level("INFO", logger="rag_load_test"):
+    with caplog.at_level("INFO", logger="query_processing"):
         await run(stage, clock, threads=(2, 1), batch_sizes=(20, 10))
 
     assert calibrated_lines(caplog) == [

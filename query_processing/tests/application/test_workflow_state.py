@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rag_load_test.application.workflow_state import initial_state, merge_timings
+from query_processing.application.workflow_state import initial_state, merge_timings
 
 
 def test_the_question_is_both_queries_and_the_history_is_empty() -> None:

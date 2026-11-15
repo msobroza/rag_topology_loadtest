@@ -11,15 +11,15 @@ from collections.abc import Callable
 
 import pytest
 
+from query_processing.composition.registered_names import check_registered_names
+from query_processing.config.workflow_settings import WorkflowSettings
 from rag_components import FAKE_BACKENDS
-from rag_load_test.composition.registered_names import check_registered_names
-from rag_load_test.config.rag_settings import RagSettings
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 
 
 def test_the_default_names_are_all_registered(
-    settings_factory: SettingsFactory, fake_settings: RagSettings
+    settings_factory: SettingsFactory, fake_settings: WorkflowSettings
 ) -> None:
     check_registered_names(settings_factory())
     check_registered_names(fake_settings)
@@ -41,7 +41,7 @@ def test_an_unknown_api_format_is_refused_whatever_the_backend(
     path = f"components__{component}__api__api_format"
     settings = settings_factory(**FAKE_BACKENDS | {path: "jina"})
     message = (
-        f"RAG_COMPONENTS__{component.upper()}__API__API_FORMAT: "
+        f"QP_COMPONENTS__{component.upper()}__API__API_FORMAT: "
         f"unknown {sort} API format 'jina' (expected one of: {known})"
     )
 
@@ -64,7 +64,7 @@ def test_a_backend_without_an_opener_is_refused_naming_its_path(
     path = f"components__{component}__backend"
     settings = settings_factory(**FAKE_BACKENDS | {path: "gpu"})
     message = (
-        f"RAG_COMPONENTS__{component.upper()}__BACKEND: "
+        f"QP_COMPONENTS__{component.upper()}__BACKEND: "
         f"unknown {component} backend 'gpu' (expected one of: {known})"
     )
 
@@ -78,18 +78,18 @@ def test_a_component_of_any_name_is_checked_by_its_type(
     coarse = {"type": "reranker", "backend": "gpu", "source_id": "org/coarse"}
     settings = settings_factory(**FAKE_BACKENDS, components={"coarse": coarse})
 
-    with pytest.raises(ValueError, match="RAG_COMPONENTS__COARSE__BACKEND: unknown"):
+    with pytest.raises(ValueError, match="QP_COMPONENTS__COARSE__BACKEND: unknown"):
         check_registered_names(settings)
 
 
 def test_a_store_backend_without_an_opener_is_refused(
-    settings_factory: Callable[..., RagSettings],
+    settings_factory: Callable[..., WorkflowSettings],
 ) -> None:
     # The settings keep any name: the registry of openers is what refuses it.
     settings = settings_factory(components__vector_store__backend="gpu")
     known = "'chroma', 'elasticsearch', 'fake'"
     message = (
-        "RAG_COMPONENTS__VECTOR_STORE__BACKEND: unknown vector_store backend 'gpu' "
+        "QP_COMPONENTS__VECTOR_STORE__BACKEND: unknown vector_store backend 'gpu' "
         f"(expected one of: {known})"
     )
 

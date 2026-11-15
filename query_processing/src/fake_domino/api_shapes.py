@@ -1,9 +1,9 @@
 """The Domino 6.2 beta Apps API shapes, transcribed from its Platform API reference.
 
 Names, fields and required flags are as documented there. The fake Domino serves
-them, so its Swagger page shows the contract ``rag-deploy`` is written against.
+them, so its Swagger page shows the contract ``qp-deploy`` is written against.
 They are a transcription, not a recording of a live Domino: the client in
-``rag_load_test/deploy/apps_client.py`` reads responses leniently and does not
+``query_processing/deploy/apps_client.py`` reads responses leniently and does not
 validate against them.
 
 Example:
@@ -26,7 +26,7 @@ ConfigurationType = Literal["STANDARD", "AISYSTEM"]
 
 
 class _Request(BaseModel):
-    # Unknown fields are refused so a misspelt field in rag-deploy shows up here.
+    # Unknown fields are refused so a misspelt field in qp-deploy shows up here.
     model_config = ConfigDict(extra="forbid")
 
 

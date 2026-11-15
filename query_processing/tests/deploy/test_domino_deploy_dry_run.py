@@ -1,4 +1,4 @@
-"""``rag-deploy --dry-run``: the same code against an in-process fake Domino.
+"""``qp-deploy --dry-run``: the same code against an in-process fake Domino.
 
 The fixtures (domino_env, no_real_http, run_main) are in domino_deploy_fixtures.
 """
@@ -16,6 +16,7 @@ from domino_deploy_helpers import (
     ENV_1,
     INSTANCES_URL,
     NO_ENVIRONMENT,
+    PREFIX_YAML,
     TOPOLOGY_ALIAS_YAML,
     RunMain,
     deployed_lines,
@@ -42,18 +43,18 @@ def dry_run_report(
     )
     agent_exports = "".join(f"    {line}\n" for line in AGENT_EXPORTS.splitlines())
     return (
-        "\nDry run: nothing was sent to Domino. rag-deploy would publish:\n"
+        "\nDry run: nothing was sent to Domino. qp-deploy would publish:\n"
         f"{model_servers}"
         "\nrag-workflow\n  kind: agent (configurationType AISYSTEM)\n"
         f"{environment}  hardwareTierId: {tier}\n"
         "  autoscaling: minReplicas 1, maxReplicas 4, targetCpuAvgUtilizationPct 70\n"
         "  entryScript:\n"
-        "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY_ALIAS=split-all\n"
-        "    export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
-        f"    export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
-        "    export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        f"    export RAG_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
-        "    export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
+        "    export QP_ROLE=workflow\n    export QP_TOPOLOGY_ALIAS=split-all\n"
+        "    export QP_COMPONENTS__EMBEDDER__BACKEND=served\n"
+        f"    export QP_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
+        "    export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"    export QP_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
+        "    export QP_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi\n"
         f"{agent_exports}{tail}"
     )
 
@@ -95,24 +96,24 @@ def test_dry_run_refuses_a_default_revision_without_the_default_environment(
     run_main: RunMain,
 ) -> None:
     no_environment = "defaults: {environment_revision_id: rev-7}\n"
-    Path("deploy.yaml").write_text(TOPOLOGY_ALIAS_YAML + no_environment)
+    Path("deploy.yaml").write_text(PREFIX_YAML + TOPOLOGY_ALIAS_YAML + no_environment)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
     assert "defaults.environment_revision_id 'rev-7' in deploy.yaml has no " in err
 
 
 def test_dry_run_still_requires_the_environment_id(run_main: RunMain) -> None:
-    Path("deploy.yaml").write_text(TOPOLOGY_ALIAS_YAML)
+    Path("deploy.yaml").write_text(PREFIX_YAML + TOPOLOGY_ALIAS_YAML)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
     assert err.endswith(NO_ENVIRONMENT)
 
 
 def test_dry_run_still_refuses_secrets_in_deploy_yaml(run_main: RunMain) -> None:
-    Path("deploy.yaml").write_text(ENV_1 + "  settings: {RAG_ES_API_KEY: secret}\n")
+    Path("deploy.yaml").write_text(ENV_1 + "  settings: {QP_ES_API_KEY: secret}\n")
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
-    assert "RAG_ES_API_KEY is set in deploy.yaml under defaults.settings" in err
+    assert "QP_ES_API_KEY is set in deploy.yaml under defaults.settings" in err
 
 
 def test_dry_run_still_requires_the_toolkits_launch_script_above(
@@ -134,26 +135,26 @@ def test_dry_run_without_deploy_settings_says_where_it_looked(
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
     assert err.endswith(
-        "rag-deploy: error: no deploy settings: RAG_DEPLOY_FILE is not set, and "
-        f"the working directory {Path.cwd()} has no deploy.yaml; run rag-deploy "
+        "qp-deploy: error: no deploy settings: QP_DEPLOY_FILE is not set, and "
+        f"the working directory {Path.cwd()} has no deploy.yaml; run qp-deploy "
         "from a use case's directory (cp deploy.example.yaml deploy.yaml there), "
-        "or set RAG_DEPLOY_FILE to the file\n"
+        "or set QP_DEPLOY_FILE to the file\n"
     )
-    monkeypatch.setenv("RAG_DEPLOY_FILE", "nowhere.yaml")
+    monkeypatch.setenv("QP_DEPLOY_FILE", "nowhere.yaml")
     code, _, err = run_main(["--dry-run", "deploy", "all"], None)
     assert code == 2
-    assert "RAG_DEPLOY_FILE names 'nowhere.yaml', which is no file" in err
+    assert "QP_DEPLOY_FILE names 'nowhere.yaml', which is no file" in err
 
 
 def test_dry_run_without_a_workflow_file_says_where_it_looked(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("RAG_WORKFLOW_FILE")
+    monkeypatch.delenv("QP_WORKFLOW_FILE")
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, out) == (2, "")
     assert (
-        "rag-deploy reads the workflow file the workflow App reads: no workflow "
-        f"file: RAG_WORKFLOW_FILE is not set, and the working directory {Path.cwd()} "
+        "qp-deploy reads the workflow file the workflow App reads: no workflow "
+        f"file: QP_WORKFLOW_FILE is not set, and the working directory {Path.cwd()} "
         "has no workflow.yaml"
     ) in err
 
@@ -162,7 +163,7 @@ def test_dry_run_still_checks_the_ovms_bundle(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     Path("deploy.yaml").write_text(ENV_1 + "  server: ovms\n")
-    monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", "/no/such/bundle")
+    monkeypatch.setenv("QP_DEPLOY_OVMS_BUNDLE", "/no/such/bundle")
     code, _, err = run_main(["--dry-run", "deploy", "all"], None)
     assert code == 2
     assert "ovms_bundle=/no/such/bundle does not exist" in err
@@ -186,14 +187,14 @@ def test_a_dry_run_deploys_one_component_served_by_fastapi_and_one_by_ovms(
         f"{launched()}\n"
     )
     assert reranker == f"{model_server_exports('reranker', 'ovms')}" + (
-        f"export RAG_OVMS_BUNDLE={bundle}\n{launched()}\n"
+        f"export QP_OVMS_BUNDLE={bundle}\n{launched()}\n"
     )
     served = f"{INSTANCES_URL}/app-{{}}-v1-i/v3/{{}}"
     assert (
-        f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
-        f"export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
-        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
-        "export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=ovms\n"
+        f"export QP_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
+        f"export QP_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"export QP_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
+        "export QP_RUN_LABEL=split-all+embedder=fastapi+reranker=ovms\n"
     ) in workflow
 
 

@@ -14,13 +14,13 @@ from model_api_fakes import (
     endpoint_client,
     token_text,
 )
-from rag_load_test.adapters.embedder.api.api_embedder import ApiEmbedder
-from rag_load_test.adapters.embedder.api.openai_embeddings_format import (
+from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
+from query_processing.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
-from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
-from rag_load_test.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
-from rag_load_test.domain.errors import RagDependencyError
+from query_processing.adapters.embedder.base_embedder import BaseEmbedder
+from query_processing.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from query_processing.domain.errors import RagDependencyError
 
 URL = "http://models.test:8002/v3/embeddings"
 MODEL = "bge-small-en-v1.5"

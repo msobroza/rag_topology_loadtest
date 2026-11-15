@@ -4,7 +4,7 @@ types and fixture edge conditions, in registries of the test's own.
 A draft stage writes a draft from the message, a polish stage turns the draft
 into the answer, and a judge stage, which calls a component of another type,
 gives a verdict on the draft. The RAG's own graphs are checked through
-``rag-serve`` in ``tests/entrypoints/test_wrong_graph_at_start_up.py``.
+``qp-serve`` in ``tests/entrypoints/test_wrong_graph_at_start_up.py``.
 """
 
 from __future__ import annotations
@@ -13,23 +13,23 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.application.component_types import COMPONENT_TYPES
-from rag_load_test.application.edge_conditions.edge_condition import EdgeCondition
-from rag_load_test.application.graph_check import (
+from query_processing.application.component_types import COMPONENT_TYPES
+from query_processing.application.edge_conditions.edge_condition import EdgeCondition
+from query_processing.application.graph_check import (
     WorkflowGraphError,
     check_graph,
     fields_set_before,
 )
-from rag_load_test.application.rag_dependencies import RagDependencies
-from rag_load_test.application.stages.base_stage import (
+from query_processing.application.rag_dependencies import RagDependencies
+from query_processing.application.stages.base_stage import (
     BaseStage,
     StageSettings,
     StageTypes,
 )
-from rag_load_test.application.workflow_state import REQUEST_FIELDS, WorkflowState
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.graph_description import GraphDescription
-from rag_load_test.domain.registry import Registry
+from query_processing.application.workflow_state import REQUEST_FIELDS, WorkflowState
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.graph_description import GraphDescription
+from query_processing.domain.registry import Registry
 
 
 class FakeScribe:
@@ -303,7 +303,7 @@ def test_the_ends_of_the_graph_are_used_only_as_ends(
 
 
 async def test_the_declared_components_are_the_ones_a_stage_is_given_once_open(
-    fake_settings: RagSettings, fake_deps: RagDependencies
+    fake_settings: WorkflowSettings, fake_deps: RagDependencies
 ) -> None:
     declared = fake_settings.component_types()
     opened = fake_deps.components()

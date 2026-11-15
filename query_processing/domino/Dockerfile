@@ -1,20 +1,20 @@
-# Domino 6.2 compute environments for rag_load_test: two build targets, one file.
+# Domino 6.2 compute environments for query_processing: two build targets, one file.
 #
 # Build from the repository's root, the context: it holds .python-version, the
 # toolkit's directory query_processing/ (pyproject.toml, src/, ovms/) and the use
 # case's (USE_CASE, the RAG's by default: its pyproject.toml and workflow.yaml):
-#   docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/rag-load-test-rag  .
-#   docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/rag-load-test-ovms .
+#   docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/query-processing-rag  .
+#   docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/query-processing-ovms .
 #
-#   rag   for the workflow apps (RAG_ROLE=workflow), the model servers of kind
-#         fastapi (RAG_ROLE=model-server, RAG_MODEL_SERVER_KIND=fastapi) and the
+#   rag   for the workflow apps (QP_ROLE=workflow), the model servers of kind
+#         fastapi (QP_ROLE=model-server, QP_MODEL_SERVER_KIND=fastapi) and the
 #         Workspaces that run Locust: the toolkit with the [loadtest,domino]
 #         extras and the use case, the use case's two HF models pre-downloaded,
 #         HF_HUB_OFFLINE=1.
-#   ovms  for the model servers of kind ovms (RAG_ROLE=model-server,
-#         RAG_MODEL_SERVER_KIND=ovms): the ovms binary tarball pinned in
+#   ovms  for the model servers of kind ovms (QP_ROLE=model-server,
+#         QP_MODEL_SERVER_KIND=ovms): the ovms binary tarball pinned in
 #         ovms/versions.env, unpacked under /opt/ovms, plus nginx for the
-#         optional prefix proxy (RAG_OVMS_PREFIX_PROXY=1).
+#         optional prefix proxy (QP_OVMS_PREFIX_PROXY=1).
 #
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's
@@ -37,33 +37,33 @@ USER root
 # toolkit beside it): the entry point (domino/app.sh), locustfile.py and the use
 # case's other files come from the project files Domino mounts into the run, and
 # .env never enters the image.
-COPY .python-version /opt/rag_load_test/
-COPY query_processing/pyproject.toml /opt/rag_load_test/query_processing/
-COPY query_processing/src /opt/rag_load_test/query_processing/src
-COPY ${USE_CASE}/pyproject.toml ${USE_CASE}/workflow.yaml /opt/rag_load_test/${USE_CASE}/
+COPY .python-version /opt/qp/
+COPY query_processing/pyproject.toml /opt/qp/query_processing/
+COPY query_processing/src /opt/qp/query_processing/src
+COPY ${USE_CASE}/pyproject.toml ${USE_CASE}/workflow.yaml /opt/qp/${USE_CASE}/
 # The toolkit and the use case in one command, the toolkit first: no package index
 # has the toolkit. [loadtest] adds locust; [domino] adds dominodatalab[agents] for
-# RAG_DOMINO__TRACING=true.
+# QP_DOMINO__TRACING=true.
 RUN pip install --no-cache-dir uv \
-    && UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv /opt/rag-venv \
-        --python "$(cat /opt/rag_load_test/.python-version)" \
-    && uv pip install --no-cache --python /opt/rag-venv/bin/python \
-        "/opt/rag_load_test/query_processing[loadtest,domino]" \
-        "/opt/rag_load_test/${USE_CASE}"
-ENV PATH=/opt/rag-venv/bin:$PATH
+    && UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv /opt/qp-venv \
+        --python "$(cat /opt/qp/.python-version)" \
+    && uv pip install --no-cache --python /opt/qp-venv/bin/python \
+        "/opt/qp/query_processing[loadtest,domino]" \
+        "/opt/qp/${USE_CASE}"
+ENV PATH=/opt/qp-venv/bin:$PATH
 
 # Download the use case's two HF models and convert them to OpenVINO, so app
-# start-up needs no network and no conversion. rag-export-openvino takes the
+# start-up needs no network and no conversion. qp-export-openvino takes the
 # source ids from the use case's workflow file (the one served-model pin), read
 # in its directory as every command reads it, so this step cannot drift from what
-# the apps load. The download stays in HF_HOME, so RAG_LOCAL_MODELS__RUNTIME=torch
+# the apps load. The download stays in HF_HOME, so QP_LOCAL_MODELS__RUNTIME=torch
 # also starts offline. Both folders are world-readable because the build runs as
 # root but Domino runs apps as ubuntu.
 ENV HF_HOME=/opt/hf-cache
-ENV RAG_LOCAL_MODELS__OPENVINO_DIR=/opt/rag-models/openvino
-RUN cd "/opt/rag_load_test/${USE_CASE}" \
-    && rag-export-openvino \
-    && chmod -R a+rX /opt/hf-cache /opt/rag-models
+ENV QP_LOCAL_MODELS__OPENVINO_DIR=/opt/qp-models/openvino
+RUN cd "/opt/qp/${USE_CASE}" \
+    && qp-export-openvino \
+    && chmod -R a+rX /opt/hf-cache /opt/qp-models
 ENV HF_HUB_OFFLINE=1
 
 USER ubuntu
@@ -73,7 +73,7 @@ FROM ${BASE_IMAGE} AS ovms
 USER root
 
 # curl + libxml2 are the documented runtime prerequisites of the OVMS bare-metal
-# tarball; nginx is the optional prefix-stripping proxy (RAG_OVMS_PREFIX_PROXY=1),
+# tarball; nginx is the optional prefix-stripping proxy (QP_OVMS_PREFIX_PROXY=1),
 # run as the ubuntu user with every path under /tmp, hence the chown.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl libxml2 nginx \

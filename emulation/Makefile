@@ -23,7 +23,7 @@ USE_CASE = ../query_processing_rag_usecase
 CORPUS_DIR = $(abspath $(USE_CASE)/data/$(CORPUS))
 # Once `make corpus` has run, Locust asks that corpus's questions, not the
 # synthetic English ones.
-QUESTIONS = $(if $(wildcard $(CORPUS_DIR)/questions.jsonl),RAG_LOADTEST_QUESTIONS_FILE=$(CORPUS_DIR)/questions.jsonl)
+QUESTIONS = $(if $(wildcard $(CORPUS_DIR)/questions.jsonl),QP_LOADTEST_QUESTIONS_FILE=$(CORPUS_DIR)/questions.jsonl)
 # An index snapshot is named after its corpus and analyzer (index_snapshot.sh adds the embedder).
 SNAPSHOT_PREFIX = $(CORPUS)-$(CORPUS_ANALYZER)
 # FORCE=1: models-save replaces the models the cache bucket already has.
@@ -68,10 +68,10 @@ ingest: ## Workspace: index the synthetic English corpus into the emulation's El
 	$(MAKE) -C $(USE_CASE) ingest
 
 corpus-files: ## Workspace: fetch a corpus's files (its questions.jsonl included) without indexing it: make corpus-files CORPUS=quebec-insurance
-	cd $(USE_CASE) && rag-fetch-corpus $(CORPUS) --out $(CORPUS_DIR)
+	cd $(USE_CASE) && qp-fetch-corpus $(CORPUS) --out $(CORPUS_DIR)
 
 corpus: corpus-files ## Workspace: fetch a French corpus and index it instead (one corpus per index: this or ingest): make corpus CORPUS=quebec-insurance
-	cd $(USE_CASE) && RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER=$(CORPUS_ANALYZER) rag-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
+	cd $(USE_CASE) && QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER=$(CORPUS_ANALYZER) qp-ingest --corpus $(CORPUS_DIR)/corpus.jsonl
 
 corpus-save: ## Workspace: snapshot the index into the cache bucket, named after corpus, analyzer and embedder
 	cd $(USE_CASE) && $(CURDIR)/machine/index_snapshot.sh save "$(SNAPSHOT_PREFIX)"

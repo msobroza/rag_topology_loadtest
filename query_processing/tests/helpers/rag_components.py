@@ -1,9 +1,9 @@
 """Settings named by their environment path, for the tests.
 
 A test changes a value of the workflow file by the keyword its variable
-spells, lower-cased and without ``RAG_``: ``components__reranker__backend``
-for ``RAG_COMPONENTS__RERANKER__BACKEND``, ``local_models__runtime`` for
-``RAG_LOCAL_MODELS__RUNTIME``. ``settings_at_paths`` nests such keywords into
+spells, lower-cased and without ``QP_``: ``components__reranker__backend``
+for ``QP_COMPONENTS__RERANKER__BACKEND``, ``local_models__runtime`` for
+``QP_LOCAL_MODELS__RUNTIME``. ``settings_at_paths`` nests such keywords into
 the shape the settings take; ``settings_factory`` (conftest) calls it, refuses
 a top-level key that is no setting, and the settings merge what it gives into
 the workflow file, key by key, so a test names only what it changes.
@@ -19,7 +19,7 @@ import copy
 from collections.abc import Mapping
 from typing import Any
 
-from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 
 # Every model component and the vector store on its fake backend: no weights,
 # no network, no Elasticsearch.
@@ -31,12 +31,12 @@ FAKE_BACKENDS: dict[str, str] = {
 }
 # The same, as the variables a process started by a test reads.
 FAKE_BACKEND_VARIABLES: dict[str, str] = {
-    f"RAG_{path.upper()}": value for path, value in FAKE_BACKENDS.items()
+    f"QP_{path.upper()}": value for path, value in FAKE_BACKENDS.items()
 }
 
 
 def shell_settings(
-    environ: Mapping[str, str], prefixes: tuple[str, ...] = ("RAG_",)
+    environ: Mapping[str, str], prefixes: tuple[str, ...] = ("QP_",)
 ) -> list[str]:
     """The variables of ``environ`` a test clears: each with one of ``prefixes``.
 

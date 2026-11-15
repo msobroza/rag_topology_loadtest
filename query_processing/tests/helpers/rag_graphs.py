@@ -19,7 +19,7 @@ from typing import Any
 
 import yaml
 
-from rag_load_test.domain.graph_description import GraphDescription
+from query_processing.domain.graph_description import GraphDescription
 
 # The workflow file every test reads unless it names another (conftest.py).
 FIXTURE_WORKFLOW = Path(__file__).with_name("fixture_workflow.yaml")

@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rag-load-test"
+name = "query-processing"
 version = "0.1.0"
 description = "Locust load test comparing one RAG workflow (sentence-transformers + Elasticsearch or Chroma + reranker + OpenAI + LangGraph + FastAPI) across monolith and OpenVINO Model Server split topologies on Domino."
 # No readme: the repository's README.md is one level up, and setuptools reads no
@@ -19,7 +19,7 @@ dependencies = [
     "langchain-elasticsearch>=1.0",
     "elasticsearch[async]>=8.13",  # aiohttp node for AsyncElasticsearchStore
     # [openvino] is the default runtime of the in-process models
-    # (RAG_LOCAL_MODELS__RUNTIME) and what rag-export-openvino needs. Its
+    # (QP_LOCAL_MODELS__RUNTIME) and what qp-export-openvino needs. Its
     # optimum-intel accepts transformers < 5.6 only, so pip keeps transformers and
     # huggingface-hub at the versions it supports.
     "sentence-transformers[openvino]>=6.2",
@@ -33,10 +33,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # TEMPORARY, with the emulation (see emulation/README.md, "Removing the
-# emulation"): what rag-domino-emulation needs beyond the project itself. Its
+# emulation"): what qp-domino-emulation needs beyond the project itself. Its
 # proxy signs the identity token Domino passes to an App (RS256).
 emulation = ["pyjwt>=2.8", "cryptography>=42"]
-# RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma (embedded on disk, or a Chroma server).
+# QP_COMPONENTS__VECTOR_STORE__BACKEND=chroma (embedded on disk, or a Chroma server).
 chroma = ["chromadb>=1.0"]
 # Driving the load test (locust monkey-patches gevent at import; keep it optional).
 loadtest = ["locust>=2.29"]
@@ -64,30 +64,30 @@ dev = [
 ]
 
 [project.scripts]
-rag-serve = "rag_load_test.entrypoints.rag_serve:main"
-rag-ingest = "rag_load_test.entrypoints.rag_ingest:main"
-rag-compare = "rag_load_test.loadtest.rag_compare:compare_main"
-rag-model-server = "rag_load_test.entrypoints.rag_model_server:main"
-rag-served-models = "rag_load_test.entrypoints.rag_served_models:main"
-rag-export-openvino = "rag_load_test.entrypoints.rag_export_openvino:main"
-rag-calibrate = "rag_load_test.entrypoints.rag_calibrate:main"
-rag-fetch-corpus = "rag_load_test.entrypoints.rag_fetch_corpus:main"
-rag-deploy = "rag_load_test.deploy.rag_deploy:main"
-rag-fake-domino = "fake_domino.server:main"
+qp-serve = "query_processing.entrypoints.qp_serve:main"
+qp-ingest = "query_processing.entrypoints.qp_ingest:main"
+qp-compare = "query_processing.loadtest.qp_compare:compare_main"
+qp-model-server = "query_processing.entrypoints.qp_model_server:main"
+qp-served-models = "query_processing.entrypoints.qp_served_models:main"
+qp-export-openvino = "query_processing.entrypoints.qp_export_openvino:main"
+qp-calibrate = "query_processing.entrypoints.qp_calibrate:main"
+qp-fetch-corpus = "query_processing.entrypoints.qp_fetch_corpus:main"
+qp-deploy = "query_processing.deploy.qp_deploy:main"
+qp-fake-domino = "fake_domino.server:main"
 # TEMPORARY, with the emulation.
-rag-domino-emulation = "fake_domino.emulation.server:main"
+qp-domino-emulation = "fake_domino.emulation.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"rag_load_test" = ["py.typed"]
+"query_processing" = ["py.typed"]
 "fake_domino" = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# tests/ mirrors src/rag_load_test, one folder per layer; what several test
+# tests/ mirrors src/query_processing, one folder per layer; what several test
 # files share (named fakes, fixtures, REPO_ROOT and TOOLKIT_ROOT) lives in
 # tests/helpers, on the path so it is imported by plain module name. Test files
 # keep unique names: the folders are not packages. tests/fake_domino/ shares its
@@ -141,7 +141,7 @@ max-statements = 30
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "ANN", "ARG", "PLR2004", "PLR0913", "E501"]
-"src/rag_load_test/domain/corpus.py" = ["E501"]  # prose templates
+"src/query_processing/domain/corpus.py" = ["E501"]  # prose templates
 # The fake Domino mirrors Domino's camelCase JSON field and query/path parameter
 # names, so its models and route parameters cannot be snake_case.
 "src/fake_domino/api_shapes.py" = ["N815"]
@@ -170,7 +170,7 @@ python_version = "3.11"
 ignore_missing_imports = true
 mypy_path = "src"
 # BaseSettings fields fill from the env and YAML, so the plugin types __init__
-# with every field optional (RagSettings() has a required graph).
+# with every field optional (WorkflowSettings() has a required graph).
 plugins = ["pydantic.mypy"]
 
 [tool.complexipy]
@@ -197,7 +197,7 @@ ignore_names = [
 ]
 
 [tool.deptry]
-known_first_party = ["rag_load_test", "fake_domino"]
+known_first_party = ["query_processing", "fake_domino"]
 optional_dependencies_dev_groups = ["dev"]
 package_module_name_map = { dominodatalab = "domino" }
 

@@ -41,14 +41,14 @@ coverage.xml
 /query_processing_rag_usecase/ovms/models/
 .env
 deploy.env
-# rag-deploy: its settings and the App ids it has seen
+# qp-deploy: its settings and the App ids it has seen
 deploy.yaml
-.rag-deploy-cache.json
+.qp-deploy-cache.json
 
-# Written at run time by the defaults: the OpenVINO exports (RAG_LOCAL_MODELS__OPENVINO_DIR)
-# and the embedded Chroma store (RAG_COMPONENTS__VECTOR_STORE__CHROMA__PATH).
+# Written at run time by the defaults: the OpenVINO exports (QP_LOCAL_MODELS__OPENVINO_DIR)
+# and the embedded Chroma store (QP_COMPONENTS__VECTOR_STORE__CHROMA__PATH).
 /query_processing_rag_usecase/models/
 /query_processing_rag_usecase/chroma/
 
-# A fetched corpus (rag-fetch-corpus): never committed.
+# A fetched corpus (qp-fetch-corpus): never committed.
 /query_processing_rag_usecase/data/

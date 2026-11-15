@@ -1,4 +1,4 @@
-# rag_load_test — the toolkit's developer tasks: its install and its gates (run from
+# query_processing — the toolkit's developer tasks: its install and its gates (run from
 # this directory; the repository's root Makefile hands install, install-dev, check
 # and each gate here). The run targets read a use case's files and write its
 # output, so they are a use case's: make -C ../query_processing_rag_usecase help.
@@ -56,4 +56,4 @@ test: ## Run the test suite (no model weights, no network; fixture workflow file
 	$(BIN)pytest
 
 fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow
-	$(BIN)rag-fake-domino --behaviour $(BEHAVIOUR)
+	$(BIN)qp-fake-domino --behaviour $(BEHAVIOUR)

@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from loadtest_settings_helpers import settings_from
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.loadtest.loadtest_settings import LoadTestSettings
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.loadtest.loadtest_settings import LoadTestSettings
 
-BEARER, API_KEY = "RAG_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
+BEARER, API_KEY = "QP_LOADTEST_BEARER_TOKEN", "DOMINO_API_KEY"
 
 
 def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,7 +32,7 @@ def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_the_workflow_apps_target_reads_no_model_value_and_no_workflow_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("RAG_WORKFLOW_FILE")
+    monkeypatch.delenv("QP_WORKFLOW_FILE")
     monkeypatch.chdir(tmp_path)  # no workflow file here either
 
     settings = settings_from(monkeypatch, {})
@@ -51,13 +51,13 @@ def test_the_workflow_apps_target_reads_no_model_value_and_no_workflow_file(
 )
 def test_a_model_servers_target_sends_the_workflow_files_alias(
     monkeypatch: pytest.MonkeyPatch,
-    settings_factory: Callable[..., RagSettings],
+    settings_factory: Callable[..., WorkflowSettings],
     target: str,
     field: str,
     component: str,
 ) -> None:
-    sizes = {"RAG_TOP_K_RETRIEVE": "20", "RAG_TOP_K_RERANK": "10"}
-    settings = settings_from(monkeypatch, {"RAG_LOADTEST_TARGET": target, **sizes})
+    sizes = {"QP_TOP_K_RETRIEVE": "20", "QP_TOP_K_RERANK": "10"}
+    settings = settings_from(monkeypatch, {"QP_LOADTEST_TARGET": target, **sizes})
 
     # As a model server serves its model: the alias the workflow file gives it.
     assert getattr(settings, field) == settings_factory().components[component].alias
@@ -66,27 +66,27 @@ def test_a_model_servers_target_sends_the_workflow_files_alias(
 def test_a_model_servers_target_without_a_workflow_file_says_where_it_looked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("RAG_WORKFLOW_FILE")
+    monkeypatch.delenv("QP_WORKFLOW_FILE")
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ValueError, match="no workflow file: RAG_WORKFLOW_FILE is not"):
-        settings_from(monkeypatch, {"RAG_LOADTEST_TARGET": "embeddings"})
+    with pytest.raises(ValueError, match="no workflow file: QP_WORKFLOW_FILE is not"):
+        settings_from(monkeypatch, {"QP_LOADTEST_TARGET": "embeddings"})
 
 
 @pytest.mark.parametrize(
     "sizes",
-    [{}, {"RAG_TOP_K_RETRIEVE": "20"}, {"RAG_TOP_K_RERANK": "10"}],
+    [{}, {"QP_TOP_K_RETRIEVE": "20"}, {"QP_TOP_K_RERANK": "10"}],
     ids=["neither", "no-top-n", "no-documents"],
 )
 def test_the_rerank_target_needs_both_sizes_which_have_no_default(
     monkeypatch: pytest.MonkeyPatch, sizes: dict[str, str]
 ) -> None:
     # They are the use case's sizes: its environment example states them.
-    with pytest.raises(ValueError, match="RAG_LOADTEST_TARGET=rerank") as caught:
-        settings_from(monkeypatch, {"RAG_LOADTEST_TARGET": "rerank", **sizes})
+    with pytest.raises(ValueError, match="QP_LOADTEST_TARGET=rerank") as caught:
+        settings_from(monkeypatch, {"QP_LOADTEST_TARGET": "rerank", **sizes})
 
     assert (
-        "RAG_LOADTEST_TARGET=rerank needs RAG_TOP_K_RETRIEVE and RAG_TOP_K_RERANK, "
+        "QP_LOADTEST_TARGET=rerank needs QP_TOP_K_RETRIEVE and QP_TOP_K_RERANK, "
         "the documents and top_n of each rerank request, as the workflow file's "
         "retrieve and rerank stages set them (top_k)"
     ) in str(caught.value)
@@ -96,20 +96,20 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = settings_from(
         monkeypatch,
         {
-            "RAG_LOADTEST_TARGET": "rerank",
-            "RAG_LOADTEST_QUERY_WEIGHT": "2",
-            "RAG_LOADTEST_RETRIEVE_WEIGHT": "0",
-            "RAG_LOADTEST_SHAPE": "step",
-            "RAG_LOADTEST_STEP_USERS": "2, 4,8",
-            "RAG_LOADTEST_STEP_SECONDS": "30",
-            "RAG_LOADTEST_WAIT_MIN_S": "0",
-            "RAG_LOADTEST_WAIT_MAX_S": "0.5",
-            "RAG_LOADTEST_QUESTIONS": "12",
-            "RAG_LOADTEST_QUESTIONS_FILE": "data/q.jsonl",
-            "RAG_TOP_K_RETRIEVE": "7",
-            "RAG_TOP_K_RERANK": "3",
-            "RAG_COMPONENTS__RERANKER__ALIAS": "my-reranker",
-            "RAG_COMPONENTS__EMBEDDER__ALIAS": "my-embedder",
+            "QP_LOADTEST_TARGET": "rerank",
+            "QP_LOADTEST_QUERY_WEIGHT": "2",
+            "QP_LOADTEST_RETRIEVE_WEIGHT": "0",
+            "QP_LOADTEST_SHAPE": "step",
+            "QP_LOADTEST_STEP_USERS": "2, 4,8",
+            "QP_LOADTEST_STEP_SECONDS": "30",
+            "QP_LOADTEST_WAIT_MIN_S": "0",
+            "QP_LOADTEST_WAIT_MAX_S": "0.5",
+            "QP_LOADTEST_QUESTIONS": "12",
+            "QP_LOADTEST_QUESTIONS_FILE": "data/q.jsonl",
+            "QP_TOP_K_RETRIEVE": "7",
+            "QP_TOP_K_RERANK": "3",
+            "QP_COMPONENTS__RERANKER__ALIAS": "my-reranker",
+            "QP_COMPONENTS__EMBEDDER__ALIAS": "my-embedder",
             API_KEY: "key",
         },
     )
@@ -133,7 +133,7 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_an_empty_shape_or_questions_file_is_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    variables = {"RAG_LOADTEST_SHAPE": "", "RAG_LOADTEST_QUESTIONS_FILE": ""}
+    variables = {"QP_LOADTEST_SHAPE": "", "QP_LOADTEST_QUESTIONS_FILE": ""}
     settings = settings_from(monkeypatch, variables)
 
     assert (settings.shape, settings.questions_file) == (None, None)
@@ -163,24 +163,24 @@ WHOLE = "expected a whole number of"
     ("variables", "message"),
     [
         (
-            {"RAG_LOADTEST_TARGET": "ovms"},
-            r"RAG_LOADTEST_TARGET='ovms'; expected one of rag, rerank, embeddings",
+            {"QP_LOADTEST_TARGET": "ovms"},
+            r"QP_LOADTEST_TARGET='ovms'; expected one of rag, rerank, embeddings",
         ),
         (
-            {"RAG_LOADTEST_QUERY_WEIGHT": "many"},
-            rf"RAG_LOADTEST_QUERY_WEIGHT='many'; {WHOLE} 0 or more",
+            {"QP_LOADTEST_QUERY_WEIGHT": "many"},
+            rf"QP_LOADTEST_QUERY_WEIGHT='many'; {WHOLE} 0 or more",
         ),
         (
-            {"RAG_LOADTEST_RETRIEVE_WEIGHT": "1.5"},
-            rf"RAG_LOADTEST_RETRIEVE_WEIGHT='1\.5'; {WHOLE} 0 or more",
+            {"QP_LOADTEST_RETRIEVE_WEIGHT": "1.5"},
+            rf"QP_LOADTEST_RETRIEVE_WEIGHT='1\.5'; {WHOLE} 0 or more",
         ),
         (
-            {"RAG_LOADTEST_QUESTIONS": "lots"},
-            rf"RAG_LOADTEST_QUESTIONS='lots'; {WHOLE} 1 or more",
+            {"QP_LOADTEST_QUESTIONS": "lots"},
+            rf"QP_LOADTEST_QUESTIONS='lots'; {WHOLE} 1 or more",
         ),
         (
-            {"RAG_LOADTEST_QUESTIONS": "0"},
-            rf"RAG_LOADTEST_QUESTIONS='0'; {WHOLE} 1 or more",
+            {"QP_LOADTEST_QUESTIONS": "0"},
+            rf"QP_LOADTEST_QUESTIONS='0'; {WHOLE} 1 or more",
         ),
     ],
 )
@@ -195,20 +195,20 @@ def test_bad_values_are_refused_naming_the_value(
     ("variables", "message"),
     [
         (
-            {"RAG_LOADTEST_SHAPE": "ramp"},
-            r"RAG_LOADTEST_SHAPE='ramp'; expected 'step' or unset",
+            {"QP_LOADTEST_SHAPE": "ramp"},
+            r"QP_LOADTEST_SHAPE='ramp'; expected 'step' or unset",
         ),
         (
-            {"RAG_LOADTEST_SHAPE": "Step"},
-            r"RAG_LOADTEST_SHAPE='Step'; expected 'step' or unset",
+            {"QP_LOADTEST_SHAPE": "Step"},
+            r"QP_LOADTEST_SHAPE='Step'; expected 'step' or unset",
         ),
         (
-            {"RAG_LOADTEST_QUERY_WEIGHT": "-1"},
-            rf"RAG_LOADTEST_QUERY_WEIGHT='-1'; {WHOLE} 0 or more",
+            {"QP_LOADTEST_QUERY_WEIGHT": "-1"},
+            rf"QP_LOADTEST_QUERY_WEIGHT='-1'; {WHOLE} 0 or more",
         ),
         (
-            {"RAG_LOADTEST_RETRIEVE_WEIGHT": "-3"},
-            rf"RAG_LOADTEST_RETRIEVE_WEIGHT='-3'; {WHOLE} 0 or more",
+            {"QP_LOADTEST_RETRIEVE_WEIGHT": "-3"},
+            rf"QP_LOADTEST_RETRIEVE_WEIGHT='-3'; {WHOLE} 0 or more",
         ),
     ],
 )
@@ -223,21 +223,21 @@ def test_an_unknown_shape_or_a_negative_weight_is_refused(
     ("variables", "message"),
     [
         (
-            {"RAG_LOADTEST_STEP_USERS": "5,ten"},
-            r"RAG_LOADTEST_STEP_USERS='5,ten'; expected comma-separated whole numbers",
+            {"QP_LOADTEST_STEP_USERS": "5,ten"},
+            r"QP_LOADTEST_STEP_USERS='5,ten'; expected comma-separated whole numbers",
         ),
         (
-            {"RAG_LOADTEST_STEP_USERS": "5,0"},
-            r"RAG_LOADTEST_STEP_USERS='5,0'; expected comma-separated whole numbers",
+            {"QP_LOADTEST_STEP_USERS": "5,0"},
+            r"QP_LOADTEST_STEP_USERS='5,0'; expected comma-separated whole numbers",
         ),
-        ({"RAG_LOADTEST_STEP_SECONDS": "0"}, r"step_seconds"),
+        ({"QP_LOADTEST_STEP_SECONDS": "0"}, r"step_seconds"),
         (
-            {"RAG_LOADTEST_WAIT_MIN_S": "2", "RAG_LOADTEST_WAIT_MAX_S": "1"},
-            r"RAG_LOADTEST_WAIT_MAX_S=1\.0 is below RAG_LOADTEST_WAIT_MIN_S=2\.0",
+            {"QP_LOADTEST_WAIT_MIN_S": "2", "QP_LOADTEST_WAIT_MAX_S": "1"},
+            r"QP_LOADTEST_WAIT_MAX_S=1\.0 is below QP_LOADTEST_WAIT_MIN_S=2\.0",
         ),
         (
-            {"RAG_TOP_K_RETRIEVE": "3", "RAG_TOP_K_RERANK": "5"},
-            r"RAG_TOP_K_RERANK=5 exceeds RAG_TOP_K_RETRIEVE=3",
+            {"QP_TOP_K_RETRIEVE": "3", "QP_TOP_K_RERANK": "5"},
+            r"QP_TOP_K_RERANK=5 exceeds QP_TOP_K_RETRIEVE=3",
         ),
     ],
 )
@@ -249,7 +249,7 @@ def test_the_new_settings_refuse_what_cannot_run(
 
 
 def test_each_field_names_the_variable_it_is_read_from() -> None:
-    assert LoadTestSettings.variable_of("target") == "RAG_LOADTEST_TARGET"
-    assert LoadTestSettings.variable_of("question_count") == "RAG_LOADTEST_QUESTIONS"
-    assert LoadTestSettings.variable_of("top_k_retrieve") == "RAG_TOP_K_RETRIEVE"
+    assert LoadTestSettings.variable_of("target") == "QP_LOADTEST_TARGET"
+    assert LoadTestSettings.variable_of("question_count") == "QP_LOADTEST_QUESTIONS"
+    assert LoadTestSettings.variable_of("top_k_retrieve") == "QP_TOP_K_RETRIEVE"
     assert LoadTestSettings.variable_of("domino_api_key") == "DOMINO_API_KEY"

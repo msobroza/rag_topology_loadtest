@@ -78,7 +78,7 @@ token" is the run token;
 
 EMULATION_ABOUT = "\n\n".join(
     [
-        "Emulation (`rag-domino-emulation`): the core's `--behaviour` scripts "
+        "Emulation (`qp-domino-emulation`): the core's `--behaviour` scripts "
         "are replaced by placement when a placement file is given; without "
         "one, a new instance is Pending on the first GET, then Running.",
         _PROXY_ABOUT,

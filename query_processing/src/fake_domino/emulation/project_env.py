@@ -1,13 +1,13 @@
 """The project environment variables the fake hands every App it starts.
 
 Domino keeps them per project and sets them in every run; the emulation reads
-them from ``rag-fake-domino --project-env FILE``: ``KEY=VALUE`` lines, ``#``
+them from ``qp-fake-domino --project-env FILE``: ``KEY=VALUE`` lines, ``#``
 comments and blank lines ignored, the value taken as is up to the line's end.
 They hold secrets, so no message here ever carries a value.
 
 Example:
     >>> load_project_env(Path("project.env"))
-    {'RAG_ES_PASSWORD': '...'}
+    {'QP_ES_PASSWORD': '...'}
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def load_project_env(path: Path) -> dict[str, str]:
             not ``KEY=VALUE`` with a shell variable name as ``KEY``.
 
     Example:
-        >>> load_project_env(Path("project.env"))["RAG_ES_URL"]
+        >>> load_project_env(Path("project.env"))["QP_ES_URL"]
         'http://10.10.0.5:9200'
     """
     try:

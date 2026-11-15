@@ -86,7 +86,7 @@ def create_domino_emulation(
 def main(
     argv: Sequence[str] | None = None, *, serve: Callable[..., None] = uvicorn.run
 ) -> None:
-    """Serve the emulation: ``rag-domino-emulation [--placement FILE] ...``.
+    """Serve the emulation: ``qp-domino-emulation [--placement FILE] ...``.
 
     Args:
         argv: The command-line arguments; None reads ``sys.argv``.

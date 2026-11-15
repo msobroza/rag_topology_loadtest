@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
-# Domino App / Agent entry point of every App rag-deploy publishes. RAG_ROLE says
-# which (rag-deploy sets it; a Project or App environment variable works too):
-#   workflow      (default) the workflow app: rag-serve --domino
+# Domino App / Agent entry point of every App qp-deploy publishes. QP_ROLE says
+# which (qp-deploy sets it; a Project or App environment variable works too):
+#   workflow      (default) the workflow app: qp-serve --domino
 #   model-server  a model server of one component of the workflow file, named by
-#                 RAG_MODEL_SERVER_COMPONENT, served by the model-server kind
-#                 RAG_MODEL_SERVER_KIND: domino/model_servers/<kind>.sh, sourced
+#                 QP_MODEL_SERVER_COMPONENT, served by the model-server kind
+#                 QP_MODEL_SERVER_KIND: domino/model_servers/<kind>.sh, sourced
 #                 here, holds the kind's bootstrap and its command (fastapi.sh:
-#                 rag-model-server; ovms.sh: OpenVINO Model Server). A new kind is
+#                 qp-model-server; ovms.sh: OpenVINO Model Server). A new kind is
 #                 one more script there, and this dispatch does not change.
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
 #
-# RAG_USE_CASE_DIR (set by rag-deploy: the directory it ran from) is the use
+# QP_USE_CASE_DIR (set by qp-deploy: the directory it ran from) is the use
 # case's directory: the role's command runs there, where it finds the use case's
 # workflow file, for the workflow app and for a model server of any kind alike.
 # Unset, the command runs in the directory app.sh was started in.
 #
-# RAG_BOOTSTRAP=1 (set by rag-deploy) first installs what the App needs, for a
+# QP_BOOTSTRAP=1 (set by qp-deploy) first installs what the App needs, for a
 # generic environment with only uv: the workflow app uv-installs the toolkit, with
-# the extras named by RAG_BOOTSTRAP_EXTRAS (e.g. "domino") when set, and the use
-# case of RAG_USE_CASE_DIR, in one command, into a virtualenv under $HOME; a
+# the extras named by QP_BOOTSTRAP_EXTRAS (e.g. "domino") when set, and the use
+# case of QP_USE_CASE_DIR, in one command, into a virtualenv under $HOME; a
 # model server runs its kind's bootstrap. Unset, nothing is installed: the
 # prebuilt `rag` / `ovms` images already have it all.
 #
 # The workflow app reads everything else from its own variables: each component's
-# backend and served URL, and RAG_TOPOLOGY_ALIAS, only a label (rag-deploy sets
+# backend and served URL, and QP_TOPOLOGY_ALIAS, only a label (qp-deploy sets
 # them all; passed through untouched), and, on Domino, calls each served
 # component with the run token. The in-process models export themselves into
-# RAG_LOCAL_MODELS__OPENVINO_DIR on their first start
-# (RAG_LOCAL_MODELS__RUNTIME=openvino).
+# QP_LOCAL_MODELS__OPENVINO_DIR on their first start
+# (QP_LOCAL_MODELS__RUNTIME=openvino).
 set -euo pipefail
 
 # The toolkit's directory, query_processing/ in the repository: what is installed
@@ -37,7 +37,7 @@ set -euo pipefail
 TOOLKIT=$(cd "$(dirname "$0")/.." && pwd)
 PYTHON_VERSION_FILE=$TOOLKIT/../.python-version
 
-ROLE=${RAG_ROLE:-workflow}
+ROLE=${QP_ROLE:-workflow}
 WHO=$ROLE                                   # what die names: the role, or the kind and component
 MODEL_SERVERS=$TOOLKIT/domino/model_servers # one launch script per model-server kind
 
@@ -60,31 +60,31 @@ install_project() {
 }
 
 # install_this_project: the toolkit, with the extras an Agent asks for (its
-# launch script sets RAG_BOOTSTRAP_EXTRAS=domino, for tracing), then the use case
-# of RAG_USE_CASE_DIR when there is one, into $HOME/rag-venv in one command: the
+# launch script sets QP_BOOTSTRAP_EXTRAS=domino, for tracing), then the use case
+# of QP_USE_CASE_DIR when there is one, into $HOME/qp-venv in one command: the
 # use case depends on the toolkit, which no package index has.
 install_this_project() {
   local toolkit=$TOOLKIT
-  if [ -n "${RAG_BOOTSTRAP_EXTRAS:-}" ]; then toolkit="${TOOLKIT}[$RAG_BOOTSTRAP_EXTRAS]"; fi
-  if [ -n "${RAG_USE_CASE_DIR:-}" ]; then
-    install_project "$HOME/rag-venv" "$toolkit" "$RAG_USE_CASE_DIR"
+  if [ -n "${QP_BOOTSTRAP_EXTRAS:-}" ]; then toolkit="${TOOLKIT}[$QP_BOOTSTRAP_EXTRAS]"; fi
+  if [ -n "${QP_USE_CASE_DIR:-}" ]; then
+    install_project "$HOME/qp-venv" "$toolkit" "$QP_USE_CASE_DIR"
   else
-    install_project "$HOME/rag-venv" "$toolkit"
+    install_project "$HOME/qp-venv" "$toolkit"
   fi
 }
 
 # enter_use_case: the use case's directory, where the role's command finds the
-# use case's files; without RAG_USE_CASE_DIR, the directory app.sh started in.
+# use case's files; without QP_USE_CASE_DIR, the directory app.sh started in.
 enter_use_case() {
-  [ -n "${RAG_USE_CASE_DIR:-}" ] || return 0
-  cd "$RAG_USE_CASE_DIR" 2>/dev/null \
-    || die "RAG_USE_CASE_DIR='$RAG_USE_CASE_DIR' is no directory; expected the use case's directory, as rag-deploy sets it"
+  [ -n "${QP_USE_CASE_DIR:-}" ] || return 0
+  cd "$QP_USE_CASE_DIR" 2>/dev/null \
+    || die "QP_USE_CASE_DIR='$QP_USE_CASE_DIR' is no directory; expected the use case's directory, as qp-deploy sets it"
 }
 
 serve_workflow_app() {
-  if [ "${RAG_BOOTSTRAP:-}" = 1 ]; then install_this_project; fi
+  if [ "${QP_BOOTSTRAP:-}" = 1 ]; then install_this_project; fi
   enter_use_case
-  exec rag-serve --host 0.0.0.0 --port 8888 --domino
+  exec qp-serve --host 0.0.0.0 --port 8888 --domino
 }
 
 # known_kinds: every model-server kind with a launch script, for the errors.
@@ -100,19 +100,19 @@ known_kinds() {
 # serve_model: source the kind's launch script, which defines
 # bootstrap_model_server and serve_model_server <component>, then run them.
 serve_model() {
-  local component=${RAG_MODEL_SERVER_COMPONENT:-} kind=${RAG_MODEL_SERVER_KIND:-}
+  local component=${QP_MODEL_SERVER_COMPONENT:-} kind=${QP_MODEL_SERVER_KIND:-}
   WHO="$ROLE $kind $component"
   [ -n "$component" ] \
-    || die "RAG_MODEL_SERVER_COMPONENT is not set: set it to the component of the workflow file this App serves, such as reranker"
+    || die "QP_MODEL_SERVER_COMPONENT is not set: set it to the component of the workflow file this App serves, such as reranker"
   # A kind names a file here, so nothing but a plain name is looked up.
   case "$kind" in
-    "" | *[!a-z0-9_-]*) die "RAG_MODEL_SERVER_KIND='$kind' is no model-server kind; expected one of: $(known_kinds)" ;;
+    "" | *[!a-z0-9_-]*) die "QP_MODEL_SERVER_KIND='$kind' is no model-server kind; expected one of: $(known_kinds)" ;;
   esac
   [ -f "$MODEL_SERVERS/$kind.sh" ] \
-    || die "RAG_MODEL_SERVER_KIND='$kind' has no launch script domino/model_servers/$kind.sh; expected one of: $(known_kinds)"
+    || die "QP_MODEL_SERVER_KIND='$kind' has no launch script domino/model_servers/$kind.sh; expected one of: $(known_kinds)"
   # shellcheck source=/dev/null  # one of domino/model_servers/*.sh
   . "$MODEL_SERVERS/$kind.sh"
-  if [ "${RAG_BOOTSTRAP:-}" = 1 ]; then bootstrap_model_server; fi
+  if [ "${QP_BOOTSTRAP:-}" = 1 ]; then bootstrap_model_server; fi
   enter_use_case
   serve_model_server "$component"
 }
@@ -120,5 +120,5 @@ serve_model() {
 case "$ROLE" in
   workflow) serve_workflow_app ;;
   model-server) serve_model ;;
-  *) die "unknown RAG_ROLE '$ROLE'; expected workflow or model-server" ;;
+  *) die "unknown QP_ROLE '$ROLE'; expected workflow or model-server" ;;
 esac

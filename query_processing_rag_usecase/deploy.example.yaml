@@ -1,24 +1,24 @@
-# The RAG use case's rag-deploy settings: cp deploy.example.yaml deploy.yaml in
+# The RAG use case's qp-deploy settings: cp deploy.example.yaml deploy.yaml in
 # this directory, then edit (deploy.yaml is git-ignored). Run `make deploy` /
 # `make status` from this directory (for example
 # /repos/<project>/query_processing_rag_usecase) in a Domino Workspace of the one
 # project that hosts all the Apps: every App runs the toolkit's
 # query_processing/domino/app.sh, found from here, by its absolute path, and runs
-# its role's command here (RAG_USE_CASE_DIR), where it finds workflow.yaml.
+# its role's command here (QP_USE_CASE_DIR), where it finds workflow.yaml.
 #
 # Secrets do NOT go here: every `settings` and `overrides` value is written into
 # an App's launch script. Keep every API key
-# (RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
-# RAG_COMPONENTS__LLM__API__API_KEY,
-# any bearer token for RAG_COMPONENTS__EMBEDDER__API__API_KEY or
-# RAG_COMPONENTS__RERANKER__API__API_KEY) in Domino's project or user environment
-# variables: rag-deploy refuses a setting ending with _API_KEY, or an api_key
+# (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
+# QP_COMPONENTS__LLM__API__API_KEY,
+# any bearer token for QP_COMPONENTS__EMBEDDER__API__API_KEY or
+# QP_COMPONENTS__RERANKER__API__API_KEY) in Domino's project or user environment
+# variables: qp-deploy refuses a setting ending with _API_KEY, or an api_key
 # under overrides, unless it is empty or `domino`.
 #
-# Unknown keys are refused. A RAG_DEPLOY_<KEY> environment variable overrides a
-# top-level key, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`; RAG_DEPLOY_FILE
-# names another file. rag-deploy also reads the workflow file the workflow App
-# reads (RAG_WORKFLOW_FILE in its settings, else as rag-serve finds it), to know
+# Unknown keys are refused. A QP_DEPLOY_<KEY> environment variable overrides a
+# top-level key, e.g. `QP_DEPLOY_TOPOLOGY=monolith make deploy`; QP_DEPLOY_FILE
+# names another file. qp-deploy also reads the workflow file the workflow App
+# reads (QP_WORKFLOW_FILE in its settings, else as qp-serve finds it), to know
 # the components a topology alias names and to check the overrides.
 
 # The topology deployed: one of the topology aliases below.
@@ -32,10 +32,10 @@ topology: split-all
 # no registered kind can serve (an LLM, today), or put on a backend its type does
 # not have (the vector store or the LLM on local), is refused before anything is
 # published. A new alias
-# is one more row: rag-deploy publishes one App per served component, then the
+# is one more row: qp-deploy publishes one App per served component, then the
 # workflow App, and writes each named component's backend and served URL into
 # the workflow App's launch script (the workflow app has no topology rule of its
-# own), the alias (RAG_TOPOLOGY_ALIAS, which it reports as X-RAG-Topology) and
+# own), the alias (QP_TOPOLOGY_ALIAS, which it reports as X-RAG-Topology) and
 # the run label: the alias, then +<component>=<server> for each served one, each
 # with its own App's kind (split-all+embedder=fastapi+reranker=fastapi).
 topology_alias:
@@ -45,12 +45,13 @@ topology_alias:
 # The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
 project_id: ""
 # Each App is named <app_name_prefix>-<part> (part: workflow or a served component),
-# so two use cases with two prefixes share one project. Lowercase letters and
+# so two use cases with two prefixes share one project. Required: the toolkit has
+# no default, since the prefix names the use case. Lowercase letters and
 # digits in words joined by single hyphens, starting with a letter, e.g. qp-rag:
-# rag-deploy's own rule (we found none of Domino's), checked before anything is
+# qp-deploy's own rule (we found none of Domino's), checked before anything is
 # published. An App is found by its name, so a new prefix creates new Apps; delete
 # the old ones by hand in Domino.
-app_name_prefix: rag
+app_name_prefix: qp-rag
 # Required by an App served by ovms: the OVMS bundle as the Apps see it (project
 # files or a Dataset),
 # either a folder with bin/ovms and lib/ or the release .tar.gz, for example
@@ -67,7 +68,7 @@ domino_host: ""
 # http_retries: 2
 # run_token_url: http://localhost:8899/access-token
 
-# Every App, unless its own block below says otherwise. rag-deploy refuses to
+# Every App, unless its own block below says otherwise. qp-deploy refuses to
 # deploy while a value still holds an <angle-bracket> placeholder.
 defaults:
   # Required: the Domino compute environment (its id is in the URL of the
@@ -83,21 +84,21 @@ defaults:
   # The hardware tier id; "" = the project's default.
   hardware_tier_id: ""
   # The model-server kind of every model server App, unless its block sets its
-  # own: fastapi (rag-model-server) | ovms (OpenVINO Model Server). Each kind is
+  # own: fastapi (qp-model-server) | ovms (OpenVINO Model Server). Each kind is
   # one registered class and one launch script, the toolkit's
   # domino/model_servers/<kind>.sh.
   server: fastapi
   # The variables the launch script reads that are no value of the workflow
-  # file, exported by the App's launch script: RAG_OVMS_MODELS_DIR,
-  # RAG_BOOTSTRAP_EXTRAS, RAG_WORKFLOW_FILE (the workflow file the Apps read,
+  # file, exported by the App's launch script: QP_OVMS_MODELS_DIR,
+  # QP_BOOTSTRAP_EXTRAS, QP_WORKFLOW_FILE (the workflow file the Apps read,
   # from this directory), ... A value of the workflow file goes under
   # overrides below: written here, it is refused, naming its place there.
-  # rag-deploy itself sets RAG_ROLE (workflow or model-server),
-  # RAG_MODEL_SERVER_COMPONENT and RAG_MODEL_SERVER_KIND, RAG_OVMS_BUNDLE,
-  # RAG_USE_CASE_DIR (this directory) and RAG_BOOTSTRAP (those win).
+  # qp-deploy itself sets QP_ROLE (workflow or model-server),
+  # QP_MODEL_SERVER_COMPONENT and QP_MODEL_SERVER_KIND, QP_OVMS_BUNDLE,
+  # QP_USE_CASE_DIR (this directory) and QP_BOOTSTRAP (those win).
   # settings:
   #   # The folder holding config_<component>.json of each component ovms serves:
-  #   RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
+  #   QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 
 # One block per App, keyed by workflow or by the name of a served component (a
 # key that is neither is refused), for what really differs per App: kind (app | agent),
@@ -108,8 +109,8 @@ defaults:
 # the defaults' settings, this block's winning).
 apps:
   # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
-  # An Agent also gets RAG_DOMINO__TRACING=1 unless the overrides set
-  # domino.tracing, and RAG_BOOTSTRAP_EXTRAS=domino unless its settings set it.
+  # An Agent also gets QP_DOMINO__TRACING=1 unless the overrides set
+  # domino.tracing, and QP_BOOTSTRAP_EXTRAS=domino unless its settings set it.
   workflow:
     kind: agent
     autoscaling: {min_replicas: 1, max_replicas: 2}
@@ -124,12 +125,12 @@ apps:
 
 # This site's values of the workflow file, in its own shape (components, graph,
 # local_models, calibration, http, domino, run_label), for every App: each one is
-# exported under the variable its path names (RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S
+# exported under the variable its path names (QP_COMPONENTS__LLM__HTTP__TIMEOUT_S
 # for components.llm.http.timeout_s) and wins over the workflow file. They are
 # checked against the workflow settings before anything is published: a key the
 # workflow file has no place for, a component or stage it does not declare, an
 # api_key, or a value the workflow app would refuse stops the deploy, naming its
-# place. rag-deploy's own exports win over them: RAG_TOPOLOGY_ALIAS, and the
+# place. qp-deploy's own exports win over them: QP_TOPOLOGY_ALIAS, and the
 # backend and served URL of each component the topology alias names. The run
 # label is the alias plus each served component's kind unless run_label is set
 # here (to name a variant, such as a hardware tier).
@@ -146,11 +147,11 @@ overrides:
       source_id: /domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0
     reranker:
       source_id: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
-      # What rag-calibrate printed for it, so no App calibrates at start-up:
+      # What qp-calibrate printed for it, so no App calibrates at start-up:
       # local: {threads: 2, batch_size: 1}
     # How patiently one component is called, over the shared http block below:
     # llm: {http: {timeout_s: 120}}
-  # Where rag-export-openvino wrote the in-process models (a model without a
+  # Where qp-export-openvino wrote the in-process models (a model without a
   # folder there is converted in memory at every start), and how many model
   # calls run at once (torch only; openvino runs one call at a time):
   # local_models: {openvino_dir: /domino/datasets/local/<dataset>/openvino, workers: 2}

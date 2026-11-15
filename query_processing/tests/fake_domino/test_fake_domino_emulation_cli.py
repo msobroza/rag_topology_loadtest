@@ -1,4 +1,4 @@
-"""``rag-domino-emulation``: its port, the App proxy's flags, placement files."""
+"""``qp-domino-emulation``: its port, the App proxy's flags, placement files."""
 
 from __future__ import annotations
 
@@ -118,12 +118,12 @@ def test_without_placement_nothing_is_placed() -> None:
 def test_placement_and_project_env_build_an_ssh_placer(tmp_path: Path) -> None:
     placement, env = tmp_path / "placement.json", tmp_path / "project.env"
     placement.write_text(PLACEMENT_JSON)
-    env.write_text("RAG_ES_PASSWORD=s3cret\n")
+    env.write_text("QP_ES_PASSWORD=s3cret\n")
     app, _, _ = served_by(["--placement", str(placement), "--project-env", str(env)])
     placer = app.state.fake_domino_apps.scheduler
     assert placer.settings.default_tier.machines == ("10.10.0.21",)
     assert isinstance(placer._launcher, SshAppLauncher)
-    assert placer._project_env == {"RAG_ES_PASSWORD": "s3cret"}
+    assert placer._project_env == {"QP_ES_PASSWORD": "s3cret"}
 
 
 @pytest.mark.parametrize(

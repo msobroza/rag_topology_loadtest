@@ -14,7 +14,7 @@ license = { text = "Apache-2.0" }
 # The toolkit, under its distribution's current name. No package index has it:
 # every install names both directories in one command, the toolkit first
 # (the root Makefile, the CI, the image, domino/app.sh).
-dependencies = ["rag-load-test"]
+dependencies = ["query-processing"]
 
 [tool.setuptools]
 packages = []  # no Python code of its own
@@ -22,7 +22,7 @@ packages = []  # no Python code of its own
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# The tests import only what the toolkit installs (rag_load_test, fake_domino),
+# The tests import only what the toolkit installs (query_processing, fake_domino),
 # never the toolkit's own tests.
 addopts = "-ra --strict-markers"
 filterwarnings = [

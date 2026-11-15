@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.domain.passages import ScoredPassage
-from rag_load_test.domain.rank_fusion import reciprocal_rank_fusion
+from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.rank_fusion import reciprocal_rank_fusion
 
 
 def hit(passage_id: str, score: float = 0.5) -> ScoredPassage:

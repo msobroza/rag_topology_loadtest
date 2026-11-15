@@ -14,8 +14,8 @@ emulation").
 
 Terraform creates what already exists before anyone deploys on a real Domino (ADR
 `docs/adr/0001-emulation-platform-and-app-placement.md`). Then the project's
-unchanged `rag-deploy` publishes the Apps through the **emulated Domino**
-(`rag-domino-emulation`), which places each App on free machines of its hardware
+unchanged `qp-deploy` publishes the Apps through the **emulated Domino**
+(`qp-domino-emulation`), which places each App on free machines of its hardware
 tier over SSH (one machine per replica, see "Replicas") and proxies every call to
 it. Terraform never creates an App.
 
@@ -26,9 +26,9 @@ it. Terraform never creates an App.
  | network <name>-net, subnet 10.10.0.0/24, no public address, Cloud NAT out |
  |                                                                            |
  |  <name>-workspace (n2-standard-8)        <name>-cpu-8-1..3 (n2-standard-8) |
- |   rag-domino-emulation :8899  -- ssh, :8888 -->  one App each, :8888       |
+ |   qp-domino-emulation :8899  -- ssh, :8888 -->  one App each, :8888       |
  |   Workspace for ubuntu: make,  <-- :8899 ----   localhost:8899 forwarder   |
- |   rag-deploy, rag-ingest, locust                (socat), OVMS tarball      |
+ |   qp-deploy, qp-ingest, locust                (socat), OVMS tarball      |
  |            \                                         /                     |
  |             +------> <name>-es (n2-standard-4) <-----+                     |
  |                      Elasticsearch 9.0.0 in Docker, :9200                  |
@@ -85,8 +85,12 @@ make -C emulation setup BUCKET=<globally unique bucket name>   # Terraform into 
 Optional, for the generation endpoint's API key (a Project environment variable):
 
 ```bash
-printf 'RAG_COMPONENTS__LLM__API__API_KEY=%s\n' "<key>" | gcloud secrets create rag-emu-project-env --data-file=-
+printf 'QP_COMPONENTS__LLM__API__API_KEY=%s\n' "<key>" | gcloud secrets create rag-emu-project-env --data-file=-
 ```
+
+A secret created before the toolkit's variables took the `QP_` prefix holds the
+old names, which no App reads: add a version under the new names (`gcloud secrets
+versions add rag-emu-project-env --data-file=-`).
 
 ### 2. Create the emulation
 
@@ -114,7 +118,7 @@ The shell starts in the repository (`/repos/rag_topology_loadtest`, the same pat
 on every machine) with the project's virtualenv (`.venv` at the repository's root)
 on `PATH`, and with
 `DOMINO_API_PROXY=http://localhost:8899`, `DOMINO_PROJECT_ID` and
-`RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
+`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
 set, as a Domino Workspace would have them (the Project environment variables are
 exported too). The emulation deploys the RAG use case: its commands run in
 `query_processing_rag_usecase/`, where they find its workflow file, and the targets
@@ -123,15 +127,15 @@ below run them there. Both the toolkit and the use case are installed in the
 emulation, the Elasticsearch URL and the OpenVINO folder under its `overrides`;
 edit it as on
 Domino (topology, per-App blocks, each model server App's `server`, the
-overrides), or override the topology with `RAG_DEPLOY_TOPOLOGY`.
+overrides), or override the topology with `QP_DEPLOY_TOPOLOGY`.
 
 The first sitting builds the index and exports the models, then keeps both in the
 cache bucket:
 
 ```bash
-make -C emulation corpus               # the French corpus: rag-fetch-corpus quebec-insurance, then rag-ingest with the french analyzer
+make -C emulation corpus               # the French corpus: qp-fetch-corpus quebec-insurance, then qp-ingest with the french analyzer
 make -C emulation ingest               # or: the synthetic English corpus (one corpus per index: pick one)
-make -C emulation deploy               # rag-deploy deploy all, through the emulated Domino
+make -C emulation deploy               # qp-deploy deploy all, through the emulated Domino
 make -C emulation corpus-save models-save   # once the Apps are up: the index snapshot, every machine's exported models
 ```
 
@@ -184,7 +188,7 @@ optional `project_env_secret`, which is yours.
 No cloud is needed to see the proxy at work. On Domino a proxy sits in front of
 every App and Agent (Agents use the same hosting): it checks who is calling
 before the request reaches the app, and tells the app who that is. The emulated
-Domino (`rag-domino-emulation`, installed by the `emulation` extra) does the same on both URL shapes of an App,
+Domino (`qp-domino-emulation`, installed by the `emulation` extra) does the same on both URL shapes of an App,
 `/apps/<app id>/...` and `/<owner>/<project>/r/notebookSession/<instance id>/...`,
 for every method and sub-path, and forwards the request to a real app on your
 machine when `--upstream` names one for that App:
@@ -192,17 +196,17 @@ machine when `--upstream` names one for that App:
 ```bash
 cd query_processing_rag_usecase                      # the use case's directory
 make model-server SERVE=reranker PORT=8011           # a real model server
-rag-domino-emulation --upstream rag-reranker=http://localhost:8011
+qp-domino-emulation --upstream rag-reranker=http://localhost:8011
 DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make deploy-reranker
-url=$(DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local rag-deploy url reranker)
+url=$(DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local qp-deploy url reranker)
 curl -i "$url/v3/models/crossencoder-camembert-base-mmarcoFR"                    # 401
 curl -i -H "Authorization: Bearer $(curl -s localhost:8899/access-token)" \
   "$url/v3/models/crossencoder-camembert-base-mmarcoFR"                          # 200, from :8011
 ```
 
-With `RAG_COMPONENTS__RERANKER__BACKEND=served` and
-`RAG_COMPONENTS__RERANKER__SERVED__URL=$url/v3/rerank`, a workflow app started
-with `rag-serve --domino` on the same machine fetches its token from the
+With `QP_COMPONENTS__RERANKER__BACKEND=served` and
+`QP_COMPONENTS__RERANKER__SERVED__URL=$url/v3/rerank`, a workflow app started
+with `qp-serve --domino` on the same machine fetches its token from the
 emulated Domino and calls the reranker through the proxy, as it would on Domino.
 
 | The request | What the emulated Domino does |
@@ -226,7 +230,7 @@ What the app receives, in place of the caller's own `Authorization`,
   caller's own token as `Authorization: Bearer` and no `domino-username`.
 
 The path prefix is stripped before forwarding; `--keep-prefix` sends the full
-path, which is the case `RAG_OVMS_PREFIX_PROXY=1` exists for.
+path, which is the case `QP_OVMS_PREFIX_PROXY=1` exists for.
 `--forward-timeout` bounds a forwarded call (30 s). The fake has one user and
 does not apply `visibility` or access lists: it stores and echoes them.
 
@@ -259,8 +263,8 @@ the machines by one of two rules, which are the two that Kubernetes uses:
 Domino says that requests spread across an App's pods when session affinity is
 off. It does not say by which rule. To change the rule on a running emulation, add
 `--replica-balancing connection-random` to the `ExecStart` line of the
-`rag-domino-emulation` unit on the Workspace, then run `sudo systemctl
-daemon-reload` and `sudo systemctl restart rag-domino-emulation`. A restart makes
+`qp-domino-emulation` unit on the Workspace, then run `sudo systemctl
+daemon-reload` and `sudo systemctl restart qp-domino-emulation`. A restart makes
 the emulated Domino forget every App, so deploy again.
 
 Not emulated:
@@ -279,7 +283,7 @@ of exporting the models and embedding the corpus again. It holds:
   one uncompressed tar per folder of the dataset folder. `models-save` uploads them
   from the Workspace and, over SSH, from every pool machine; `ovms-models` only once
   it holds both OVMS configs. At boot each pool machine restores every model, the
-  Workspace the OpenVINO ones (what `rag-ingest` loads); a folder already on the
+  Workspace the OpenVINO ones (what `qp-ingest` loads); a folder already on the
   machine is left alone.
 - `elasticsearch/`: Elasticsearch's index snapshots, written and read by
   Elasticsearch itself (a `gcs` repository, with the Elasticsearch machine's service
@@ -377,11 +381,11 @@ servers, the French corpus. It showed:
 - `scheduling.max_run_duration` with `instance_termination_action = "DELETE"` on
   `STANDARD` machines: the API accepted it. The deletion itself was not observed
   (see below).
-- `rag-domino-emulation` with the flags the Workspace's startup script gives it:
+- `qp-domino-emulation` with the flags the Workspace's startup script gives it:
   it read `placement.json`, placed each App on a free pool machine over SSH, and
   proxied every call. The workflow App fetched its token from `localhost:8899`
   through the forwarder and called the model servers through the proxy.
-- `rag-fetch-corpus` and `rag-ingest` with the French analyzer (1,223 documents,
+- `qp-fetch-corpus` and `qp-ingest` with the French analyzer (1,223 documents,
   1,592 passages).
 - The three topologies, each deployed in turn on the same machines: `deploy` of
   `split-all` was done about 11 minutes after `apply` and the corpus ingested
@@ -408,7 +412,7 @@ Not shown by the runs of 14 November 2026:
 - The cost figures are approximate and were not read from a current price list.
 - The Cloud Shell setup script (pinned Terraform 1.12.2, the bucket flags): the
   notes of that day do not show it running.
-- `rag-domino-emulation` handing the Apps a Project environment variable from
+- `qp-domino-emulation` handing the Apps a Project environment variable from
   `project.env`, and `/query` (generation) through the emulation: only `/retrieve`
   was measured.
 - OVMS: no OVMS App was deployed, so the OVMS bundle on the pool machines, the
@@ -434,7 +438,7 @@ Delete:
 - `query_processing/tests/emulation/`
 - `query_processing/src/fake_domino/emulation/` and its tests
   `query_processing/tests/fake_domino/test_fake_domino_emulation_*`
-- the `rag-domino-emulation` script entry and the `emulation` extra in
+- the `qp-domino-emulation` script entry and the `emulation` extra in
   `query_processing/pyproject.toml`
 - the `pyjwt`, `cryptography` and `python-hcl2` dev dependencies in
   `query_processing/pyproject.toml`

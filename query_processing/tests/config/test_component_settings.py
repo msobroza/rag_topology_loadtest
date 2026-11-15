@@ -8,13 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from rag_graphs import (
-    fixture_components,
-    fixture_graph,
-    rag_graph,
-    write_workflow_file,
-)
-from rag_load_test.config.component_settings import (
+from query_processing.config.component_settings import (
     ChromaSettings,
     ComponentHttpSettings,
     ElasticsearchSettings,
@@ -29,11 +23,17 @@ from rag_load_test.config.component_settings import (
     alias_of,
     typed_by_name,
 )
-from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
-from rag_load_test.domain.api_endpoint import ApiEndpoint
+from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.api_endpoint import ApiEndpoint
+from rag_graphs import (
+    fixture_components,
+    fixture_graph,
+    rag_graph,
+    write_workflow_file,
+)
 
-SettingsFactory = Callable[..., RagSettings]
+SettingsFactory = Callable[..., WorkflowSettings]
 EMBED_URL = "http://embedder:8002/v3/embeddings"
 RERANK_URL = "http://reranker:8001/v3/rerank"
 
@@ -80,24 +80,24 @@ def test_every_value_is_reachable_by_its_environment_path(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     variables = {
-        "RAG_COMPONENTS__EMBEDDER__BACKEND": "api",
-        "RAG_COMPONENTS__EMBEDDER__SOURCE_ID": "/models/my-embedder",
-        "RAG_COMPONENTS__EMBEDDER__QUERY_PREFIX": "",
-        "RAG_COMPONENTS__EMBEDDER__LOCAL__BATCH_SIZE": "8",
-        "RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS": "3",
-        "RAG_COMPONENTS__EMBEDDER__API__URL": EMBED_URL,
-        "RAG_COMPONENTS__EMBEDDER__API__API_KEY": "domino",
-        "RAG_COMPONENTS__EMBEDDER__API__BATCH_SIZE": "16",
-        "RAG_COMPONENTS__EMBEDDER__HTTP__RETRIES": "5",
-        "RAG_COMPONENTS__RERANKER__ALIAS": "rr",
-        "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": "4",
-        "RAG_COMPONENTS__RERANKER__LOCAL__THREADS": "2",
-        "RAG_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES": "12",
-        "RAG_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.5",
-        "RAG_COMPONENTS__LLM__API__MODEL": "gpt-x",
-        "RAG_COMPONENTS__LLM__API__API_KEY": "sk-key",
-        "RAG_COMPONENTS__LLM__API__TEMPERATURE": "0.5",
-        "RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S": "9",
+        "QP_COMPONENTS__EMBEDDER__BACKEND": "api",
+        "QP_COMPONENTS__EMBEDDER__SOURCE_ID": "/models/my-embedder",
+        "QP_COMPONENTS__EMBEDDER__QUERY_PREFIX": "",
+        "QP_COMPONENTS__EMBEDDER__LOCAL__BATCH_SIZE": "8",
+        "QP_COMPONENTS__EMBEDDER__LOCAL__THREADS": "3",
+        "QP_COMPONENTS__EMBEDDER__API__URL": EMBED_URL,
+        "QP_COMPONENTS__EMBEDDER__API__API_KEY": "domino",
+        "QP_COMPONENTS__EMBEDDER__API__BATCH_SIZE": "16",
+        "QP_COMPONENTS__EMBEDDER__HTTP__RETRIES": "5",
+        "QP_COMPONENTS__RERANKER__ALIAS": "rr",
+        "QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": "4",
+        "QP_COMPONENTS__RERANKER__LOCAL__THREADS": "2",
+        "QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES": "12",
+        "QP_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.5",
+        "QP_COMPONENTS__LLM__API__MODEL": "gpt-x",
+        "QP_COMPONENTS__LLM__API__API_KEY": "sk-key",
+        "QP_COMPONENTS__LLM__API__TEMPERATURE": "0.5",
+        "QP_COMPONENTS__LLM__HTTP__TIMEOUT_S": "9",
     }
     for name, value in variables.items():
         monkeypatch.setenv(name, value)
@@ -287,9 +287,9 @@ def test_a_store_naming_no_index_or_collection_is_refused_naming_its_variable(
     with pytest.raises(ValidationError) as caught:
         settings_factory(components__vector_store__backend=backend, **unnamed)
 
-    variable = f"RAG_COMPONENTS__VECTOR_STORE__{backend.upper()}__{key.upper()}"
+    variable = f"QP_COMPONENTS__VECTOR_STORE__{backend.upper()}__{key.upper()}"
     assert (
-        f"RAG_COMPONENTS__VECTOR_STORE__BACKEND={backend!r} needs {variable}, the "
+        f"QP_COMPONENTS__VECTOR_STORE__BACKEND={backend!r} needs {variable}, the "
         f"{key} the passages are kept in (components.vector_store.{backend}.{key} "
         "in the workflow file); got ''"
     ) in str(caught.value)
@@ -309,7 +309,7 @@ def test_a_store_on_another_backend_names_nothing(
 def test_each_block_of_the_vector_store_is_read_by_its_path(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    prefix = "RAG_COMPONENTS__VECTOR_STORE__"
+    prefix = "QP_COMPONENTS__VECTOR_STORE__"
     for path, value in {
         "BACKEND": "chroma",
         "ELASTICSEARCH__URL": "http://es:9200",

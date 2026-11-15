@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from rag_load_test.adapters.llm.api.openai_chat_format import OpenAIChatFormat
+from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
 
 
 def test_chat_request_has_the_openai_shape() -> None:

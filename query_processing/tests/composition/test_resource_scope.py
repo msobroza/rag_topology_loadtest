@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.composition.resource_scope import OWNED, ResourceScope
-from rag_load_test.domain.errors import RagDependencyError
+from query_processing.composition.resource_scope import OWNED, ResourceScope
+from query_processing.domain.errors import RagDependencyError
 
 
 class CountingOpener:

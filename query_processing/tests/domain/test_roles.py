@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from rag_load_test.domain.roles import MODEL_SERVER_ROLE, WORKFLOW_ROLE, Role
+from query_processing.domain.roles import MODEL_SERVER_ROLE, WORKFLOW_ROLE, Role
 
 
 def test_an_app_is_the_workflow_app_or_a_model_server() -> None:

@@ -1,9 +1,9 @@
-"""A fake Domino 6.2 Apps API (FastAPI), for trying ``rag-deploy`` without Domino.
+"""A fake Domino 6.2 Apps API (FastAPI), for trying ``qp-deploy`` without Domino.
 
 Transcribed from the Domino 6.2 Platform API reference, so it shows what
-``rag-deploy`` expects of Domino, not what a live Domino does. Used three ways:
-its ``/docs`` page documents the API, ``rag-fake-domino`` serves it locally, and
-``rag-deploy --dry-run`` runs the real deploy code against it in-process. An
+``qp-deploy`` expects of Domino, not what a live Domino does. Used three ways:
+its ``/docs`` page documents the API, ``qp-fake-domino`` serves it locally, and
+``qp-deploy --dry-run`` runs the real deploy code against it in-process. An
 extension may build on ``create_fake_domino`` through its keyword arguments.
 
 Example:
@@ -31,7 +31,7 @@ from .state import FAKE_DOMINO_BEHAVIOURS, FakeDominoApps
 
 FAKE_DOMINO_URL = "http://fake-domino.test"  # the base URL of an in-process fake
 # Where a run's token service listens (run_token_url in deploy.yaml): served from
-# the same port, the fake answers both the Apps API and the token `rag-deploy
+# the same port, the fake answers both the Apps API and the token `qp-deploy
 # status` asks for.
 FAKE_DOMINO_PORT = 8899
 
@@ -95,7 +95,7 @@ def create_fake_domino(
 
 class _InProcessTransport(httpx.BaseTransport):
     # Starlette's TestClient is built on ``httpx2``, not ``httpx``: wrapping it keeps
-    # rag-deploy on a real httpx.Client (its types and its httpx.HTTPError handling).
+    # qp-deploy on a real httpx.Client (its types and its httpx.HTTPError handling).
     def __init__(self, app: ASGIApp) -> None:
         self._test_client = TestClient(app)
 
@@ -134,14 +134,14 @@ def fake_domino_http(app: ASGIApp) -> httpx.Client:
 
 _ABOUT = (
     "Transcribed from the Domino 6.2 Platform API reference: it shows what "
-    "rag-deploy expects of Domino, not what a live Domino does."
+    "qp-deploy expects of Domino, not what a live Domino does."
 )
 
 
 def main(
     argv: Sequence[str] | None = None, *, serve: Callable[..., None] = uvicorn.run
 ) -> None:
-    """Serve the fake: ``rag-fake-domino [--host H] [--port P] [--behaviour B]``.
+    """Serve the fake: ``qp-fake-domino [--host H] [--port P] [--behaviour B]``.
 
     Args:
         argv: The command-line arguments; None reads ``sys.argv``.
@@ -151,7 +151,7 @@ def main(
         >>> main(["--behaviour", "slow"])  # Swagger at http://localhost:8899/docs
     """
     parser = argparse.ArgumentParser(
-        prog="rag-fake-domino", description="Serve a fake Domino 6.2 Apps API."
+        prog="qp-fake-domino", description="Serve a fake Domino 6.2 Apps API."
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=FAKE_DOMINO_PORT)

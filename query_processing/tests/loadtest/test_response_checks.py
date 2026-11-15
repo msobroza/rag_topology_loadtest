@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.loadtest.response_checks import ResponseVerdict, judge_response
+from query_processing.loadtest.response_checks import ResponseVerdict, judge_response
 
 # --- what to record ---
 

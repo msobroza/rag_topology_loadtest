@@ -1,7 +1,7 @@
 """The fake App proxy's options: one frozen value handed to ``create_fake_domino``.
 
 Each option is a choice Domino's documentation leaves open, so the fake can be
-run either way; ``rag-fake-domino`` fills them from its flags.
+run either way; ``qp-fake-domino`` fills them from its flags.
 
 Example:
     >>> create_fake_domino(proxy=FakeDominoProxySettings(keep_prefix=True))

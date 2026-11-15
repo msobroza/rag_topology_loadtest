@@ -6,24 +6,24 @@ from collections.abc import Sequence
 
 import pytest
 
-from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
-from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
-from rag_load_test.adapters.llm.base_llm import BaseLLM
-from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.reranker.base_reranker import BaseReranker
-from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
-from rag_load_test.adapters.vector_store.base_vector_store import (
+from query_processing.adapters.embedder.base_embedder import BaseEmbedder
+from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.reranker.base_reranker import BaseReranker
+from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
+from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
-from rag_load_test.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
-from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store import (
+from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
+from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
-from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
+from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
-from rag_load_test.domain.passages import ScoredPassage
+from query_processing.domain.passages import ScoredPassage
 
 
 def test_elasticsearch_and_the_in_memory_store_rank_text_and_chroma_does_not() -> None:

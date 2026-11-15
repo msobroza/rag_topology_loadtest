@@ -13,8 +13,8 @@ import pytest
 from locust.stats import PERCENTILES_TO_REPORT, RequestStats, StatsCSV
 
 from loadtest_settings_helpers import clear_loadtest_variables
-from rag_load_test.loadtest.rag_compare import load_stats
-from rag_load_test.loadtest.request_plans import RequestPlan
+from query_processing.loadtest.qp_compare import load_stats
+from query_processing.loadtest.request_plans import RequestPlan
 from repo_paths import TOOLKIT_ROOT
 
 LOCUSTFILE = TOOLKIT_ROOT / "locustfile.py"
@@ -46,9 +46,9 @@ def locustfile() -> ModuleType:
 def test_locustfile_pool_follows_the_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("RAG_TOP_K_RETRIEVE", "7")
-    monkeypatch.setenv("RAG_TOP_K_RERANK", "3")
-    monkeypatch.setenv("RAG_LOADTEST_QUESTIONS", "9")
+    monkeypatch.setenv("QP_TOP_K_RETRIEVE", "7")
+    monkeypatch.setenv("QP_TOP_K_RERANK", "3")
+    monkeypatch.setenv("QP_LOADTEST_QUESTIONS", "9")
 
     pool = _import_locustfile("locustfile_sized_pool").POOL
 
@@ -65,7 +65,7 @@ def test_rag_user_has_both_tasks_with_default_weights(locustfile: ModuleType) ->
 
 
 def test_step_shape_ramps_then_stops(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RAG_LOADTEST_SHAPE", "step")
+    monkeypatch.setenv("QP_LOADTEST_SHAPE", "step")
     shape = _import_locustfile("locustfile_step_shape").StepLoadShape()
     for run_time, expected in ((0.0, (5, 5.0)), (239.0, (40, 40.0)), (240.0, None)):
         monkeypatch.setattr(shape, "get_run_time", lambda t=run_time: t)
@@ -73,9 +73,9 @@ def test_step_shape_ramps_then_stops(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_step_shape_follows_its_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RAG_LOADTEST_SHAPE", "step")
-    monkeypatch.setenv("RAG_LOADTEST_STEP_USERS", "2,4")
-    monkeypatch.setenv("RAG_LOADTEST_STEP_SECONDS", "10")
+    monkeypatch.setenv("QP_LOADTEST_SHAPE", "step")
+    monkeypatch.setenv("QP_LOADTEST_STEP_USERS", "2,4")
+    monkeypatch.setenv("QP_LOADTEST_STEP_SECONDS", "10")
     shape = _import_locustfile("locustfile_step_settings").StepLoadShape()
     for run_time, expected in ((9.0, (2, 2.0)), (10.0, (4, 4.0)), (20.0, None)):
         monkeypatch.setattr(shape, "get_run_time", lambda t=run_time: t)
@@ -83,8 +83,8 @@ def test_step_shape_follows_its_settings(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_every_user_waits_as_the_settings_say(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RAG_LOADTEST_WAIT_MIN_S", "0.5")
-    monkeypatch.setenv("RAG_LOADTEST_WAIT_MAX_S", "0.5")
+    monkeypatch.setenv("QP_LOADTEST_WAIT_MIN_S", "0.5")
+    monkeypatch.setenv("QP_LOADTEST_WAIT_MAX_S", "0.5")
     module = _import_locustfile("locustfile_wait_time")
     for name in ("RagUser", "RerankUser", "EmbeddingsUser"):
         assert getattr(module, name).wait_time(None) == 0.5
@@ -95,10 +95,10 @@ def test_a_split_topology_without_endpoint_urls_imports(
 ) -> None:
     # The RAG system would refuse this configuration; the load generator never
     # builds it, so Locust can still drive whatever answers at --host.
-    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__BACKEND", "served")
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "served")
-    monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__SERVED__URL", raising=False)
-    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__SERVED__URL", raising=False)
+    monkeypatch.setenv("QP_COMPONENTS__EMBEDDER__BACKEND", "served")
+    monkeypatch.setenv("QP_COMPONENTS__RERANKER__BACKEND", "served")
+    monkeypatch.delenv("QP_COMPONENTS__EMBEDDER__SERVED__URL", raising=False)
+    monkeypatch.delenv("QP_COMPONENTS__RERANKER__SERVED__URL", raising=False)
 
     module = _import_locustfile("locustfile_split_topology")
 
@@ -113,10 +113,10 @@ def test_a_split_topology_without_endpoint_urls_imports(
 def test_loadtest_target_selects_one_user_class(
     monkeypatch: pytest.MonkeyPatch, target: str, active: str
 ) -> None:
-    monkeypatch.setenv("RAG_LOADTEST_TARGET", target)
+    monkeypatch.setenv("QP_LOADTEST_TARGET", target)
     # The rerank target requires the sizes of its request; the others ignore them.
-    monkeypatch.setenv("RAG_TOP_K_RETRIEVE", "20")
-    monkeypatch.setenv("RAG_TOP_K_RERANK", "10")
+    monkeypatch.setenv("QP_TOP_K_RETRIEVE", "20")
+    monkeypatch.setenv("QP_TOP_K_RERANK", "10")
     module = _import_locustfile(f"locustfile_target_{target}")
     flags = {
         name: getattr(module, name).abstract
@@ -245,7 +245,7 @@ def test_stop_listener_rewrites_the_stats_file_with_the_last_second(
     stats.log_request("POST", "/query", 30, 100)  # answered after that write
     stats.log_request("POST", "/query", 40, 100)
     stats.log_error("POST", "/query", "HTTP 503: down")
-    assert load_stats(prefix)["POST /query"].requests == 2  # what rag-compare saw
+    assert load_stats(prefix)["POST /query"].requests == 2  # what qp-compare saw
 
     options = SimpleNamespace(csv_prefix=str(prefix))
     environment = SimpleNamespace(parsed_options=options, stats=stats)

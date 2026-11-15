@@ -1,19 +1,19 @@
 # The RAG use case's workflow (ADR 0004, ADR 0005): its models, prompts, sizes
 # and store, the one place they are pinned, since the toolkit defaults none of
-# them. A command run from this directory reads this file; RAG_WORKFLOW_FILE
+# them. A command run from this directory reads this file; QP_WORKFLOW_FILE
 # names another, such as a variant, instead. Each top-level key is a setting,
 # and each value is overridden by the variable its path names, its levels
-# joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5 or
-# RAG_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
-# set it by its path, such as RAG_COMPONENTS__LLM__API__API_KEY or
-# RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
+# joined by __, such as QP_GRAPH__STAGES__RERANK__TOP_K=5 or
+# QP_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
+# set it by its path, such as QP_COMPONENTS__LLM__API__API_KEY or
+# QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
 #
 # What the components share is four more top-level blocks, left out here, so
 # each takes its defaults (the README lists them): local_models (runtime:
 # openvino | torch, openvino_dir, workers, cpus), calibration (budget_s,
 # rounds), http (timeout_s, retries, backoff_s: the default of every
 # component's own http block) and domino (token_url, token_ttl_s, tracing).
-# For example RAG_LOCAL_MODELS__RUNTIME=torch or RAG_HTTP__RETRIES=0.
+# For example QP_LOCAL_MODELS__RUNTIME=torch or QP_HTTP__RETRIES=0.
 components:
   # Each component is of the type of its name (embedder, reranker, llm or
   # vector_store) unless `type` names it, and states its backend. A model's
@@ -25,9 +25,9 @@ components:
   # block: timeout_s, retries and backoff_s, each left out being the default
   # every component shares (the top-level http block). Nothing else decides a
   # backend: a component is moved behind a model server by setting its backend
-  # and its URL, such as RAG_COMPONENTS__RERANKER__BACKEND=served and
-  # RAG_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank, which
-  # rag-deploy writes for each component its topology alias serves.
+  # and its URL, such as QP_COMPONENTS__RERANKER__BACKEND=served and
+  # QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank, which
+  # qp-deploy writes for each component its topology alias serves.
   embedder:
     backend: local # local | served | api | fake
     source_id: Snowflake/snowflake-arctic-embed-l-v2.0
@@ -51,7 +51,7 @@ components:
     elasticsearch:
       url: http://localhost:9200 # http://user:password@host:9200 for basic auth
       index: rag_passages
-    chroma: # RAG_COMPONENTS__VECTOR_STORE__BACKEND=chroma
+    chroma: # QP_COMPONENTS__VECTOR_STORE__BACKEND=chroma
       collection: rag_passages
 
 graph:

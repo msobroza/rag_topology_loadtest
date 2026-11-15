@@ -11,13 +11,13 @@ from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
 
-from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
-from rag_load_test.adapters.reranker.base_reranker import BaseReranker
-from rag_load_test.adapters.vector_store.base_vector_store import (
+from query_processing.adapters.embedder.base_embedder import BaseEmbedder
+from query_processing.adapters.reranker.base_reranker import BaseReranker
+from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
-from rag_load_test.domain.passages import Passage, ScoredPassage
+from query_processing.domain.passages import Passage, ScoredPassage
 
 
 def scored(passage_id: str, text: str | None = None) -> ScoredPassage:

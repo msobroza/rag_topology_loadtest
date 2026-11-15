@@ -8,6 +8,6 @@ headers, forwarding through one pooled client); ``placement_settings``,
 and ``tiers`` place each App on a machine of its hardware tier and run it over
 SSH, plugged into the core's ``BaseInstanceScheduler`` seam; ``about`` and ``flags``
 are its Swagger text and command line; ``server`` builds it
-(``create_domino_emulation``, ``rag-domino-emulation``). Only this package
+(``create_domino_emulation``, ``qp-domino-emulation``). Only this package
 imports ``jwt`` and ``cryptography``.
 """

@@ -44,7 +44,7 @@ class RerankOnlyKind(BaseModelServerKind):
         return "/v1/models/{name}"
 
     def launch_exports(self, settings) -> dict[str, str]:
-        return {"RAG_RERANK_ONLY_THREADS": "4"}
+        return {"QP_RERANK_ONLY_THREADS": "4"}
 '''
 # Dropped into domino/model_servers/ of a copy of domino/: its launch script.
 RERANK_ONLY_SCRIPT = """# shellcheck shell=bash
@@ -53,7 +53,7 @@ bootstrap_model_server() {
 }
 
 serve_model_server() {
-  echo "serve $1 threads=$RAG_RERANK_ONLY_THREADS" >> "$HOME/rerank-only.log"
+  echo "serve $1 threads=$QP_RERANK_ONLY_THREADS" >> "$HOME/rerank-only.log"
 }
 """
 # Writes the copy's entry scripts and its refusal, as JSON.
@@ -61,17 +61,18 @@ DRIVER = """
 import json
 import sys
 
-import rag_load_test
-from rag_load_test.deploy.apps_client import DominoDeployError
-from rag_load_test.deploy.deploy_settings import DeploySettings
-from rag_load_test.deploy.publish import LaunchPaths, entry_script
-from rag_load_test.deploy.topology_alias import resolve_topology
+import query_processing
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.publish import LaunchPaths, entry_script
+from query_processing.deploy.topology_alias import resolve_topology
 
 URLS = {"embedder": "https://domino.test/e1", "reranker": "https://domino.test/r1"}
 
 
 def settings(apps):
     return DeploySettings(
+        app_name_prefix="rag",
         topology="split-all",
         topology_alias={"split-all": {"embedder": "served", "reranker": "served"}},
         defaults={"environment_id": "env-1"},
@@ -94,16 +95,16 @@ try:
 except DominoDeployError as exc:
     refusal = str(exc)
 print(json.dumps(
-    {"package": rag_load_test.__file__, "scripts": scripts, "refusal": refusal}
+    {"package": query_processing.__file__, "scripts": scripts, "refusal": refusal}
 ))
 """
 
 
 def copies_with_a_new_kind(root: Path) -> tuple[Path, Path]:
     """Copy the package and domino/ under ``root``, each with the new kind added."""
-    package = root / "src" / "rag_load_test"
+    package = root / "src" / "query_processing"
     ignore = shutil.ignore_patterns("__pycache__")
-    shutil.copytree(TOOLKIT_ROOT / "src" / "rag_load_test", package, ignore=ignore)
+    shutil.copytree(TOOLKIT_ROOT / "src" / "query_processing", package, ignore=ignore)
     kinds = package / "deploy" / "model_server_kinds"
     (kinds / "rerank_only_kind.py").write_text(RERANK_ONLY_KIND, encoding="utf-8")
     shutil.copytree(TOOLKIT_ROOT / "domino", root / "domino")
@@ -116,8 +117,8 @@ def run_driver(root: Path, app_sh: Path) -> dict[str, object]:
     """Run the driver in ``root``, a use case's directory holding the tests' file."""
     (root / "driver.py").write_text(DRIVER, encoding="utf-8")
     shutil.copy(FIXTURE_WORKFLOW, root / "workflow.yaml")
-    # No RAG_* variable of this shell, and the copy ahead of any installed package.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("RAG_")}
+    # No QP_* variable of this shell, and the copy ahead of any installed package.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
     env["PYTHONPATH"] = str(root / "src")
     run = subprocess.run(
         [sys.executable, str(root / "driver.py"), str(app_sh), str(root)],
@@ -144,13 +145,13 @@ def test_a_new_kind_is_one_class_and_one_script(tmp_path: Path) -> None:
     # The workflow App calls the reranker on the new kind's own route.
     workflow = scripts["workflow"]
     assert (
-        "export RAG_COMPONENTS__EMBEDDER__SERVED__URL="
+        "export QP_COMPONENTS__EMBEDDER__SERVED__URL="
         "https://domino.test/e1/v3/embeddings\n"
     ) in workflow
     assert (
-        "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/r1/v1/rerank\n"
+        "export QP_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/r1/v1/rerank\n"
     ) in workflow
-    label = "export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=rerank-only\n"
+    label = "export QP_RUN_LABEL=split-all+embedder=fastapi+reranker=rerank-only\n"
     assert label in workflow
     # app.sh starts the new kind's script, with the variable the class adds.
     run_dir = tmp_path / "run"
@@ -168,7 +169,7 @@ def test_a_new_kind_is_one_class_and_one_script(tmp_path: Path) -> None:
         "bootstrap",
         "serve reranker threads=4",
     ]
-    assert log(run_dir, "rag-model-server") == ""
+    assert log(run_dir, "qp-model-server") == ""
 
 
 def test_a_kind_that_cannot_serve_a_type_is_refused_naming_the_kinds_that_can(

@@ -11,7 +11,7 @@
 #   gcloud compute instances get-guest-attributes <machine> --zone <zone> --query-path=rag-emulation/startup
 #
 # The scripts of emulation/machine/ source this file for its functions (the cache
-# bucket's), after setting RAG_EMULATION_SOURCED=1.
+# bucket's), after setting QP_EMULATION_SOURCED=1.
 set -euo pipefail
 umask 022
 
@@ -32,7 +32,7 @@ CACHE_OVMS_OBJECT="$CACHE_MODELS_PREFIX$DATASET_OVMS.tar"
 MODEL_FOLDER_PATTERN='[A-Za-z0-9_][A-Za-z0-9._-]*'
 # Written at boot by write_cache_config (under the emulation's config folder);
 # the variable is for the tests of emulation/machine/.
-CACHE_ENV_FILE=${RAG_EMULATION_CACHE_ENV:-/etc/rag-emulation/cache.env}
+CACHE_ENV_FILE=${QP_EMULATION_CACHE_ENV:-/etc/rag-emulation/cache.env}
 # A curl status for "the bucket has no such object" (curl's own codes stop at 99).
 BUCKET_NO_SUCH_OBJECT=100
 
@@ -299,9 +299,9 @@ restore_cached_models() {
 }
 
 # A startup script reports its progress. A script that sources this file for its
-# functions (RAG_EMULATION_SOURCED=1) must not: its exit, failed or not, would set
+# functions (QP_EMULATION_SOURCED=1) must not: its exit, failed or not, would set
 # the machine's startup state, which `make ready` reads.
-if [ "${RAG_EMULATION_SOURCED:-}" != 1 ]; then
+if [ "${QP_EMULATION_SOURCED:-}" != 1 ]; then
   trap on_exit EXIT
   guest_attribute startup running || true
 fi

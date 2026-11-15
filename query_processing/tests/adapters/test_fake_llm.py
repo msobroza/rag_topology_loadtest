@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 
 
 async def test_fake_llm_echoes_last_user_message_and_counts_calls() -> None:

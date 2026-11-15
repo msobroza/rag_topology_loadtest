@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rag_load_test.domain.standard_formats import (
+from query_processing.domain.standard_formats import (
     CohereRerankRequest,
     OpenAIEmbeddingsRequest,
 )

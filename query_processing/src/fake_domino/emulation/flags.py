@@ -1,4 +1,4 @@
-"""The command-line flags of ``rag-domino-emulation``: placement and App proxy.
+"""The command-line flags of ``qp-domino-emulation``: placement and App proxy.
 
 Example:
     >>> emulation_parser().parse_args(["--placement", "placement.json"])
@@ -18,7 +18,7 @@ from .proxy_settings import (
 
 
 def emulation_parser() -> argparse.ArgumentParser:
-    """Build the parser of ``rag-domino-emulation``.
+    """Build the parser of ``qp-domino-emulation``.
 
     Returns:
         A parser for ``--host``, ``--port``, the placement and App proxy flags.
@@ -28,7 +28,7 @@ def emulation_parser() -> argparse.ArgumentParser:
         8899
     """
     parser = argparse.ArgumentParser(
-        prog="rag-domino-emulation",
+        prog="qp-domino-emulation",
         description="Serve the Domino emulation: the fake Domino 6.2 Apps API, "
         "its App proxy, and Apps placed on machines over SSH.",
     )

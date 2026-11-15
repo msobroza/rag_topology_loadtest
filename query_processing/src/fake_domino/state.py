@@ -2,7 +2,7 @@
 
 What a new version's instance reports is decided by an ``BaseInstanceScheduler``
 (``instances.py``): by default scripted, one status per GET of the App (a
-behaviour), so a test or a dry run can watch ``rag-deploy`` wait. The routes in
+behaviour), so a test or a dry run can watch ``qp-deploy`` wait. The routes in
 ``apps_routes.py`` and ``stand_ins.py`` read and change this state, all of it in
 memory.
 

@@ -16,32 +16,32 @@ from pathlib import Path
 
 import pytest
 
-from rag_components import shell_settings
-from rag_load_test.entrypoints import (
-    rag_calibrate,
-    rag_ingest,
-    rag_model_server,
-    rag_serve,
+from query_processing.entrypoints import (
+    qp_calibrate,
+    qp_ingest,
+    qp_model_server,
+    qp_serve,
 )
+from rag_components import shell_settings
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
 Main = Callable[[Sequence[str] | None], int]
 # Command -> its main, and the arguments that open components.
 COMMANDS: dict[str, tuple[Main, list[str]]] = {
-    "rag-serve": (rag_serve.main, []),
-    "rag-model-server": (rag_model_server.main, ["--serve", "reranker"]),
-    "rag-ingest": (rag_ingest.main, ["--synthetic", "1"]),
+    "qp-serve": (qp_serve.main, []),
+    "qp-model-server": (qp_model_server.main, ["--serve", "reranker"]),
+    "qp-ingest": (qp_ingest.main, ["--synthetic", "1"]),
 }
 # What the environment names, and what the refusal says of it.
 UNKNOWN_NAMES = {
     "an API format": (
-        {"RAG_COMPONENTS__LLM__API__API_FORMAT": "jina"},
-        "RAG_COMPONENTS__LLM__API__API_FORMAT: "
+        {"QP_COMPONENTS__LLM__API__API_FORMAT": "jina"},
+        "QP_COMPONENTS__LLM__API__API_FORMAT: "
         "unknown generation API format 'jina' (expected one of: 'openai')",
     ),
     "a backend": (
-        {"RAG_COMPONENTS__RERANKER__BACKEND": "gpu"},
-        "RAG_COMPONENTS__RERANKER__BACKEND: unknown reranker backend 'gpu' "
+        {"QP_COMPONENTS__RERANKER__BACKEND": "gpu"},
+        "QP_COMPONENTS__RERANKER__BACKEND: unknown reranker backend 'gpu' "
         "(expected one of: 'api', 'fake', 'local', 'none', 'served')",
     ),
 }
@@ -51,14 +51,14 @@ UNKNOWN_NAMES = {
 def fake_weights(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> FakeSentenceTransformersModule:
-    """Fake models, torch; no RAG_* from the shell, no ``.env``, no server run."""
+    """Fake models, torch; no QP_* from the shell, no ``.env``, no server run."""
     module = FakeSentenceTransformersModule()
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
-    for name in shell_settings(os.environ, ("RAG_", "DOMINO_")):
+    for name in shell_settings(os.environ, ("QP_", "DOMINO_")):
         monkeypatch.delenv(name)
-    monkeypatch.setenv("RAG_LOCAL_MODELS__RUNTIME", "torch")
+    monkeypatch.setenv("QP_LOCAL_MODELS__RUNTIME", "torch")
     monkeypatch.chdir(tmp_path)
-    for server in (rag_serve, rag_model_server):
+    for server in (qp_serve, qp_model_server):
         monkeypatch.setattr(server.uvicorn, "run", never_serve)
     return module
 
@@ -93,7 +93,7 @@ def test_an_unknown_name_is_a_usage_error_before_anything_opens(
 
 
 @pytest.mark.parametrize("unknown", sorted(UNKNOWN_NAMES))
-def test_rag_calibrate_refuses_an_unknown_name_before_any_model_loads(
+def test_qp_calibrate_refuses_an_unknown_name_before_any_model_loads(
     fake_weights: FakeSentenceTransformersModule,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -103,12 +103,12 @@ def test_rag_calibrate_refuses_an_unknown_name_before_any_model_loads(
     for name, value in variables.items():
         monkeypatch.setenv(name, value)
 
-    # rag-calibrate reports a settings mistake as one line and status 1.
-    assert rag_calibrate.main(["--only", "reranker"]) == 1
+    # qp-calibrate reports a settings mistake as one line and status 1.
+    assert qp_calibrate.main(["--only", "reranker"]) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
     [line] = captured.err.splitlines()
-    assert line.startswith("rag-calibrate: cannot read the settings: ")
+    assert line.startswith("qp-calibrate: cannot read the settings: ")
     assert message in line
     assert fake_weights.loaded == []
