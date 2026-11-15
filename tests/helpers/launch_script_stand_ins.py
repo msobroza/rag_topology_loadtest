@@ -101,6 +101,15 @@ def stand_in_env(tmp_path: Path, bin_dir: Path, **env: str) -> dict[str, str]:
     return {**inherited, "PATH": path, "HOME": str(home), **env}
 
 
+def model_server_env(kind: str, component: str) -> dict[str, str]:
+    """The variables that make app.sh a model server of ``component`` by ``kind``."""
+    return {
+        "RAG_ROLE": "model-server",
+        "RAG_MODEL_SERVER_KIND": kind,
+        "RAG_MODEL_SERVER_COMPONENT": component,
+    }
+
+
 def log(tmp_path: Path, name: str) -> str:
     """What the stand-in ``name`` logged, "" when it never ran."""
     path = tmp_path / f"{name}.log"
@@ -113,7 +122,7 @@ def started_env(tmp_path: Path, name: str) -> list[str]:
 
 
 def models_dir(tmp_path: Path) -> Path:
-    """A models folder holding both OVMS configs, so no OVMS role exports."""
+    """A models folder holding both OVMS configs, so no OVMS model server exports."""
     models = tmp_path / "models"
     models.mkdir()
     (models / "config_reranker.json").write_text("{}")

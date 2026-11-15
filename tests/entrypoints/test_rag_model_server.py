@@ -6,6 +6,7 @@ pure: no HTTP, no server.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 
 import httpx
@@ -35,6 +36,7 @@ from rag_load_test.entrypoints.rag_model_server import (
     main,
     rerank_response_for,
 )
+from sentence_transformers_fakes import FakeSentenceTransformersModule
 
 EMBED_ALIAS = (
     "snowflake-arctic-embed-l-v2.0"  # the embedder's alias in the workflow file
@@ -249,6 +251,34 @@ def test_a_component_of_any_name_is_served_under_its_alias(
     assert status.json() == {"name": "coarse-rr", "role": "coarse"}
     assert other.status_code == 404
     assert healthz == {"status": "ok", "role": "coarse"}
+
+
+def test_the_named_component_is_served_from_its_local_backend_whatever_its_file_says(
+    settings_factory: Callable[..., RagSettings],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Its weights load in this process (the stand-in records it), although the
+    # workflow file serves it from a model server: that model server is this one.
+    weights = FakeSentenceTransformersModule()
+    monkeypatch.setitem(sys.modules, "sentence_transformers", weights)
+    coarse = {
+        "type": "reranker",
+        "backend": "served",
+        "source_id": "org/coarse-rr",
+        "served": {"url": "http://models.test/v3/rerank"},
+        "local": {"threads": 1},  # pinned: no calibration
+    }
+    settings = settings_factory(
+        components={"coarse": coarse}, local_models__runtime="torch"
+    )
+    payload = {"model": "coarse-rr", "query": "q", "documents": ["a", "b"]}
+
+    with TestClient(create_model_server("coarse", CompositionRoot(settings))) as client:
+        answer = client.post("/v3/rerank", json=payload)
+
+    assert answer.status_code == 200, answer.text
+    assert len(answer.json()["results"]) == 2
+    assert weights.loaded == ["reranker:org/coarse-rr"]
 
 
 def test_a_component_no_model_server_serves_is_refused(

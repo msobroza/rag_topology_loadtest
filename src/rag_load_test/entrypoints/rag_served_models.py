@@ -1,12 +1,15 @@
-"""``rag-served-models``: print the served models as shell assignments.
+"""``rag-served-models``: print the served models, one line of shell words each.
 
-The workflow file is the one pin for the served models: the components named
-``reranker`` and ``embedder``, a source id and an alias each, the ones the OVMS
-model-server Apps serve. ``ovms/export_models.sh`` evaluates this command's
-output instead of repeating the four names.
+The workflow file is the one pin for the served models: each embedder and
+reranker it declares, by any name, with a source id and an alias, is a model an
+OVMS model-server App may serve. ``ovms/export_models.sh`` reads this command's
+output to export each one under its component's name, instead of repeating the
+names.
 
 Example:
-    >>> eval "$(rag-served-models)"
+    >>> rag-served-models
+    embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 snowflake-arc...
+    reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR cross...
 """
 
 from __future__ import annotations
@@ -18,36 +21,28 @@ from collections.abc import Sequence
 from ..config.rag_settings import RagSettings
 
 
-def served_model_assignments(settings: RagSettings) -> list[str]:
-    """Return ``NAME=value`` lines, shell-quoted so the output is safe to ``eval``.
+def served_model_lines(settings: RagSettings) -> list[str]:
+    """Return one line per embedder and reranker: its name, type, source id, alias.
 
-    The names are the variables ``ovms/export_models.sh`` passes to the exporter.
+    Each word is shell-quoted, so a line is safe to ``eval "set -- $line"``, as
+    ``ovms/export_models.sh`` does.
 
     Args:
-        settings: Whose ``reranker`` and ``embedder`` components give the source
-            ids and the aliases.
+        settings: Whose workflow file declares the components.
 
     Returns:
-        Four lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
-        ``EMBEDDER_SOURCE_MODEL``, ``EMBEDDER_MODEL_NAME``.
-
-    Raises:
-        KeyError: If the workflow file declares no ``reranker`` or no
-            ``embedder`` component.
+        The lines, in the file's order; an LLM or a vector store has none.
 
     Example:
-        >>> served_model_assignments(RagSettings())[0]
-        'RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR'
+        >>> served_model_lines(RagSettings())[1]
+        'reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR ...'
     """
-    components = settings.model_components()
-    reranker, embedder = components["reranker"], components["embedder"]
-    values = {
-        "RERANKER_SOURCE_MODEL": reranker.source_id,
-        "RERANKER_MODEL_NAME": reranker.alias,
-        "EMBEDDER_SOURCE_MODEL": embedder.source_id,
-        "EMBEDDER_MODEL_NAME": embedder.alias,
-    }
-    return [f"{name}={shlex.quote(value)}" for name, value in values.items()]
+    exported = ("embedder", "reranker")  # the types the OVMS exporter exports
+    return [
+        shlex.join([name, component.type, component.source_id, component.alias])
+        for name, component in settings.model_components().items()
+        if component.type in exported
+    ]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -58,17 +53,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             reads ``sys.argv``.
 
     Returns:
-        The exit status, 0, after printing the assignments one per line.
+        The exit status, 0, after printing one line per served model.
 
     Example:
-        >>> main([])  # prints RERANKER_SOURCE_MODEL=<source id>, then three more
+        >>> main([])  # prints "embedder embedder <source id> <alias>", then more
         0
     """
     parser = argparse.ArgumentParser(
         prog="rag-served-models",
-        description="Print the served models (source id and alias) as shell "
-        "assignments, for eval in ovms/export_models.sh.",
+        description="Print each embedder and reranker of the workflow file as one "
+        "line of shell words (name, type, source id, alias), for "
+        "ovms/export_models.sh.",
     )
     parser.parse_args(argv)
-    print("\n".join(served_model_assignments(RagSettings())))
+    print("\n".join(served_model_lines(RagSettings())))
     return 0

@@ -15,7 +15,6 @@ import pytest
 from rag_load_test.composition.calibrated_stages import ComponentCalibration
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.roles import ModelServerPart
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
 SettingsFactory = Callable[..., RagSettings]
@@ -44,9 +43,7 @@ def four_cpu_settings(
     )
 
 
-async def calibration_of(
-    part: ModelServerPart, settings: RagSettings
-) -> ComponentCalibration:
+async def calibration_of(part: str, settings: RagSettings) -> ComponentCalibration:
     async with CompositionRoot(settings) as composition:
         return await composition.calibration(part)
 
@@ -100,7 +97,7 @@ async def test_the_embedder_searches_its_threads_at_the_configured_batch_size(
 async def test_only_the_part_asked_for_loads(
     settings_factory: SettingsFactory,
     fake_weights: FakeSentenceTransformersModule,
-    part: ModelServerPart,
+    part: str,
     role: str,
 ) -> None:
     await calibration_of(part, four_cpu_settings(settings_factory))

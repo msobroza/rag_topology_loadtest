@@ -18,6 +18,7 @@ from domino_deploy_helpers import (
     add_app,
     make_client,
     make_settings,
+    model_server_exports,
     no_sleep,
 )
 from fake_domino.state import FakeDominoApps
@@ -49,17 +50,24 @@ def with_settings(part: str, values: dict[str, str], **overrides: object) -> Dep
 def test_ovms_model_server_script_exports_the_bundle_after_app_settings(
     part: str,
 ) -> None:
-    settings = with_settings(
-        part,
-        {"RAG_OVMS_MODELS_DIR": "/mnt/data/ovms-models"},
-        model_server="ovms",
+    own = {"settings": {"RAG_OVMS_MODELS_DIR": "/mnt/data/ovms-models"}}
+    settings = make_settings(
+        apps={part: {**own, "server": "ovms"}},
         ovms_bundle="/mnt/code/ovms bundle.tar.gz",
     )
     assert script(part, settings, {}) == (
         "export RAG_OVMS_MODELS_DIR=/mnt/data/ovms-models\n"
-        f"export RAG_ROLE=ovms-{part}\n"
+        f"{model_server_exports(part, 'ovms')}"
         "export RAG_OVMS_BUNDLE='/mnt/code/ovms bundle.tar.gz'\n"
         f"{BOOTSTRAP_AND_EXEC}"
+    )
+
+
+@pytest.mark.parametrize("part", ["embedder", "reranker"])
+def test_fastapi_model_server_script_names_its_component_and_kind(part: str) -> None:
+    settings = make_settings(ovms_bundle="/mnt/code/ovms")
+    assert script(part, settings, {}) == (
+        f"{model_server_exports(part, 'fastapi')}{BOOTSTRAP_AND_EXEC}"
     )
 
 
@@ -68,7 +76,7 @@ def test_split_all_workflow_script_quotes_urls_and_names_the_run() -> None:
         "workflow",
         {"RAG_ES_URL": "https://es.test:9200"},
         topology="split-all",
-        model_server="ovms",
+        defaults={"environment_id": "env-1", "server": "ovms"},
         ovms_bundle="/mnt/code/ovms",
     )
     urls = {  # a "/" ending an App URL is not doubled before the route
@@ -105,7 +113,7 @@ def test_split_reranker_workflow_script_has_only_the_reranker_url() -> None:
 def test_monolith_workflow_script_has_local_backends_and_no_url() -> None:
     settings = make_settings(topology="monolith")
     assert script("workflow", settings, {}) == (
-        "export RAG_ROLE=monolith\n"
+        "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=monolith\n"
         f"{MONOLITH_EXPORTS}"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
@@ -115,7 +123,7 @@ def test_monolith_workflow_script_has_local_backends_and_no_url() -> None:
 def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
     settings = make_settings(topology="monolith", apps={"workflow": {"kind": "app"}})
     assert script("workflow", settings, {}) == (
-        "export RAG_ROLE=monolith\n"
+        "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -127,7 +135,7 @@ def test_an_agent_keeps_the_tracing_and_extras_its_settings_set() -> None:
     assert script("workflow", settings, {}) == (
         "export RAG_BOOTSTRAP_EXTRAS=domino,dev\n"
         "export RAG_DOMINO__TRACING=0\n"
-        "export RAG_ROLE=monolith\n"
+        "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -139,7 +147,7 @@ def test_app_settings_come_first_so_computed_exports_win() -> None:
     assert script("workflow", settings, {}) == (
         "export RAG_ES_URL='https://es.test/?a&b'\n"
         "export RAG_TOPOLOGY=split-all\n"
-        "export RAG_ROLE=monolith\n"
+        "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )

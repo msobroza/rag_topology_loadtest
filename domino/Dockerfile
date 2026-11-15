@@ -4,12 +4,14 @@
 #   docker build -f domino/Dockerfile --target rag  -t <registry>/rag-load-test-rag  .
 #   docker build -f domino/Dockerfile --target ovms -t <registry>/rag-load-test-ovms .
 #
-#   rag   for the RAG apps (RAG_ROLE=monolith | workflow) and for Workspaces that
-#         run Locust: this package with the [loadtest,domino] extras, both HF
-#         models pre-downloaded, HF_HUB_OFFLINE=1.
-#   ovms  for the OVMS apps (RAG_ROLE=ovms-reranker | ovms-embedder): the ovms
-#         binary tarball pinned in ovms/versions.env, unpacked under /opt/ovms,
-#         plus nginx for the optional prefix proxy (RAG_OVMS_PREFIX_PROXY=1).
+#   rag   for the workflow apps (RAG_ROLE=workflow), the model servers of kind
+#         fastapi (RAG_ROLE=model-server, RAG_MODEL_SERVER_KIND=fastapi) and the
+#         Workspaces that run Locust: this package with the [loadtest,domino]
+#         extras, both HF models pre-downloaded, HF_HUB_OFFLINE=1.
+#   ovms  for the model servers of kind ovms (RAG_ROLE=model-server,
+#         RAG_MODEL_SERVER_KIND=ovms): the ovms binary tarball pinned in
+#         ovms/versions.env, unpacked under /opt/ovms, plus nginx for the
+#         optional prefix proxy (RAG_OVMS_PREFIX_PROXY=1).
 #
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's

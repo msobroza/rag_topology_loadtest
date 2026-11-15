@@ -7,6 +7,8 @@ documents every key.
 Example:
     >>> DeploySettings().for_app("workflow").kind
     'agent'
+    >>> DeploySettings().for_app("reranker").server
+    'fastapi'
 """
 
 from __future__ import annotations
@@ -26,8 +28,9 @@ from pydantic_settings import (
 )
 
 from ..domain.api_endpoint import DOMINO_RUN_TOKEN
-from ..domain.roles import WORKFLOW_APP, AppPart, ModelServerKind
+from ..domain.roles import WORKFLOW_APP, AppPart
 from .apps_client import DominoDeployError, WaitLimits
+from .model_server_kinds.base_model_server_kind import MODEL_SERVER_KINDS
 
 AppKind = Literal["app", "agent"]
 # Where a topology alias puts a component it names: in the workflow App's
@@ -36,6 +39,8 @@ Placement = Literal["local", "served"]
 DEPLOY_FILE = (
     "deploy.yaml"  # in the working directory, unless RAG_DEPLOY_FILE names one
 )
+# What serves a model server App whose block and the defaults name no kind.
+DEFAULT_MODEL_SERVER_KIND = "fastapi"
 
 
 def deploy_file() -> str:
@@ -86,7 +91,16 @@ class AppBlock(_Block):
     environment_revision_id: str | None = None  # one build of the environment
     hardware_tier_id: str | None = None
     autoscaling: Autoscaling | None = None
+    # The model-server kind of a model server App: a registered kind's name.
+    server: str | None = None
     settings: dict[str, str] = {}
+
+    @field_validator("server")
+    @classmethod
+    def _a_registered_kind(cls, value: str | None) -> str | None:
+        if value is not None:
+            MODEL_SERVER_KINDS.get(value)  # names every kind when it is none
+        return value
 
     @field_validator("settings", mode="before")
     @classmethod
@@ -115,6 +129,7 @@ class AppSettings:
     environment_revision_id: str  # "" = none: Domino chooses the revision
     hardware_tier_id: str
     autoscaling: Autoscaling | None
+    server: str  # the model-server kind, which only a model server App uses
     settings: dict[str, str] = field(default_factory=dict)
 
 
@@ -142,9 +157,8 @@ class DeploySettings(BaseSettings):
     # workflow file gives it. Where a component runs differs per site, so no
     # alias is defined in code (ADR 0003).
     topology_alias: dict[str, dict[str, Placement]] = {}
-    model_server: ModelServerKind = "fastapi"
     project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
-    ovms_bundle: str = ""  # required for ``ovms``: bin/ovms + lib/, or its .tar.gz
+    ovms_bundle: str = ""  # required by an ovms App: bin/ovms + lib/, or its .tar.gz
     domino_host: str = ""  # "" = the scheme and host of each App's own url
     wait_timeout_s: float = 600.0
     poll_interval_s: float = 5.0
@@ -198,6 +212,19 @@ class DeploySettings(BaseSettings):
         )
 
     @model_validator(mode="after")
+    def _no_kind_for_the_workflow_app(self) -> DeploySettings:
+        # The workflow App is no model server: a kind in its block is a mistake
+        # that would otherwise be silently unused.
+        workflow = self.apps.get(WORKFLOW_APP, AppBlock())
+        if workflow.server is None:
+            return self
+        raise ValueError(
+            f"apps.{WORKFLOW_APP}.server is {workflow.server!r}, but the workflow App "
+            "is no model server: set server in the block of a served component, "
+            "or in defaults for every model server App"
+        )
+
+    @model_validator(mode="after")
     def _project_from_the_workspace(self) -> DeploySettings:
         # The example's `project_id: ""` means "not set", not "".
         self.project_id = self.project_id or os.environ.get("DOMINO_PROJECT_ID", "")
@@ -230,7 +257,8 @@ class DeploySettings(BaseSettings):
 
         Returns:
             The App's settings, the kind defaulting to ``agent`` for the
-            workflow App and ``app`` for a model server App.
+            workflow App and ``app`` for a model server App, and the
+            model-server kind to ``fastapi``.
 
         Example:
             >>> DeploySettings().for_app("reranker").hardware_tier_id
@@ -246,6 +274,7 @@ class DeploySettings(BaseSettings):
             environment_revision_id=revision_id,
             hardware_tier_id=own.hardware_tier_id or shared.hardware_tier_id or "",
             autoscaling=own.autoscaling or shared.autoscaling,
+            server=own.server or shared.server or DEFAULT_MODEL_SERVER_KIND,
             settings=dict(sorted({**shared.settings, **own.settings}.items())),
         )
 

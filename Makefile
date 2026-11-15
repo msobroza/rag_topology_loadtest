@@ -79,7 +79,7 @@ loadtest: ## Headless locust run: make loadtest RUN_NAME=monolith HOST=http://ho
 compare: ## Compare all runs found under results/ into results/comparison.md
 	$(BIN)rag-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
 
-ovms-export: ## Export reranker + embedder to ovms/models (needs HF access)
+ovms-export: ## Export each embedder and reranker of the workflow file to ovms/models (needs HF access)
 	./ovms/export_models.sh
 
 openvino-export: ## Convert the in-process reranker + embedder to OpenVINO under models/openvino (needs HF access)

@@ -48,6 +48,7 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
         environment_revision_id="",
         hardware_tier_id="small",
         autoscaling=Autoscaling(min_replicas=1, max_replicas=4),
+        server="fastapi",
         settings={
             "RAG_COMPONENTS__RERANKER__SOURCE_ID": "/mnt/data/models/bge reranker",
             "RAG_ES_URL": "https://es.test:9200",
@@ -180,7 +181,6 @@ def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
         "app_name_prefix": "rag",
         "topology": "split-all",
         "topology_alias": {},  # no alias in code: deploy.yaml defines them
-        "model_server": "fastapi",
         "project_id": "",
         "ovms_bundle": "",
         "domino_host": "",
@@ -192,6 +192,7 @@ def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
         "run_token_url": "http://localhost:8899/access-token",
     }
     assert settings.for_app("reranker").environment_id == ""
+    assert settings.for_app("reranker").server == "fastapi"
 
 
 def test_deploy_yaml_in_the_working_directory_is_read_by_default(

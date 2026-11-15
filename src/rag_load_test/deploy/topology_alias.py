@@ -3,17 +3,18 @@
 The deploy settings choose a topology by its alias, and define each alias as a
 row of ``topology_alias``: ``local`` or ``served`` for the components it names
 (ADR 0003). Resolving the chosen one says which Apps to publish (one model
-server App per served component, then the workflow App), what to write into the
-workflow App's launch script, and refuses, before anything is published, an
-alias the table lacks, a row naming a component the workflow file does not
-declare, a served component no model server can serve, and an alias that makes
-no valid run label.
+server App per served component, then the workflow App), which model-server
+kind serves each served component, what to write into the workflow App's
+launch script, and refuses, before anything is published, an alias the table
+lacks, a row naming a component the workflow file does not declare, a served
+component its model-server kind cannot serve, and an alias that makes no valid
+run label.
 
 Example:
     >>> topology = resolve_topology(DeploySettings())
     >>> topology.app_parts()
     ['embedder', 'reranker', 'workflow']
-    >>> topology.run_label("fastapi")
+    >>> topology.run_label()
     'split-all+embedder=fastapi+reranker=fastapi'
 """
 
@@ -22,11 +23,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..domain.roles import MODEL_SERVER_ROUTES, WORKFLOW_APP, ModelServerKind
+from ..domain.roles import WORKFLOW_APP
 from ..domain.run_label import RUN_LABEL_PATTERN, RUN_LABEL_SHAPE
 from ..domain.topology import SERVED, Topology, topology_that_moves_nothing
 from .apps_client import DominoDeployError
 from .deploy_settings import DeploySettings, Placement, deploy_file
+from .model_server_kinds.base_model_server_kind import (
+    MODEL_SERVER_KINDS,
+    model_server_kind,
+)
 from .workflow_components import (
     WorkflowComponent,
     read_workflow_components,
@@ -43,11 +48,13 @@ class ResolvedTopology:
         placements: ``local`` or ``served`` for each component the alias names,
             in the workflow file's order.
         components: Every component of the workflow file, by name.
+        kinds: The model-server kind of each served component, by name.
     """
 
     alias: str
     placements: dict[str, Placement]
     components: dict[str, WorkflowComponent]
+    kinds: dict[str, str]
 
     @property
     def served(self) -> list[str]:
@@ -82,20 +89,37 @@ class ResolvedTopology:
             for name, component in self.components.items()
         }
 
-    def run_label(self, kind: ModelServerKind) -> str:
+    def run_label(self) -> str:
         """Name the run: the alias, then each served component and its server kind.
 
-        Args:
-            kind: The model-server kind of every model server App.
-
         Returns:
-            ``<alias>+<component>=<kind>`` for each served component.
+            ``<alias>+<component>=<kind>`` for each served component, each with
+            the model-server kind of its own App.
 
         Example:
-            >>> topology.run_label("ovms")
-            'split-reranker+reranker=ovms'
+            >>> topology.run_label()
+            'split-all+embedder=fastapi+reranker=ovms'
         """
-        return self.alias + "".join(f"+{name}={kind}" for name in self.served)
+        return self.alias + "".join(
+            f"+{name}={self.kinds[name]}" for name in self.served
+        )
+
+    def served_route(self, name: str) -> str:
+        """Give the route a served component is called on: its kind's for its type.
+
+        Args:
+            name: A served component.
+
+        Returns:
+            The route its model-server kind declares for its type, such as
+            ``/v3/rerank``.
+
+        Example:
+            >>> topology.served_route("reranker")
+            '/v3/rerank'
+        """
+        kind = model_server_kind(self.kinds[name])
+        return kind.route_of(self.components[name].type)
 
     def topology_variable(self) -> Topology:
         """Name the topology the workflow App is told, as ``RAG_TOPOLOGY``.
@@ -117,17 +141,18 @@ def resolve_topology(settings: DeploySettings) -> ResolvedTopology:
 
     Args:
         settings: The deploy settings: ``topology``, ``topology_alias``, the
-            model-server kind and the workflow App's settings.
+            model-server kind of each App and the workflow App's settings.
 
     Returns:
-        The chosen alias and the components it places.
+        The chosen alias, the components it places and the model-server kind
+        of each served one.
 
     Raises:
         DominoDeployError: If the workflow file cannot be read, ``apps`` has a
             block that is neither ``workflow`` nor a component of it, the alias
             is not in ``topology_alias``, its row names a component the file
-            does not declare, it serves a component no model server can serve,
-            or it would make no valid run label.
+            does not declare, it serves a component its model-server kind
+            cannot serve, or it would make no valid run label.
 
     Example:
         >>> resolve_topology(DeploySettings(topology="monolith")).app_parts()
@@ -139,10 +164,12 @@ def resolve_topology(settings: DeploySettings) -> ResolvedTopology:
     row = _row_of(settings)
     _refuse_an_unknown_component(settings.topology, row, path, components)
     placements = {name: row[name] for name in components if name in row}
-    topology = ResolvedTopology(settings.topology, placements, components)
+    served = [name for name, cell in placements.items() if cell == SERVED]
+    kinds = {name: settings.for_app(name).server for name in served}
+    topology = ResolvedTopology(settings.topology, placements, components, kinds)
     for name in topology.served:
-        _refuse_what_no_model_server_serves(topology, name, settings.model_server)
-    _refuse_an_invalid_run_label(topology, settings.model_server)
+        _refuse_what_its_kind_cannot_serve(topology, name)
+    _refuse_an_invalid_run_label(topology)
     return topology
 
 
@@ -174,30 +201,43 @@ def _refuse_an_unknown_component(
     )
 
 
-def _refuse_what_no_model_server_serves(
-    topology: ResolvedTopology, name: str, kind: ModelServerKind
-) -> None:
-    servable = MODEL_SERVER_ROUTES[kind]
-    type_ = topology.components[name].type
-    if type_ not in servable:
+def _refuse_what_its_kind_cannot_serve(topology: ResolvedTopology, name: str) -> None:
+    type_, kind = topology.components[name].type, topology.kinds[name]
+    if model_server_kind(kind).serves(type_):
+        return
+    able = _kinds_that_serve(type_)
+    if not able:
         raise DominoDeployError(
             f"topology alias {topology.alias!r} serves component {name!r}, of type "
-            f"{type_!r}, which no model server can serve: a {kind} model server "
-            f"serves a component of type {' or '.join(servable)}; leave {name!r} "
-            "out of the row to keep the backend the workflow file gives it"
+            f"{type_!r}, which no model-server kind can serve: {_what_each_serves()}; "
+            f"leave {name!r} out of the row to keep the backend the workflow file "
+            "gives it"
         )
-    if name != type_:
-        raise DominoDeployError(
-            f"topology alias {topology.alias!r} serves component {name!r}, of type "
-            f"{type_!r}: a model server App serves only the component named after "
-            f"its type ({type_!r}), the one domino/app.sh starts"
-        )
+    raise DominoDeployError(
+        f"topology alias {topology.alias!r} serves component {name!r}, of type "
+        f"{type_!r}, with the model-server kind {kind!r} (apps.{name}.server, else "
+        f"defaults.server, in {deploy_file()}), which cannot serve it: the kinds "
+        f"that can are {_names(able)}"
+    )
 
 
-def _refuse_an_invalid_run_label(
-    topology: ResolvedTopology, kind: ModelServerKind
-) -> None:
-    label = topology.run_label(kind)
+def _kinds_that_serve(component_type: str) -> list[str]:
+    return [
+        name
+        for name in MODEL_SERVER_KINDS.names()
+        if model_server_kind(name).serves(component_type)
+    ]
+
+
+def _what_each_serves() -> str:
+    return ", ".join(
+        f"{name} serves {' or '.join(model_server_kind(name).routes)}"
+        for name in MODEL_SERVER_KINDS.names()
+    )
+
+
+def _refuse_an_invalid_run_label(topology: ResolvedTopology) -> None:
+    label = topology.run_label()
     if RUN_LABEL_PATTERN.fullmatch(label):
         return
     raise DominoDeployError(

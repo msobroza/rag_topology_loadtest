@@ -23,6 +23,7 @@ from domino_deploy_helpers import (
     add_app,
     make_client,
     make_settings,
+    model_server_exports,
     no_sleep,
 )
 from fake_domino.state import FakeDominoApps
@@ -59,7 +60,9 @@ def publish(
 
 def test_publish_creates_the_app_with_the_documented_body() -> None:
     apps = FakeDominoApps(["Running"])
-    settings = make_settings(model_server="ovms", ovms_bundle="/mnt/code/ovms")
+    settings = make_settings(
+        apps={"reranker": {"server": "ovms"}}, ovms_bundle="/mnt/code/ovms"
+    )
     app = publish(apps, settings, "reranker")
     assert [sent(body) for body in apps.creates] == [
         {
@@ -69,7 +72,7 @@ def test_publish_creates_the_app_with_the_documented_body() -> None:
             "configurationType": "STANDARD",
             "version": {
                 "entryScript": (
-                    "export RAG_ROLE=ovms-reranker\n"
+                    f"{model_server_exports('reranker', 'ovms')}"
                     "export RAG_OVMS_BUNDLE=/mnt/code/ovms\n"
                     f"{BOOTSTRAP_AND_EXEC}"
                 ),
@@ -88,7 +91,7 @@ def test_the_workflow_is_created_as_an_agent() -> None:
     assert apps.creates[0].configurationType == "AISYSTEM"
     assert app.configuration_type == "AISYSTEM"  # echoed back by the fake
     assert apps.creates[0].version.entryScript == (
-        "export RAG_ROLE=monolith\nexport RAG_TOPOLOGY=monolith\n"
+        "export RAG_ROLE=workflow\nexport RAG_TOPOLOGY=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -124,7 +127,7 @@ def test_redeploy_posts_a_new_version_instead_of_creating_an_app() -> None:
         (
             "app-1",
             {
-                "entryScript": f"export RAG_ROLE=fastapi-reranker\n{BOOTSTRAP_AND_EXEC}",
+                "entryScript": f"{model_server_exports('reranker')}{BOOTSTRAP_AND_EXEC}",
                 "environmentId": "env-1",
             },
         )

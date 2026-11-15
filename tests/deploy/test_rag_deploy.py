@@ -230,10 +230,13 @@ def test_deploy_outside_the_repository_root_publishes_nothing(
     assert apps.received == []
 
 
+OVMS_RERANKER = "apps: {reranker: {server: ovms}}\n"
+
+
 def test_ovms_deploy_checks_the_bundle_exists_before_publishing(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_MODEL_SERVER", "ovms")
+    Path("deploy.yaml").write_text(ENV_1 + OVMS_RERANKER)
     monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", str(tmp_path / "missing.tar.gz"))
     apps = FakeDominoApps(["Running"])
     code, _, err = run_main(["deploy", "all"], create_fake_domino(apps))
@@ -249,13 +252,25 @@ def test_ovms_deploy_checks_the_bundle_exists_before_publishing(
 def test_ovms_deploy_publishes_when_the_bundle_exists(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_MODEL_SERVER", "ovms")
+    Path("deploy.yaml").write_text(ENV_1 + OVMS_RERANKER)
     monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", str(tmp_path))
     apps = FakeDominoApps(["Running"])
     code, _, _ = run_main(["deploy", "reranker"], create_fake_domino(apps))
     assert code == 0
     assert [body.name for body in apps.creates] == ["rag-reranker"]
     assert str(apps.creates[0].version.entryScript).endswith(launched())
+
+
+def test_a_fastapi_app_beside_an_ovms_one_needs_no_bundle(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Only the kind of an App being deployed checks its own settings.
+    Path("deploy.yaml").write_text(ENV_1 + OVMS_RERANKER)
+    monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", str(tmp_path / "missing.tar.gz"))
+    apps = FakeDominoApps(["Running"])
+    code, _, err = run_main(["deploy", "embedder"], create_fake_domino(apps))
+    assert (code, err) == (0, "")
+    assert [body.name for body in apps.creates] == ["rag-embedder"]
 
 
 # --- rag-deploy per fake Domino behaviour: what a user would read ---
@@ -336,7 +351,9 @@ def test_deploy_passes_each_apps_settings_to_it(run_main: RunMain) -> None:
         "export RAG_COMPONENTS__RERANKER__SOURCE_ID='/mnt/data/models/bge reranker'\n"
         "export RAG_ES_URL=https://es.test:9200\n"
         "export RAG_MODEL_WORKERS=2\n"
-        "export RAG_ROLE=fastapi-reranker\n"
+        "export RAG_ROLE=model-server\n"
+        "export RAG_MODEL_SERVER_COMPONENT=reranker\n"
+        "export RAG_MODEL_SERVER_KIND=fastapi\n"
     )
     assert scripts[1].startswith(
         "export RAG_COMPONENTS__RERANKER__SOURCE_ID='/mnt/data/models/bge reranker'\n"

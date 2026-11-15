@@ -23,19 +23,18 @@ topology: split-all
 # workflow App's process, or served, by a model server App of its own (named
 # <app_name_prefix>-<component>). The names are the workflow file's components.
 # A component an alias does not name keeps the backend the workflow file gives
-# it (here the LLM, on api). A model server serves an embedder or a reranker,
-# the component named after its type; any other served component is refused
-# before anything is published. A new alias is one more row: rag-deploy
-# publishes one App per served component, then the workflow App, and writes each
-# named component's backend and served URL into the workflow App's launch
-# script, and the run label: the alias, then +<component>=<model_server> for
-# each served one (split-all+embedder=fastapi+reranker=fastapi).
+# it (here the LLM, on api). A served component is served by the model-server
+# kind of its App (`server` below), of any name; a component no registered kind
+# can serve (an LLM, today) is refused before anything is published. A new alias
+# is one more row: rag-deploy publishes one App per served component, then the
+# workflow App, and writes each named component's backend and served URL into
+# the workflow App's launch script, and the run label: the alias, then
+# +<component>=<server> for each served one, each with its own App's kind
+# (split-all+embedder=fastapi+reranker=fastapi).
 topology_alias:
   monolith: {embedder: local, reranker: local}
   split-reranker: {embedder: local, reranker: served}
   split-all: {embedder: served, reranker: served}
-# fastapi | ovms: what serves the models in the model server Apps
-model_server: fastapi
 # The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
 project_id: ""
 # Each App is named <app_name_prefix>-<part> (part: workflow or a served component),
@@ -45,7 +44,8 @@ project_id: ""
 # published. An App is found by its name, so a new prefix creates new Apps; delete
 # the old ones by hand in Domino.
 app_name_prefix: rag
-# Required for ovms: the OVMS bundle as the Apps see it (project files or a Dataset),
+# Required by an App served by ovms: the OVMS bundle as the Apps see it (project
+# files or a Dataset),
 # either a folder with bin/ovms and lib/ or the release .tar.gz, for example
 # /domino/datasets/local/<dataset>/ovms.tar.gz
 ovms_bundle: ""
@@ -75,8 +75,13 @@ defaults:
   environment_revision_id: ""
   # The hardware tier id; "" = the project's default.
   hardware_tier_id: ""
+  # The model-server kind of every model server App, unless its block sets its
+  # own: fastapi (rag-model-server) | ovms (OpenVINO Model Server). Each kind is
+  # one registered class and one launch script, domino/model_servers/<kind>.sh.
+  server: fastapi
   # Environment variables for the App, exported by its launch script. rag-deploy
-  # itself sets RAG_ROLE, RAG_TOPOLOGY, RAG_COMPONENTS__<COMPONENT>__BACKEND of each
+  # itself sets RAG_ROLE (workflow or model-server), RAG_MODEL_SERVER_COMPONENT
+  # and RAG_MODEL_SERVER_KIND, RAG_TOPOLOGY, RAG_COMPONENTS__<COMPONENT>__BACKEND of each
   # component the topology alias names and RAG_COMPONENTS__<COMPONENT>__SERVED__URL
   # of each served one, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those win), and
   # RAG_RUN_LABEL unless set here. A value of the workflow file is set by the
@@ -94,14 +99,15 @@ defaults:
     # Where rag-export-openvino wrote the in-process models (a model without a
     # folder there is converted in memory at every start):
     # RAG_LOCAL_MODELS__OPENVINO_DIR: /domino/datasets/local/<dataset>/openvino
-    # The folder holding config_reranker.json and config_embedder.json (ovms):
+    # The folder holding config_<component>.json of each component ovms serves:
     # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 
 # One block per App, keyed by workflow or by the name of a served component (a
 # key that is neither is refused), for what really differs per App: kind (app | agent),
 # environment_id, environment_revision_id (a revision of this App's environment,
 # its own or the default one), hardware_tier_id, autoscaling {min_replicas
-# (default 1), max_replicas, target_cpu_pct (1..100)} and settings (merged with
+# (default 1), max_replicas, target_cpu_pct (1..100)}, server (a model server
+# App's model-server kind; the workflow App has none) and settings (merged with
 # the defaults' settings, this block's winning).
 apps:
   # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
@@ -116,6 +122,7 @@ apps:
     # hardware_tier_id: <a tier with 8 cores>
   reranker:
     kind: app
+    # server: ovms  # this App alone served by OVMS (needs ovms_bundle)
     # hardware_tier_id: <a tier with 16 cores>
     # settings:
     #   RAG_LOCAL_MODELS__WORKERS: "2"  # torch runtime only; openvino runs one call at a time

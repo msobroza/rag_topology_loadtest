@@ -63,8 +63,9 @@ PLACEMENT
 }
 
 # deploy.yaml for this emulation, once: later edits (topology, per-App blocks) stay.
-# Topology and model server keep rag-deploy's defaults; RAG_DEPLOY_TOPOLOGY and
-# RAG_DEPLOY_MODEL_SERVER override them. The topology aliases are the example's
+# The topology and each App's model-server kind keep rag-deploy's defaults;
+# RAG_DEPLOY_TOPOLOGY overrides the one, a server key in deploy.yaml (defaults or
+# an App's block) the other. The topology aliases are the example's
 # three, which rag-deploy needs: no alias is defined in its code. Every App reads
 # and writes its models in the dataset folder of its machine, as on Domino (the
 # folder names are common.sh's).
@@ -80,7 +81,7 @@ topology_alias:
   split-all: {embedder: served, reranker: served}
 domino_host: "http://${workspace_address}:${domino_port}"
 run_token_url: "http://localhost:${domino_port}/access-token"
-# On every pool machine (for model_server: ovms).
+# On every pool machine (for an App whose server is ovms).
 ovms_bundle: "${ovms_bundle_path}"
 defaults:
   environment_id: "${environment_id}"

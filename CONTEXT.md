@@ -110,7 +110,7 @@ What one Domino App is published as: the workflow app (`workflow`) or a model se
 _Avoid_: mode, app type
 
 **Model-server kind**:
-What serves a component in a model-server App: `fastapi` or `ovms`. Each kind says which component types it can serve.
+What serves a component in a model-server App: `fastapi` or `ovms`, set for each App. Each kind is one registered class, which says which component types it can serve, on which route, and how it is probed, and one launch script, which holds its bootstrap and its command.
 _Avoid_: server type, runtime (that is what runs an in-process model)
 
 **App**:
@@ -119,7 +119,7 @@ _Avoid_: service, deployment
 
 **App part**:
 Which App of a topology it is: the workflow app (`workflow`), or the model server of one served component, named after it (`embedder`, `reranker`). A topology's App parts are the components it serves, plus the workflow app. The App is named by the use case's prefix and the part, such as `qp-rag-reranker`.
-_Avoid_: role (a role also says what serves the model, and which workflow app), app name
+_Avoid_: role (a role says only workflow app or model server, not which component), app name
 
 **Instance**:
 What runs an App's current version, as one replica or several; an App answers at its instance's address.

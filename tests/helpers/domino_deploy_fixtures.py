@@ -29,7 +29,6 @@ def domino_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "TOPOLOGY",
         "PROJECT_ID",
         "FILE",
-        "MODEL_SERVER",
         "OVMS_BUNDLE",
         "APP_NAME_PREFIX",
     ):

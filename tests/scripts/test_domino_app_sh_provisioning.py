@@ -1,9 +1,10 @@
-"""domino/app.sh exports the OVMS models on a first start that finds none.
+"""An OVMS model server exports the OVMS models on a first start that finds none.
 
-app.sh is copied into a tree of its own whose ``ovms/export_models.sh`` is a fake,
-so the real exporter (pip, curl, the Hub) can never run. PATH holds only fakes
-and links to the few system tools the script uses, so nothing installed on this
-machine (``uv``, ``rag-served-models``, ``ovms``) is reached either.
+domino/app.sh and the launch scripts of the model-server kinds are copied into a
+tree of their own whose ``ovms/export_models.sh`` is a fake, so the real exporter
+(pip, curl, the Hub) can never run. PATH holds only fakes and links to the few
+system tools the scripts use, so nothing installed on this machine (``uv``,
+``rag-served-models``, ``ovms``) is reached either.
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ from pathlib import Path
 
 import pytest
 
+from launch_script_stand_ins import model_server_env
 from repo_paths import REPO_ROOT
 
 SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id")
 EXPORTER_VENV = "ovms-exporter-venv"
+OVMS_SH = REPO_ROOT / "domino" / "model_servers" / "ovms.sh"
 
 
 def write_fake(path: Path, body: str) -> None:
@@ -33,20 +36,23 @@ def logging_fake(path: Path, log_file: Path) -> None:
 
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
-    """app.sh beside a fake export_models.sh that records argv, PYTHON and the
-    ``rag-served-models`` it found, then does what FAKE_EXPORT says: ``writes``
-    both configs, ``fails``, or ``writes-nothing``."""
+    """The launch scripts beside a fake export_models.sh that records argv, PYTHON
+    and the ``rag-served-models`` it found, then does what FAKE_EXPORT says:
+    ``writes`` the configs of the embedder, the reranker and a reranker named
+    coarse, ``fails``, or ``writes-nothing``."""
     tree = tmp_path / "tree"
-    (tree / "domino").mkdir(parents=True)
-    shutil.copy(REPO_ROOT / "domino" / "app.sh", tree / "domino" / "app.sh")
+    shutil.copytree(REPO_ROOT / "domino", tree / "domino")
     (tree / ".python-version").write_text("3.11\n")
+    writes = "".join(
+        f'echo "{{}}" > "$1/config_{name}.json"; '
+        for name in ("reranker", "embedder", "coarse")
+    )
     write_fake(
         tree / "ovms" / "export_models.sh",
         f'echo "$* PYTHON=$PYTHON served=$(command -v rag-served-models)"'
         f' >> "{tmp_path}/export.log"\n'
         'case "$FAKE_EXPORT" in\n'
-        '  writes) mkdir -p "$1"; echo "{}" > "$1/config_reranker.json"; '
-        'echo "{}" > "$1/config_embedder.json" ;;\n'
+        f'  writes) mkdir -p "$1"; {writes};;\n'
         "  fails) exit 3 ;;\n"
         "esac\n",
     )
@@ -77,11 +83,17 @@ def bin_dir(tmp_path: Path) -> Path:
 
 
 def run_app(
-    tmp_path: Path, tree: Path, bin_dir: Path, **env: str
+    tmp_path: Path, tree: Path, bin_dir: Path, component: str, **env: str
 ) -> subprocess.CompletedProcess[str]:
+    """Run the copied app.sh as an OVMS model server of ``component``."""
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    full_env = {"PATH": str(bin_dir), "HOME": str(home), **env}
+    full_env = {
+        "PATH": str(bin_dir),
+        "HOME": str(home),
+        **model_server_env("ovms", component),
+        **env,
+    }
     return subprocess.run(
         ["bash", str(tree / "domino" / "app.sh")],
         env=full_env,
@@ -96,12 +108,9 @@ def log(tmp_path: Path, name: str) -> list[str]:
     return path.read_text().splitlines() if path.exists() else []
 
 
-def test_the_fake_stands_where_app_sh_runs_the_real_exporter() -> None:
+def test_the_fake_stands_where_the_ovms_kind_runs_the_real_exporter() -> None:
     assert (REPO_ROOT / "ovms" / "export_models.sh").is_file()
-    assert (
-        'ovms/export_models.sh "$MODELS_DIR"'
-        in (REPO_ROOT / "domino" / "app.sh").read_text()
-    )
+    assert 'ovms/export_models.sh "$OVMS_MODELS_DIR"' in OVMS_SH.read_text()
 
 
 def test_a_present_config_is_served_without_any_export(
@@ -112,11 +121,7 @@ def test_a_present_config_is_served_without_any_export(
     (models / "config_reranker.json").write_text("{}")
 
     result = run_app(
-        tmp_path,
-        tree,
-        bin_dir,
-        RAG_ROLE="ovms-reranker",
-        RAG_OVMS_MODELS_DIR=str(models),
+        tmp_path, tree, bin_dir, "reranker", RAG_OVMS_MODELS_DIR=str(models)
     )
 
     assert result.returncode == 0, result.stderr
@@ -126,8 +131,9 @@ def test_a_present_config_is_served_without_any_export(
     ]
 
 
+@pytest.mark.parametrize("component", ["embedder", "coarse"])
 def test_a_missing_config_is_exported_with_a_separate_python_then_served(
-    tmp_path: Path, tree: Path, bin_dir: Path
+    tmp_path: Path, tree: Path, bin_dir: Path, component: str
 ) -> None:
     models = tmp_path / "models"
 
@@ -135,7 +141,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
         tmp_path,
         tree,
         bin_dir,
-        RAG_ROLE="ovms-embedder",
+        component,
         RAG_OVMS_MODELS_DIR=str(models),
         FAKE_EXPORT="writes",
     )
@@ -153,7 +159,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
         f"served={project}/bin/rag-served-models"
     ]
     assert log(tmp_path, "ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_embedder.json"
+        f"--rest_port 8888 --config_path {models}/config_{component}.json"
     ]
     assert f"exporting the models into {models}" in result.stderr
 
@@ -167,7 +173,7 @@ def test_a_rag_served_models_already_on_path_is_used_as_is(
         tmp_path,
         tree,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        "reranker",
         RAG_OVMS_MODELS_DIR=str(tmp_path / "models"),
         FAKE_EXPORT="writes",
     )
@@ -192,7 +198,7 @@ def test_bootstrap_installs_the_ovms_bundle_then_exports(
         tmp_path,
         tree,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        "reranker",
         RAG_BOOTSTRAP="1",
         RAG_OVMS_BUNDLE=str(bundle),
         RAG_OVMS_MODELS_DIR=str(models),
@@ -208,14 +214,21 @@ def test_bootstrap_installs_the_ovms_bundle_then_exports(
 
 
 @pytest.mark.parametrize(
-    ("outcome", "message"),
+    ("component", "outcome", "message"),
     [
-        ("fails", "exporting the OVMS models into"),
-        ("writes-nothing", "is still missing"),
+        ("reranker", "fails", "exporting the OVMS models into"),
+        ("reranker", "writes-nothing", "is still missing"),
+        # The exporter writes the configs of embedders and rerankers only.
+        ("llm", "writes", "it exports each embedder and reranker"),
     ],
 )
-def test_an_export_that_yields_no_config_stops_the_role(
-    tmp_path: Path, tree: Path, bin_dir: Path, outcome: str, message: str
+def test_an_export_that_yields_no_config_stops_the_model_server(
+    tmp_path: Path,
+    tree: Path,
+    bin_dir: Path,
+    component: str,
+    outcome: str,
+    message: str,
 ) -> None:
     models = tmp_path / "models"
 
@@ -223,17 +236,17 @@ def test_an_export_that_yields_no_config_stops_the_role(
         tmp_path,
         tree,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        component,
         RAG_OVMS_MODELS_DIR=str(models),
         FAKE_EXPORT=outcome,
     )
 
     assert result.returncode == 1
-    assert "app.sh[ovms-reranker]: " in result.stderr
+    assert f"app.sh[model-server ovms {component}]: " in result.stderr
     assert message in result.stderr
     assert "ovms/export_models.sh" in result.stderr
     assert "RAG_OVMS_MODELS_DIR" in result.stderr
-    assert f"{models}/config_reranker.json" in result.stderr
+    assert f"{models}/config_{component}.json" in result.stderr
     assert log(tmp_path, "ovms") == []
 
 
@@ -246,7 +259,7 @@ def test_without_uv_a_missing_config_says_what_is_needed(
         tmp_path,
         tree,
         bin_dir,
-        RAG_ROLE="ovms-embedder",
+        "embedder",
         RAG_OVMS_MODELS_DIR=str(tmp_path / "models"),
     )
 

@@ -31,6 +31,20 @@ BOOTSTRAP_AND_EXEC = (
 )
 # What an Agent (the workflow App by default) exports before RAG_BOOTSTRAP.
 AGENT_EXPORTS = "export RAG_DOMINO__TRACING=1\nexport RAG_BOOTSTRAP_EXTRAS=domino\n"
+
+
+def model_server_exports(part: str, kind: str = "fastapi") -> str:
+    """What the model server App of ``part`` served by ``kind`` exports first.
+
+    Its Role, its component and its model-server kind, before what the kind adds.
+    """
+    return (
+        "export RAG_ROLE=model-server\n"
+        f"export RAG_MODEL_SERVER_COMPONENT={part}\n"
+        f"export RAG_MODEL_SERVER_KIND={kind}\n"
+    )
+
+
 # What the monolith alias's workflow App exports after its Role and topology:
 # the backend of each component the alias names, and the run label.
 MONOLITH_EXPORTS = (
@@ -80,7 +94,6 @@ def make_settings(**overrides: object) -> DeploySettings:
         "app_name_prefix": "rag",
         "topology": "split-all",
         "topology_alias": TOPOLOGY_ALIASES,
-        "model_server": "fastapi",
         "project_id": "proj-1",
         "ovms_bundle": "",
         "domino_host": "",
@@ -106,12 +119,12 @@ topology_alias:
 
 # The owner's example, with a split-reranker topology so it deploys two Apps.
 DEPLOY_YAML = "topology: split-reranker\n" + TOPOLOGY_ALIAS_YAML + """\
-model_server: fastapi
 project_id: ""
 
 defaults:
   environment_id: env-123
   hardware_tier_id: small
+  server: fastapi
   settings:
     RAG_ES_URL: https://es.test:9200
     RAG_COMPONENTS__RERANKER__SOURCE_ID: /mnt/data/models/bge reranker

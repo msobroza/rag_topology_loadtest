@@ -1,15 +1,18 @@
 """domino/app.sh drives real binaries; here fakes (``ovms``, ``nginx``, ``rag-*``,
 ``uv``, ``sudo``, ``apt-get``; tests/helpers/launch_script_stand_ins.py) record their
 argv instead, so nothing is installed.
-Every OVMS role here finds its config; a missing one makes app.sh run the real
+Two roles: the workflow app, and a model server of one component, started by the
+launch script of its model-server kind (domino/model_servers/<kind>.sh).
+Every OVMS model server here finds its config; a missing one makes it run the real
 ovms/export_models.sh, so that case lives in test_domino_app_sh_provisioning.py,
-against a copy of app.sh beside a fake exporter."""
+against a copy of the scripts beside a fake exporter."""
 
 from __future__ import annotations
 
 import subprocess
 import tarfile
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -17,12 +20,14 @@ from launch_script_stand_ins import (
     APP_SH,
     log,
     make_stand_ins,
+    model_server_env,
     models_dir,
     ovms_bundle,
     stand_in_env,
     started_env,
     write_fake,
 )
+from rag_load_test.domain.roles import Role
 
 
 @pytest.fixture
@@ -48,10 +53,126 @@ def rag_serve_env(tmp_path: Path) -> list[str]:
     return started_env(tmp_path, "rag-serve")
 
 
-def test_ovms_role_serves_directly_by_default(tmp_path: Path, bin_dir: Path) -> None:
+# --- the workflow app --------------------------------------------------------------
+
+
+def test_the_workflow_role_is_the_default_and_sets_nothing_of_its_own(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    result = run_app(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
+    # Python reads backends, URLs and auth from its own variables; app.sh adds none.
+    assert rag_serve_env(tmp_path) == []
+
+
+@pytest.mark.parametrize("topology", ["monolith", "split-all", "split-embedder"])
+def test_the_workflow_role_passes_any_topology_through_untouched(
+    tmp_path: Path, bin_dir: Path, topology: str
+) -> None:
+    result = run_app(tmp_path, bin_dir, RAG_ROLE="workflow", RAG_TOPOLOGY=topology)
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
+    assert rag_serve_env(tmp_path) == ["RAG_ROLE=workflow", f"RAG_TOPOLOGY={topology}"]
+
+
+def test_workflow_role_passes_backends_and_auth_through_untouched(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        RAG_ROLE="workflow",
+        RAG_COMPONENTS__RERANKER__BACKEND="none",
+        RAG_COMPONENTS__RERANKER__SERVED__URL="http://a/v3/rerank",
+    )
+
+    assert result.returncode == 0, result.stderr
+    env = rag_serve_env(tmp_path)
+    assert "RAG_COMPONENTS__RERANKER__BACKEND=none" in env
+    assert "RAG_COMPONENTS__RERANKER__SERVED__URL=http://a/v3/rerank" in env
+    assert not any(
+        line.startswith("RAG_COMPONENTS__EMBEDDER__BACKEND=") for line in env
+    )
+    assert not any(
+        line.startswith("RAG_COMPONENTS__RERANKER__API__API_KEY=") for line in env
+    )
+
+
+# --- the roles, and a model server's component and kind ------------------------------
+
+
+@pytest.mark.parametrize("role", get_args(Role))
+def test_app_sh_starts_every_role_of_the_domain(
+    tmp_path: Path, bin_dir: Path, role: str
+) -> None:
+    env = {**model_server_env("fastapi", "embedder"), "RAG_ROLE": role}
+
+    result = run_app(tmp_path, bin_dir, **env)
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "rag-serve") + log(tmp_path, "rag-model-server") != ""
+
+
+@pytest.mark.parametrize("role", ["bogus", "monolith", "ovms-reranker"])
+def test_an_unknown_role_is_rejected(tmp_path: Path, bin_dir: Path, role: str) -> None:
+    result = run_app(tmp_path, bin_dir, RAG_ROLE=role)
+    assert result.returncode == 1
+    assert f"unknown RAG_ROLE '{role}'; expected workflow or model-server" in (
+        result.stderr
+    )
+
+
+def test_a_model_server_without_its_component_names_the_variable(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    result = run_app(
+        tmp_path, bin_dir, RAG_ROLE="model-server", RAG_MODEL_SERVER_KIND="fastapi"
+    )
+    assert result.returncode == 1
+    assert "RAG_MODEL_SERVER_COMPONENT is not set" in result.stderr
+    assert log(tmp_path, "rag-model-server") == ""
+
+
+@pytest.mark.parametrize("kind", ["", "vllm", "../app", "Fast API"])
+def test_a_kind_without_a_launch_script_names_the_kinds_that_have_one(
+    tmp_path: Path, bin_dir: Path, kind: str
+) -> None:
+    result = run_app(tmp_path, bin_dir, **model_server_env(kind, "reranker"))
+    assert result.returncode == 1
+    assert f"app.sh[model-server {kind} reranker]: RAG_MODEL_SERVER_KIND='{kind}'" in (
+        result.stderr
+    )
+    assert "expected one of: fastapi ovms" in result.stderr
+    assert (log(tmp_path, "rag-model-server"), log(tmp_path, "ovms")) == ("", "")
+
+
+@pytest.mark.parametrize("component", ["reranker", "coarse"])
+def test_a_fastapi_model_server_serves_the_component_it_is_named(
+    tmp_path: Path, bin_dir: Path, component: str
+) -> None:
+    result = run_app(tmp_path, bin_dir, **model_server_env("fastapi", component))
+    assert result.returncode == 0, result.stderr
+    assert (
+        log(tmp_path, "rag-model-server").strip()
+        == f"--serve {component} --host 0.0.0.0 --port 8888"
+    )
+
+
+# --- the ovms kind ------------------------------------------------------------------
+
+
+def test_an_ovms_model_server_serves_its_components_config_directly_by_default(
+    tmp_path: Path, bin_dir: Path
+) -> None:
     models = models_dir(tmp_path)
     result = run_app(
-        tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(models)
+        tmp_path,
+        bin_dir,
+        **model_server_env("ovms", "reranker"),
+        RAG_OVMS_MODELS_DIR=str(models),
     )
     assert result.returncode == 0, result.stderr
     assert (
@@ -61,6 +182,25 @@ def test_ovms_role_serves_directly_by_default(tmp_path: Path, bin_dir: Path) -> 
     assert log(tmp_path, "nginx") == ""
 
 
+def test_an_ovms_model_server_of_any_name_serves_its_own_config(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    models = models_dir(tmp_path)
+    (models / "config_coarse.json").write_text("{}")
+
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        **model_server_env("ovms", "coarse"),
+        RAG_OVMS_MODELS_DIR=str(models),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "ovms").strip() == (
+        f"--rest_port 8888 --config_path {models}/config_coarse.json"
+    )
+
+
 def test_prefix_proxy_puts_nginx_in_front_of_ovms(
     tmp_path: Path, bin_dir: Path
 ) -> None:
@@ -68,7 +208,7 @@ def test_prefix_proxy_puts_nginx_in_front_of_ovms(
     result = run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="ovms-embedder",
+        **model_server_env("ovms", "embedder"),
         RAG_OVMS_MODELS_DIR=str(models),
         RAG_OVMS_PREFIX_PROXY="1",
         DOMINO_RUN_HOST_PATH="/apps/abc123/",
@@ -95,7 +235,7 @@ def test_prefix_proxy_without_a_prefix_only_forwards_root(
     run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        **model_server_env("ovms", "reranker"),
         RAG_OVMS_MODELS_DIR=str(models),
         RAG_OVMS_PREFIX_PROXY="1",
         DOMINO_RUN_HOST_PATH="",
@@ -105,100 +245,17 @@ def test_prefix_proxy_without_a_prefix_only_forwards_root(
     assert "location / {" in conf
 
 
-def test_monolith_role_is_the_default_and_serves_the_monolith(
-    tmp_path: Path, bin_dir: Path
-) -> None:
-    result = run_app(tmp_path, bin_dir)
-
-    assert result.returncode == 0, result.stderr
-    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
-    # Python resolves backends and auth from the topology; app.sh sets nothing else.
-    assert rag_serve_env(tmp_path) == ["RAG_TOPOLOGY=monolith"]
-
-
-@pytest.mark.parametrize(
-    ("role", "topology", "served"),
-    [
-        ("monolith", "monolith", "monolith"),
-        ("workflow", None, "split-reranker"),
-        ("workflow", "split-reranker", "split-reranker"),
-        ("workflow", "split-all", "split-all"),
-    ],
-)
-def test_workflow_app_roles_pass_their_topology_to_rag_serve(
-    tmp_path: Path, bin_dir: Path, role: str, topology: str | None, served: str
-) -> None:
-    env = {"RAG_ROLE": role} | ({"RAG_TOPOLOGY": topology} if topology else {})
-
-    result = run_app(tmp_path, bin_dir, **env)
-
-    assert result.returncode == 0, result.stderr
-    assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
-    assert f"RAG_TOPOLOGY={served}" in rag_serve_env(tmp_path)
-
-
-@pytest.mark.parametrize(
-    ("role", "topology", "allowed"),
-    [
-        ("monolith", "split-all", "monolith"),
-        ("workflow", "monolith", "split-reranker split-all"),
-        ("workflow", "split-reranker-fastapi", "split-reranker split-all"),
-    ],
-)
-def test_role_refuses_a_topology_it_does_not_serve(
-    tmp_path: Path, bin_dir: Path, role: str, topology: str, allowed: str
-) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE=role, RAG_TOPOLOGY=topology)
-
-    assert result.returncode == 1
-    assert f"RAG_TOPOLOGY='{topology}'" in result.stderr
-    assert f"allowed: {allowed}" in result.stderr
-    assert log(tmp_path, "rag-serve") == ""
-
-
-def test_workflow_role_passes_backends_and_auth_through_untouched(
-    tmp_path: Path, bin_dir: Path
-) -> None:
-    result = run_app(
-        tmp_path,
-        bin_dir,
-        RAG_ROLE="workflow",
-        RAG_COMPONENTS__RERANKER__BACKEND="none",
-        RAG_COMPONENTS__RERANKER__SERVED__URL="http://a/v3/rerank",
-    )
-
-    assert result.returncode == 0, result.stderr
-    env = rag_serve_env(tmp_path)
-    assert "RAG_COMPONENTS__RERANKER__BACKEND=none" in env
-    assert "RAG_COMPONENTS__RERANKER__SERVED__URL=http://a/v3/rerank" in env
-    assert not any(
-        line.startswith("RAG_COMPONENTS__EMBEDDER__BACKEND=") for line in env
-    )
-    assert not any(
-        line.startswith("RAG_COMPONENTS__RERANKER__API__API_KEY=") for line in env
-    )
-
-
-def test_fastapi_roles_run_the_model_server(tmp_path: Path, bin_dir: Path) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE="fastapi-reranker")
-    assert result.returncode == 0, result.stderr
-    assert (
-        log(tmp_path, "rag-model-server").strip()
-        == "--serve reranker --host 0.0.0.0 --port 8888"
-    )
-
-
-def test_unknown_role_is_rejected(tmp_path: Path, bin_dir: Path) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE="bogus")
-    assert result.returncode == 1
-    assert "unknown RAG_ROLE" in result.stderr
+# --- the bootstrap ------------------------------------------------------------------
 
 
 def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -> None:
     models = models_dir(tmp_path)
     run_app(tmp_path, bin_dir, RAG_ROLE="workflow")
     run_app(
-        tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(models)
+        tmp_path,
+        bin_dir,
+        **model_server_env("ovms", "reranker"),
+        RAG_OVMS_MODELS_DIR=str(models),
     )
     assert (log(tmp_path, "uv"), log(tmp_path, "apt-get")) == ("", "")
     assert log(tmp_path, "rag-serve") != ""
@@ -206,20 +263,20 @@ def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -
 
 
 @pytest.mark.parametrize(
-    ("role", "server", "argv"),
+    ("env", "server", "argv"),
     [
-        ("workflow", "rag-serve", "--host 0.0.0.0 --port 8888 --domino"),
+        ({"RAG_ROLE": "workflow"}, "rag-serve", "--host 0.0.0.0 --port 8888 --domino"),
         (
-            "fastapi-embedder",
+            model_server_env("fastapi", "embedder"),
             "rag-model-server",
             "--serve embedder --host 0.0.0.0 --port 8888",
         ),
     ],
 )
 def test_bootstrap_installs_the_project_in_a_venv_before_serving(
-    tmp_path: Path, bin_dir: Path, role: str, server: str, argv: str
+    tmp_path: Path, bin_dir: Path, env: dict[str, str], server: str, argv: str
 ) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE=role, RAG_BOOTSTRAP="1")
+    result = run_app(tmp_path, bin_dir, **env, RAG_BOOTSTRAP="1")
     assert result.returncode == 0, result.stderr
     venv = tmp_path / "home" / "rag-venv"
     assert log(tmp_path, "uv").splitlines() == [
@@ -231,15 +288,14 @@ def test_bootstrap_installs_the_project_in_a_venv_before_serving(
     assert log(tmp_path, "apt-get") == ""
 
 
+@pytest.mark.parametrize(
+    "env", [{"RAG_ROLE": "workflow"}, model_server_env("fastapi", "reranker")]
+)
 def test_bootstrap_installs_the_extras_an_agent_asks_for(
-    tmp_path: Path, bin_dir: Path
+    tmp_path: Path, bin_dir: Path, env: dict[str, str]
 ) -> None:
     result = run_app(
-        tmp_path,
-        bin_dir,
-        RAG_ROLE="workflow",
-        RAG_BOOTSTRAP="1",
-        RAG_BOOTSTRAP_EXTRAS="domino",
+        tmp_path, bin_dir, **env, RAG_BOOTSTRAP="1", RAG_BOOTSTRAP_EXTRAS="domino"
     )
     assert result.returncode == 0, result.stderr
     venv = tmp_path / "home" / "rag-venv"
@@ -255,7 +311,7 @@ def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
     result = run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        **model_server_env("ovms", "reranker"),
         RAG_BOOTSTRAP="1",
         RAG_OVMS_BUNDLE=str(bundle),
         RAG_OVMS_MODELS_DIR=str(models),
@@ -286,7 +342,7 @@ def test_bootstrap_unpacks_a_bundle_tarball(tmp_path: Path, bin_dir: Path) -> No
     result = run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="ovms-embedder",
+        **model_server_env("ovms", "embedder"),
         RAG_BOOTSTRAP="1",
         RAG_OVMS_BUNDLE=str(tarball),
         RAG_OVMS_MODELS_DIR=str(models),
@@ -306,7 +362,7 @@ def test_bootstrap_runs_apt_get_directly_as_root(tmp_path: Path, bin_dir: Path) 
     run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        **model_server_env("ovms", "reranker"),
         RAG_BOOTSTRAP="1",
         RAG_OVMS_BUNDLE=str(bundle),
         RAG_OVMS_MODELS_DIR=str(models),
@@ -322,7 +378,7 @@ def test_bootstrap_installs_nginx_only_with_the_prefix_proxy(
     run_app(
         tmp_path,
         bin_dir,
-        RAG_ROLE="ovms-reranker",
+        **model_server_env("ovms", "reranker"),
         RAG_BOOTSTRAP="1",
         RAG_OVMS_BUNDLE=str(bundle),
         RAG_OVMS_MODELS_DIR=str(models),
@@ -339,7 +395,11 @@ def test_bootstrap_without_a_bundle_names_the_variable(
 ) -> None:
     env = {"RAG_OVMS_BUNDLE": bundle} if bundle else {}
     result = run_app(
-        tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_BOOTSTRAP="1", **env
+        tmp_path,
+        bin_dir,
+        **model_server_env("ovms", "reranker"),
+        RAG_BOOTSTRAP="1",
+        **env,
     )
     assert result.returncode == 1
     assert "RAG_OVMS_BUNDLE" in result.stderr

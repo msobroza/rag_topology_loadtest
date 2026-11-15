@@ -24,6 +24,7 @@ from domino_deploy_helpers import (
     RunMain,
     make_client,
     make_settings,
+    model_server_exports,
     no_sleep,
 )
 from fake_domino.server import create_fake_domino
@@ -74,7 +75,7 @@ TODAYS_APPS = {
 }
 WORKFLOW_EXPORTS = {
     "monolith": (
-        "export RAG_ROLE=monolith\n"
+        "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=monolith\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=local\n"
@@ -118,12 +119,32 @@ def test_the_workflow_script_carries_each_backend_each_url_the_alias_and_the_lab
     assert workflow_script(apps) == WORKFLOW_EXPORTS[alias]
 
 
-def test_the_run_label_names_each_served_component_and_its_server_kind(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("kinds", "label"),
+    [
+        ({"defaults": {"server": "ovms"}}, "split-all+embedder=ovms+reranker=ovms"),
+        (
+            {"apps": {"reranker": {"server": "ovms"}}},
+            "split-all+embedder=fastapi+reranker=ovms",
+        ),
+        (
+            {
+                "defaults": {"server": "ovms"},
+                "apps": {"embedder": {"server": "fastapi"}},
+            },
+            "split-all+embedder=fastapi+reranker=ovms",
+        ),
+    ],
+)
+def test_the_run_label_names_each_served_component_and_its_own_server_kind(
+    tmp_path: Path, kinds: dict[str, dict[str, object]], label: str
 ) -> None:
+    defaults = {"environment_id": "env-1", **kinds.get("defaults", {})}
+    settings = make_settings(
+        defaults=defaults, apps=kinds.get("apps", {}), ovms_bundle=str(tmp_path)
+    )
     apps = FakeDominoApps(["Running"])
-    run_deploy(apps, make_settings(model_server="ovms", ovms_bundle=str(tmp_path)))
-    label = "split-all+embedder=ovms+reranker=ovms"
+    run_deploy(apps, settings)
     assert workflow_script(apps).endswith(f"export RAG_RUN_LABEL={label}\n")
 
 
@@ -137,7 +158,7 @@ def test_a_fourth_alias_in_the_table_deploys_with_no_change_in_code() -> None:
     # The workflow app's own rule knows three names only: it is told monolith,
     # whose rule moves nothing, and every backend is written.
     assert workflow_script(apps) == (
-        "export RAG_ROLE=monolith\n"
+        "export RAG_ROLE=workflow\n"
         "export RAG_TOPOLOGY=monolith\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
@@ -219,27 +240,54 @@ def test_a_row_naming_a_component_the_workflow_file_lacks_is_refused() -> None:
     )
 
 
-def test_a_served_llm_is_refused_naming_what_can_be_served() -> None:
-    settings = with_alias("with-llm", {"reranker": "served", "llm": "served"})
+@pytest.mark.parametrize("server", ["fastapi", "ovms"])
+def test_a_served_llm_is_refused_naming_each_kind_and_what_it_serves(
+    tmp_path: Path, server: str
+) -> None:
+    # No registered kind serves an LLM, whatever the App's own kind.
+    settings = with_alias(
+        "with-llm",
+        {"reranker": "served", "llm": "served"},
+        apps={"llm": {"server": server}},
+        ovms_bundle=str(tmp_path),
+    )
     assert refusal(FakeDominoApps(), settings) == (
         "topology alias 'with-llm' serves component 'llm', of type 'llm', which no "
-        "model server can serve: a fastapi model server serves a component of type "
-        "embedder or reranker; leave 'llm' out of the row to keep the backend the "
-        "workflow file gives it"
+        "model-server kind can serve: fastapi serves embedder or reranker, ovms "
+        "serves embedder or reranker; leave 'llm' out of the row to keep the "
+        "backend the workflow file gives it"
     )
 
 
-def test_a_served_component_not_named_after_its_type_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("server", ["fastapi", "ovms"])
+def test_a_served_component_of_any_name_gets_a_model_server_app_of_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, server: str
 ) -> None:
     workflow = tmp_path / "workflow.yaml"
-    workflow.write_text("components: {reranker_fr: {type: reranker, backend: local}}")
+    workflow.write_text(
+        "components:\n"
+        "  embedder: {backend: local, source_id: org/e}\n"
+        "  reranker_fr: {type: reranker, backend: local, source_id: org/r}\n"
+    )
     monkeypatch.setenv("RAG_WORKFLOW_FILE", str(workflow))
-    settings = with_alias("split-fr", {"reranker_fr": "served"})
-    assert refusal(FakeDominoApps(), settings) == (
-        "topology alias 'split-fr' serves component 'reranker_fr', of type "
-        "'reranker': a model server App serves only the component named after its "
-        "type ('reranker'), the one domino/app.sh starts"
+    settings = with_alias(
+        "split-fr",
+        {"reranker_fr": "served"},
+        apps={"reranker_fr": {"server": server}},
+        ovms_bundle=str(tmp_path),
+    )
+    apps = FakeDominoApps(["Running"])
+    run_deploy(apps, settings)
+    assert created(apps) == ["rag-reranker_fr", "rag-workflow"]
+    model_server = str(apps.creates[0].version.entryScript)
+    assert model_server.startswith(model_server_exports("reranker_fr", server))
+    url = served_url(1, RERANK)
+    assert workflow_script(apps) == (
+        "export RAG_ROLE=workflow\n"
+        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_COMPONENTS__RERANKER_FR__BACKEND=served\n"
+        f"export RAG_COMPONENTS__RERANKER_FR__SERVED__URL={url}\n"
+        f"export RAG_RUN_LABEL=split-fr+reranker_fr={server}\n"
     )
 
 

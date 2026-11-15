@@ -20,6 +20,7 @@ from domino_deploy_helpers import (
     RunMain,
     deployed_lines,
     launched,
+    model_server_exports,
 )
 from repo_paths import REPO_ROOT
 
@@ -36,8 +37,9 @@ def dry_run_report(
     model_servers = "".join(
         f"\nrag-{part}\n  kind: app (configurationType STANDARD)\n"
         f"{environment}  hardwareTierId: {tier}\n  autoscaling: off\n"
-        f"  entryScript:\n    export RAG_ROLE=fastapi-{part}\n"
-        f"    export RAG_BOOTSTRAP=1\n    {tail}\n"
+        "  entryScript:\n"
+        + "".join(f"    {line}\n" for line in model_server_exports(part).splitlines())
+        + f"    export RAG_BOOTSTRAP=1\n    {tail}\n"
         for part in ("embedder", "reranker")
     )
     agent_exports = "".join(f"    {line}\n" for line in AGENT_EXPORTS.splitlines())
@@ -128,11 +130,40 @@ def test_dry_run_still_requires_the_repository_root(
 def test_dry_run_still_checks_the_ovms_bundle(
     run_main: RunMain, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_DEPLOY_MODEL_SERVER", "ovms")
+    Path("deploy.yaml").write_text(ENV_1 + "  server: ovms\n")
     monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", "/no/such/bundle")
     code, _, err = run_main(["--dry-run", "deploy", "all"], None)
     assert code == 2
     assert "ovms_bundle=/no/such/bundle does not exist" in err
+
+
+def test_a_dry_run_deploys_one_component_served_by_fastapi_and_one_by_ovms(
+    run_main: RunMain, tmp_path: Path
+) -> None:
+    bundle = tmp_path / "ovms.tar.gz"
+    bundle.write_text("")
+    kinds = "apps: {embedder: {server: fastapi}, reranker: {server: ovms}}\n"
+    Path("deploy.yaml").write_text(ENV_1 + kinds + f"ovms_bundle: {bundle}\n")
+
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+
+    assert (code, err) == (0, "")
+    report = out[out.index("Dry run: ") :]
+    scripts = re.findall(r"entryScript:\n((?:    .*\n)+)", report)
+    embedder, reranker, workflow = (script.replace("    ", "") for script in scripts)
+    assert embedder == f"{model_server_exports('embedder', 'fastapi')}" + (
+        f"export RAG_BOOTSTRAP=1\n{launched()}\n"
+    )
+    assert reranker == f"{model_server_exports('reranker', 'ovms')}" + (
+        f"export RAG_OVMS_BUNDLE={bundle}\nexport RAG_BOOTSTRAP=1\n{launched()}\n"
+    )
+    served = f"{INSTANCES_URL}/app-{{}}-v1-i/v3/{{}}"
+    assert (
+        f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
+        f"export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
+        f"export RAG_COMPONENTS__RERANKER__SERVED__URL={served.format(2, 'rerank')}\n"
+        "export RAG_RUN_LABEL=split-all+embedder=fastapi+reranker=ovms\n"
+    ) in workflow
 
 
 def test_dry_run_status_lists_nothing_deployed(

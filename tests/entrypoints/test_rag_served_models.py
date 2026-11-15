@@ -10,13 +10,13 @@ from pathlib import Path
 import pytest
 
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.entrypoints.rag_served_models import main, served_model_assignments
+from rag_load_test.entrypoints.rag_served_models import main, served_model_lines
 from repo_paths import REPO_ROOT
 
 ROOT = REPO_ROOT
 
 
-def test_assignments_pair_each_source_id_with_its_alias(
+def test_each_line_names_a_component_its_type_source_id_and_alias(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     settings = settings_factory(
@@ -26,11 +26,24 @@ def test_assignments_pair_each_source_id_with_its_alias(
         components__reranker__alias="rerank",
     )
 
-    assert served_model_assignments(settings) == [
-        "RERANKER_SOURCE_MODEL=org/rerank",
-        "RERANKER_MODEL_NAME=rerank",
-        "EMBEDDER_SOURCE_MODEL=org/embed",
-        "EMBEDDER_MODEL_NAME=embed",
+    assert served_model_lines(settings) == [
+        "embedder embedder org/embed embed",
+        "reranker reranker org/rerank rerank",
+    ]
+
+
+def test_an_embedder_or_reranker_of_any_name_is_listed_and_an_llm_is_not(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    coarse = {"type": "reranker", "backend": "fake", "source_id": "/models/coarse-rr/"}
+    settings = settings_factory(components={"coarse": coarse})
+
+    assert served_model_lines(settings) == [
+        "embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 "
+        "snowflake-arctic-embed-l-v2.0",
+        "reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR "
+        "crossencoder-camembert-base-mmarcoFR",
+        "coarse reranker /models/coarse-rr/ coarse-rr",
     ]
 
 
@@ -49,10 +62,10 @@ def test_rag_served_models_prints_the_workflow_files_components(
     assert main([]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
-        "RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR",
-        "RERANKER_MODEL_NAME=crossencoder-camembert-base-mmarcoFR",
-        "EMBEDDER_SOURCE_MODEL=Snowflake/snowflake-arctic-embed-l-v2.0",
-        "EMBEDDER_MODEL_NAME=snowflake-arctic-embed-l-v2.0",
+        "embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 "
+        "snowflake-arctic-embed-l-v2.0",
+        "reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR "
+        "crossencoder-camembert-base-mmarcoFR",
     ]
 
 
@@ -68,10 +81,8 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
     assert main([]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
-        "RERANKER_SOURCE_MODEL=org/rerank",
-        "RERANKER_MODEL_NAME='it'\"'\"'s; rm -rf $HOME'",
-        "EMBEDDER_SOURCE_MODEL='org/embed v2'",
-        "EMBEDDER_MODEL_NAME=embed",
+        "embedder embedder 'org/embed v2' embed",
+        "reranker reranker org/rerank 'it'\"'\"'s; rm -rf $HOME'",
     ]
 
 
@@ -81,7 +92,11 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
 ) -> None:
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__ALIAS", "it's; echo pwned")
     main([])
-    script = 'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
+    # What ovms/export_models.sh does with each line.
+    script = (
+        'while IFS= read -r line; do [ -n "$line" ] || continue; '
+        'eval "set -- $line"; printf "%s|" "$@"; echo; done <<<"$1"'
+    )
 
     result = subprocess.run(
         ["bash", "-c", script, "bash", capsys.readouterr().out],
@@ -92,8 +107,10 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     )
 
     assert result.stdout.splitlines() == [
-        "it's; echo pwned",
-        "Snowflake/snowflake-arctic-embed-l-v2.0",
+        "embedder|embedder|Snowflake/snowflake-arctic-embed-l-v2.0|"
+        "snowflake-arctic-embed-l-v2.0|",
+        "reranker|reranker|antoinelouis/crossencoder-camembert-base-mmarcoFR|"
+        "it's; echo pwned|",
     ]
 
 

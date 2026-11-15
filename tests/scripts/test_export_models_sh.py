@@ -3,6 +3,8 @@
 PATH is the fakes plus /usr/bin:/bin only, so neither a real ``curl``, a real
 exporter Python nor an installed ``rag-served-models`` can be reached, and the
 models directory is under ``tmp_path``: nothing touches the network or the repo.
+Each embedder and reranker ``rag-served-models`` lists is exported under its
+component's name, whatever the name.
 """
 
 from __future__ import annotations
@@ -18,12 +20,11 @@ from repo_paths import REPO_ROOT
 EXPORT_SH = REPO_ROOT / "ovms" / "export_models.sh"
 SYSTEM_PATH = "/usr/bin:/bin"  # dirname, mkdir, env: what the script itself needs
 
-# Quoted the way rag-served-models quotes, so the script's eval is exercised too.
+# Quoted the way rag-served-models quotes, so the script's eval is exercised too:
+# name, type, source id, alias. The reranker is named after no type.
 FAKE_SERVED_MODELS = """\
-RERANKER_SOURCE_MODEL=org/custom-rerank
-RERANKER_MODEL_NAME='custom rerank'
-EMBEDDER_SOURCE_MODEL=org/custom-embed
-EMBEDDER_MODEL_NAME=custom-embed
+embedder embedder org/custom-embed custom-embed
+coarse reranker org/custom-rerank 'custom rerank; touch pwned'
 """
 
 
@@ -35,7 +36,11 @@ def write_fake(bin_dir: Path, name: str, body: str) -> None:
 
 @pytest.fixture
 def bin_dir(tmp_path: Path) -> Path:
-    """Fake ``python`` and ``curl`` that log each call as ``<arg><arg>...``."""
+    """Fake ``python`` and ``curl`` that log each call as ``<arg><arg>...``.
+
+    The fake ``python`` also reads its standard input to the end, as a real
+    program may: it must not swallow the models still to export.
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name in ("python", "curl"):
@@ -43,7 +48,8 @@ def bin_dir(tmp_path: Path) -> Path:
             bin_dir,
             name,
             f"printf '<%s>' \"$@\" >> '{tmp_path}/{name}.log'\n"
-            f"echo >> '{tmp_path}/{name}.log'\n",
+            f"echo >> '{tmp_path}/{name}.log'\n"
+            + ("cat > /dev/null\n" if name == "python" else ""),
         )
     return bin_dir
 
@@ -57,9 +63,11 @@ def run_export(tmp_path: Path, bin_dir: Path) -> subprocess.CompletedProcess[str
     return subprocess.run(
         ["bash", str(EXPORT_SH), str(tmp_path / "models")],
         env=env,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         timeout=60,
+        cwd=tmp_path,
     )
 
 
@@ -73,7 +81,7 @@ def export_call(tmp_path: Path, task: str) -> str:
     return line
 
 
-def test_both_exports_get_the_served_models_from_rag_served_models(
+def test_each_served_model_is_exported_under_its_component_name(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
@@ -81,12 +89,30 @@ def test_both_exports_get_the_served_models_from_rag_served_models(
     result = run_export(tmp_path, bin_dir)
 
     assert result.returncode == 0, result.stderr
+    models = tmp_path / "models"
     reranker = export_call(tmp_path, "rerank_ov")
     assert "<--source_model><org/custom-rerank>" in reranker
-    assert "<--model_name><custom rerank>" in reranker
+    assert "<--model_name><custom rerank; touch pwned>" in reranker
+    assert f"<--config_file_path><{models}/config_coarse.json>" in reranker
     embedder = export_call(tmp_path, "embeddings_ov")
     assert "<--source_model><org/custom-embed>" in embedder
     assert "<--model_name><custom-embed>" in embedder
+    assert f"<--config_file_path><{models}/config_embedder.json>" in embedder
+    assert not (tmp_path / "pwned").exists()  # a value is never run
+
+
+def test_a_served_model_of_another_type_stops_the_export(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    lines = "llm llm org/chat chat\n"
+    write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{lines}EOF\n")
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 1
+    assert "component 'llm' is of type 'llm'; expected an embedder or a reranker" in (
+        result.stderr
+    )
 
 
 def test_without_rag_served_models_the_export_fails_before_any_download(

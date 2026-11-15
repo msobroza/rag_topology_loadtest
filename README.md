@@ -139,19 +139,25 @@ The tree is three applications over one shared domain. The domain
    the package that holds the entries imports all of its modules from its
    `__init__.py` (`import_package_modules`), so a new entry is one new module
    and no table is edited. The registry is in `domain/` because every package
-   that registers something may import the domain. Four kinds of entry today:
+   that registers something may import the domain. Five kinds of entry today:
    an API format (each component's `api/` directory holds its formats, one
    module each, and its registry sits beside the formats' base class:
    `RERANK_API_FORMATS` in `base_rerank_api_format.py`), a stage type
    (`application/stages/`, one module each, `STAGE_TYPES` in `base_stage.py`),
    an edge condition (`application/edge_conditions/`, one module each,
-   `EDGE_CONDITIONS` in `edge_condition.py`) and a backend opener
+   `EDGE_CONDITIONS` in `edge_condition.py`), a backend opener
    (`composition/openers/`, one module each, and the registry of each
    component type's openers sits beside what an opener is given:
-   `RERANKER_OPENERS` in `component_openers.py`). A stage type and an edge
+   `RERANKER_OPENERS` in `component_openers.py`) and a model-server kind
+   (`deploy/model_server_kinds/`, one module each, `MODEL_SERVER_KINDS` in
+   `base_model_server_kind.py`, and one launch script each in
+   `domino/model_servers/`). A stage type and an edge
    condition call only ports, so they are in the application; the description
    of a graph is in the domain, which both the settings that write it and the
-   application that builds it may import.
+   application that builds it may import. A model-server kind is what the
+   deploy tool publishes and refuses by, so it is in `deploy/`; the /v3 routes
+   it declares are wire-contract constants of the domain, which the FastAPI
+   model server answers on too.
 7. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
 
@@ -182,7 +188,7 @@ src/rag_load_test/
     backends.py     the Runtime names, and the default Backends the run label is measured against
     topology.py     the workflow app's topology rule: backends per topology (local or served), placed_backend; topology_that_moves_nothing, what the deploy tool tells it
     run_label.py    the run label: its default for a configuration, what a valid one is
-    roles.py        the Role each App is published as (Role, AppPart, ModelServerKind), MODEL_SERVER_ROUTES: what a model server App can serve, and on which route
+    roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
     rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
@@ -298,7 +304,7 @@ src/rag_load_test/
   entrypoints/      the RAG system's commands: FastAPI apps and CLIs
     rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), --domino, Domino tracing, JSON logs, a refused graph as one line
     rag_model_server.py  rag-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
-    rag_served_models.py  rag-served-models: the reranker's and the embedder's source ids and aliases, as shell assignments
+    rag_served_models.py  rag-served-models: each embedder and reranker of the workflow file (name, type, source id, alias), one line of shell words each
     rag_export_openvino.py  rag-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
     rag_calibrate.py  rag-calibrate: calibrate the in-process models here, print the environment paths that pin them
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
@@ -306,8 +312,12 @@ src/rag_load_test/
   deploy/           the deploy tool: rag-deploy on Domino 6.2
     deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App), RAG_DEPLOY_* overrides
     workflow_components.py  the components of the workflow file the workflow App reads: name, type, backend; the variable of a component's value
-    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, backends and run label, or a refusal
-    publish.py      the entry scripts of a topology's Apps (domain/roles.py gives each its Role), App or Agent, and publishing them in order
+    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, backends and run label, or a refusal
+    model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
+      base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
+      fastapi_kind.py  fastapi: rag-model-server, an embedder or a reranker on the /v3 routes
+      ovms_kind.py  ovms: OpenVINO Model Server on its /v3 routes, from the OVMS bundle it refuses when missing
+    publish.py      the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
     endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
     app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
     status.py       rag-deploy status: one line per App, then the workflow App's /readyz
@@ -333,7 +343,7 @@ emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino 
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
-domino/             app.sh (one entry point, role from RAG_ROLE), Dockerfile (targets `rag` and `ovms`)
+domino/             app.sh (one entry point: the workflow app or a model server, from RAG_ROLE), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
 tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
   domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
   scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
@@ -522,11 +532,14 @@ RAG_COMPONENTS__RERANKER__BACKEND=served RAG_RUN_LABEL=split-reranker-fastapi \
 make loadtest RUN_NAME=split-reranker-fastapi HOST=http://localhost:8888
 ```
 
-On Domino, `RAG_ROLE=fastapi-reranker` / `fastapi-embedder` publish the FastAPI
-servers with the `rag` environment (no OVMS binary needed); the workflow app's
-`RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL`
-then point at those App URLs plus `/v3/rerank` / `/v3/embeddings`, exactly as
-for the OVMS apps.
+On Domino, the model-server kind of each model server App picks the server:
+`server: fastapi` in its block of `deploy.yaml` (or in `defaults`) publishes the
+FastAPI server (no OVMS binary needed), `server: ovms` OVMS, and the two can
+serve the embedder and the reranker of one deploy side by side
+(`split-all+embedder=fastapi+reranker=ovms`). `rag-deploy` points the workflow
+app's `RAG_COMPONENTS__RERANKER__SERVED__URL` /
+`RAG_COMPONENTS__EMBEDDER__SERVED__URL` at each App URL plus the route its kind
+declares, `/v3/rerank` / `/v3/embeddings` for both.
 `RAG_LOADTEST_TARGET` selects the Locust user class: `rag` (default,
 `/query` + `/retrieve`), `rerank` or `embeddings`.
 
@@ -1146,15 +1159,15 @@ compose with `--env-file`:
 | `OVMS_VERSION` / `OVMS_IMAGE` | `2026.3.1` / `openvino/model_server:2026.3.1` |
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
 
-The served models (source id and alias) are pinned once, by the components
-named `reranker` and `embedder` of the workflow file
-(`antoinelouis/crossencoder-camembert-base-mmarcoFR`, served as
-`crossencoder-camembert-base-mmarcoFR`, and
+The served models (source id and alias) are pinned once, by the embedders and
+rerankers of the workflow file, whatever their names (here `reranker`,
+`antoinelouis/crossencoder-camembert-base-mmarcoFR`, served as
+`crossencoder-camembert-base-mmarcoFR`, and `embedder`,
 `Snowflake/snowflake-arctic-embed-l-v2.0`, served as
 `snowflake-arctic-embed-l-v2.0`: each alias is the source id's last part).
-`rag-served-models` prints them, `RAG_*` overrides included, as shell
-assignments (`RERANKER_SOURCE_MODEL=...`) for `export_models.sh`; the `rag`
-Domino image reads the source ids from the installed package.
+`rag-served-models` prints them, `RAG_*` overrides included, one line of
+shell-quoted words each (name, type, source id, alias) for `export_models.sh`;
+the `rag` Domino image reads the source ids from the installed package.
 
 **Export** (`make ovms-export` = `./ovms/export_models.sh [MODELS_DIR]`, default
 `ovms/models`; run `make install` first so `rag-served-models` is on `PATH`, or
@@ -1163,13 +1176,15 @@ downloads `export_model.py` and its `requirements.txt` from the OVMS repository 
 `pip install`s them into `$PYTHON` (set `PYTHON=/path/to/venv/bin/python` for a
 separate environment, which it needs: the exporter pins its own
 sentence-transformers and OpenVINO versions and would downgrade this project's),
-then runs `rerank_ov` and `embeddings_ov --pooling CLS`
-with `--weight-format int8`. The result is `config_reranker.json`,
-`config_embedder.json` and one directory per model; the configs reference the
+then runs `rerank_ov` for each reranker and `embeddings_ov --pooling CLS` for
+each embedder, with `--weight-format int8`. The result is one
+`config_<component>.json` per component (`config_reranker.json`,
+`config_embedder.json`) and one directory per model; the configs reference the
 model directories relatively, so the tree can be mounted anywhere.
 
-**On Domino the export is optional.** An OVMS role (`RAG_ROLE=ovms-reranker` /
-`ovms-embedder`) that finds its `config_*.json` missing under
+**On Domino the export is optional.** A model server App of kind `ovms`
+(`domino/model_servers/ovms.sh`) that finds its component's
+`config_<component>.json` missing under
 `RAG_OVMS_MODELS_DIR` runs `export_models.sh` itself, once, before serving: it
 needs `uv`, installs this project into `$HOME/rag-venv` when `rag-served-models`
 is not on `PATH`, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
@@ -1192,7 +1207,9 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
 `openai` embeddings format on `/v3/embeddings`, the standard formats, so the
 workflow calls it as a `served` component, through the generic implementations
 of `adapters/<component>/api/`, with the full routes as URLs. The routes are wire-contract constants in `domain/api_endpoint.py`; the
-FastAPI model server answers on the same ones.
+FastAPI model server answers on the same ones, and each model-server kind
+declares the route of each component type it serves
+(`deploy/model_server_kinds/`), from which `rag-deploy` builds a served URL.
 
 | Adapter | Request | Response |
 | --- | --- | --- |
@@ -1221,27 +1238,34 @@ which `cd`s into the project root, reads its role from `RAG_ROLE` and listens on
 `0.0.0.0:8888` (a Domino requirement). Only environment variables differ between
 topologies, so the Locust numbers stay comparable.
 
-A model server App is OpenVINO Model Server or the FastAPI model server
-(`rag-model-server`, the same models on the same `/v3` routes and formats):
-`model_server` in `deploy.yaml` picks one for every model server App of a
-topology. Which Apps a topology needs follows from its topology alias in
-`deploy.yaml` (see "Topology aliases" below): one model server App per
-component it serves, then the workflow App. The table shows the three aliases
-of `deploy.example.yaml`.
+An App has one of two roles: the workflow app (`RAG_ROLE=workflow`, the
+default), or a model server (`RAG_ROLE=model-server`), which is told the
+component it serves (`RAG_MODEL_SERVER_COMPONENT`, any embedder or reranker of
+the workflow file) and its model-server kind (`RAG_MODEL_SERVER_KIND`).
+`app.sh` sources the kind's own launch script, `domino/model_servers/<kind>.sh`,
+which holds its bootstrap and its command: `fastapi` runs the FastAPI model
+server (`rag-model-server`, the component's local model on the `/v3` routes and
+formats), `ovms` runs OpenVINO Model Server. Each kind is also one registered
+class (`deploy/model_server_kinds/`) that says which component types it serves,
+on which route, and how a served model is probed; a new kind is one class and
+one script, and neither `rag-deploy`'s flow nor `app.sh` changes. `server` in
+an App's block of `deploy.yaml` sets its kind, `defaults.server` the kind of
+every other model server App, `fastapi` by default. Which Apps a topology needs
+follows from its topology alias in `deploy.yaml` (see "Topology aliases"
+below): one model server App per component it serves, then the workflow App.
+The table shows the three aliases of `deploy.example.yaml`.
 
-| Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
+| Topology | App | `RAG_ROLE` (kind: OVMS / FastAPI) | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
-| `monolith` | one app: workflow + embedder + reranker | `monolith` (default) | `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
-| `split-reranker` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | OVMS: `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `RAG_COMPONENTS__RERANKER__SOURCE_ID`) | `ovms` / `rag` |
+| `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
+| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi`) | `RAG_MODEL_SERVER_COMPONENT=reranker`, `RAG_MODEL_SERVER_KIND`; OVMS: `RAG_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `RAG_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `RAG_COMPONENTS__RERANKER__SOURCE_ID`) | `ovms` / `rag` |
 | | **B** workflow + embedder | `workflow` | `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
-| `split-all` | **A** model server: reranker | `ovms-reranker` / `fastapi-reranker` | as above | `ovms` / `rag` |
-| | **C** model server: embedder | `ovms-embedder` / `fastapi-embedder` | as above (FastAPI: weights from `RAG_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` |
+| `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi`) | as above | `ovms` / `rag` |
+| | **C** model server: embedder | `model-server` (`ovms` / `fastapi`) | as above, `RAG_MODEL_SERVER_COMPONENT=embedder` (FastAPI: weights from `RAG_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` |
 | | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 
-Both workflow app roles run `rag-serve --domino`. A role only defaults
-`RAG_TOPOLOGY` (`monolith` for `monolith`, `split-reranker` for `workflow`) and
-refuses a topology it does not serve (`monolith` serves only `monolith`;
-`workflow` serves `split-reranker` and `split-all`). Python then resolves the
+The workflow role runs `rag-serve --domino` and passes `RAG_TOPOLOGY` through
+untouched, whatever its value. Python then resolves the
 backends from the topology, moving the embedder and the reranker from `local` to
 `served` when it says so (`rag-deploy` writes each backend itself, and tells the
 app a topology that moves nothing: see "Topology aliases"), requires
@@ -1264,9 +1288,10 @@ Environments from them (custom base image), or paste one stage's instructions
 into the Dockerfile Instructions field. Workspaces that ingest or run Locust use
 the `rag` environment.
 
-**Models Dataset.** The OVMS roles read `config_reranker.json` /
-`config_embedder.json` from `RAG_OVMS_MODELS_DIR` (default `/mnt/data/ovms-models`)
-and exit with a clear message when the file is missing. Create a Dataset named
+**Models Dataset.** An OVMS model server reads its component's
+`config_<component>.json` (`config_reranker.json`, `config_embedder.json`) from
+`RAG_OVMS_MODELS_DIR` (default `/mnt/data/ovms-models`), exporting it first when
+it can and exiting with a clear message when it cannot. Create a Dataset named
 `ovms-models` (Data → Datasets; git-based projects mount it at
 `/mnt/data/ovms-models`, DFS projects at `/domino/datasets/local/ovms-models`, so
 set `RAG_OVMS_MODELS_DIR` there) and fill it from a Workspace with
@@ -1356,8 +1381,8 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `503 reranker_unavailable` / `embedder_unavailable` | model server app not ready (Dataset missing, wrong `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
 | `503 vector_store_unavailable` / `/readyz` not ready | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
 | `rag-serve: error: ...` in a workflow app's log | a settings mistake: a `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL` missing for a component on the `served` backend, or an unknown backend or API format; the message names the variable and the fix |
-| `app.sh[...]: RAG_TOPOLOGY='...' is not served by this role` | the role and the topology disagree: `monolith` serves `monolith`, `workflow` serves `split-reranker` and `split-all` |
-| `app.sh[ovms-*]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `RAG_OVMS_MODELS_DIR` |
+| `app.sh[...]: unknown RAG_ROLE '...'` | an old role (`monolith`, `ovms-reranker`, ...): the roles are `workflow` and `model-server`, the latter with `RAG_MODEL_SERVER_COMPONENT` and `RAG_MODEL_SERVER_KIND` |
+| `app.sh[model-server ovms ...]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `RAG_OVMS_MODELS_DIR` |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `RAG_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
 
 ### Deploy on Domino in a few commands
@@ -1366,7 +1391,7 @@ From the repository root (for example `/repos/<project>`) in a Workspace of the 
 project that hosts all the Apps:
 
 ```bash
-cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, model server
+cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, each App's server
 make deploy                           # model server Apps first, then the workflow App with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
@@ -1380,7 +1405,7 @@ names" below). The Apps install their own dependencies when they start
 (`domino/app.sh` with `RAG_BOOTSTRAP=1`), into a virtualenv on Python 3.11, so any
 environment with `uv` works, but the first start is slower and needs access to
 the package index and the Hugging Face Hub. An environment without Python 3.11
-also needs access to GitHub, where `uv` downloads it from. For `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
+also needs access to GitHub, where `uv` downloads it from. For an App served by `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
 `bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
 example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
 root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
@@ -1389,7 +1414,7 @@ mount the repository at the same path); elsewhere it refuses to publish.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
-`topology_alias`, `model_server`, `project_id`, `app_name_prefix`, `ovms_bundle`,
+`topology_alias`, `project_id`, `app_name_prefix`, `ovms_bundle`,
 `domino_host`) and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
 `no_instance_grace_s`, `http_timeout_s`, `http_retries`, `run_token_url`); a
 `RAG_DEPLOY_<KEY>` variable overrides one, e.g.
@@ -1403,12 +1428,14 @@ defaults:
   environment_id: env-123          # required: the compute environment's id (in its page's URL)
   environment_revision_id: rev-7   # optional: one build of env-123; "" = Domino chooses
   hardware_tier_id: small          # "" = the project's default tier
+  server: fastapi                  # every model server App's kind, unless its own block says
   settings: {RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL: https://es.example:9200}
 apps:
   workflow:
     kind: agent                    # the default for the workflow; model servers are apps
     autoscaling: {min_replicas: 1, max_replicas: 4, target_cpu_pct: 70}
   reranker:
+    server: ovms                   # this model server App alone is OVMS (needs ovms_bundle)
     environment_id: env-456        # its own environment, so not rev-7: Domino chooses
     hardware_tier_id: cpu-16
     settings: {RAG_COMPONENTS__RERANKER__SOURCE_ID: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR}
@@ -1420,11 +1447,13 @@ App's winning; YAML numbers and booleans are exported as strings), for example
 `/domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0` works as well as a
 Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
 `/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
+a model server's `RAG_MODEL_SERVER_COMPONENT` and `RAG_MODEL_SERVER_KIND`, what
+its kind's script reads (`RAG_OVMS_BUNDLE` for `ovms`), the workflow App's
 `RAG_TOPOLOGY`, `RAG_COMPONENTS__<COMPONENT>__BACKEND` of each component the
-topology alias names, `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
-one (the model server App's URL plus `/v3/rerank` or `/v3/embeddings`),
-`RAG_OVMS_BUNDLE` and `RAG_BOOTSTRAP` itself (they win), and `RAG_RUN_LABEL`
-unless the settings set it. Secrets stay in
+topology alias names and `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
+one (the model server App's URL plus the route its kind declares for its type,
+`/v3/rerank` or `/v3/embeddings`), and `RAG_BOOTSTRAP` itself (they win), and
+`RAG_RUN_LABEL` unless the settings set it. Secrets stay in
 Domino's project or user environment variables, because `settings` are written
 into the Apps' launch scripts. `rag-deploy` refuses, in any block, a setting
 whose name ends in `_API_KEY` (such as `RAG_COMPONENTS__LLM__API__API_KEY` or
@@ -1457,22 +1486,26 @@ component the row does not name keeps the backend the workflow file (or the
 App's `settings`) gives it: to deploy the reranker on `none` or an `api`
 endpoint, leave it out of the row, since a named component's backend is the
 row's and wins over `settings`. A cell says only where a component runs; how it
-is served (`model_server`, the environment, the hardware tier) is in its App's
-block. The run label is the alias, then each served component and its
-model-server kind: `split-all+embedder=fastapi+reranker=fastapi`, or `monolith`.
+is served (`server`, the model-server kind, the environment, the hardware tier)
+is in its App's block. A served component may have any name: its App is
+`<app_name_prefix>-<component>` and is told the component. The run label is the
+alias, then each served component and the model-server kind of its own App:
+`split-all+embedder=fastapi+reranker=ovms`, or `monolith`.
 
 Until the workflow app drops its own topology rule, `RAG_TOPOLOGY` keeps the
 `X-RAG-Topology` header: it is the alias when the app knows the name
 (`monolith`, `split-reranker`, `split-all`) and its rule would move none of the
 backends written, and `monolith` (whose rule moves nothing) otherwise, so a
 fourth alias deploys with the `monolith` header and its own run label. The
-workflow App's Role follows that value, as `app.sh` pairs them.
+workflow App has one Role whatever the topology, and `app.sh` passes
+`RAG_TOPOLOGY` through without checking it.
 
 Before anything is published, `rag-deploy` refuses a `topology` that is not a
 key of the table, a row naming a component the workflow file does not declare, a
-cell other than `local` or `served`, a served component no model server can
-serve (a model server serves an embedder or a reranker, the component named
-after its type, which `app.sh` starts: a served LLM is refused), and an alias
+cell other than `local` or `served`, a model-server kind no class is registered
+under (naming the kinds), a served component its App's kind cannot serve (naming
+the kinds that can, or, when none can, each kind and what it serves: a served
+LLM is refused, since neither `fastapi` nor `ovms` serves one), and an alias
 whose run label the workflow app would refuse (letters, digits and `._+=:-`, up
 to 128 characters). Each message names the value and what was expected.
 
@@ -1633,7 +1666,7 @@ instance. Replace the placeholders once; the code itself does not change.
 | `<registry>` | a registry Domino can pull environments from (only for step 1a) |
 | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY` | project environment variables, every project |
 | `RAG_COMPONENTS__LLM__API__API_KEY` (and `RAG_COMPONENTS__LLM__API__URL` for a gateway), or `RAG_COMPONENTS__LLM__BACKEND=fake` | project environment variables of the monolith and workflow projects |
-| `RAG_ROLE` | project environment variable, one value per project (see step 2) |
+| `RAG_ROLE`, and a model server's `RAG_MODEL_SERVER_COMPONENT` and `RAG_MODEL_SERVER_KIND` | project environment variables, one set per project (see step 2) |
 | `RAG_COMPONENTS__RERANKER__SERVED__URL`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` | workflow project, set after step 5 publishes the model apps |
 | `RAG_OVMS_MODELS_DIR` | OVMS projects, only when the Dataset is not mounted at `/mnt/data/ovms-models` |
 | `RAG_OVMS_PREFIX_PROXY=1` | OVMS projects, only if step 6 returns `404` |
@@ -1654,17 +1687,18 @@ and paste the instructions of one `domino/Dockerfile` stage (everything after it
 the two HF models, so it needs Hub access at build time.
 
 **2. Projects (one per app).** A Domino App inherits its project's environment
-variables and each app needs its own `RAG_ROLE`, so import this git repository into
-one project per app and set, in Project → Settings → Environment variables:
+variables and each app needs its own `RAG_ROLE` (and a model server its
+component and kind), so import this git repository into one project per app and
+set, in Project → Settings → Environment variables:
 
 | Project | `RAG_ROLE` | Environment | Other variables |
 | --- | --- | --- | --- |
-| `rag-monolith` | `monolith` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY` |
-| `rag-ovms-reranker` | `ovms-reranker` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
-| `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
-| `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
-| `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
-| `rag-workflow` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__RERANKER__SERVED__URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `RAG_RUN_LABEL` for a variant |
+| `rag-monolith` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY` |
+| `rag-ovms-reranker` | `model-server` | `ovms` | `RAG_MODEL_SERVER_COMPONENT=reranker`, `RAG_MODEL_SERVER_KIND=ovms`, `RAG_OVMS_MODELS_DIR` if needed |
+| `rag-ovms-embedder` | `model-server` | `ovms` | `RAG_MODEL_SERVER_COMPONENT=embedder`, `RAG_MODEL_SERVER_KIND=ovms`, `RAG_OVMS_MODELS_DIR` if needed |
+| `rag-fastapi-reranker` | `model-server` | `rag` | `RAG_MODEL_SERVER_COMPONENT=reranker`, `RAG_MODEL_SERVER_KIND=fastapi` |
+| `rag-fastapi-embedder` | `model-server` | `rag` | `RAG_MODEL_SERVER_COMPONENT=embedder`, `RAG_MODEL_SERVER_KIND=fastapi` |
+| `rag-workflow` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_TOPOLOGY=split-reranker`, `RAG_COMPONENTS__RERANKER__SERVED__URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `RAG_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `RAG_DOMINO__TRACING` identical across projects
 (unset, or `true` everywhere).
