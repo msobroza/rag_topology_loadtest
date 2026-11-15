@@ -175,19 +175,23 @@ def wrapped(label: str) -> str:
 
 
 def seconds_text(seconds: float) -> str:
-    """A time in seconds as printed on a chart: three significant figures.
+    """A time in seconds as printed on a chart, at least one decimal.
+
+    The registry's times are whole milliseconds, so three decimals say all of
+    them; trailing zeros go, except the one that keeps "1.0 s" from reading "1 s".
 
     Args:
         seconds: The time.
 
     Returns:
-        The text, e.g. ``"0.015 s"`` or ``"3.4 s"``.
+        The text, e.g. ``"0.015 s"``, ``"3.4 s"`` or ``"1.0 s"``.
 
     Example:
         >>> seconds_text(0.015)
         '0.015 s'
     """
-    return f"{seconds:.3g} s"
+    digits = f"{seconds:.3f}".rstrip("0")
+    return f"{digits}0 s" if digits.endswith(".") else f"{digits} s"
 
 
 def rate_text(requests_per_s: float) -> str:

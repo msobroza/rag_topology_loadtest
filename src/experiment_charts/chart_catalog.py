@@ -1,4 +1,4 @@
-"""The ten charts of ``experiments-explained/``, with the experiments they read.
+"""The eleven charts of ``experiments-explained/``, with the experiments they read.
 
 This is the one place where experiment ids are written: a chart's module knows
 how to select and draw, the catalog says from which runs.
@@ -26,6 +26,7 @@ from .one_request_fills_the_machine_chart import (
 )
 from .overload_chart import OverloadChart
 from .same_weights_same_throughput_chart import SameWeightsSameThroughputChart
+from .scale_out_or_scale_up_chart import ApproachBar, ScaleOutOrScaleUpChart
 from .small_batches_chart import BatchTrials, SmallBatchesChart
 from .topologies_chart import TopologiesChart, TopologyBar, TopologyPanel
 from .where_the_time_goes_chart import WhereTheTimeGoesChart
@@ -33,19 +34,20 @@ from .who_waits_how_long_chart import DumbbellPanel, ServerRun, WhoWaitsHowLongC
 
 
 def experiment_charts() -> tuple[BaseExperimentChart, ...]:
-    """Build the ten charts, in the order the tour shows them.
+    """Build the eleven charts, in the order the tour shows them.
 
     Returns:
-        The charts, numbered 01 to 10 by their slugs.
+        The charts, numbered 01 to 11 by their slugs.
 
     Example:
         >>> len(experiment_charts())
-        10
+        11
     """
     return (
         _where_the_time_goes(),
         _more_users_more_waiting(),
         _bigger_machine_more_answers(),
+        _scale_out_or_scale_up(),
         _same_weights_same_throughput(),
         _who_waits_how_long(),
         _one_request_fills_the_machine(),
@@ -90,6 +92,22 @@ def _bigger_machine_more_answers() -> BiggerMachineMoreAnswersChart:
         ),
     )
     return BiggerMachineMoreAnswersChart((full, compressed), users=4)
+
+
+def _scale_out_or_scale_up() -> ScaleOutOrScaleUpChart:
+    out, up = "machines of 2 vCPUs", "one bigger machine"
+    throughput = (
+        ApproachBar("2 machines of 2 vCPUs", out, "m2-split-reranker", 8, 2, 2),
+        ApproachBar("4 machines of 2 vCPUs", out, "m2-monolith", 8, 4, 2),
+        ApproachBar("1 machine of 8 vCPUs", up, "pr8-monolith", 10, 1, 8),
+    )
+    # One request at a time is served on one machine, whatever the replicas.
+    latency = (
+        ApproachBar("2 vCPUs", out, "m7-calibrated-fastapi-rerank", 1, 1, 2),
+        ApproachBar("8 vCPUs", up, "v8-alone-fastapi-fp32", 1, 1, 8),
+        ApproachBar("16 vCPUs", up, "v16-alone-fastapi-fp32", 1, 1, 16),
+    )
+    return ScaleOutOrScaleUpChart(throughput, latency, (out, up))
 
 
 def _same_weights_same_throughput() -> SameWeightsSameThroughputChart:

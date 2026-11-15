@@ -1,7 +1,7 @@
 # The experiments, explained
 
 A guided tour of what this repository measured, for a reader who does not know the
-domain. Ten charts, each with one finding, how to read it and why it happens. No prior
+domain. Eleven charts, each with one finding, how to read it and why it happens. No prior
 knowledge of search systems, model servers or load testing is assumed.
 
 The measurements themselves are in [`experiments/`](../experiments/README.md): every
@@ -19,16 +19,18 @@ numbers behind each chart is in [`data/`](data/).
 3. **A bigger machine serves about in proportion.** One request costs about 8 seconds
    of one virtual CPU, whatever the machine. Storing the model in 8 bits instead of 32
    brings that to about 5.
-4. **The two model servers compared, OVMS and FastAPI, serve the same amount** once
+4. **More machines or one bigger machine give the same answers a second** for the
+   same total of CPUs. Only the bigger machine makes each answer faster.
+5. **The two model servers compared, OVMS and FastAPI, serve the same amount** once
    they run the same model file. The lead OVMS showed at first was its smaller file.
-5. **They differ in who waits.** FastAPI serves requests in arrival order, so everyone
+6. **They differ in who waits.** FastAPI serves requests in arrival order, so everyone
    waits about the same. Under OVMS some requests wait two to three times longer than
    others, and it loses requests sooner when overloaded.
-6. **One setting was worth tuning: the batch size** (about a third less time per
+7. **One setting was worth tuning: the batch size** (about a third less time per
    request). OVMS's own setting for parallel requests, its streams, gained 2% at most.
-7. **No topology is faster in itself.** What counts is how many CPUs the reranker has
+8. **No topology is faster in itself.** What counts is how many CPUs the reranker has
    in total.
-8. **A reranker five times larger** is about six times slower, and none of the findings
+9. **A reranker five times larger** is about six times slower, and none of the findings
    above changes.
 
 ## What is being tested
@@ -174,11 +176,62 @@ Sittings: [OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovm
 for 2 vCPUs, [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md)
 for 8 and 16.
 
-### 4. The two model servers serve the same amount on the same weights
+### 4. More machines or a bigger machine: the same answers a second, not the same speed
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/04-same-weights-same-throughput-dark.svg">
-  <img src="figures/04-same-weights-same-throughput.svg" width="800" alt="Grouped bars of requests a second for the FastAPI model server and OVMS, in six groups: 2, 8 and 16 vCPUs, each with 32-bit and with 8-bit weights. In every group the two bars are almost the same height.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/04-scale-out-or-scale-up-dark.svg">
+  <img src="figures/04-scale-out-or-scale-up.svg" width="1000" alt="Left: requests a second through the whole workflow. Two machines of 2 vCPUs serve 0.34, four machines of 2 vCPUs serve 0.65, and one machine of 8 vCPUs serves 0.65. Right: median time of a request when it is the only one: 3.6 seconds on a machine of 2 vCPUs, 1.0 on 8 vCPUs, 0.56 on 16 vCPUs.">
+</picture>
+
+**How to read it.** There are two ways to give the reranker more CPUs. Scaling out
+(also called horizontal scaling) adds machines of the same size, each with its own copy
+of the reranker, and shares the requests out between them. Scaling up (vertical
+scaling) replaces the machine with a bigger one. Left: the requests a second of three
+layouts. Right: how long one request takes when nobody else is asking, by the size of
+the machine that reranks it.
+
+**What it shows.** Left: two machines of 2 vCPUs serve 0.34 requests a second and four
+serve 0.65: twice the machines, twice the answers. One machine of 8 vCPUs, the same
+total as the four, serves the same 0.65. Right: a request that arrives alone takes
+3.6 seconds on a machine of 2 vCPUs, 1.0 on 8 and 0.56 on 16.
+
+**Why.** One request is reranked by one machine. With more machines, more requests are
+worked on at the same time, but each still gets 2 vCPUs, so none is ever answered in
+less than 3.6 seconds. A bigger machine puts all its CPUs on each request (finding 7):
+each one is faster, and the machine gets through as many of them as the small machines
+together.
+
+**What follows.**
+
+- For capacity, count the reranker's CPUs in total. Either way they give about the
+  same requests a second. With calibration the small machines were a little ahead for
+  each CPU: one request cost 7.7 vCPU-seconds on two machines of 2 vCPUs, 8.6 on one
+  machine of 8 and 9.4 on one of 16.
+- For the speed of each answer while the system is not full, only scaling up helps.
+  With two machines of 2 vCPUs, one user waits 4.0 seconds and two users wait
+  4.1 seconds each: the second machine serves the second user, and neither is faster.
+- Scaling out needs the requests to be shared out evenly. When the proxy picked a
+  machine at random for each connection, half of the requests failed at 8 users.
+  Taking the machines in turn lost none.
+- The comparison of the two model servers came out the same on small machines and on
+  big ones (findings 5 to 9).
+
+**A caution.** No sitting was designed for this comparison. The left panel puts
+together runs of two sittings, on different code, at 8 users for the small machines and
+10 for the big one, all with the default settings of the time. All three were full, so
+the number of users does not change the requests a second (finding 2). The figures
+with calibration come from the two sittings of 15 November.
+
+Numbers: [`data/04-scale-out-or-scale-up.csv`](data/04-scale-out-or-scale-up.csv).
+Sittings: [the baseline of three topologies](../experiments/2026-11-14-baseline-three-topologies-fastapi-8-vcpus/README.md),
+[OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovms-against-fastapi-equal-hardware/README.md),
+[the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
+
+### 5. The two model servers serve the same amount on the same weights
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/05-same-weights-same-throughput-dark.svg">
+  <img src="figures/05-same-weights-same-throughput.svg" width="800" alt="Grouped bars of requests a second for the FastAPI model server and OVMS, in six groups: 2, 8 and 16 vCPUs, each with 32-bit and with 8-bit weights. In every group the two bars are almost the same height.">
 </picture>
 
 **How to read it.** Six comparisons. In each, the two servers run the same model with
@@ -186,7 +239,7 @@ the same weights on the same machine, under 4 users.
 
 **What it shows.** The bars of a pair are level: 0.24 against 0.24 on 2 vCPUs, 1.00
 against 0.97 on 8, 3.10 against 3.05 on 16 with 8-bit weights. The one visible gap,
-32-bit weights on 16 vCPUs (1.81 against 2.07), comes from the batch size of finding 7,
+32-bit weights on 16 vCPUs (1.81 against 2.07), comes from the batch size of finding 8,
 not from the server.
 
 **Why.** The time goes into the model's arithmetic, and both servers hand that to the
@@ -199,15 +252,15 @@ the model in 8 bits, and the project's own export in 32. Compared on the same we
 the lead disappeared. When two systems are compared, everything but the thing compared
 has to be equal.
 
-Numbers: [`data/04-same-weights-same-throughput.csv`](data/04-same-weights-same-throughput.csv).
+Numbers: [`data/05-same-weights-same-throughput.csv`](data/05-same-weights-same-throughput.csv).
 Sittings: [OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovms-against-fastapi-equal-hardware/README.md),
 [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
-### 5. Same speed, but not the same wait for everyone
+### 6. Same speed, but not the same wait for everyone
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/05-who-waits-how-long-dark.svg">
-  <img src="figures/05-who-waits-how-long.svg" width="1000" alt="For each server configuration with 16 users at once, a line from the median wait to the wait of the slowest 1 in 20. FastAPI: 15 to 16 seconds on 8 vCPUs, 8.2 to 8.6 on 16. OVMS: 13 to 27 and 12 to 37 seconds on 8 vCPUs, 7 to 16 and 5 to 11 on 16.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/06-who-waits-how-long-dark.svg">
+  <img src="figures/06-who-waits-how-long.svg" width="1000" alt="For each server configuration with 16 users at once, a line from the median wait to the wait of the slowest 1 in 20. FastAPI: 15 to 16 seconds on 8 vCPUs, 8.2 to 8.6 on 16. OVMS: 13 to 27 and 12 to 37 seconds on 8 vCPUs, 7 to 16 and 5 to 11 on 16.">
 </picture>
 
 **How to read it.** Each row is one configuration under 16 users. The first mark is
@@ -227,14 +280,14 @@ first, and an earlier one keeps waiting.
 **Why it matters.** Two systems with the same requests a second can feel different. A
 user notices the long wait, not the average.
 
-Numbers: [`data/05-who-waits-how-long.csv`](data/05-who-waits-how-long.csv).
+Numbers: [`data/06-who-waits-how-long.csv`](data/06-who-waits-how-long.csv).
 Sitting: [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
-### 6. One request already fills the machine, so running several at once gains nothing
+### 7. One request already fills the machine, so running several at once gains nothing
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/06-one-request-fills-the-machine-dark.svg">
-  <img src="figures/06-one-request-fills-the-machine.svg" width="1000" alt="Left: seconds for one request by number of threads. On the 8-vCPU machine 4.9 seconds on 1 thread, 2.5 on 2, 1.3 on 4, 1.2 on 8. On the 16-vCPU machine 1.3 on 4 threads, 0.70 on 8, 0.68 on 16. Right: seconds until 16 requests sent at once are all answered, by number of OVMS streams: about 31 seconds for 1 and 2 streams on 8 vCPUs then 38 and 45; about 14.5 seconds for 1, 2 and 4 streams on 16 vCPUs then 18 and 29.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/07-one-request-fills-the-machine-dark.svg">
+  <img src="figures/07-one-request-fills-the-machine.svg" width="1000" alt="Left: seconds for one request by number of threads. On the 8-vCPU machine 4.9 seconds on 1 thread, 2.5 on 2, 1.3 on 4, 1.2 on 8. On the 16-vCPU machine 1.3 on 4 threads, 0.70 on 8, 0.68 on 16. Right: seconds until 16 requests sent at once are all answered, by number of OVMS streams: about 31 seconds for 1 and 2 streams on 8 vCPUs then 38 and 45; about 14.5 seconds for 1, 2 and 4 streams on 16 vCPUs then 18 and 29.">
 </picture>
 
 **How to read it.** Left: how long one request takes when it is given more threads
@@ -255,14 +308,14 @@ example a small model on a machine with dozens of cores. That is not the case he
 **The cost for a lone user.** With 4 streams, a request arriving alone gets a quarter
 of the machine: 0.99 seconds instead of 0.48 on 16 vCPUs.
 
-Numbers: [`data/06-one-request-fills-the-machine.csv`](data/06-one-request-fills-the-machine.csv).
+Numbers: [`data/07-one-request-fills-the-machine.csv`](data/07-one-request-fills-the-machine.csv).
 Sitting: [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
-### 7. Scoring the passages in small batches is faster when their lengths differ
+### 8. Scoring the passages in small batches is faster when their lengths differ
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/07-small-batches-dark.svg">
-  <img src="figures/07-small-batches.svg" width="1000" alt="Left: time to score 20 passages by batch size, as a percentage of the time with one batch of 20. It falls to about 65 to 70 percent at batch sizes 5 to 2 on machines of 2, 8 and 16 vCPUs. Right: requests a second through the whole workflow at 4 users: FastAPI 0.93 against OVMS 0.73 on 8 vCPUs, and 1.70 against 1.24 on 16 vCPUs.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/08-small-batches-dark.svg">
+  <img src="figures/08-small-batches.svg" width="1000" alt="Left: time to score 20 passages by batch size, as a percentage of the time with one batch of 20. It falls to about 65 to 70 percent at batch sizes 5 to 2 on machines of 2, 8 and 16 vCPUs. Right: requests a second through the whole workflow at 4 users: FastAPI 0.93 against OVMS 0.73 on 8 vCPUs, and 1.70 against 1.24 on 16 vCPUs.">
 </picture>
 
 **How to read it.** Left: the time to score the 20 passages of one request, when they
@@ -279,17 +332,17 @@ Through the whole workflow, on the real passages of the corpus, FastAPI then ser
 padded to the length of the longest. It is like shipping books of every size in boxes
 made for the largest: most boxes carry air, and the model computes on the air too.
 Smaller batches waste less. With passages that all have the same length the effect
-vanishes, which is why finding 4 shows no gap.
+vanishes, which is why finding 5 shows no gap.
 
-Numbers: [`data/07-small-batches.csv`](data/07-small-batches.csv).
+Numbers: [`data/08-small-batches.csv`](data/08-small-batches.csv).
 Sittings: [OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovms-against-fastapi-equal-hardware/README.md),
 [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
-### 8. Overloaded, the system loses requests, and OVMS loses them sooner
+### 9. Overloaded, the system loses requests, and OVMS loses them sooner
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/08-overload-dark.svg">
-  <img src="figures/08-overload.svg" width="1000" alt="Share of requests that failed, by users at once, for FastAPI and OVMS. Reranker on 8 vCPUs: none at 4 users; at 16 users FastAPI none and OVMS 41 percent; at 32 users 72 and 74 percent. Reranker on 16 vCPUs: none except OVMS at 32 users, 29 percent.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/09-overload-dark.svg">
+  <img src="figures/09-overload.svg" width="1000" alt="Share of requests that failed, by users at once, for FastAPI and OVMS. Reranker on 8 vCPUs: none at 4 users; at 16 users FastAPI none and OVMS 41 percent; at 32 users 72 and 74 percent. Reranker on 16 vCPUs: none except OVMS at 32 users, 29 percent.">
 </picture>
 
 **How to read it.** The share of requests that were not answered within 30 seconds,
@@ -304,17 +357,17 @@ and OVMS loses 3 in 10 there.
 **Why.** The rule of finding 2 says when the wait reaches the 30-second limit: at
 about 30 × requests a second users. That is 28 users at 0.93 requests a second, and
 more than 50 at 1.7. FastAPI fails where the rule says. OVMS fails earlier for the two
-reasons already seen: it serves less on real passages (finding 7), and some of its
-requests wait far longer than the median (finding 5).
+reasons already seen: it serves less on real passages (finding 8), and some of its
+requests wait far longer than the median (finding 6).
 
-Numbers: [`data/08-overload.csv`](data/08-overload.csv).
+Numbers: [`data/09-overload.csv`](data/09-overload.csv).
 Sitting: [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
-### 9. No topology is faster in itself: what counts is the reranker's CPUs
+### 10. No topology is faster in itself: what counts is the reranker's CPUs
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/09-topologies-dark.svg">
-  <img src="figures/09-topologies.svg" width="1000" alt="Requests a second by topology. Left, three machines of 8 vCPUs with one reranker each time: monolith 0.65, split-reranker 0.68, split-all 0.70. Right, four machines of 2 vCPUs: monolith with four rerankers 0.65, split-reranker and split-all with two rerankers 0.34 and 0.36.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/10-topologies-dark.svg">
+  <img src="figures/10-topologies.svg" width="1000" alt="Requests a second by topology. Left, three machines of 8 vCPUs with one reranker each time: monolith 0.65, split-reranker 0.68, split-all 0.70. Right, four machines of 2 vCPUs: monolith with four rerankers 0.65, split-reranker and split-all with two rerankers 0.34 and 0.36.">
 </picture>
 
 **How to read it.** Requests a second through the whole workflow for the three
@@ -335,15 +388,15 @@ given to it. In all six cases one request costs about 12 seconds of one reranker
 the reranker was using. And only a split topology lets the reranker have a machine of
 its own size, or more copies than the rest.
 
-Numbers: [`data/09-topologies.csv`](data/09-topologies.csv).
+Numbers: [`data/10-topologies.csv`](data/10-topologies.csv).
 Sittings: [the baseline of three topologies](../experiments/2026-11-14-baseline-three-topologies-fastapi-8-vcpus/README.md),
 [OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovms-against-fastapi-equal-hardware/README.md).
 
-### 10. A larger reranker changes the scale, not the findings
+### 11. A larger reranker changes the scale, not the findings
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/10-larger-model-dark.svg">
-  <img src="figures/10-larger-model.svg" width="1000" alt="Left: requests a second of the small and the large reranker on the FastAPI model server: 1.0 against 0.17 on 8 vCPUs, 1.8 against 0.33 on 16. Right: the large reranker on FastAPI and on OVMS: equal on uniform passages, FastAPI ahead on mixed passages, 0.14 against 0.11 on 8 vCPUs and 0.27 against 0.21 on 16.">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/11-larger-model-dark.svg">
+  <img src="figures/11-larger-model.svg" width="1000" alt="Left: requests a second of the small and the large reranker on the FastAPI model server: 1.0 against 0.17 on 8 vCPUs, 1.8 against 0.33 on 16. Right: the large reranker on FastAPI and on OVMS: equal on uniform passages, FastAPI ahead on mixed passages, 0.14 against 0.11 on 8 vCPUs and 0.27 against 0.21 on 16.">
 </picture>
 
 **How to read it.** Left: the small reranker used everywhere else on this page, and
@@ -359,7 +412,7 @@ because OVMS had been set to 4 streams.
 **Why it was tried.** One could think that a heavier model, or a model file prepared
 by OpenVINO's own team, would favour OVMS. Neither did.
 
-Numbers: [`data/10-larger-model.csv`](data/10-larger-model.csv).
+Numbers: [`data/11-larger-model.csv`](data/11-larger-model.csv).
 Sitting: [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
 ## Sizing by rule of thumb
@@ -380,6 +433,9 @@ People read the answer first. Ten such users stand for many more people.
 
 - Give the reranker the CPUs. It is where the time goes, and its throughput grows with
   them.
+- To serve more users, add reranker CPUs either way: more machines or a bigger one. To
+  make each answer faster, take a bigger machine: more machines do not shorten a
+  request.
 - Decide the weight format first. 8-bit weights give one and a half times the
   throughput on either server, and their ranking quality has to be checked before
   they are adopted.
@@ -402,6 +458,8 @@ People read the answer first. Ten such users stand for many more people.
 - The ranking quality of 8-bit weights was not measured.
 - Sittings ran on different code and machines. Figures compare inside a sitting, and
   the charts say when they combine two.
+- No sitting compared more machines with a bigger machine on the same code and the
+  same settings: finding 4 puts together runs of three sittings.
 
 ## Where everything is
 

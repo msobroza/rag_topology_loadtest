@@ -1,4 +1,4 @@
-"""Chart 8: the share of requests that gave up, through the whole workflow.
+"""Chart 9: the share of requests that gave up, through the whole workflow.
 
 A request gives up when the emulated Domino's proxy cuts it at 30 seconds; Locust
 counts it as a failure.
@@ -35,7 +35,7 @@ class OverloadChart(BaseExperimentChart):
 
     panels: tuple[RunPair, ...]  # a panel title, FastAPI's and OVMS's experiments
     users: tuple[int, ...]
-    slug: ClassVar[str] = "08-overload"
+    slug: ClassVar[str] = "09-overload"
     title: ClassVar[str] = (
         "Share of requests that gave up after 30 seconds, through the whole workflow"
     )

@@ -1,4 +1,4 @@
-"""Chart 10: a reranker five times larger, one reranker alone at 4 users.
+"""Chart 11: a reranker five times larger, one reranker alone at 4 users.
 
 Left, the FastAPI model server with the small and the large reranker on 8 and 16
 vCPUs. Right, the large reranker on both model servers, with uniform and with
@@ -38,7 +38,7 @@ class LargerModelChart(BaseExperimentChart):
     size_labels: tuple[str, str]  # the small reranker's name, the large one's
     server_pairs: tuple[RunPair, ...]
     users: int
-    slug: ClassVar[str] = "10-larger-model"
+    slug: ClassVar[str] = "11-larger-model"
     title: ClassVar[str] = (
         "A reranker five times larger (4 users at once, one reranker)"
     )

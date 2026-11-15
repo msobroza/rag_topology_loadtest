@@ -1,4 +1,4 @@
-"""Chart 7: small batches score mixed-length passages faster, and what it gives.
+"""Chart 8: small batches score mixed-length passages faster, and what it gives.
 
 Left, the FastAPI model server's calibration on three machines: the time of one
 request by batch size, as a percentage of one batch of 20 on the same machine.
@@ -61,7 +61,7 @@ class SmallBatchesChart(BaseExperimentChart):
     batch_sizes: tuple[int, ...]  # the first is the reference, 100 %
     workflow_pairs: tuple[RunPair, ...]
     users: int
-    slug: ClassVar[str] = "07-small-batches"
+    slug: ClassVar[str] = "08-small-batches"
     title: ClassVar[str] = (
         "Scoring 20 passages of mixed length: "
         "time by batch size, relative to one batch of 20"

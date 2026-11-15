@@ -1,4 +1,4 @@
-"""Chart 5: the median and the 95th-percentile wait, one row per configuration.
+"""Chart 6: the median and the 95th-percentile wait, one row per configuration.
 
 Example:
     >>> WhoWaitsHowLongChart(panels, users=16).table(registry).column("p95_s")
@@ -48,7 +48,7 @@ class WhoWaitsHowLongChart(BaseExperimentChart):
 
     panels: tuple[DumbbellPanel, ...]
     users: int
-    slug: ClassVar[str] = "05-who-waits-how-long"
+    slug: ClassVar[str] = "06-who-waits-how-long"
     title: ClassVar[str] = (
         "How long requests wait with 16 users at once: "
         "the median and the slowest 1 in 20"

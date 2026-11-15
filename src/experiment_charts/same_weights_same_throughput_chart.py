@@ -1,4 +1,4 @@
-"""Chart 4: the two model servers on the same weights, one reranker alone.
+"""Chart 5: the two model servers on the same weights, one reranker alone.
 
 Example:
     >>> SameWeightsSameThroughputChart(groups, users=4).table(registry)
@@ -31,7 +31,7 @@ class SameWeightsSameThroughputChart(BaseExperimentChart):
 
     groups: tuple[RunPair, ...]
     users: int
-    slug: ClassVar[str] = "04-same-weights-same-throughput"
+    slug: ClassVar[str] = "05-same-weights-same-throughput"
     title: ClassVar[str] = (
         "The two model servers on the same weights (one reranker, 4 users at once)"
     )

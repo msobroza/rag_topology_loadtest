@@ -1,4 +1,4 @@
-"""Chart 9: requests a second through the whole workflow, by topology.
+"""Chart 10: requests a second through the whole workflow, by topology.
 
 Each bar names the reranker capacity its topology had: on four small machines the
 split topologies keep fewer vCPUs for the reranker than the monolith does. The
@@ -53,7 +53,7 @@ class TopologiesChart(BaseExperimentChart):
     """Three bars per panel, monolith then split-reranker then split-all."""
 
     panels: tuple[TopologyPanel, ...]
-    slug: ClassVar[str] = "09-topologies"
+    slug: ClassVar[str] = "10-topologies"
     title: ClassVar[str] = "Requests a second through the whole workflow, by topology"
 
     def table(self, registry: ExperimentRegistry) -> ChartTable:

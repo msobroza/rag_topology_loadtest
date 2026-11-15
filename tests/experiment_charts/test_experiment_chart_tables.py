@@ -51,7 +51,7 @@ def test_bigger_machine_more_answers() -> None:
 
 
 def test_same_weights_same_throughput() -> None:
-    table = table_of("04-same-weights-same-throughput")
+    table = table_of("05-same-weights-same-throughput")
     assert table.columns == (
         "group",
         "server",
@@ -77,7 +77,7 @@ def test_same_weights_same_throughput() -> None:
 
 
 def test_who_waits_how_long() -> None:
-    table = table_of("05-who-waits-how-long")
+    table = table_of("06-who-waits-how-long")
     assert len(table.rows) == 7
     eight = table.rows_where("panel", "reranker on 8 vCPUs")
     assert eight.column("median_s") == (15.0, 13.0, 12.0)
@@ -85,7 +85,7 @@ def test_who_waits_how_long() -> None:
 
 
 def test_one_request_fills_the_machine() -> None:
-    table = table_of("06-one-request-fills-the-machine")
+    table = table_of("07-one-request-fills-the-machine")
     assert len(table.rows) == 16
     streams = table.rows_where("machine", "16 vCPUs")
     assert streams.column("experiment")[0] == "v16-ovms-fp32-cal16-on-demand"
@@ -98,7 +98,7 @@ def test_one_request_fills_the_machine() -> None:
 
 
 def test_small_batches() -> None:
-    table = table_of("07-small-batches")
+    table = table_of("08-small-batches")
     assert {"seconds", "percent_of_batch_20", "requests_per_s"} <= set(table.columns)
     assert len(table.rows) == 19
     two = table.rows_where("group", "2 vCPUs")
@@ -110,7 +110,7 @@ def test_small_batches() -> None:
 
 
 def test_overload() -> None:
-    table = table_of("08-overload")
+    table = table_of("09-overload")
     assert len(table.rows) == 12
     eight = table.rows_where("panel", "reranker on 8 vCPUs")
     ovms = eight.rows_where("server", "OVMS")
@@ -123,14 +123,36 @@ def test_overload() -> None:
 
 
 def test_topologies() -> None:
-    table = table_of("09-topologies")
+    table = table_of("10-topologies")
     assert table.column("requests_per_s") == (0.652, 0.676, 0.696, 0.649, 0.336, 0.360)
     assert table.column("reranker_vcpus_total") == (8, 8, 8, 8, 4, 4)
     assert table.column("requests_per_s_per_reranker_vcpu")[4] == 0.336 / 4
 
 
 def test_larger_model() -> None:
-    table = table_of("10-larger-model")
+    table = table_of("11-larger-model")
     assert len(table.rows) == 12
     sizes = table.rows_where("panel", "Requests a second, FastAPI model server")
     assert sorted(sizes.numbers("requests_per_s")) == [0.166, 0.326, 1.004, 1.808]
+
+
+def test_scale_out_or_scale_up() -> None:
+    table = table_of("04-scale-out-or-scale-up")
+    assert table.columns == (
+        "panel",
+        "label",
+        "approach",
+        "experiment",
+        "users",
+        "machines",
+        "vcpus_each",
+        "reranker_vcpus_total",
+        "requests_per_s",
+        "requests_per_s_per_reranker_vcpu",
+        "median_s",
+    )
+    assert len(table.rows) == 6
+    assert table.column("requests_per_s")[:3] == (0.336, 0.649, 0.652)
+    assert table.column("median_s")[3:] == (3.6, 1.0, 0.56)
+    assert table.column("reranker_vcpus_total")[:3] == (4, 8, 8)
+    assert table.column("approach")[2] == "one bigger machine"

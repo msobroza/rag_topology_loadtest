@@ -1,4 +1,4 @@
-"""Chart 6: one request already uses the whole machine.
+"""Chart 7: one request already uses the whole machine.
 
 Left, the FastAPI model server's calibration: seconds for one request by the
 threads given to it. Right, OVMS's calibration under load: seconds until 16
@@ -56,7 +56,7 @@ class OneRequestFillsTheMachineChart(BaseExperimentChart):
 
     thread_trials: tuple[ThreadTrials, ...]  # smallest machine first
     stream_trials: tuple[StreamTrials, ...]  # smallest machine first
-    slug: ClassVar[str] = "06-one-request-fills-the-machine"
+    slug: ClassVar[str] = "07-one-request-fills-the-machine"
     title: ClassVar[str] = "One request already uses the whole machine"
     threads_panel: ClassVar[str] = "Seconds for one request, by threads given to it"
     streams_panel: ClassVar[str] = (

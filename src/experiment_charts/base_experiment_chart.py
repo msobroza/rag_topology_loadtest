@@ -26,7 +26,7 @@ class BaseExperimentChart(ABC):
     @property
     @abstractmethod
     def slug(self) -> str:
-        """The chart's file name without extension, e.g. ``"08-overload"``."""
+        """The chart's file name without extension, e.g. ``"09-overload"``."""
 
     @property
     @abstractmethod

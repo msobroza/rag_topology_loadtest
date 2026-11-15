@@ -288,7 +288,7 @@ src/experiment_charts/  draws experiments-explained/ from experiments/ (make exp
   chart_selections.py  the run selections the catalog passes to a chart
   base_experiment_chart.py  BaseExperimentChart: a slug, a title, table() and draw()
   *_chart.py        one module per chart, each an implementation of BaseExperimentChart
-  chart_catalog.py  experiment_charts(): the ten charts in order, the one place that names experiment ids
+  chart_catalog.py  experiment_charts(): the charts in the tour's order, the one place that names experiment ids
   write_experiment_charts.py  writes every chart's two figures and its table; python -m experiment_charts
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
 experiments/        the registry of every measurement: one folder per sitting (README.md, experiments*.yaml, results.csv)
