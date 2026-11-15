@@ -46,86 +46,117 @@ Compare the two on the same weight format: see "Experiment 2" in the README.
 
 ## What was measured
 
-Two sittings on the Google Cloud emulation, 15 November 2026. Runs last 2 minutes.
-"Alone" means Locust straight at one reranker instance, with the load test's uniform
-passages (303 to 380 characters). "End to end" means `/retrieve` through the proxy
-and two workflow replicas, with corpus passages (137 to 816 characters).
+Two sittings on the Google Cloud emulation, 15 November 2026: one reranker instance of
+2 vCPUs in the morning, then of 8 and of 16 vCPUs (4 and 8 cores, the same CPU model).
+Runs last 2 minutes. "Alone" means Locust straight at the reranker, with the load
+test's uniform passages (303 to 380 characters). "End to end" means `/retrieve` through
+the proxy and two workflow replicas, with corpus passages (137 to 816 characters).
 
 ### Same weights, same throughput
 
-One reranker instance alone, requests a second at 4 users:
+One reranker instance alone, requests a second at 4 users, both servers calibrated on
+8 and 16 vCPUs:
 
 | Instance | Weights | FastAPI | OVMS |
 |---|---|---|---|
 | 2 vCPUs | `fp32` | 0.24 | 0.24 |
 | 2 vCPUs | `int8` | 0.36 | 0.38 |
-| 8 vCPUs | `fp32` | 1.00, calibrated | 0.97, calibrated |
+| 8 vCPUs | `fp32` | 1.00 | 0.97 |
+| 8 vCPUs | `int8` | 1.55 | 1.57 |
+| 16 vCPUs | `fp32` | 1.81 | 2.07 |
+| 16 vCPUs | `int8` | 3.10 | 3.05 |
 
-The work is the same model computation, 1 to 4 seconds a request. The server around
-it costs milliseconds.
+The work is the same model computation, 0.3 to 4 seconds a request. The
+server around it costs milliseconds. The one gap, `fp32` on 16 vCPUs, is the batch
+size: these passages are uniform, where OVMS's one batch of 20 is efficient, and the
+FastAPI model server's calibration had chosen batches of 5 on passages of mixed length.
 
-### Streams gained nothing on 8 vCPUs
+### Streams gained 2% at most
 
-The 8-vCPU machine has 4 cores with two threads each. One request already uses them
-almost fully. Seconds for one request, from the FastAPI model server's calibration:
+One request already uses the cores almost fully. Seconds for one request, from the
+FastAPI model server's calibration:
 
-| Threads | 1 | 2 | 4 | 8 |
+| Threads | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| 8-vCPU machine | 4.93 | 2.51 | 1.34 | 1.24 | |
+| 16-vCPU machine | | | 1.34 | 0.70 | 0.68 |
+
+So several requests on a few cores each take about as long as the same requests one
+after the other on every core. OVMS, seconds until every request in flight is answered,
+corpus-like passages:
+
+| Streams | 8 vCPUs, 4 in flight | 8 vCPUs, 16 in flight | 16 vCPUs, 4 in flight | 16 vCPUs, 16 in flight |
 |---|---|---|---|---|
-| Seconds | 4.93 | 2.51 | 1.34 | 1.24 |
+| 1 | 7.6 | 31.8 | 3.8 | 14.8 |
+| 2 | 7.6 | 30.8 | 3.8 | 14.5 |
+| 4 | 8.9 | 38.4 | 5.7 | 14.4 |
+| 8 | not timed | 45.3 | 11.6 | 18.2 |
+| 16 | | | 14.8 | 29.4 |
 
-So four requests on one core each take about as long as four requests one after the
-other on four cores. OVMS, requests in flight served at once, corpus-like passages:
-
-| Streams, on 8 threads | 4 in flight | 16 in flight |
-|---|---|---|
-| 1 | 7.6 s | 31.8 s |
-| 2 | 7.6 s | 30.8 s |
-| 4 | 8.9 s | 38.4 s |
-| 8 | not timed | 45.3 s |
-
-Calibration kept 2 streams for both loads. Turning CPU pinning off, or setting the
-throughput hint alone, changed nothing. Why four streams are slower was not
-established.
+On 8 vCPUs calibration kept 2 streams for both loads. On 16 vCPUs it kept 1 stream for
+4 in flight and 4 streams for 16. Under load 4 streams served 2.11 requests a second
+against 2.07 on one stream, and a lone request then took 0.99 seconds instead of 0.48.
+Turning CPU pinning off, or setting the throughput hint alone, changed nothing on
+8 vCPUs. Candidates this close swap places between runs: one timed round does not
+separate them.
 
 ### On passages of mixed length the batch size decides
 
 A batch is padded to its longest passage. Seconds for one request of 20 corpus-like
-passages on 8 threads, by batch size, from the FastAPI model server's calibration:
+passages, by batch size, from the FastAPI model server's calibration:
 
 | Batch size | 20 | 10 | 5 | 2 | 1 |
 |---|---|---|---|---|---|
-| Seconds | 1.93 | 1.47 | 1.36 | 1.24 | 1.33 |
+| 8 vCPUs | 1.93 | 1.47 | 1.36 | 1.24 | 1.33 |
+| 16 vCPUs | 0.98 | 0.72 | 0.68 | 0.73 | 0.78 |
 
-OVMS scores the request as one batch of 20. End to end, reranker on 8 vCPUs, `fp32`:
+OVMS scores the request as one batch of 20. End to end, `fp32`, requests a second:
 
-| Users | FastAPI, calibrated | OVMS, 2 streams |
-|---|---|---|
-| 4 | 0.93 requests a second, p50 3.6 s, no failure | 0.73, p50 4.8 s, no failure |
-| 16 | 0.93, p50 16 s, no failure | 0.64, p50 23 s, 31 of 76 failed |
-| 32 | 0.99, 84 of 117 failed | 0.96, 84 of 113 failed |
+| Reranker | Users | FastAPI, calibrated | OVMS, calibrated |
+|---|---|---|---|
+| 8 vCPUs | 4 | 0.93, p50 3.6 s, no failure | 0.73, p50 4.8 s, no failure |
+| 8 vCPUs | 16 | 0.93, p50 16 s, no failure | 0.64, p50 23 s, 31 of 76 failed |
+| 8 vCPUs | 32 | 0.99, 84 of 117 failed | 0.96, 84 of 113 failed |
+| 16 vCPUs | 4 | 1.70, p50 1.8 s, no failure | 1.24, p50 2.5 s, no failure |
+| 16 vCPUs | 16 | 1.71, p50 8.7 s, no failure | 1.52, p50 7.7 s, no failure |
+| 16 vCPUs | 32 | 1.71, p50 18 s, no failure | 1.40, 47 of 163 failed |
 
-A failure is a request that waited past the proxy's 30-second limit.
+A failure is a request that waited past the proxy's 30-second limit. OVMS ran 2 streams
+on 8 vCPUs and 4 on 16.
 
 ### OVMS does not serve in arrival order
 
-Alone on 8 vCPUs, `fp32`, median and 95th percentile:
+Alone, `fp32`, median and 95th percentile:
 
-| Users | FastAPI | OVMS, 2 streams | OVMS, 1 stream |
-|---|---|---|---|
-| 4 | 3.4 s and 3.8 s | 2.7 s and 6.5 s | 3.3 s and 3.7 s |
-| 16 | 15 s and 16 s | 12 s and 37 s | 13 s and 27 s |
-| 32 | 31 s and 32 s, no failure | 17 s and 60 s, 9 failed | not run |
+| Instance | Users | FastAPI | OVMS, 1 stream | OVMS, more streams |
+|---|---|---|---|---|
+| 8 vCPUs | 4 | 3.4 s and 3.8 s | 3.3 s and 3.7 s | 2.7 s and 6.5 s |
+| 8 vCPUs | 16 | 15 s and 16 s | 13 s and 27 s | 12 s and 37 s |
+| 8 vCPUs | 32 | 31 s and 32 s | not run | 17 s and 60 s, 9 failed |
+| 16 vCPUs | 16 | 8.2 s and 8.6 s | 7.1 s and 16 s | 5.4 s and 11 s |
+| 16 vCPUs | 32 | 17 s and 18 s | 11 s and 31 s, 1 failed | 12 s and 26 s |
 
 The FastAPI model server queues requests in order, so they all wait about the same.
-Under OVMS some wait far longer than others, with one stream too.
+Under OVMS some wait far longer than others, with one stream too, and the tail varies
+between runs: a second run of one stream at 16 users on 16 vCPUs gave 5.1 s and 10 s.
+OVMS's guide gives
+its REST worker count as the setting against overload. With 4 REST workers on 4 streams
+the tail grew: 3.6 s and 15 s at 16 users, and 4 requests failed at 32.
+
+### `torch` workers did not replace streams
+
+The FastAPI model server under `torch` runs several calls at once (`RAG_MODEL_WORKERS`,
+4 here). Alone, `fp32`, requests a second: 0.90 at 4 users and 0.98 at 16 on 8 vCPUs,
+against 1.00 and 1.01 under `openvino`; 1.61 and 1.94 on 16 vCPUs, against 1.81 and 1.80.
 
 ## Which to use
 
 A reading of the results above, not a measurement.
 
-- **The FastAPI model server** for this reranker on machines of up to 4 cores. It
-  serves as much as OVMS on uniform passages and more on passages of mixed length,
-  and under overload it loses fewer requests. It scales with replicas.
+- **The FastAPI model server** for this reranker on machines of up to 8 cores. It
+  serves as much as OVMS on the same weights, more on passages of mixed length, and
+  under overload it loses fewer requests. It scales with the cores of one instance
+  (0.28, 1.0 and 1.8 requests a second on 2, 8 and 16 vCPUs) and with replicas.
 - **OVMS** when its own features are needed: model versions, configuration changes
   at run time, metrics, gRPC, or batching for text generation. Its streams are worth
   trying again where one request cannot use every core.
@@ -134,7 +165,8 @@ A reading of the results above, not a measurement.
 
 - Each figure is one 2-minute run. The stream timings are one or two rounds each.
 - One model, `crossencoder-camembert-base-mmarcoFR`, at 20 passages a request.
-- Machines of 2 and 8 vCPUs. Nothing here says what happens with more cores.
+- Machines of 2, 8 and 16 vCPUs. Nothing here says what happens with more cores, or
+  with several sockets.
 - Ranking quality on `int8` weights was not checked.
 
 ## Pages read

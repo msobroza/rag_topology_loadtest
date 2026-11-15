@@ -664,8 +664,17 @@ timed as one slow request. Each waits up to `RAG_CALIBRATION_BUDGET_S`, not
 `RAG_HTTP_TIMEOUT_S`, since it may wait behind the others in flight. The
 result is one `stage_calibrated` line, which also names the streams and the
 requests, then one
-`ovms_serving_config` line. This was built against stand-ins of `ovms` and has
-not run on a real OVMS yet: it is to be verified at the next sitting.
+`ovms_serving_config` line.
+
+Run on real machines on 15 November 2026 (OVMS 2026.3.1, one reranker of 8 and of
+16 CPUs). For 4 requests in flight the whole search took 151 seconds on 8 CPUs,
+six candidates, so the default budget of 90 seconds covers the stream counts and
+not the thread counts. On both machines one request already used every core, and
+streams gained 2% at most: 1, 2 and 4 streams were within a few percent of each
+other, and more were slower. With one timed round such candidates swap places
+from run to run: the same machine kept 1 stream at one start and 4 at another.
+Raise `RAG_CALIBRATION_ROUNDS` for a steadier choice. `docs/model-servers.md` has
+the figures.
 
 **Pinning the result** (`rag-calibrate`). Run it once on a machine of the App's
 hardware tier that holds the models. It loads each in-process model as an App
@@ -712,12 +721,13 @@ that App's block of `deploy.yaml`, not in the shared settings.
 rag-calibrate --ovms-models /mnt/data/ovms-models --only reranker
 ```
 
-It prints lines of this shape (the numbers here are made up, not measured):
+On an 8-CPU machine on 15 November 2026, with `RAG_CALIBRATION_USERS=16` and a
+budget of 1,500 seconds, it printed:
 
 ```
-# rerank: timed on 2 CPUs under ovms, 2.410 s for 4 requests at once; tried 3 candidates in 41.0 s
+# rerank: timed on 8 CPUs under ovms, 30.812 s for 16 requests at once; tried 6 candidates in 503.5 s
 RAG_OVMS_NUM_STREAMS=2
-RAG_OVMS_THREADS=2
+RAG_OVMS_THREADS=8
 ```
 
 ## Retrieval, stores and model endpoints
@@ -993,8 +1003,10 @@ config, one stream and not calibrated, and says so on standard error; a pinned
 `RAG_OVMS_*` then stops the App, since it cannot be applied. If
 `rag-ovms-config` fails, the App stops and its message says to pin both
 variables to skip calibration. The prefix proxy (`RAG_OVMS_PREFIX_PROXY=1`)
-serves the same config. Like the calibration, this was built against stand-ins
-and is to be verified on a real OVMS at the next sitting.
+serves the same config. Verified on a real OVMS on 15 November 2026: OVMS follows
+the linked model files of the serving folder, and it takes `NUM_STREAMS`,
+`INFERENCE_NUM_THREADS` and `ENABLE_HYPER_THREADING` together. The prefix proxy
+and the start without `uv` have only run against stand-ins.
 
 **Compose** (`make infra-up`) mounts `ovms/models` read-only at `/workspace` and
 starts the reranker with `--rest_port 8001 --config_path /workspace/config_reranker.json`,
