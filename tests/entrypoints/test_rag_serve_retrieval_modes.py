@@ -2,7 +2,8 @@
 
 The app is started from all-fake settings with a retrieval mode; the embedder
 is a recording double, so a test reads whether a vector was computed. Lexical
-retrieval has no embed stage: nothing is embedded and ``embed`` is 0 ms.
+retrieval has no embed stage: nothing is embedded, and ``timings_ms``, which
+follows the graph, has no ``embed`` key.
 """
 
 from __future__ import annotations
@@ -18,7 +19,12 @@ from rag_load_test.entrypoints.rag_serve import create_app
 from workflow_fakes import DenseOnlyStore, RecordingEmbedder
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
-TIMING_KEYS = {"embed", "retrieve", "rerank", "generate", "total"}
+# The stages of each mode's graph in order, then the total; lexical has no embed.
+TIMING_KEYS = {
+    "dense": ["embed", "retrieve", "rerank", "generate", "total"],
+    "lexical": ["retrieve", "rerank", "generate", "total"],
+    "hybrid": ["embed", "retrieve", "rerank", "generate", "total"],
+}
 FAKE_BACKENDS = {
     "embedding_backend": "fake",
     "rerank_backend": "fake",
@@ -44,10 +50,10 @@ def test_each_retrieval_mode_answers_and_embeds_only_when_it_needs_a_vector(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body["timings_ms"]) == TIMING_KEYS
+    assert list(body["timings_ms"]) == TIMING_KEYS[mode]
     assert len(body["passages"]) == settings.top_k_rerank
     assert embedder.queries == embedded
-    assert (body["timings_ms"]["embed"] > 0) == bool(embedded)
+    assert (body["timings_ms"].get("embed", 0.0) > 0) == bool(embedded)
     assert (body["answer"] is not None) == (path == "/query")
 
 

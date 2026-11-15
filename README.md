@@ -38,8 +38,11 @@ flowchart LR
     G --> Z
 ```
 
-Each stage is timed; responses carry `timings_ms{embed,retrieve,rerank,generate,total}`
-and Locust turns those into per-stage statistics. The graph is not wired by
+Each stage is timed under its own name: a response's `timings_ms` has one key
+per stage of the graph, in the order of its description, 0 for a stage that did
+not run, then `total`; for this graph
+`timings_ms{embed,retrieve,rerank,generate,total}`. Locust turns those keys into
+per-stage statistics without knowing the graph. The graph is not wired by
 hand: `build_workflow(graph, components)` builds it from a description of its
 stages, its edges and its conditional edges (`domain/graph_description.py`,
 shaped as the workflow file's `graph` block of ADR 0004). Each stage is an
@@ -59,10 +62,10 @@ with `BaseEmbedder.embed_query`, and the embedder puts its model's query prefix
 in front; passages are embedded with `embed_documents`, as they are. The prompts
 live in `src/rag_load_test/config/prompts.yaml` and are settings of the generate
 stage. With `RAG_RETRIEVAL_MODE=lexical` the graph has no embed stage and starts
-at retrieve: no vector is computed and `embed` is 0 ms. Lexical and hybrid
-retrieval also need the store's `BaseLexicalSearch`, which only a store that
-ranks text provides; the retrieve stage refuses any other when the graph is
-built, at start-up.
+at retrieve: no vector is computed and `timings_ms` has no `embed` key. Lexical
+and hybrid retrieval also need the store's `BaseLexicalSearch`, which only a
+store that ranks text provides; the retrieve stage refuses any other when the
+graph is built, at start-up.
 
 ## Code layout
 
@@ -159,7 +162,7 @@ test double, not part of the product, and the rule does not apply to it.
 src/rag_load_test/
   __init__.py       package docstring, __version__
   domain/           no I/O, no framework; imports no other package
-    passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
+    passages.py     Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
     api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
     errors.py       RagDependencyError, describe_error
@@ -179,7 +182,7 @@ src/rag_load_test/
     rag_dependencies.py  RagDependencies: one open port of each kind, and the components by the names a stage calls them
     workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings
     workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
-    workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out
+    workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
     stages/         the stage types (rule 6); importing it imports every module, so each registers itself
       base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, STAGE_TYPES
       embed_stage.py  EmbedStage: the standalone query's vector, from the embedder
@@ -300,7 +303,7 @@ src/rag_load_test/
   loadtest/         the load-test client, with locustfile.py
     loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four RAG_* values a model-server request carries, Domino auth
     request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
-    response_checks.py  what to record: a response becomes a failure or STAGE rows
+    response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
     target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
     rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
@@ -427,10 +430,13 @@ A request counts as a success only when the response is HTTP 200 with a JSON
 object body. Any other status fails as `HTTP <status>: <first 200 characters of
 the body>`, and a 200 whose body is not JSON, or is JSON but not an object, also
 counts as a failure (it used to vanish from the statistics altogether).
-Every successful response's `timings_ms` is re-emitted as Locust `STAGE` rows
-(`/query:embed`, `/query:retrieve`, `/query:rerank`, `/query:generate`, same for
-`/retrieve`; a stage timed at zero gets no row), so p50/p95/p99 per stage land
-in the same CSV as the endpoint totals.
+Every successful response's `timings_ms` is re-emitted as Locust `STAGE` rows,
+one per stage it names, in its order: `/query:embed`, `/query:retrieve`,
+`/query:rerank`, `/query:generate` for this graph, same for `/retrieve`; the
+total and a stage timed at zero (generate on `/retrieve`) get no row. The client
+reads the stages from the response and keeps no list of them, so a graph with
+other stages is measured as it is, and p50/p95/p99 per stage land in the same
+CSV as the endpoint totals.
 
 Each run also writes a target record, `results/<RUN_NAME>_target.json` (next to
 the `--csv` files; nothing is written when Locust runs without `--csv`). Against
@@ -447,8 +453,10 @@ no such headers.
 
 `make compare` feeds every `results/*_stats.csv` prefix (sorted, so
 `monolith` is the baseline) to `rag-compare`, which writes one markdown table
-per endpoint and per stage: requests, failure %, RPS, p50, p95, p99 and Δp95
-versus the first run. Pick another baseline by calling it directly:
+per endpoint and per stage the runs contain: requests, failure %, RPS, p50, p95,
+p99 and Δp95 versus the first run. Runs of graphs with different stages
+compare: a run that lacks a stage reads `n/a` in that stage's table, not 0.
+Pick another baseline by calling it directly:
 `rag-compare results/split-all results/monolith --out results/comparison.md`.
 When a run has a target record, the intro line names the topology and run label
 it saw beside the run name, and a warning line
@@ -502,7 +510,7 @@ servers with the `rag` environment (no OVMS binary needed); the workflow app's
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}` |
+| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}`; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}` for `vector_store` (index count > 0), `embedder`, `reranker`; `503` when a check fails |
@@ -720,8 +728,8 @@ not calibrated by it.
 
 **Retrieval mode** (`RAG_RETRIEVAL_MODE`). `dense` asks the store for the
 passages nearest to the question's vector. `lexical` asks for the passages whose
-words match best, as the store ranks them: no vector is needed, so the embed
-stage does not run (`embed = 0 ms`; the embedder still loads, so
+words match best, as the store ranks them: no vector is needed, so the graph
+has no embed stage (no `embed` timing; the embedder still loads, so
 `RAG_EMBEDDING_BACKEND=fake` saves the weights). `hybrid` asks both ways at
 once, `RAG_TOP_K_RETRIEVE` each, and fuses the two rankings by reciprocal rank
 (`1 / (RAG_HYBRID_RRF_K + rank)`, summed per passage). The fusion runs in the

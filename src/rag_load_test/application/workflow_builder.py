@@ -2,7 +2,8 @@
 
 The builder knows no stage, no component and no edge condition. Each stage is an
 instance of the stage type its description names, built with the component its
-``call`` names and its own settings, and timed under its name. Each chain of
+``call`` names and its own settings, and timed under its name; the workflow's
+results are keyed by those names, in the description's order. Each chain of
 plain edges becomes one LangGraph edge per pair, the reserved ``START`` and
 ``END`` becoming LangGraph's own. Each conditional edge asks the edge condition
 its ``path`` names, handed to LangGraph as it is registered: LangGraph names the
@@ -101,7 +102,7 @@ def build_workflow(
         condition = edge_conditions.get(edge.path)
         source = langgraph_name(edge.source)
         builder.add_conditional_edges(source, condition, path_map(edge))
-    return CompiledWorkflow(builder.compile())
+    return CompiledWorkflow(builder.compile(), stage_names=list(graph.stages))
 
 
 def open_stage(

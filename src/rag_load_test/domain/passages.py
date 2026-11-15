@@ -13,8 +13,10 @@ from pydantic import BaseModel, Field
 
 MetadataValue = str | int | float | bool
 RagMode = Literal["query", "retrieve"]
-# Workflow stages, in execution order; also the keys of ``RagResult.timings_ms``.
-STAGES: tuple[str, ...] = ("embed", "retrieve", "rerank", "generate")
+# The key of ``RagResult.timings_ms`` that holds the whole run's wall time. Every
+# other key is a stage of the graph that ran, so no list of stages is kept here:
+# the workflow and the load-test client share only this name of the wire.
+TOTAL_TIMING_KEY = "total"
 
 
 class Passage(BaseModel):
@@ -33,7 +35,11 @@ class ScoredPassage(Passage):
 
 
 class RagResult(BaseModel):
-    """Outcome of one workflow run; ``timings_ms`` has one key per stage + ``total``."""
+    """Outcome of one workflow run.
+
+    ``timings_ms`` has one key per stage of the graph, in the order of its
+    description, then ``TOTAL_TIMING_KEY``.
+    """
 
     question: str
     mode: RagMode

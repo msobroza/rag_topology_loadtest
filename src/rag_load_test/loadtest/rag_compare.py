@@ -72,6 +72,10 @@ def render_markdown(
 ) -> str:
     """Render one table per row key across all runs; Δp95 is relative to the first run.
 
+    The row keys, STAGE rows among them, are those the runs contain, so runs of
+    graphs with different stages compare: a run that lacks a row reads ``n/a``
+    in that row's table, never 0.
+
     Args:
         runs: The stats of each run by row key, keyed by run name; the first run
             is the baseline.

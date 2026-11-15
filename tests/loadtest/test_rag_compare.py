@@ -101,6 +101,41 @@ def test_render_markdown_orders_tables_and_computes_delta_p95(tmp_path: Path) ->
     assert "| split-all | n/a | n/a | n/a | n/a | n/a | n/a | n/a |" in markdown
 
 
+def test_runs_of_different_stages_compare_each_stage_absent_where_it_did_not_run(
+    tmp_path: Path,
+) -> None:
+    # A graph with a router: its runs have a stage the four-stage graph lacks.
+    routed = (
+        ("POST", "/query", 100, 0, 5.0, 25, 45, 60),
+        ("STAGE", "/query:route", 100, 0, 5.0, 1, 2, 3),
+        ("", "Aggregated", 200, 0, 10.0, 10, 45, 60),
+    )
+    runs = {
+        "monolith": load_stats(_stats_csv(tmp_path / "monolith", *MONOLITH)),
+        "routed": load_stats(_stats_csv(tmp_path / "routed", *routed)),
+    }
+
+    markdown = render_markdown(runs)
+
+    absent = "n/a | n/a | n/a | n/a | n/a | n/a"
+    assert _table(markdown, "STAGE /query:embed") == {
+        "monolith": "| monolith | 98 | 0.0% | 4.4 | 3 | 5 | 6 | — |",
+        "routed": f"| routed | {absent} | n/a |",
+    }
+    assert _table(markdown, "STAGE /query:route") == {
+        "monolith": f"| monolith | {absent} | — |",
+        "routed": "| routed | 100 | 0.0% | 5.0 | 1 | 2 | 3 | n/a |",
+    }
+
+
+def _table(markdown: str, key: str) -> dict[str, str]:
+    """The lines of the table under ``### <key>``, by run name."""
+    lines = markdown.splitlines()
+    start = lines.index(f"### {key}") + 4  # past the heading, a blank, header, rule
+    rows = lines[start : lines.index("", start)]
+    return {row.split(" | ")[0].removeprefix("| "): row for row in rows}
+
+
 def test_compare_main_writes_out_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

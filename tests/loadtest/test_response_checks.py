@@ -23,12 +23,12 @@ NOT_AN_OBJECT = "HTTP 200 but the body is not a JSON object: "
 @pytest.mark.parametrize(
     ("endpoint", "status", "body", "expected"),
     [
-        # STAGES order, zero and missing stages skipped, ``total`` never a row
+        # the response's order, a stage timed at zero skipped, ``total`` never a row
         (
             "/query",
             200,
             OK_TIMINGS,
-            _stage_rows(("/query:embed", 2.0), ("/query:generate", 8.0)),
+            _stage_rows(("/query:generate", 8.0), ("/query:embed", 2.0)),
         ),
         (
             "/retrieve",
@@ -36,6 +36,14 @@ NOT_AN_OBJECT = "HTTP 200 but the body is not a JSON object: "
             '{"timings_ms": {"embed": 4, "total": "9.5", "retrieve": "1.5"}}',
             _stage_rows(("/retrieve:embed", 4.0), ("/retrieve:retrieve", 1.5)),
         ),
+        # any stage name the response gives is a row: the client knows no stages
+        (
+            "/query",
+            200,
+            '{"timings_ms": {"route": 1.5, "lookup": 3, "total": 5}}',
+            _stage_rows(("/query:route", 1.5), ("/query:lookup", 3.0)),
+        ),
+        ("/query", 200, '{"timings_ms": {"total": 5}}', NO_ROWS),
         # a missing or malformed ``timings_ms`` is still a success, with no rows
         ("/query", 200, "{}", NO_ROWS),
         ("/query", 200, '{"timings_ms": null}', NO_ROWS),

@@ -12,12 +12,11 @@ import pytest
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
 from rag_load_test.application.rag_dependencies import RagDependencies
-from rag_load_test.application.workflow import CompiledWorkflow
+from rag_load_test.application.workflow import CompiledWorkflow, stage_timings
 from rag_load_test.application.workflow_builder import build_workflow
 from rag_load_test.application.workflow_state import initial_state
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
-from rag_load_test.domain.passages import STAGES
 from rag_load_test.domain.prompts import RagPrompts
 from workflow_fakes import (
     ChainNameRecorder,
@@ -29,7 +28,8 @@ from workflow_fakes import (
 )
 
 VACATION_QUESTION = synthetic_questions(1)[0]
-TIMING_KEYS = {*STAGES, "total"}
+# The four stages in the graph's order, then the total: the keys of today's response.
+TIMING_KEYS = ["embed", "retrieve", "rerank", "generate", "total"]
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 FAKE_BACKENDS = {
     "embedding_backend": "fake",
@@ -84,7 +84,7 @@ async def test_query_mode_times_every_stage(
 ) -> None:
     result = await workflow_for(fake_deps).run(VACATION_QUESTION)
 
-    assert set(result.timings_ms) == TIMING_KEYS
+    assert list(result.timings_ms) == TIMING_KEYS
     assert result.timings_ms["total"] > 0
     assert all(ms >= 0 for ms in result.timings_ms.values())
 
@@ -108,6 +108,7 @@ async def test_retrieve_mode_skips_generation(
     assert fake_deps.llm.calls == 0
     assert result.mode == "retrieve"
     assert result.answer is None
+    assert list(result.timings_ms) == TIMING_KEYS
     assert result.timings_ms["generate"] == 0.0
     assert result.timings_ms["total"] > 0
     assert len(result.passages) == DEFAULT_TOP_K_RERANK
@@ -217,7 +218,7 @@ async def test_lexical_mode_skips_the_embed_stage_and_asks_by_words(
     assert [p.id for p in result.passages] == ["z", "y"]
     assert store.calls == [("lexical", "vacation days", 2)]
     assert embedder.queries == []  # no vector is needed, so none is computed
-    assert result.timings_ms["embed"] == 0.0
+    assert list(result.timings_ms) == ["retrieve", "rerank", "generate", "total"]
     assert result.timings_ms["retrieve"] > 0.0
 
 
@@ -286,6 +287,18 @@ def test_dense_mode_needs_no_store_that_ranks_text(
     deps = dataclasses.replace(fake_deps, vector_store=DenseOnlyStore())
 
     workflow_for(deps, retrieval_mode="dense")  # no error
+
+
+# --- the result's timings ----------------------------------------------------------
+
+
+def test_stage_timings_keys_every_stage_in_the_graph_s_order_then_the_total() -> None:
+    recorded = {"rerank": 3.0, "embed": 1.0}  # in the order the stages finished
+
+    timings = stage_timings(["embed", "rerank", "generate"], recorded, 9.5)
+
+    assert timings == {"embed": 1.0, "rerank": 3.0, "generate": 0.0, "total": 9.5}
+    assert list(timings) == ["embed", "rerank", "generate", "total"]
 
 
 # --- prompt helpers ----------------------------------------------------------------

@@ -143,6 +143,27 @@ async def test_each_stage_that_runs_is_timed_under_its_own_name(
     assert all(ms > 0 for ms in final["timings_ms"].values())
 
 
+@pytest.mark.parametrize(
+    ("message", "skipped"), [("who?", set[str]()), ("hello", {"shout"})]
+)
+async def test_the_result_times_every_stage_of_the_graph_by_name_then_the_total(
+    message: str, skipped: set[str]
+) -> None:
+    result = await fixture_workflow(FakeScribe()).run(message)
+
+    assert list(result.timings_ms) == ["draft", "shout", "total"]
+    zero = {stage for stage, ms in result.timings_ms.items() if ms == 0.0}
+    assert zero == skipped  # a stage that did not run keeps its key, at 0
+
+
+async def test_the_result_lists_the_stages_in_the_order_the_description_gives() -> None:
+    stages = {"shout": {"call": "scribe"}, **FIXTURE_GRAPH["stages"]}
+
+    result = await fixture_workflow(FakeScribe(), stages=stages).run("who?")
+
+    assert list(result.timings_ms) == ["shout", "draft", "total"]
+
+
 async def test_every_step_reaches_a_tracer_with_a_name() -> None:
     recorder = ChainNameRecorder()
     graph = fixture_workflow(FakeScribe()).graph
