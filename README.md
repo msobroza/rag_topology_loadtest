@@ -115,24 +115,31 @@ The tree is three applications over one shared domain. The domain
    reads the settings to build an adapter. Each job has one module:
    `resource_scope.py` opens each thing once and closes them all together;
    `http_resources.py` and `local_model_resources.py` hold what the
-   implementations share; one factory per port (`embedder_factory.py`,
-   `reranker_factory.py`, `vector_store_factory.py`, `llm_factory.py`) maps
-   each Backend value to what opens it, so a new Backend is one method and one
-   entry in one factory; `composition_root.py` wires them and gives each
-   command what it asks for.
+   implementations share; `openers/` holds one opener per component type and
+   Backend, a module each named `<type>_on_<backend>.py`, registered by type
+   and Backend (rule 6), and an opener takes its component's settings in the
+   workflow file's shape (`config/component_settings.py`); the one factory,
+   `component_factory.py`, opens a component once with the opener of its type
+   and Backend, so a new Backend is one new module in `openers/` and no
+   factory is edited; `registered_names.py` refuses an unknown Backend or API
+   format before a command opens anything; `composition_root.py` wires them
+   and gives each command what it asks for.
 6. **Registries.** A registry (`domain/registry.py`) holds named things of one
    sort and names the known ones when asked for an unknown one. Each entry
    registers itself with the registry's decorator, in a module of its own, and
    the package that holds the entries imports all of its modules from its
    `__init__.py` (`import_package_modules`), so a new entry is one new module
    and no table is edited. The registry is in `domain/` because every package
-   that registers something may import the domain. Three kinds of entry today:
+   that registers something may import the domain. Four kinds of entry today:
    an API format (each component's `api/` directory holds its formats, one
    module each, and its registry sits beside the formats' base class:
    `RERANK_API_FORMATS` in `base_rerank_api_format.py`), a stage type
-   (`application/stages/`, one module each, `STAGE_TYPES` in `base_stage.py`)
-   and an edge condition (`application/edge_conditions/`, one module each,
-   `EDGE_CONDITIONS` in `edge_condition.py`). A stage type and an edge
+   (`application/stages/`, one module each, `STAGE_TYPES` in `base_stage.py`),
+   an edge condition (`application/edge_conditions/`, one module each,
+   `EDGE_CONDITIONS` in `edge_condition.py`) and a backend opener
+   (`composition/openers/`, one module each, and the registry of each
+   component type's openers sits beside what an opener is given:
+   `RERANKER_OPENERS` in `component_openers.py`). A stage type and an edge
    condition call only ports, so they are in the application; the description
    of a graph is in the domain, which both the settings that write it and the
    application that builds it may import.
@@ -185,6 +192,7 @@ src/rag_load_test/
     ingest.py       embed passages in batches and upsert them
   config/           the settings; imports domain only
     rag_settings.py RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
+    component_settings.py  ComponentSettings and each type's: a component's backend and blocks in the workflow file's shape, derived from RagSettings
     prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
     prompts_source.py  the settings source that reads the prompts YAML
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
@@ -256,12 +264,23 @@ src/rag_load_test/
     resource_scope.py  ResourceScope: each resource opened once, all closed together
     http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source
     local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
-    calibrated_stages.py  RerankStage, EmbedStage: the CPU-bound stages calibration times, and their candidates
-    base_port_factory.py  BasePortFactory: the supplied port, else the one its Backend names, opened once
-    embedder_factory.py  EmbedderFactory: local, api, fake
-    reranker_factory.py  RerankerFactory: local, api, fake, none
-    vector_store_factory.py  VectorStoreFactory: elasticsearch, chroma, fake (seeded)
-    llm_factory.py  LLMFactory: api, fake
+    calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
+    component_factory.py  ComponentFactory: the supplied port, else what the opener of its type and Backend opens, once
+    registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
+    openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
+      component_openers.py  SharedResources (what an opener is given), ComponentOpeners and the four registries (EMBEDDER_OPENERS, ...)
+      embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for rag-calibrate
+      embedder_on_api.py  the embedder of an endpoint
+      embedder_on_fake.py  FakeEmbedder
+      reranker_on_local.py  the in-process reranker, calibrated at 0; calibrate_reranker_on_local for rag-calibrate
+      reranker_on_api.py  the reranker of an endpoint
+      reranker_on_fake.py  FakeReranker
+      reranker_on_none.py  NoReranker
+      llm_on_api.py  the LLM of an endpoint, under its own timeout
+      llm_on_fake.py  FakeLLM
+      vector_store_on_elasticsearch.py  Elasticsearch, its client closed with the scope
+      vector_store_on_chroma.py  Chroma, a server or embedded
+      vector_store_on_fake.py  the in-memory store, seeded through the embedder
   entrypoints/      the RAG system's commands: FastAPI apps and CLIs
     rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
     rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
@@ -587,13 +606,14 @@ the offending value. For example:
 RAG_RERANK_BACKEND='api' needs RAG_RERANK_API_URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''
 ```
 
-An unknown API format stops the app at start-up too, when the component on the
-`api` backend opens (the workflow app opens every component before it serves):
-the settings cannot see the formats, which are registered in the adapters, so
-the format's registry refuses the name and lists the known ones:
+An unknown API format stops every command that opens components (`rag-serve`,
+`rag-model-server`, `rag-ingest`, `rag-calibrate`) before it opens any, as a
+settings mistake: the settings cannot see the formats, which are registered in
+the adapters, so each command asks the formats' registries as it reads its
+settings, and the registry refuses the name and lists the known ones:
 
 ```
-reranker unavailable: could not open backend 'api': ValueError: unknown rerank API format 'jina' (expected one of: 'cohere')
+rag-serve: error: unknown rerank API format 'jina' (expected one of: 'cohere')
 ```
 
 Earlier versions named the model settings differently; none of the old names is

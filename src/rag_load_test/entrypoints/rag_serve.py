@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
 from ..composition.composition_root import CompositionRoot
+from ..composition.registered_names import check_registered_names
 from ..config.domino_rules import apply_domino_rules
 from ..config.rag_settings import RagSettings
 from ..domain.errors import RagDependencyError
@@ -299,8 +300,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run ``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888.
 
     ``--domino`` defaults ``RAG_EMBEDDING_API_KEY`` / ``RAG_RERANK_API_KEY`` to
-    ``domino`` for a component on the ``api`` backend; a settings mistake exits as
-    a usage error, not a crash.
+    ``domino`` for a component on the ``api`` backend; a settings mistake, an
+    unknown backend or API format included, exits as a usage error, not a crash.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -323,6 +324,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = RagSettings()
         if args.domino:
             settings = apply_domino_rules(settings)
+        check_registered_names(settings)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")

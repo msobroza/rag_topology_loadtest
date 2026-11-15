@@ -27,6 +27,7 @@ from typing import get_args
 
 from ..composition.calibrated_stages import ComponentCalibration
 from ..composition.composition_root import CompositionRoot
+from ..composition.registered_names import check_registered_names
 from ..config.rag_settings import RagSettings
 from ..domain.calibration import CalibrationReport
 from ..domain.errors import RagDependencyError
@@ -99,6 +100,7 @@ async def calibrate_parts(parts: Sequence[ModelServerPart]) -> int:
     """
     try:
         settings = RagSettings()
+        check_registered_names(settings)
     except ValueError as exc:  # pydantic's ValidationError is one
         return _failed("cannot read the settings", exc)
     async with CompositionRoot(settings) as composition:

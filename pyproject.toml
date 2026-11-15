@@ -187,6 +187,7 @@ ignore_decorators = [
     "@pytest.fixture",  # pytest, by parameter name
     "@task", "@events.*",  # Locust
     "@*EDGE_CONDITIONS.register",  # LangGraph calls an edge condition by its registry
+    "@*_OPENERS.register",  # a backend's opener, found by ComponentFactory by name
 ]
 ignore_names = [
     "model_config",  # pydantic reads it off every model class

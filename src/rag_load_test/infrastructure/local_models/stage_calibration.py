@@ -20,7 +20,7 @@ JSON line logs that report.
 
 Example:
     >>> calibrated = await calibrate(
-    ...     RerankStage(model, pool, settings),
+    ...     CalibratedRerankStage(model, pool, passages=20, top_n=10),
     ...     threads=(2, 1),
     ...     batch_sizes=(20, 10, 5, 2, 1),
     ...     limits=CalibrationLimits(budget_s=90.0, rounds=1),
@@ -46,7 +46,7 @@ class BaseCalibratedStage(ABC, Generic[T]):
     """What a CPU-bound stage gives calibration; ``T`` is the stage's adapter.
 
     Example:
-        >>> class RerankStage(BaseCalibratedStage[CrossEncoderReranker]):
+        >>> class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         ...     stage = "rerank"
         ...     async def loaded(self, threads): ...
         ...     def rebatched(self, adapter, batch_size): ...
@@ -145,8 +145,9 @@ async def calibrate(
 
     Example:
         >>> calibrated = await calibrate(
-        ...     EmbedStage(model, pool, settings), threads=(4, 2, 1),
-        ...     batch_sizes=(64,), limits=CalibrationLimits(90.0, 1))
+        ...     CalibratedEmbedStage(model, pool, query_prefix="query: "),
+        ...     threads=(4, 2, 1), batch_sizes=(64,),
+        ...     limits=CalibrationLimits(90.0, 1))
         >>> calibrated.report.chosen
         StageTuning(threads=2, batch_size=64)
     """

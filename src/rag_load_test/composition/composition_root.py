@@ -11,9 +11,12 @@ Each job has its own module, and this class only wires them together:
 - ``resource_scope.py``: each thing is opened once and all are closed together;
 - ``http_resources.py`` and ``local_model_resources.py``: what the
   implementations share (the HTTP client, the thread budget, the model pool);
-- one factory per port (``embedder_factory.py``, ``reranker_factory.py``,
-  ``vector_store_factory.py``, ``llm_factory.py``), which maps each Backend to
-  what opens it: a new Backend is one method and one entry in one factory.
+- ``component_factory.py``: opens a component with the opener registered for
+  its type and backend, one module each in ``openers/``: a new backend is one
+  new module there, and no factory is edited.
+
+The openers take each component's settings in the workflow file's shape,
+derived here from the flat settings (``config/component_settings.py``).
 
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently.
@@ -21,7 +24,8 @@ not guarded against running concurrently.
 Example:
     >>> async with CompositionRoot(RagSettings()) as composition:
     ...     deps = await composition.workflow_dependencies()
-    ...     workflow = RagWorkflow(deps, composition.settings.workflow_parameters())
+    ...     graph = composition.settings.workflow_graph()
+    ...     workflow = build_workflow(graph, deps.components())
     ...     result = await workflow.run("How many vacation days?")
 """
 
@@ -37,17 +41,24 @@ from ..adapters.llm.base_llm import BaseLLM
 from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseLexicalSearch, BaseVectorStore
 from ..application.rag_dependencies import RagDependencies
+from ..config.component_settings import component_settings_of
 from ..config.rag_settings import RagSettings
 from ..domain.roles import ModelServerPart
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
-from .embedder_factory import EmbedderFactory
+from .component_factory import ComponentFactory
 from .http_resources import HttpResources
-from .llm_factory import LLMFactory
 from .local_model_resources import LocalModelResources
-from .reranker_factory import RerankerFactory
+from .openers.component_openers import (
+    EMBEDDER_OPENERS,
+    LLM_OPENERS,
+    RERANKER_OPENERS,
+    VECTOR_STORE_OPENERS,
+    SharedResources,
+)
+from .openers.embedder_on_local import calibrate_embedder_on_local
+from .openers.reranker_on_local import calibrate_reranker_on_local
 from .resource_scope import ResourceScope
-from .vector_store_factory import VectorStoreFactory
 
 
 class IngestPorts(NamedTuple):
@@ -93,21 +104,14 @@ class CompositionRoot:
         **supplied: Unpack[SuppliedPorts],
     ) -> None:
         self.settings = settings
+        self._components = component_settings_of(settings)
         self._scope = scope = ResourceScope("CompositionRoot")
         http = HttpResources(settings, scope, transport)
-        local_models = LocalModelResources(
+        self._local_models = local_models = LocalModelResources(
             settings, scope, http, container_cpus or ContainerCpus()
         )
-        self._embedders = EmbedderFactory(
-            settings, scope, http, local_models, supplied.get("embedder")
-        )
-        self._rerankers = RerankerFactory(
-            settings, scope, http, local_models, supplied.get("reranker")
-        )
-        self._llms = LLMFactory(settings, scope, http, supplied.get("llm"))
-        self._vector_stores = VectorStoreFactory(
-            settings, scope, self._embedders.open, supplied.get("vector_store")
-        )
+        shared = SharedResources(scope, http, local_models, self._embedder)
+        self._factory = ComponentFactory(shared, supplied)
 
     async def __aenter__(self) -> CompositionRoot:
         await self._scope.__aenter__()
@@ -135,10 +139,11 @@ class CompositionRoot:
         Example:
             >>> deps = await composition.workflow_dependencies()
         """
-        llm = await self._llms.open()
-        embedder = await self._embedders.open()
-        store = await self._vector_stores.open()
-        reranker = await self._rerankers.open()
+        components, factory = self._components, self._factory
+        llm = await factory.open(LLM_OPENERS, components.llm)
+        embedder = await self._embedder()
+        store = await self._vector_store()
+        reranker = await factory.open(RERANKER_OPENERS, components.reranker)
         lexical = store if isinstance(store, BaseLexicalSearch) else None
         return RagDependencies(embedder, store, reranker, llm, lexical_search=lexical)
 
@@ -153,12 +158,10 @@ class CompositionRoot:
         Example:
             >>> embedder, store = await composition.ingest_ports()
         """
-        return IngestPorts(
-            await self._embedders.open(), await self._vector_stores.open()
-        )
+        return IngestPorts(await self._embedder(), await self._vector_store())
 
     async def local_embedder(self) -> BaseEmbedder:
-        """Open the in-process embedder whatever ``embedding_backend`` says.
+        """Open the in-process embedder whatever its backend says.
 
         A model server is what the ``api`` backend calls, so it always loads the
         local model.
@@ -170,10 +173,11 @@ class CompositionRoot:
         Example:
             >>> embedder = await composition.local_embedder()
         """
-        return await self._embedders.open_local()
+        embedder = self._components.embedder
+        return await self._factory.open_local(EMBEDDER_OPENERS, embedder)
 
     async def local_reranker(self) -> BaseReranker:
-        """Open the in-process reranker whatever ``rerank_backend`` says.
+        """Open the in-process reranker whatever its backend says.
 
         A model server is what the ``api`` backend calls, so it always loads the
         local model.
@@ -184,12 +188,13 @@ class CompositionRoot:
         Example:
             >>> reranker = await composition.local_reranker()
         """
-        return await self._rerankers.open_local()
+        reranker = self._components.reranker
+        return await self._factory.open_local(RERANKER_OPENERS, reranker)
 
     async def calibration(self, part: ModelServerPart) -> ComponentCalibration:
         """Calibrate one component's in-process model on this machine, on demand.
 
-        The model loads as an App would load it, whatever the Backend says, and
+        The model loads as an App would load it, whatever the backend says, and
         every parameter calibration chooses is searched, pinned or not, under
         the settings' budget and rounds. A ready-made port is not timed.
 
@@ -205,6 +210,15 @@ class CompositionRoot:
             >>> calibration.pinned
             {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
         """
+        components, local_models = self._components, self._local_models
         if part == "embedder":
-            return await self._embedders.calibration()
-        return await self._rerankers.calibration()
+            return await calibrate_embedder_on_local(components.embedder, local_models)
+        return await calibrate_reranker_on_local(components.reranker, local_models)
+
+    async def _embedder(self) -> BaseEmbedder:
+        # Also what seeds a fake store, so its vectors are the ones queries get.
+        return await self._factory.open(EMBEDDER_OPENERS, self._components.embedder)
+
+    async def _vector_store(self) -> BaseVectorStore:
+        store = self._components.vector_store
+        return await self._factory.open(VECTOR_STORE_OPENERS, store)

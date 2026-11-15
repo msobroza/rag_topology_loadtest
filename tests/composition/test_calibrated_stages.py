@@ -1,4 +1,4 @@
-"""The rerank and embed stages, and how their factories calibrate them from the settings.
+"""The calibrated rerank and embed stages, and how their openers calibrate them.
 
 The models are ``FakeSentenceTransformersModule``'s, on the real clock: which
 candidates are tried is deterministic, which one wins is not, so the tests
@@ -22,8 +22,8 @@ from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
     CrossEncoderReranker,
 )
 from rag_load_test.composition.calibrated_stages import (
-    EmbedStage,
-    RerankStage,
+    CalibratedEmbedStage,
+    CalibratedRerankStage,
     candidates,
 )
 from rag_load_test.composition.composition_root import CompositionRoot
@@ -176,16 +176,16 @@ async def test_the_calibration_limits_come_from_the_settings(
     assert reranker.scope.threads == 4
 
 
-async def test_the_rerank_sample_is_one_question_and_top_k_retrieve_passages(
-    settings_factory: SettingsFactory, pool: ThreadPoolExecutor
+async def test_the_rerank_sample_is_one_question_and_its_calibration_passages(
+    pool: ThreadPoolExecutor,
 ) -> None:
     model = RecordingCrossEncoder()
     reranker = CrossEncoderReranker(
         model, pool, model_name="m", batch_size=4, scope=NativeThreadScope(1)
     )
-    settings = settings_factory(top_k_retrieve=12, top_k_rerank=3)
+    stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=12, top_n=3)
 
-    await RerankStage(TORCH_MODEL, pool, settings).serve_sample(reranker)
+    await stage.serve_sample(reranker)
 
     sample = calibration_sample(12)
     [pairs] = model.pairs
@@ -223,16 +223,13 @@ async def test_embed_threads_above_zero_time_nothing(
 
 @pytest.mark.parametrize("prefix", ["query: ", ""])
 async def test_the_embed_sample_is_one_question_embedded_as_a_query(
-    settings_factory: SettingsFactory,
     fake_weights: FakeSentenceTransformersModule,
     pool: ThreadPoolExecutor,
     prefix: str,
 ) -> None:
-    stage = EmbedStage(
-        TORCH_MODEL, pool, settings_factory(embedding_query_prefix=prefix)
-    )
+    stage = CalibratedEmbedStage(TORCH_MODEL, pool, query_prefix=prefix)
 
-    # The adapter loaded for a trial carries the prefix of the settings.
+    # The adapter loaded for a trial carries the embedder's prefix.
     await stage.serve_sample(await stage.loaded(threads=1))
 
     assert fake_weights.encoded == [[prefix + calibration_sample(1).question]]
@@ -242,9 +239,9 @@ async def test_the_embed_sample_is_one_question_embedded_as_a_query(
 
 
 def test_the_rerank_stage_is_pinned_by_its_threads_and_batch_size(
-    settings_factory: SettingsFactory, pool: ThreadPoolExecutor
+    pool: ThreadPoolExecutor,
 ) -> None:
-    stage = RerankStage(TORCH_MODEL, pool, settings_factory())
+    stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=20, top_n=10)
 
     pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
 
@@ -252,9 +249,9 @@ def test_the_rerank_stage_is_pinned_by_its_threads_and_batch_size(
 
 
 def test_the_embed_stage_is_pinned_by_its_threads_only(
-    settings_factory: SettingsFactory, pool: ThreadPoolExecutor
+    pool: ThreadPoolExecutor,
 ) -> None:
-    stage = EmbedStage(TORCH_MODEL, pool, settings_factory())
+    stage = CalibratedEmbedStage(TORCH_MODEL, pool, query_prefix="query: ")
 
     pinned = stage.pinned_settings(StageTuning(threads=3, batch_size=64))
 
@@ -266,9 +263,8 @@ def test_pinned_settings_read_back_as_the_tuning(
     pool: ThreadPoolExecutor,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    pinned = RerankStage(TORCH_MODEL, pool, settings_factory()).pinned_settings(
-        StageTuning(threads=2, batch_size=5)
-    )
+    stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=20, top_n=10)
+    pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
     for name, value in pinned.items():
         monkeypatch.setenv(name, str(value))
 

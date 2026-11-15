@@ -3,16 +3,18 @@
 Each stage says how its adapter loads for a thread count, takes another batch
 size, serves one request of the usual size, on the path a real request takes,
 and which ``RAG_*`` settings pin a tuning;
-``infrastructure/local_models/stage_calibration.py`` times them. The
-factories pick the candidates from the settings with ``candidates``: a setting
-above 0 is the one candidate, 0 searches.
+``infrastructure/local_models/stage_calibration.py`` times them. They are
+named calibrated stages so that no class shares a name with a stage of the
+workflow. The ``local`` openers pick the candidates from a component's
+``local`` block with ``candidates``: a setting above 0 is the one candidate, 0
+searches.
 
 Example:
     >>> calibrated = await calibrate(
-    ...     RerankStage(model, pool, settings),
-    ...     threads=candidates(settings.rerank_threads, budget.reranker_threads),
-    ...     batch_sizes=candidates(settings.rerank_batch_size, settings.top_k_retrieve),
-    ...     limits=calibration_limits(settings),
+    ...     CalibratedRerankStage(model, pool, passages=20, top_n=10),
+    ...     threads=candidates(local.threads, budget.reranker_threads),
+    ...     batch_sizes=candidates(local.batch_size, local.calibration_passages),
+    ...     limits=local_models.calibration_limits,
     ... )
     >>> reranker = calibrated.adapter
 """
@@ -39,9 +41,9 @@ from ..domain.passages import ScoredPassage
 from ..infrastructure.local_models.local_model import LocalModel
 from ..infrastructure.local_models.stage_calibration import (
     BaseCalibratedStage,
-    CalibrationLimits,
     calibrate,
 )
+from .local_model_resources import LocalModelResources
 
 T = TypeVar("T")
 
@@ -79,30 +81,12 @@ def candidates(setting: int, top: int) -> tuple[int, ...]:
     return (setting,) if setting > 0 else halvings(top)
 
 
-def calibration_limits(settings: RagSettings) -> CalibrationLimits:
-    """Return the calibration budget and rounds of one stage, from the settings.
-
-    Args:
-        settings: ``calibration_budget_s`` and ``calibration_rounds``.
-
-    Returns:
-        The limits every stage is calibrated under.
-
-    Example:
-        >>> calibration_limits(RagSettings()).budget_s
-        90.0
-    """
-    return CalibrationLimits(
-        budget_s=settings.calibration_budget_s, rounds=settings.calibration_rounds
-    )
-
-
 async def component_calibration(
     stage: BaseCalibratedStage[T],
     *,
     threads: Sequence[int],
     batch_sizes: Sequence[int],
-    settings: RagSettings,
+    local_models: LocalModelResources,
     cpus: float,
 ) -> ComponentCalibration:
     """Calibrate ``stage`` over the candidates given, for ``rag-calibrate``.
@@ -114,7 +98,7 @@ async def component_calibration(
         stage: The stage to time.
         threads: Thread counts to try, the budget's share first.
         batch_sizes: Batch sizes to try, the whole request first.
-        settings: The calibration budget and rounds, and the runtime.
+        local_models: The calibration budget and rounds, and the runtime.
         cpus: The CPUs the budget counted, for the report.
 
     Returns:
@@ -122,47 +106,48 @@ async def component_calibration(
 
     Example:
         >>> await component_calibration(stage, threads=(2, 1), batch_sizes=(20, 10),
-        ...                             settings=settings, cpus=2.0)
+        ...                             local_models=local_models, cpus=2.0)
     """
     calibrated = await calibrate(
         stage,
         threads=threads,
         batch_sizes=batch_sizes,
-        limits=calibration_limits(settings),
+        limits=local_models.calibration_limits,
     )
     report = calibrated.report
     return ComponentCalibration(
         report,
         cpus=cpus,
-        runtime=settings.local_model_runtime,
+        runtime=local_models.runtime,
         pinned=stage.pinned_settings(report.chosen),
     )
 
 
-class RerankStage(BaseCalibratedStage[CrossEncoderReranker]):
-    """The rerank stage on the in-process cross-encoder.
+class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
+    """The rerank stage on the in-process cross-encoder, as calibration times it.
 
-    Its sample is a question and ``top_k_retrieve`` passages, kept to
-    ``top_k_rerank``, as the workflow reranks them.
+    Its sample is a question and ``passages`` passages, kept to ``top_n``, as
+    the workflow reranks its candidates.
 
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
-        settings: ``top_k_retrieve`` and ``top_k_rerank``.
+        passages: How many passages the sample request reranks.
+        top_n: How many of them it keeps.
 
     Example:
-        >>> stage = RerankStage(model, pool, settings)
+        >>> stage = CalibratedRerankStage(model, pool, passages=20, top_n=10)
         >>> reranker = await stage.loaded(threads=2)
     """
 
     stage = "rerank"
 
     def __init__(
-        self, model: LocalModel, pool: Executor, settings: RagSettings
+        self, model: LocalModel, pool: Executor, *, passages: int, top_n: int
     ) -> None:
         self._model, self._pool = model, pool
-        sample = calibration_sample(settings.top_k_retrieve)
-        self._question, self._top_n = sample.question, settings.top_k_rerank
+        sample = calibration_sample(passages)
+        self._question, self._top_n = sample.question, top_n
         self._passages = [
             ScoredPassage(id=f"calibration-{i}", text=text, retrieval_score=0.0)
             for i, text in enumerate(sample.passages)
@@ -222,8 +207,8 @@ class RerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         }
 
 
-class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
-    """The embed stage on the in-process sentence-transformers model.
+class CalibratedEmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
+    """The embed stage on the in-process sentence-transformers model, as timed.
 
     Its sample is one question, embedded as a query the way the workflow embeds
     it, so the embedder puts the query prefix in front; a query is one text, so
@@ -232,21 +217,19 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
-        settings: ``embedding_query_prefix``, a setting of the embedder that
-            each loaded adapter takes.
+        query_prefix: The embedder's query prefix, which each loaded adapter
+            takes.
 
     Example:
-        >>> stage = EmbedStage(model, pool, settings)
+        >>> stage = CalibratedEmbedStage(model, pool, query_prefix="query: ")
         >>> embedder = await stage.loaded(threads=2)
     """
 
     stage = "embed"
 
-    def __init__(
-        self, model: LocalModel, pool: Executor, settings: RagSettings
-    ) -> None:
+    def __init__(self, model: LocalModel, pool: Executor, *, query_prefix: str) -> None:
         self._model, self._pool = model, pool
-        self._query_prefix = settings.embedding_query_prefix
+        self._query_prefix = query_prefix
         self._question = calibration_sample(1).question
 
     async def loaded(self, threads: int) -> SentenceTransformerEmbedder:
@@ -257,7 +240,7 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
 
         Returns:
             The embedder, at batch size 1 until ``rebatched``, with the query
-            prefix of the settings.
+            prefix.
         """
         return SentenceTransformerEmbedder.from_pretrained(
             self._model,

@@ -80,11 +80,16 @@ async def _ingest_through(
     return {"passages": count, "embedder": embedder.model_name, "store": stored}
 
 
-def _configured_composition() -> CompositionRoot:
+def _configured_composition(parser: argparse.ArgumentParser) -> CompositionRoot:
     from ..composition.composition_root import CompositionRoot
+    from ..composition.registered_names import check_registered_names
     from ..config.rag_settings import RagSettings
 
-    settings = RagSettings()
+    try:
+        settings = RagSettings()
+        check_registered_names(settings)
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
     if settings.vector_store_backend == "fake":
         raise SystemExit(
             "rag-ingest: RAG_VECTOR_STORE_BACKEND='fake' is seeded when the app starts "
@@ -104,7 +109,9 @@ def main(
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
         composition: Builds the ports to ingest through; ``None`` builds one from
-            the ``RAG_*`` settings, which refuses the ``fake`` vector store.
+            the ``RAG_*`` settings, which refuses the ``fake`` vector store; a
+            settings mistake, an unknown backend or API format included, exits
+            as a usage error.
 
     Returns:
         The exit status, 0.
@@ -113,8 +120,9 @@ def main(
         >>> main(["--synthetic", "200"])                     # built from RAG_* settings
         >>> main(["--corpus", "docs.jsonl"], composition=CompositionRoot(settings))
     """
-    args = _parser().parse_args(argv)
-    composition = composition or _configured_composition()
+    parser = _parser()
+    args = parser.parse_args(argv)
+    composition = composition or _configured_composition(parser)
     docs = (
         load_jsonl(args.corpus)
         if args.corpus

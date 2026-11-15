@@ -102,8 +102,8 @@ class RagSettings(BaseSettings):
     embedding_query_prefix: str = "query: "
     embedding_api_url: str = ""  # the full route, e.g. http://host:8002/v3/embeddings
     # A format registered in adapters/embedder/api/. The settings cannot import
-    # that registry, so an unknown name is refused when the embedder opens on the
-    # api backend: at start-up, since the workflow app opens every port first.
+    # that registry, so each command refuses an unknown name before it opens
+    # anything (composition/registered_names.py).
     embedding_api_format: str = "openai"
     # "" = no Authorization header, "domino" = the run's token, else a bearer token
     embedding_api_key: str = ""

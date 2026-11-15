@@ -29,6 +29,8 @@ ADAPTER_MODULES = (
     "rag_load_test.infrastructure.local_models.openvino_export",
     "rag_load_test.infrastructure.local_models.native_threads",
     "rag_load_test.infrastructure.local_models.cpu_count",
+    # Imports every opener, and so every adapter, whenever composition loads.
+    "rag_load_test.composition.openers",
 )
 
 

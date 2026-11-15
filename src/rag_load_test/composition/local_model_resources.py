@@ -33,6 +33,7 @@ from ..infrastructure.local_models.model_provisioning import (
     provision_local_model,
 )
 from ..infrastructure.local_models.native_threads import settle_torch_thread
+from ..infrastructure.local_models.stage_calibration import CalibrationLimits
 from .http_resources import HttpResources
 from .resource_scope import OWNED, ResourceScope
 
@@ -47,8 +48,12 @@ class UnpinnedBudget(NamedTuple):
 class LocalModelResources:
     """The thread budget, the model pool and the files of the in-process models.
 
+    ``runtime`` and ``calibration_limits`` are read from the settings once: what
+    runs the models, and the budget and rounds every calibration runs under.
+
     Args:
-        settings: The CPU, worker and thread counts, the runtime and its folder.
+        settings: The CPU, worker and thread counts, the runtime and its folder,
+            the calibration budget and rounds.
         scope: Opens the budget and the pool once and shuts the pool down.
         http: The shared HTTP client, for the Domino hardware tier lookup.
         container_cpus: Counts the container's CPUs when nothing earlier in the
@@ -69,6 +74,11 @@ class LocalModelResources:
     ) -> None:
         self._settings, self._scope, self._http = settings, scope, http
         self._container_cpus = container_cpus
+        self.runtime = settings.local_model_runtime  # openvino or torch
+        # Every CPU-bound stage is calibrated under the same budget and rounds.
+        self.calibration_limits = CalibrationLimits(
+            budget_s=settings.calibration_budget_s, rounds=settings.calibration_rounds
+        )
 
     async def thread_budget(self) -> ThreadBudget:
         """Return how the virtual CPUs are split, worked out on the first request.

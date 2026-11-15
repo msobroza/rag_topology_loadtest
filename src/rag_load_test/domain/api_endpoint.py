@@ -4,7 +4,7 @@ An API format is a wire shape, not a vendor: any server answering OpenAI's
 embeddings shape is spoken to as ``"openai"``, whoever runs it (OVMS, vLLM, a
 gateway, OpenAI itself). The formats are registered by name, one module each,
 in the ``api`` package of each component under ``adapters/``; an endpoint
-names one, and an unknown name is refused when the component opens.
+names one, and a command refuses an unknown name before it opens anything.
 
 Example:
     >>> endpoint = ApiEndpoint(url="http://host:8000/v3/embeddings",

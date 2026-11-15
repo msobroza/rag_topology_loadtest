@@ -33,6 +33,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from ..composition.composition_root import CompositionRoot
+from ..composition.registered_names import check_registered_names
 from ..config.rag_settings import RagSettings
 from ..domain.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
@@ -269,7 +270,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run ``rag-model-server --serve embedder|reranker [--host H] [--port P]``.
 
     Serves the one model with uvicorn, on 0.0.0.0:8888 unless told otherwise, with
-    a composition root built from the ``RAG_*`` settings.
+    a composition root built from the ``RAG_*`` settings. A settings mistake, an
+    unknown backend or API format included, exits as a usage error.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -284,8 +286,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args(argv)
+    try:
+        settings = RagSettings()
+        check_registered_names(settings)
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    composition = CompositionRoot(RagSettings())
+    composition = CompositionRoot(settings)
     uvicorn.run(
         create_model_server(args.serve, composition), host=args.host, port=args.port
     )
