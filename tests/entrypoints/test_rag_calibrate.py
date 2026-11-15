@@ -181,7 +181,9 @@ def test_a_missing_openvino_package_is_one_stderr_line_when_the_folder_exists(
     monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "openvino")
     monkeypatch.setenv("RAG_OPENVINO_MODELS_DIR", str(models))
     rerank_model = RagSettings(_env_file=None).rerank_model  # type: ignore[call-arg]
-    exported_model_dir(str(models), rerank_model).mkdir(parents=True)
+    exported_model_dir(str(models), rerank_model, weight_format="fp32").mkdir(
+        parents=True
+    )
 
     assert main(["--only", "reranker"]) == 1
 

@@ -4,8 +4,9 @@ The ``openvino`` runtime (``RAG_LOCAL_MODEL_RUNTIME``, the default) loads the
 folder this command writes for each model under ``RAG_OPENVINO_MODELS_DIR``. An
 App whose folder is missing exports it itself on its first start, so this command
 only pre-warms: an image build, or a disk that should start without the Hub. The
-models are the settings' ``embedding_model`` and ``rerank_model``, so ``RAG_*``
-overrides apply.
+models are the settings' ``embedding_model`` and ``rerank_model``, exported at
+``openvino_weight_format`` (an ``int8`` export goes to ``<model>-int8``), so
+``RAG_*`` overrides apply.
 
 Example:
     >>> rag-export-openvino --only reranker --models-dir models/openvino
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import get_args
 
 from ..config.rag_settings import RagSettings
+from ..domain.backends import OpenVinoWeightFormat
 from ..domain.roles import ModelServerPart
 from ..infrastructure.local_models.local_model import exported_model_dir
 from ..infrastructure.local_models.openvino_export import (
@@ -35,26 +37,35 @@ PARTS: tuple[ModelServerPart, ...] = get_args(ModelServerPart)  # embedder, rera
 EXPECTED_ERRORS = (OpenVinoUnavailableError, OSError, ValueError)
 
 
-def export_part(part: ModelServerPart, model_id: str, target: Path) -> Path:
+def export_part(
+    part: ModelServerPart,
+    model_id: str,
+    target: Path,
+    weight_format: OpenVinoWeightFormat,
+) -> Path:
     """Export one model with the converter it needs.
 
     Args:
         part: ``embedder`` or ``reranker``.
         model_id: The model's Hugging Face id or local path.
         target: The folder to write.
+        weight_format: ``fp32`` or ``int8``, what the weights are stored as.
 
     Returns:
         ``target``, now holding the export.
 
     Example:
-        >>> export_part("reranker", "org/rerank", Path("models/openvino/rerank"))
+        >>> export_part("reranker", "org/rerank", Path("models/openvino/rerank"),
+        ...             "fp32")
         PosixPath('models/openvino/rerank')
     """
-    exporters: dict[ModelServerPart, Callable[[str, Path], Path]] = {
+    exporters: dict[
+        ModelServerPart, Callable[[str, Path, OpenVinoWeightFormat], Path]
+    ] = {
         "embedder": export_embedder,
         "reranker": export_reranker,
     }
-    return exporters[part](model_id, target)
+    return exporters[part](model_id, target, weight_format)
 
 
 def export_models(
@@ -63,7 +74,8 @@ def export_models(
     """Export each part's model, one line per model; stop at the first failure.
 
     Args:
-        settings: Source of the embedder and reranker model ids.
+        settings: Source of the embedder and reranker model ids and of the
+            weight format they are exported at.
         parts: Which models to export, in order.
         models_dir: The folder that holds every export.
 
@@ -79,17 +91,20 @@ def export_models(
         "embedder": settings.embedding_model,
         "reranker": settings.rerank_model,
     }
+    weight_format = settings.openvino_weight_format
     for part in parts:
-        target = exported_model_dir(models_dir, model_ids[part])
+        target = exported_model_dir(
+            models_dir, model_ids[part], weight_format=weight_format
+        )
         try:
-            export_part(part, model_ids[part], target)
+            export_part(part, model_ids[part], target, weight_format)
         except EXPECTED_ERRORS as exc:
             print(
                 f"{PROG}: cannot export {part} {model_ids[part]} to {target}: {exc}",
                 file=sys.stderr,
             )
             return 1
-        print(f"{PROG}: {part} {model_ids[part]} -> {target}")
+        print(f"{PROG}: {part} {model_ids[part]} ({weight_format}) -> {target}")
     return 0
 
 

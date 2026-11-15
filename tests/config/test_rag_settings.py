@@ -173,6 +173,26 @@ def test_a_user_prompt_without_a_placeholder_fails_at_construction(
         settings_factory(user_prompt="Question: {question}")
 
 
+# --- weight format -----------------------------------------------------------------
+
+
+def test_the_weight_format_defaults_to_fp32_and_reads_its_variable(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RAG_OPENVINO_WEIGHT_FORMAT", raising=False)
+    assert settings_factory().openvino_weight_format == "fp32"
+
+    monkeypatch.setenv("RAG_OPENVINO_WEIGHT_FORMAT", "int8")
+    assert settings_factory().openvino_weight_format == "int8"
+
+
+def test_a_weight_format_other_than_fp32_or_int8_is_rejected(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="openvino_weight_format"):
+        settings_factory(openvino_weight_format="int4")
+
+
 # --- thread budget inputs ---------------------------------------------------------
 
 

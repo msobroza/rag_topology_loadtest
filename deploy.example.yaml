@@ -58,6 +58,9 @@ defaults:
     # Where rag-export-openvino wrote the in-process models (a model without a
     # folder there is converted in memory at every start):
     # RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/<dataset>/openvino
+    # What both OpenVINO exports store the weights as, fp32 (default) or int8;
+    # an OVMS folder exported at another format stops its App (see the README):
+    # RAG_OPENVINO_WEIGHT_FORMAT: fp32
     # The folder holding config_reranker.json and config_embedder.json (ovms):
     # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 

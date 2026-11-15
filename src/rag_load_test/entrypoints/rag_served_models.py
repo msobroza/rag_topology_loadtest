@@ -1,8 +1,9 @@
 """``rag-served-models``: print the served models as shell assignments.
 
 The ``RagSettings`` defaults are the one pin for the served models (a source id and
-an alias each). ``ovms/export_models.sh`` evaluates this command's output instead
-of repeating the four names.
+an alias each) and for the weight format they are exported at.
+``ovms/export_models.sh`` evaluates this command's output instead of repeating the
+four names, and exports at the format it prints.
 
 Example:
     >>> eval "$(rag-served-models)"
@@ -23,11 +24,13 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
     The names are the variables ``ovms/export_models.sh`` passes to the exporter.
 
     Args:
-        settings: Source of the reranker and embedder source ids and served aliases.
+        settings: Source of the reranker and embedder source ids and served
+            aliases, and of the OpenVINO weight format.
 
     Returns:
-        Four lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
-        ``EMBEDDER_SOURCE_MODEL``, ``EMBEDDER_MODEL_NAME``.
+        Five lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
+        ``EMBEDDER_SOURCE_MODEL``, ``EMBEDDER_MODEL_NAME``,
+        ``OPENVINO_WEIGHT_FORMAT``.
 
     Example:
         >>> served_model_assignments(RagSettings())[0]
@@ -38,6 +41,7 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
         "RERANKER_MODEL_NAME": settings.rerank_api_model,
         "EMBEDDER_SOURCE_MODEL": settings.embedding_model,
         "EMBEDDER_MODEL_NAME": settings.embedding_api_model,
+        "OPENVINO_WEIGHT_FORMAT": settings.openvino_weight_format,
     }
     return [f"{name}={shlex.quote(value)}" for name, value in values.items()]
 
@@ -53,13 +57,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         The exit status, 0, after printing the assignments one per line.
 
     Example:
-        >>> main([])  # prints RERANKER_SOURCE_MODEL=<source id>, then three more
+        >>> main([])  # prints RERANKER_SOURCE_MODEL=<source id>, then four more
         0
     """
     parser = argparse.ArgumentParser(
         prog="rag-served-models",
-        description="Print the served models (source id and alias) as shell "
-        "assignments, for eval in ovms/export_models.sh.",
+        description="Print the served models (source id and alias) and the "
+        "OpenVINO weight format as shell assignments, for eval in "
+        "ovms/export_models.sh.",
     )
     parser.parse_args(argv)
     print("\n".join(served_model_assignments(RagSettings())))

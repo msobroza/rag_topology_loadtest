@@ -126,6 +126,8 @@ def test_settings_field_set_is_pinned() -> None:
     # moved or added here on purpose; so were Chroma, the retrieval mode and the
     # in-process model runtime, and the two limits of calibration. Each model component (embedding, rerank,
     # generation) has one block of settings, its endpoint in four *_api_* fields.
+    # The OpenVINO weight format was added on purpose (15 November 2026): one
+    # setting read by both exports, so servers are compared on equal weights.
     assert sorted(RagSettings.model_fields) == [
         "calibration_budget_s",
         "calibration_rounds",
@@ -166,6 +168,7 @@ def test_settings_field_set_is_pinned() -> None:
         "model_cpus",
         "model_workers",
         "openvino_models_dir",
+        "openvino_weight_format",
         "rerank_api_format",
         "rerank_api_key",
         "rerank_api_model",

@@ -5,7 +5,8 @@ runs: ``local`` (a model loaded in the workflow app's process), ``api`` (an
 endpoint called over HTTP), ``fake``, ``none`` (rerank only), and for the store
 ``elasticsearch``, ``chroma`` or ``fake``. The variants load no model of ours into
 the process, so every Topology allows them; which backend a Topology implies is
-in ``topology.py``. A Runtime is what runs an in-process model.
+in ``topology.py``. A Runtime is what runs an in-process model; a Weight format
+is what an OpenVINO export stores its weights as.
 
 Example:
     >>> "none" in RERANK_VARIANTS
@@ -24,6 +25,10 @@ VectorStoreBackend = Literal["elasticsearch", "chroma", "fake"]
 LEXICAL_STORE_BACKENDS: tuple[VectorStoreBackend, ...] = ("elasticsearch", "fake")
 # What runs an in-process model: OpenVINO on its exported files, or PyTorch.
 LocalModelRuntime = Literal["openvino", "torch"]
+# What an OpenVINO export stores its weights as: 32-bit floats, or 8-bit integers
+# (weight compression only, not full quantization). Both exports read the one
+# setting, the in-process one and OVMS's, so servers compare on equal weights.
+OpenVinoWeightFormat = Literal["fp32", "int8"]
 
 # Allowed in every topology: they load no model of ours into this process.
 EMBEDDING_VARIANTS: tuple[EmbeddingBackend, ...] = ("api", "fake")

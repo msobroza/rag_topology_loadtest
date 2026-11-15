@@ -296,7 +296,16 @@ of exporting the models and embedding the corpus again. It holds:
 Models are keyed by folder name, not by how they were exported. `models-save` keeps
 an object the bucket already has. After a change to the export recipe of the same
 model, replace them with `make -C emulation models-save FORCE=1`, or empty the
-prefix first: `gcloud storage rm -r gs://<bucket>/models`. A bucket error fails the
+prefix first: `gcloud storage rm -r gs://<bucket>/models`.
+
+The cached `models/ovms-models.tar` was saved before `RAG_OPENVINO_WEIGHT_FORMAT`
+existed and holds 8-bit weights (its folder has no `weight-format` file, which
+reads as `int8`). The setting defaults to `fp32`, so an OVMS App on the emulation
+needs `RAG_OPENVINO_WEIGHT_FORMAT: int8` in its settings to serve it, or another
+`RAG_OVMS_MODELS_DIR`, where `fp32` is exported on first start. Without either,
+the App stops before OVMS starts and says so.
+
+A bucket error fails the
 boot (`make ready` says `failed`); an empty bucket is the first sitting's normal
 state. `make -C emulation destroy` deletes the bucket with everything in it.
 

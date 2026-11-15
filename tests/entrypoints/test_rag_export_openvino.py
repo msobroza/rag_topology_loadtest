@@ -26,18 +26,22 @@ class RecordingExports:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, Path]] = []
+        self.weight_formats: list[str] = []
         self.fail_with: Exception | None = None
 
-    def embedder(self, model_id: str, target: Path) -> Path:
-        return self._record("embedder", model_id, target)
+    def embedder(self, model_id: str, target: Path, weight_format: str) -> Path:
+        return self._record("embedder", model_id, target, weight_format)
 
-    def reranker(self, model_id: str, target: Path) -> Path:
-        return self._record("reranker", model_id, target)
+    def reranker(self, model_id: str, target: Path, weight_format: str) -> Path:
+        return self._record("reranker", model_id, target, weight_format)
 
-    def _record(self, role: str, model_id: str, target: Path) -> Path:
+    def _record(
+        self, role: str, model_id: str, target: Path, weight_format: str
+    ) -> Path:
         if self.fail_with is not None:
             raise self.fail_with
         self.calls.append((role, model_id, target))
+        self.weight_formats.append(weight_format)
         return target
 
 
@@ -63,13 +67,28 @@ def test_exports_both_settings_models_into_the_settings_folder(
         ("embedder", DEFAULT_EMBEDDER, base / "snowflake-arctic-embed-l-v2.0"),
         ("reranker", DEFAULT_RERANKER, base / "crossencoder-camembert-base-mmarcoFR"),
     ]
+    assert exports.weight_formats == ["fp32", "fp32"]
     out = capsys.readouterr().out.splitlines()
     assert out == [
-        f"rag-export-openvino: embedder {DEFAULT_EMBEDDER} -> "
+        f"rag-export-openvino: embedder {DEFAULT_EMBEDDER} (fp32) -> "
         f"{base / 'snowflake-arctic-embed-l-v2.0'}",
-        f"rag-export-openvino: reranker {DEFAULT_RERANKER} -> "
+        f"rag-export-openvino: reranker {DEFAULT_RERANKER} (fp32) -> "
         f"{base / 'crossencoder-camembert-base-mmarcoFR'}",
     ]
+
+
+def test_an_int8_weight_format_exports_into_folders_of_their_own(
+    exports: RecordingExports, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_OPENVINO_WEIGHT_FORMAT", "int8")
+
+    assert main(["--models-dir", "out"]) == 0
+
+    assert [call[2] for call in exports.calls] == [
+        Path("out/snowflake-arctic-embed-l-v2.0-int8"),
+        Path("out/crossencoder-camembert-base-mmarcoFR-int8"),
+    ]
+    assert exports.weight_formats == ["int8", "int8"]
 
 
 @pytest.mark.parametrize("role", ["embedder", "reranker"])

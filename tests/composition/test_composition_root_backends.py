@@ -79,8 +79,12 @@ async def test_the_chroma_backend_gives_the_workflow_no_lexical_search(
 
 # --- in-process runtime ---------------------------------------------------------------
 
-# What the export loads a model with: convert it to OpenVINO, in memory.
-EXPORT_ARGUMENTS = {"backend": "openvino", "model_kwargs": {"export": True}}
+# What the export loads a model with: convert it to OpenVINO, in memory, at fp32
+# (the default weight format).
+EXPORT_ARGUMENTS = {
+    "backend": "openvino",
+    "model_kwargs": {"export": True, "load_in_8bit": False},
+}
 
 
 @pytest.fixture
@@ -112,8 +116,16 @@ def local_settings(
 def folders(settings: RagSettings, models_dir: Path) -> tuple[Path, Path]:
     """Where the embedder and the reranker are exported under ``models_dir``."""
     return (
-        exported_model_dir(str(models_dir), settings.embedding_model),
-        exported_model_dir(str(models_dir), settings.rerank_model),
+        exported_model_dir(
+            str(models_dir),
+            settings.embedding_model,
+            weight_format=settings.openvino_weight_format,
+        ),
+        exported_model_dir(
+            str(models_dir),
+            settings.rerank_model,
+            weight_format=settings.openvino_weight_format,
+        ),
     )
 
 
@@ -141,7 +153,9 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
         await composition.local_embedder()
         await composition.local_reranker()
 
-    described = local_model(settings.embedding_model, runtime=runtime, models_dir="")
+    described = local_model(
+        settings.embedding_model, runtime=runtime, models_dir="", weight_format="fp32"
+    )
     assert fake_weights.load_arguments == [described.load_arguments(threads)] * 2
     assert fake_weights.saved == []
 
@@ -199,6 +213,36 @@ async def test_a_later_openvino_start_loads_the_folder_without_exporting(
         f"embedder:{embedder_dir}",  # the second start: the folder, no export
     ]
     assert len(fake_weights.saved) == 1
+
+
+async def test_an_int8_start_exports_at_8_bits_into_its_own_folder(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    tmp_path: Path,
+) -> None:
+    settings = local_settings(
+        settings_factory,
+        openvino_models_dir=str(tmp_path),
+        openvino_weight_format="int8",
+    )
+    embedder_dir, _ = folders(settings, tmp_path)
+    fp32_dir = exported_model_dir(
+        str(tmp_path), settings.embedding_model, weight_format="fp32"
+    )
+    fp32_dir.mkdir()  # an fp32 export is never loaded for int8
+
+    async with CompositionRoot(settings) as composition:
+        await composition.local_embedder()
+
+    assert embedder_dir.name.endswith("-int8")
+    assert fake_weights.loaded == [
+        f"embedder:{settings.embedding_model}",
+        f"embedder:{embedder_dir}",
+    ]
+    assert fake_weights.load_arguments[0]["model_kwargs"] == {
+        "export": True,
+        "load_in_8bit": True,
+    }
 
 
 async def test_the_torch_runtime_never_exports_and_ignores_an_exported_folder(

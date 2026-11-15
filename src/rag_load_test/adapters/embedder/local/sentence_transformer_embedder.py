@@ -32,7 +32,12 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         scope: Caps the OpenMP threads of each encode call.
 
     Example:
-        >>> model = local_model("org/embedder", runtime="torch", models_dir="models")
+        >>> model = local_model(
+        ...     "org/embedder",
+        ...     runtime="torch",
+        ...     models_dir="models",
+        ...     weight_format="fp32",
+        ... )
         >>> embedder = SentenceTransformerEmbedder.from_pretrained(
         ...     model, pool, batch_size=64, threads=2
         ... )

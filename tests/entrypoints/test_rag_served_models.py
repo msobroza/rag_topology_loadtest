@@ -24,6 +24,7 @@ def test_assignments_pair_each_source_id_with_its_alias(
         embedding_api_model="embed",
         rerank_model="org/rerank",
         rerank_api_model="rerank",
+        openvino_weight_format="int8",
     )
 
     assert served_model_assignments(settings) == [
@@ -31,6 +32,7 @@ def test_assignments_pair_each_source_id_with_its_alias(
         "RERANKER_MODEL_NAME=rerank",
         "EMBEDDER_SOURCE_MODEL=org/embed",
         "EMBEDDER_MODEL_NAME=embed",
+        "OPENVINO_WEIGHT_FORMAT=int8",
     ]
 
 
@@ -53,6 +55,7 @@ def test_rag_served_models_prints_the_settings_defaults(
         "RERANKER_MODEL_NAME=crossencoder-camembert-base-mmarcoFR",
         "EMBEDDER_SOURCE_MODEL=Snowflake/snowflake-arctic-embed-l-v2.0",
         "EMBEDDER_MODEL_NAME=snowflake-arctic-embed-l-v2.0",
+        "OPENVINO_WEIGHT_FORMAT=fp32",
     ]
 
 
@@ -72,6 +75,7 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
         "RERANKER_MODEL_NAME='it'\"'\"'s; rm -rf $HOME'",
         "EMBEDDER_SOURCE_MODEL='org/embed v2'",
         "EMBEDDER_MODEL_NAME=embed",
+        "OPENVINO_WEIGHT_FORMAT=fp32",
     ]
 
 

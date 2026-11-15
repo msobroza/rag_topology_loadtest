@@ -21,6 +21,9 @@ from rag_load_test.infrastructure.local_models.openvino_export import (
 )
 
 OPENVINO_MODULES = ("openvino", "optimum", "optimum.intel", "optimum.intel.openvino")
+# load_in_8bit is always passed: left out, optimum-intel picks by model size.
+FP32_EXPORT = {"export": True, "load_in_8bit": False}
+INT8_EXPORT = {"export": True, "load_in_8bit": True}
 
 
 class FakeSentenceTransformersModule(ModuleType):
@@ -62,12 +65,12 @@ def test_export_embedder_loads_with_openvino_and_saves_the_folder(
 ) -> None:
     target = tmp_path / "exports" / "embed"
 
-    assert export_embedder("org/embed", target) == target
+    assert export_embedder("org/embed", target, "fp32") == target
 
     assert fake_library.calls[0] == (
         "embedder",
         "org/embed",
-        {"device": "cpu", "backend": "openvino", "model_kwargs": {"export": True}},
+        {"device": "cpu", "backend": "openvino", "model_kwargs": FP32_EXPORT},
     )
     assert (target / "openvino_model.xml").read_text() == "org/embed"
 
@@ -77,14 +80,31 @@ def test_export_reranker_uses_the_cross_encoder(
 ) -> None:
     target = tmp_path / "rerank"
 
-    export_reranker("org/rerank", target)
+    export_reranker("org/rerank", target, "fp32")
 
     assert fake_library.calls[0] == (
         "reranker",
         "org/rerank",
-        {"device": "cpu", "backend": "openvino", "model_kwargs": {"export": True}},
+        {"device": "cpu", "backend": "openvino", "model_kwargs": FP32_EXPORT},
     )
     assert (target / "openvino_model.xml").read_text() == "org/rerank"
+
+
+@pytest.mark.parametrize(
+    ("weight_format", "model_kwargs"), [("fp32", FP32_EXPORT), ("int8", INT8_EXPORT)]
+)
+@pytest.mark.parametrize("export", [export_embedder, export_reranker])
+def test_the_weight_format_says_whether_the_load_compresses_to_8_bits(
+    fake_library: FakeSentenceTransformersModule,
+    tmp_path: Path,
+    export: Any,
+    weight_format: str,
+    model_kwargs: dict[str, bool],
+) -> None:
+    export("org/model", tmp_path / "model", weight_format)
+
+    [(_role, _name, load)] = [c for c in fake_library.calls if c[1] == "org/model"]
+    assert load["model_kwargs"] == model_kwargs
 
 
 def test_export_overwrites_a_previous_export_cleanly(
@@ -94,7 +114,7 @@ def test_export_overwrites_a_previous_export_cleanly(
     target.mkdir()
     (target / "stale.bin").write_text("from an older export")
 
-    export_embedder("org/embed", target)
+    export_embedder("org/embed", target, "fp32")
 
     assert sorted(p.name for p in target.iterdir()) == ["openvino_model.xml"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["embed"]
@@ -116,7 +136,7 @@ def test_a_failed_export_leaves_the_previous_folder_alone(
     monkeypatch.setattr(fake_library.SentenceTransformer, "save_pretrained", refuse)
 
     with pytest.raises(OSError, match="disk full"):
-        export_embedder("org/embed", target)
+        export_embedder("org/embed", target, "fp32")
 
     assert (target / "openvino_model.xml").read_text() == "previous"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["embed"]
@@ -134,7 +154,7 @@ def test_missing_openvino_packages_name_the_extra_before_any_load(
     with pytest.raises(
         OpenVinoUnavailableError, match=r"sentence-transformers\[openvino\]"
     ):
-        export_reranker("org/rerank", tmp_path / "rerank")
+        export_reranker("org/rerank", tmp_path / "rerank", "fp32")
 
     assert fake_library.calls == []
     assert not (tmp_path / "rerank").exists()

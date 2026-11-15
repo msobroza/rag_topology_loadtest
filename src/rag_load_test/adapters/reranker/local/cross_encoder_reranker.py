@@ -34,7 +34,12 @@ class CrossEncoderReranker(BaseReranker):
         scope: Caps the OpenMP threads of each predict call.
 
     Example:
-        >>> model = local_model("org/reranker", runtime="torch", models_dir="models")
+        >>> model = local_model(
+        ...     "org/reranker",
+        ...     runtime="torch",
+        ...     models_dir="models",
+        ...     weight_format="fp32",
+        ... )
         >>> reranker = CrossEncoderReranker.from_pretrained(
         ...     model, pool, batch_size=32, threads=2
         ... )
