@@ -176,7 +176,7 @@ async def test_the_api_reranker_calls_its_endpoint(
     assert routes.sent() == [(RERANK_URL, expected_body, "Bearer co-key", 4.5)]
 
 
-async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
+async def test_the_api_llm_calls_its_endpoint_with_its_own_timeout(
     settings_factory: SettingsFactory,
 ) -> None:
     routes = RecordingModelRoutes()
@@ -200,7 +200,7 @@ async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
     assert routes.sent() == [(CHAT_URL, expected_body, "Bearer sk-key", 90.0)]
 
 
-async def test_the_generation_endpoint_keeps_the_shared_retries(
+async def test_an_llm_that_sets_no_retries_keeps_the_default(
     settings_factory: SettingsFactory,
 ) -> None:
     attempts: list[str] = []

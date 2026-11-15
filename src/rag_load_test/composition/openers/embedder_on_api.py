@@ -23,8 +23,9 @@ async def open_embedder_on_api(
     """Open the embedder of the endpoint the ``api`` block names.
 
     Args:
-        component: The embedder's alias, query prefix and ``api`` block.
-        shared: The shared HTTP client, its policy and the run tokens.
+        component: The embedder's alias, query prefix, ``api`` and ``http``
+            blocks.
+        shared: The shared HTTP client, the default policy and the run tokens.
 
     Returns:
         The endpoint's embedder; an unknown API format is refused here.
@@ -47,8 +48,9 @@ async def open_embedder_at(
     Args:
         endpoint: The route, its API format, its key and the model name sent.
         block: The block of the component's backend, for the texts per request.
-        component: The embedder, for its query prefix.
-        shared: The shared HTTP client, its policy and the run tokens.
+        component: The embedder, for its query prefix and how patiently it is
+            called.
+        shared: The shared HTTP client, the default policy and the run tokens.
 
     Returns:
         The endpoint's embedder; an unknown API format is refused here.
@@ -62,7 +64,7 @@ async def open_embedder_at(
         await http.client(),
         endpoint,
         tokens=http.run_tokens,
-        policy=http.policy,
+        policy=http.policy_of(component),
         batch_size=block.batch_size,
         query_prefix=component.query_prefix,
     )

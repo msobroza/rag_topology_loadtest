@@ -1,9 +1,10 @@
-"""How patiently an adapter calls another service: one value, shared by all.
+"""How patiently an adapter calls another service.
 
-``HttpResources`` builds it once from ``RAG_HTTP_TIMEOUT_S``, ``RAG_HTTP_RETRIES`` and
-``RAG_HTTP_BACKOFF_S``; every adapter that calls out receives the same object,
-except the LLM's, whose policy has its component's own timeout
-(``RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S``).
+``HttpResources`` builds the default once from ``RAG_HTTP_TIMEOUT_S``,
+``RAG_HTTP_RETRIES`` and ``RAG_HTTP_BACKOFF_S``. A component on ``served`` or
+``api`` is called under its own: the values of its ``http`` block, such as
+``RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S``, and the default's for each it leaves
+out.
 
 Example:
     >>> policy = HttpPolicy(timeout_s=30.0, retries=2, backoff_s=0.2)

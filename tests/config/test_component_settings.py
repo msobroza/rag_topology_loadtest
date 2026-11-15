@@ -10,13 +10,13 @@ from pydantic import ValidationError
 from rag_graphs import rag_graph
 from rag_load_test.config.component_settings import (
     ChromaSettings,
+    ComponentHttpSettings,
     ElasticsearchSettings,
     EmbedderEndpointSettings,
     EmbedderLocalSettings,
     EndpointSettings,
     FakeStoreSettings,
     LlmEndpointSettings,
-    LlmHttpSettings,
     RerankerEndpointSettings,
     RerankerLocalSettings,
     RerankerSettings,
@@ -46,6 +46,7 @@ def test_the_packaged_file_declares_the_rags_three_model_components(
     assert embedder.api == EmbedderEndpointSettings(
         url="", api_format="openai", api_key="", model="", batch_size=64
     )
+    assert embedder.http == ComponentHttpSettings()  # every value the default
     reranker = components["reranker"]
     assert (reranker.type, reranker.backend) == ("reranker", "local")
     assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
@@ -54,6 +55,7 @@ def test_the_packaged_file_declares_the_rags_three_model_components(
         batch_size=0, threads=0, calibration_passages=20
     )
     assert reranker.api == RerankerEndpointSettings(api_format="cohere")
+    assert reranker.http == ComponentHttpSettings()
     llm = components["llm"]
     assert (llm.type, llm.backend) == ("llm", "api")
     assert llm.api == LlmEndpointSettings(
@@ -63,7 +65,8 @@ def test_the_packaged_file_declares_the_rags_three_model_components(
         model="gpt-4o-mini",
         temperature=0.0,
     )
-    assert llm.http == LlmHttpSettings(timeout_s=120.0)
+    # An answer takes longer than a model-server call: its own timeout.
+    assert llm.http == ComponentHttpSettings(timeout_s=120.0)
 
 
 def test_every_value_is_reachable_by_its_environment_path(
@@ -78,10 +81,12 @@ def test_every_value_is_reachable_by_its_environment_path(
         "RAG_COMPONENTS__EMBEDDER__API__URL": EMBED_URL,
         "RAG_COMPONENTS__EMBEDDER__API__API_KEY": "domino",
         "RAG_COMPONENTS__EMBEDDER__API__BATCH_SIZE": "16",
+        "RAG_COMPONENTS__EMBEDDER__HTTP__RETRIES": "5",
         "RAG_COMPONENTS__RERANKER__ALIAS": "rr",
         "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": "4",
         "RAG_COMPONENTS__RERANKER__LOCAL__THREADS": "2",
         "RAG_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES": "12",
+        "RAG_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.5",
         "RAG_COMPONENTS__LLM__API__MODEL": "gpt-x",
         "RAG_COMPONENTS__LLM__API__API_KEY": "sk-key",
         "RAG_COMPONENTS__LLM__API__TEMPERATURE": "0.5",
@@ -101,18 +106,20 @@ def test_every_value_is_reachable_by_its_environment_path(
     assert embedder.local == EmbedderLocalSettings(batch_size=8, threads=3)
     assert (embedder.api.url, embedder.api.api_key) == (EMBED_URL, "domino")
     assert embedder.api.batch_size == 16
+    assert embedder.http == ComponentHttpSettings(retries=5)
     assert reranker.alias == "rr"
     assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
     assert reranker.local == RerankerLocalSettings(
         batch_size=4, threads=2, calibration_passages=12
     )
+    assert reranker.http == ComponentHttpSettings(backoff_s=0.5)
     assert (llm.api.model, llm.api.api_key, llm.api.temperature) == (
         "gpt-x",
         "sk-key",
         0.5,
     )
     assert llm.api.url == "https://api.openai.com/v1/chat/completions"  # kept
-    assert llm.http.timeout_s == 9.0
+    assert llm.http == ComponentHttpSettings(timeout_s=9.0)
 
 
 @pytest.mark.parametrize(

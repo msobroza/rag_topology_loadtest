@@ -100,6 +100,23 @@ def token_text(token: str) -> httpx.Response:
     return httpx.Response(200, text=token)
 
 
+def standard_answer(body: dict[str, Any]) -> dict[str, Any]:
+    """The standard format's answer to a request body.
+
+    An embedding request is told apart by its ``input``, a rerank request by its
+    ``documents``, anything else is a chat request.
+    """
+    if "input" in body:
+        rows = [
+            {"index": i, "embedding": [1.0, 0.0]} for i in range(len(body["input"]))
+        ]
+        return {"data": rows}
+    if "documents" in body:
+        scores = range(len(body["documents"]))
+        return {"results": [{"index": i, "relevance_score": float(i)} for i in scores]}
+    return {"choices": [{"message": {"content": "Twenty-five days."}}]}
+
+
 def passages(count: int) -> list[ScoredPassage]:
     return [
         ScoredPassage(id=f"p{i}", text=f"text {i}", retrieval_score=1.0 - i / 10)

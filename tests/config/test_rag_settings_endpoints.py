@@ -44,6 +44,9 @@ def value_at(settings: RagSettings, path: str) -> Any:
         ("calibration_budget_s", 0),
         ("calibration_rounds", 0),
         ("components__llm__http__timeout_s", 0),
+        ("components__embedder__http__timeout_s", -1),
+        ("components__reranker__http__retries", -1),
+        ("components__llm__http__backoff_s", -0.1),
         ("components__llm__api__temperature", 2.5),
         ("components__llm__served__temperature", 2.5),
     ],
@@ -68,6 +71,8 @@ def test_out_of_range_values_are_refused_naming_their_path(
         ("calibration_budget_s", 0.001),
         ("calibration_rounds", 1),
         ("components__llm__http__timeout_s", 0.5),
+        ("components__embedder__http__retries", 0),
+        ("components__reranker__http__backoff_s", 0),
     ],
 )
 def test_values_at_the_bounds_are_accepted(

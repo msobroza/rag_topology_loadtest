@@ -23,9 +23,10 @@ async def open_embedder_on_served(
     """Open the embedder of the model server the ``served`` block names.
 
     Args:
-        component: The embedder's alias, query prefix and ``served`` block.
-        shared: The shared HTTP client, its policy, the run tokens and where
-            the process runs.
+        component: The embedder's alias, query prefix, ``served`` and
+            ``http`` blocks.
+        shared: The shared HTTP client, the default policy, the run tokens and
+            where the process runs.
 
     Returns:
         The model server's embedder.

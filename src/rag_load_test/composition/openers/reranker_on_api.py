@@ -23,8 +23,8 @@ async def open_reranker_on_api(
     """Open the reranker of the endpoint the ``api`` block names.
 
     Args:
-        component: The reranker's alias and ``api`` block.
-        shared: The shared HTTP client, its policy and the run tokens.
+        component: The reranker's alias, ``api`` and ``http`` blocks.
+        shared: The shared HTTP client, the default policy and the run tokens.
 
     Returns:
         The endpoint's reranker; an unknown API format is refused here.
@@ -32,25 +32,28 @@ async def open_reranker_on_api(
     Example:
         >>> reranker = await open_reranker_on_api(reranker_settings, shared)
     """
-    return await open_reranker_at(component.api.endpoint(component.alias), shared)
+    endpoint = component.api.endpoint(component.alias)
+    return await open_reranker_at(endpoint, component, shared)
 
 
 async def open_reranker_at(
-    endpoint: ApiEndpoint, shared: SharedResources
+    endpoint: ApiEndpoint, component: RerankerSettings, shared: SharedResources
 ) -> BaseReranker:
     """Open the reranker of one endpoint, however it was resolved.
 
     Args:
         endpoint: The route, its API format, its key and the model name sent.
-        shared: The shared HTTP client, its policy and the run tokens.
+        component: The reranker, for how patiently it is called.
+        shared: The shared HTTP client, the default policy and the run tokens.
 
     Returns:
         The endpoint's reranker; an unknown API format is refused here.
 
     Example:
-        >>> reranker = await open_reranker_at(endpoint, shared)
+        >>> reranker = await open_reranker_at(endpoint, component, shared)
     """
     http = shared.http
+    policy = http.policy_of(component)
     return open_api_reranker(
-        await http.client(), endpoint, tokens=http.run_tokens, policy=http.policy
+        await http.client(), endpoint, tokens=http.run_tokens, policy=policy
     )

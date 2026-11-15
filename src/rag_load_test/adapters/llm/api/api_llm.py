@@ -85,8 +85,7 @@ def open_api_llm(
         client: The shared HTTP client.
         endpoint: The generation route, its API format, its key and its model.
         tokens: Where the Domino run token comes from, for the ``domino`` key.
-        policy: Timeout, retries and backoff of every call; generation has a
-            longer timeout than the model servers.
+        policy: Timeout, retries and backoff of every call.
         temperature: The sampling temperature sent with every request.
 
     Returns:

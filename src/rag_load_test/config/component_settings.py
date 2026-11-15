@@ -10,8 +10,11 @@ part of the source id. The settings common to its type sit beside them, and
 those of one backend in a block named after it: the embedder's ``local``
 block holds what its in-process model takes, its ``served`` block the route
 of the model server of ours that serves it, its ``api`` block what an
-endpoint we do not run takes. A key the type does not have, a block of a
-backend it does not have included, is refused.
+endpoint we do not run takes. How patiently a component on ``served`` or
+``api`` is called is its ``http`` block, whichever of the two it is on: its
+timeout, retries and backoff, each left out taking the default shared by every
+component. A key the type does not have, a block of a backend it does not have
+included, is refused.
 
 The vector store is still read from flat ``RAG_*`` variables; its settings
 take the same shape here, and ``RagSettings`` builds them.
@@ -149,14 +152,24 @@ class RerankerLocalSettings(_SettingsBlock):
     calibration_passages: int = Field(default=20, ge=1)
 
 
-class LlmHttpSettings(_SettingsBlock):
-    """The timeout of the LLM's calls: an answer takes longer than a model-server call.
+class ComponentHttpSettings(_SettingsBlock):
+    """A component's ``http`` block: how patiently it is called over HTTP.
 
-    Its retries and backoff are the shared ``RAG_HTTP_RETRIES`` and
-    ``RAG_HTTP_BACKOFF_S``.
+    It applies on ``served`` and on ``api`` alike, so it is the component's,
+    not one backend's: a topology that moves a component from ``local`` to
+    ``served`` keeps it. Each value it leaves out is the default every
+    component shares, ``RAG_HTTP_TIMEOUT_S``, ``RAG_HTTP_RETRIES`` and
+    ``RAG_HTTP_BACKOFF_S`` (``composition/http_resources.py`` resolves them).
+
+    Example:
+        >>> ComponentHttpSettings(timeout_s=120).model_dump(exclude_none=True)
+        {'timeout_s': 120.0}
     """
 
-    timeout_s: float = Field(default=120.0, gt=0)
+    timeout_s: float | None = Field(default=None, gt=0)  # of one attempt
+    retries: int | None = Field(default=None, ge=0)  # attempts after the first
+    # The wait before the first retry, doubled before each next one.
+    backoff_s: float | None = Field(default=None, ge=0)
 
 
 class ComponentSettings(_SettingsBlock):
@@ -199,10 +212,11 @@ class ComponentSettings(_SettingsBlock):
 
 
 class ModelComponentSettings(ComponentSettings):
-    """A model: its source id, and the alias a model server serves it under."""
+    """A model: its source id, its alias, and how patiently it is called over HTTP."""
 
     source_id: str = ""  # a Hugging Face id, or a folder holding the weights
     alias: str = ""  # "" = the last part of the source id
+    http: ComponentHttpSettings = Field(default_factory=ComponentHttpSettings)
 
     @model_validator(mode="before")
     @classmethod
@@ -253,7 +267,7 @@ class RerankerSettings(ModelComponentSettings):
 
 
 class LlmSettings(ModelComponentSettings):
-    """An LLM: a ``served`` and an ``api`` block, and the timeout of its calls.
+    """An LLM: a ``served`` and an ``api`` block.
 
     It has no ``local`` block: no LLM runs in the app's process.
     """
@@ -261,7 +275,6 @@ class LlmSettings(ModelComponentSettings):
     type: Literal["llm"] = "llm"
     served: LlmServedSettings = Field(default_factory=LlmServedSettings)
     api: LlmEndpointSettings = Field(default_factory=LlmEndpointSettings)
-    http: LlmHttpSettings = Field(default_factory=LlmHttpSettings)
 
 
 # A model component of the workflow file, its settings chosen by its type.

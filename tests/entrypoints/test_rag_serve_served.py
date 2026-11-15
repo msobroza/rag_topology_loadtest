@@ -22,6 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from model_api_fakes import standard_answer
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import PACKAGED_WORKFLOW, WORKFLOW_FILE_VARIABLE
@@ -69,24 +70,11 @@ class FakeModelEndpoints:
         body = json.loads(request.content)
         auth = request.headers.get("Authorization")
         self.calls.append((str(request.url), body, auth))
-        return httpx.Response(200, json=answer_to(body))
+        return httpx.Response(200, json=standard_answer(body))
 
     def sent_to(self, url: str) -> list[tuple[dict[str, Any], str | None]]:
         """The body and ``Authorization`` of every call made to ``url``."""
         return [(body, auth) for called, body, auth in self.calls if called == url]
-
-
-def answer_to(body: dict[str, Any]) -> dict[str, Any]:
-    """The standard format's answer to a request body."""
-    if "input" in body:
-        rows = [
-            {"index": i, "embedding": [1.0, 0.0]} for i in range(len(body["input"]))
-        ]
-        return {"data": rows}
-    if "documents" in body:
-        scores = range(len(body["documents"]))
-        return {"results": [{"index": i, "relevance_score": float(i)} for i in scores]}
-    return {"choices": [{"message": {"content": "Twenty-five days."}}]}
 
 
 @pytest.fixture

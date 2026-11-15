@@ -156,7 +156,8 @@ class RagSettings(BaseSettings):
     calibration_rounds: int = Field(default=1, ge=1)
 
     # --- HTTP and Domino -------------------------------------------------------------
-    # Every call out but the LLM's, whose timeout is its own (components.llm.http).
+    # The default of every call out: a component's own http block overrides
+    # each value for its calls (components.<name>.http).
     http_timeout_s: float = Field(default=30.0, gt=0)
     http_retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 429
     http_backoff_s: float = Field(default=0.2, ge=0)  # before the 1st retry; doubles

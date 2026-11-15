@@ -24,10 +24,9 @@ async def open_llm_on_served(
     """Open the LLM of the model server the ``served`` block names.
 
     Args:
-        component: The LLM's alias, ``served`` block and the timeout of its
-            calls.
-        shared: The shared HTTP client, its retries and backoff, the run
-            tokens and where the process runs.
+        component: The LLM's alias, ``served`` and ``http`` blocks.
+        shared: The shared HTTP client, the default policy, the run tokens and
+            where the process runs.
 
     Returns:
         The model server's LLM.

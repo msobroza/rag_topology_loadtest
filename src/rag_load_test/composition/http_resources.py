@@ -1,8 +1,10 @@
-"""What every call out shares: one HTTP client, its policy and the run tokens.
+"""What every call out shares: one HTTP client, the default policy and the run tokens.
 
-The client is created on first need and closed with the scope. The policy and
-the run token source are plain values, read from the settings once. Where a
-component on the ``served`` backend is called is resolved here too, since its
+The client is created on first need and closed with the scope. The default
+policy and the run token source are plain values, read from the settings once.
+How patiently a component on ``served`` or ``api`` is called is resolved here:
+its own ``http`` block, each value it leaves out taken from the default. Where
+a component on the ``served`` backend is called is resolved here too, since its
 key depends on where the process runs: on Domino a model server of ours is
 another App, behind a proxy that wants the run's token.
 
@@ -12,6 +14,8 @@ Example:
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 import httpx
 
@@ -25,10 +29,11 @@ from .resource_scope import OWNED, ResourceScope
 
 
 class HttpResources:
-    """The shared HTTP client, the HTTP policy and where run tokens come from.
+    """The shared HTTP client, the default HTTP policy and where run tokens come from.
 
     Args:
-        settings: The timeout, retries, backoff and the Domino token URL.
+        settings: The default timeout, retries and backoff, and the Domino
+            token URL.
         scope: Opens the client once and closes it.
         transport: The client's transport; None for the real network (tests
             pass an ``httpx.MockTransport``).
@@ -48,6 +53,8 @@ class HttpResources:
         *,
         on_domino: bool = False,
     ) -> None:
+        # Every component's default, and the policy of the calls that are no
+        # component's, such as the Domino hardware-tier lookup.
         self.policy = HttpPolicy(
             settings.http_timeout_s, settings.http_retries, settings.http_backoff_s
         )
@@ -58,6 +65,23 @@ class HttpResources:
         self._served_key = DOMINO_RUN_TOKEN if on_domino else ""
         self._scope = scope
         self._transport = transport
+
+    def policy_of(self, component: ModelComponent) -> HttpPolicy:
+        """Return how patiently a component on ``served`` or ``api`` is called.
+
+        Args:
+            component: The component, its ``http`` block giving its own values.
+
+        Returns:
+            The timeout, retries and backoff its ``http`` block sets, and the
+            default policy's for each it leaves out.
+
+        Example:
+            >>> http.policy_of(settings.components["llm"])
+            HttpPolicy(timeout_s=120.0, retries=2, backoff_s=0.2)
+        """
+        own = component.http.model_dump(exclude_none=True)
+        return dataclasses.replace(self.policy, **own)
 
     def served_endpoint(self, component: ModelComponent) -> ApiEndpoint:
         """Return where a component on the ``served`` backend is called.

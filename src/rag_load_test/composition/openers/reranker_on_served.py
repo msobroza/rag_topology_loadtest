@@ -23,9 +23,9 @@ async def open_reranker_on_served(
     """Open the reranker of the model server the ``served`` block names.
 
     Args:
-        component: The reranker's alias and ``served`` block.
-        shared: The shared HTTP client, its policy, the run tokens and where
-            the process runs.
+        component: The reranker's alias, ``served`` and ``http`` blocks.
+        shared: The shared HTTP client, the default policy, the run tokens and
+            where the process runs.
 
     Returns:
         The model server's reranker.
@@ -33,4 +33,5 @@ async def open_reranker_on_served(
     Example:
         >>> reranker = await open_reranker_on_served(reranker_settings, shared)
     """
-    return await open_reranker_at(shared.http.served_endpoint(component), shared)
+    endpoint = shared.http.served_endpoint(component)
+    return await open_reranker_at(endpoint, component, shared)

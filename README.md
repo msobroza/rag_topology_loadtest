@@ -576,6 +576,7 @@ components:
   llm:
     backend: api
     api: {url: https://api.openai.com/v1/chat/completions, api_format: openai, model: gpt-4o-mini}
+    http: {timeout_s: 120}
 graph:
   stages:
     embed:    {call: embedder}
@@ -616,10 +617,27 @@ vector store is not declared in the file yet: a stage calls it as
 | every type | `api.api_key` | never written | from the environment only: empty = no `Authorization` header; `domino` = the Domino run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a bearer token |
 | `embedder` | `api.batch_size` | not written: `64` | texts per endpoint request (>= 1) |
 | `llm` | `api.temperature` | not written: `0` | sampling temperature, 0 to 2 |
-| `llm` | `http.timeout_s` | not written: `120` | timeout of one generation request (> 0); an answer takes longer than a model-server call. Retries and backoff are `RAG_HTTP_RETRIES` / `RAG_HTTP_BACKOFF_S` |
+| every type | `http.timeout_s` | the LLM's: `120`; not written for the others: `RAG_HTTP_TIMEOUT_S` (`30`) | timeout of one request to the component's endpoint on `served` or `api` (> 0), and of the Domino token fetched for it; the LLM's is longer, since an answer takes longer than a model-server call |
+| every type | `http.retries` | not written: `RAG_HTTP_RETRIES` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries the Domino run token; any other 4xx fails at once |
+| every type | `http.backoff_s` | not written: `RAG_HTTP_BACKOFF_S` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
 
 A key the type does not have, a block of a backend it does not have included
 (an LLM's `local`), is refused at start-up naming the key and the type's keys.
+
+The `http` block says how patiently the workflow app calls a component on
+`served` or `api`. It belongs to the component, not to one backend: a
+topology that moves a component from `local` to `served` keeps it, and a
+component on another backend ignores it. Each value it leaves out is the
+default every component shares, `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES` and
+`RAG_HTTP_BACKOFF_S`, so setting one of these changes it for every component
+that does not set its own. With every default in place the embedder and the
+reranker wait 30 s per request and the LLM 120 s, and each makes up to three
+requests, 0.2 s then 0.4 s apart:
+
+```bash
+RAG_COMPONENTS__LLM__HTTP__RETRIES=0 make serve   # the LLM: one request, no retry
+RAG_HTTP_RETRIES=0 make serve   # no retry for every component that sets none
+```
 
 | Stage | Setting | In the packaged file | Meaning |
 | --- | --- | --- | --- |
@@ -734,9 +752,9 @@ before the app serves, with one line in the server's log.
 | `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
 | `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
-| `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
-| `RAG_HTTP_RETRIES` | `2` | endpoint retries (embedding, rerank and generation) on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; hardware-tier lookup retries on transport errors |
-| `RAG_HTTP_BACKOFF_S` | `0.2` | wait before the first retry, doubled for each next one |
+| `RAG_HTTP_TIMEOUT_S` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the packaged LLM sets `120`); also the timeout of the hardware-tier lookup |
+| `RAG_HTTP_RETRIES` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
+| `RAG_HTTP_BACKOFF_S` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
 | `RAG_DOMINO_TOKEN_URL` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `rag-serve --domino`, and for an `api` key set to `domino` |
 | `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
@@ -794,6 +812,7 @@ any more by the workflow app:
 | `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | the components' aliases (`RAG_COMPONENTS__EMBEDDER__ALIAS`, `RAG_COMPONENTS__RERANKER__ALIAS`), the model name a `served` component sends |
 | `RAG_OVMS_AUTH` (one for both) | none: a `served` component is called with the run token under `rag-serve --domino` and with no key elsewhere |
 | a model server of ours on the `api` backend: `RAG_COMPONENTS__EMBEDDER__API__URL`, `RAG_COMPONENTS__RERANKER__API__URL`, their key defaulted to `domino` by `rag-serve --domino` | the `served` backend: `RAG_COMPONENTS__EMBEDDER__SERVED__URL`, `RAG_COMPONENTS__RERANKER__SERVED__URL`; `api` is an endpoint we do not run, and `--domino` no longer changes its key |
+| the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each `RAG_HTTP_*` when not written; the LLM's `120` is written in the packaged workflow file, and a workflow file that gives its LLM none calls it with `RAG_HTTP_TIMEOUT_S` |
 | `RAG_LLM_BACKEND` (`openai` \| `fake`) | `RAG_COMPONENTS__LLM__BACKEND` (`api` \| `fake`) |
 | `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `RAG_COMPONENTS__LLM__API__MODEL`, `RAG_COMPONENTS__LLM__API__TEMPERATURE` |
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `RAG_COMPONENTS__LLM__API__URL` (the full route), `RAG_COMPONENTS__LLM__API__API_KEY` |
