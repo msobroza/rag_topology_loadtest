@@ -461,6 +461,10 @@ FastAPI model server on `fp32`, and the whole lead was the 8-bit weights: on the
 same weights both served the same, 0.24 requests a second each at `fp32` and
 0.36 to 0.38 at `int8`. Ranking quality on `int8` weights was not checked.
 
+`docs/model-servers.md` sets the two servers side by side: what the documentation
+of OVMS and of FastAPI says about serving, how each is set up here, and what the
+sittings measured (streams, batch size, order of service).
+
 ## HTTP API
 
 | Route | Body → result |
