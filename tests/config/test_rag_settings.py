@@ -34,8 +34,9 @@ def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
 
     assert (s.top_k_retrieve, s.top_k_rerank) == (20, 10)
     assert s.es_index == "rag_passages"
-    assert (s.embedding_batch_size, s.rerank_batch_size) == (64, 32)
+    assert (s.embedding_batch_size, s.rerank_batch_size) == (64, 0)
     assert s.model_workers == 4
+    assert (s.calibration_budget_s, s.calibration_rounds) == (90.0, 1)
     assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (30.0, 2, 0.2)
     assert s.domino_token_url == "http://localhost:8899/access-token"
     assert s.domino_token_ttl_s == 240.0
@@ -58,6 +59,8 @@ def test_tunables_read_rag_prefixed_env(
         "RAG_DOMINO_TOKEN_URL": "http://token.test/t",
         "RAG_DOMINO_TOKEN_TTL_S": "60",
         "RAG_FAKE_STORE_SEED_DOCUMENTS": "30",
+        "RAG_CALIBRATION_BUDGET_S": "12.5",
+        "RAG_CALIBRATION_ROUNDS": "3",
     }
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -68,6 +71,7 @@ def test_tunables_read_rag_prefixed_env(
     assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (5.5, 0, 0.5)
     assert (s.domino_token_url, s.domino_token_ttl_s) == ("http://token.test/t", 60.0)
     assert s.fake_store_seed_documents == 30
+    assert (s.calibration_budget_s, s.calibration_rounds) == (12.5, 3)
 
 
 def test_top_k_rerank_above_top_k_retrieve_fails_naming_both(

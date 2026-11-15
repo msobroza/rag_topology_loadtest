@@ -95,11 +95,16 @@ def fake_weights(monkeypatch: pytest.MonkeyPatch) -> FakeSentenceTransformersMod
 def local_settings(
     settings_factory: SettingsFactory, **overrides: object
 ) -> RagSettings:
-    """In-process models on a known CPU budget; everything else fake."""
+    """In-process models on a known CPU budget; everything else fake.
+
+    The calibration budget is too small for a second trial, so each model loads
+    once, for the thread budget's share.
+    """
     return settings_factory(
         vector_store_backend="fake",
         generation_backend="fake",
         model_cpus=4,
+        calibration_budget_s=1e-9,
         **overrides,
     )
 
@@ -268,11 +273,16 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
 def exported_settings(
     settings_factory: SettingsFactory, models_dir: Path
 ) -> RagSettings:
-    """Default settings (openvino, 4 workers), both models exported already."""
+    """Default settings (openvino, 4 workers), both models exported already.
+
+    The calibration budget is too small for a second trial, so each model keeps
+    the thread budget's share.
+    """
     settings = settings_factory(
         vector_store_backend="fake",
         generation_backend="fake",
         openvino_models_dir=str(models_dir),
+        calibration_budget_s=1e-9,
     )
     for folder in folders(settings, models_dir):
         folder.mkdir()

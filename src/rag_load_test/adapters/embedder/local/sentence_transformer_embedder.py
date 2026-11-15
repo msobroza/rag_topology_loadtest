@@ -92,6 +92,30 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             self._executor, self.scope.run, self._encode, list(texts)
         )
 
+    def with_batch_size(self, batch_size: int) -> SentenceTransformerEmbedder:
+        """Return this adapter at another batch size, on the same loaded model.
+
+        Calibration times one loaded model under several batch sizes, and a load
+        is the expensive part.
+
+        Args:
+            batch_size: Texts per ``encode`` batch.
+
+        Returns:
+            A new adapter sharing the model, the pool, the model name and the
+            thread scope.
+
+        Example:
+            >>> smaller = adapter.with_batch_size(2)
+        """
+        return SentenceTransformerEmbedder(
+            self._model,
+            self._executor,
+            model_name=self.model_name,
+            batch_size=batch_size,
+            scope=self.scope,
+        )
+
     async def ready(self) -> tuple[bool, str]:
         """Report ready: the model was loaded when the object was built.
 

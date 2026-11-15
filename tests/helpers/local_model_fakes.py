@@ -61,7 +61,9 @@ OPENVINO_EXPORT = LocalModel("org/name", "models/openvino/name", "openvino")
 OPENVINO_ARGUMENTS = {
     "device": "cpu",
     "backend": "openvino",
-    "model_kwargs": {"ov_config": {"INFERENCE_NUM_THREADS": "3"}},
+    "model_kwargs": {
+        "ov_config": {"INFERENCE_NUM_THREADS": "3", "ENABLE_HYPER_THREADING": "YES"}
+    },
 }
 
 

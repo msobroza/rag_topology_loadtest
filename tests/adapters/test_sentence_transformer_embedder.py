@@ -110,3 +110,19 @@ async def test_from_pretrained_loads_the_source_with_the_runtime_arguments(
     assert fake_loading.loads == [("SentenceTransformer", model.source, expected)]
     assert await embedder.ready() == (True, "org/name")
     assert embedder.scope.threads == 3
+
+
+async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
+    st_embedder: SentenceTransformerEmbedder,
+    st_model: FakeSentenceTransformer,
+    st_scope: RecordingScope,
+) -> None:
+    rebatched = st_embedder.with_batch_size(3)
+    await rebatched.embed(["a"])
+    await st_embedder.embed(["b"])
+
+    assert type(rebatched) is SentenceTransformerEmbedder
+    assert [call["batch_size"] for call in st_model.calls] == [3, 8]
+    assert rebatched.scope is st_scope
+    assert await rebatched.ready() == (True, "fake-st")
+    assert all(thread.startswith("rag-model") for thread in st_scope.ran_on)

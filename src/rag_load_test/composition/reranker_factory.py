@@ -11,11 +11,12 @@ from collections.abc import Mapping
 from ..adapters.reranker.api.api_reranker import open_api_reranker
 from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.reranker.fake.fake_reranker import FakeReranker
-from ..adapters.reranker.local.cross_encoder_reranker import CrossEncoderReranker
 from ..adapters.reranker.none.no_reranker import NoReranker
 from ..config.rag_settings import RagSettings
 from ..infrastructure.local_models.openvino_export import export_reranker
+from ..infrastructure.local_models.stage_calibration import calibrate
 from .base_port_factory import BasePortFactory
+from .calibrated_stages import RerankStage, calibration_limits, candidates
 from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
 from .resource_scope import Opener, ResourceScope
@@ -25,7 +26,8 @@ class RerankerFactory(BasePortFactory[BaseReranker]):
     """The reranker of each Backend: ``local``, ``api``, ``fake`` or ``none``.
 
     Args:
-        settings: The rerank Backend, model, endpoint and batch size.
+        settings: The rerank Backend, model, endpoint, batch size and threads
+            (0 = calibrated at start-up).
         scope: Opens the reranker once.
         http: The shared HTTP client, for the ``api`` Backend.
         local_models: The thread budget, pool and files, for the ``local`` one.
@@ -95,11 +97,13 @@ class RerankerFactory(BasePortFactory[BaseReranker]):
             await local_models.model_pool(),
         )
         model = await local_models.local_model(settings.rerank_model, export_reranker)
-        return CrossEncoderReranker.from_pretrained(
-            model,
-            pool,
-            batch_size=settings.rerank_batch_size,
-            threads=budget.reranker_threads,
+        # A batch is padded to its longest passage, so the request's size bounds
+        # the batch sizes worth trying.
+        return await calibrate(
+            RerankStage(model, pool, settings),
+            threads=candidates(settings.rerank_threads, budget.reranker_threads),
+            batch_sizes=candidates(settings.rerank_batch_size, settings.top_k_retrieve),
+            limits=calibration_limits(settings),
         )
 
     async def _api(self) -> BaseReranker:

@@ -161,6 +161,14 @@ _Avoid_: cache (alone), state bucket (that is Terraform's)
 One step of the workflow, in order: embed, retrieve, rerank, generate. Timings are reported per stage.
 _Avoid_: step, node, phase
 
+**CPU-bound stage**:
+A stage whose work runs in the App's own process, on its CPUs: embed and rerank when their model is local. Retrieve and generate wait on another service.
+_Avoid_: heavy stage, compute stage
+
+**Calibration**:
+Timing a CPU-bound stage at start-up under each candidate batch size and thread count, and keeping the fastest; done only for a parameter the settings leave at 0.
+_Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
+
 **Mode**:
 How far a request runs through the stages: `query` runs all four, `retrieve` stops after rerank.
 

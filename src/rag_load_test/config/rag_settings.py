@@ -115,7 +115,8 @@ class RagSettings(BaseSettings):
     # The name sent; our model servers serve embedding_model under it.
     embedding_api_model: str = "snowflake-arctic-embed-l-v2.0"
     embedding_batch_size: int = Field(default=64, ge=1)  # texts per call
-    embedding_threads: int = Field(default=0, ge=0)  # 0 = from the thread budget
+    # 0 = calibrated at start-up, up to the thread budget's share
+    embedding_threads: int = Field(default=0, ge=0)
 
     # --- rerank ----------------------------------------------------------------------
     rerank_backend: RerankBackend = Field(
@@ -126,8 +127,10 @@ class RagSettings(BaseSettings):
     rerank_api_format: RerankApiFormat = "cohere"
     rerank_api_key: str = ""  # as embedding_api_key
     rerank_api_model: str = "crossencoder-camembert-base-mmarcoFR"
-    rerank_batch_size: int = Field(default=32, ge=1)  # passages per local call
-    rerank_threads: int = Field(default=0, ge=0)  # 0 = from the thread budget
+    # Passages per local call; 0 = calibrated at start-up.
+    rerank_batch_size: int = Field(default=0, ge=0)
+    # 0 = calibrated at start-up, up to the thread budget's share
+    rerank_threads: int = Field(default=0, ge=0)
 
     # --- generation ------------------------------------------------------------------
     generation_backend: GenerationBackend = DEFAULT_GENERATION_BACKEND
@@ -176,6 +179,11 @@ class RagSettings(BaseSettings):
     # Virtual CPUs the model calls share (domain/thread_budget.py): 0 = find
     # out; > 0 wins over every other count.
     model_cpus: float = Field(default=0, ge=0)
+    # Calibration of a local model (stage_calibration.py), per stage: no new
+    # candidate is started once this many seconds have passed.
+    calibration_budget_s: float = Field(default=90.0, gt=0)
+    # Timed requests per candidate, after one warm-up.
+    calibration_rounds: int = Field(default=1, ge=1)
 
     # --- HTTP and Domino -------------------------------------------------------------
     http_timeout_s: float = Field(default=30.0, gt=0)

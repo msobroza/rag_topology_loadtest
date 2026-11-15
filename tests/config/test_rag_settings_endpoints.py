@@ -40,7 +40,7 @@ def test_rerank_defaults(settings_factory: SettingsFactory) -> None:
         "",
         "crossencoder-camembert-base-mmarcoFR",
     )
-    assert (s.rerank_batch_size, s.rerank_threads) == (32, 0)
+    assert (s.rerank_batch_size, s.rerank_threads) == (0, 0)  # 0 = calibrated
 
 
 def test_generation_defaults(settings_factory: SettingsFactory) -> None:
@@ -61,8 +61,10 @@ def test_generation_defaults(settings_factory: SettingsFactory) -> None:
     [
         ("embedding_batch_size", 0),
         ("embedding_threads", -1),
-        ("rerank_batch_size", 0),
+        ("rerank_batch_size", -1),
         ("rerank_threads", -1),
+        ("calibration_budget_s", 0),
+        ("calibration_rounds", 0),
         ("generation_timeout_s", 0),
         ("generation_temperature", 2.5),
         ("embedding_api_format", "cohere"),
@@ -85,8 +87,11 @@ def test_out_of_range_or_unknown_values_are_refused(
     [
         ("embedding_batch_size", 1),
         ("embedding_threads", 0),
+        ("rerank_batch_size", 0),
         ("rerank_batch_size", 1),
         ("rerank_threads", 0),
+        ("calibration_budget_s", 0.001),
+        ("calibration_rounds", 1),
         ("generation_timeout_s", 0.5),
     ],
 )
