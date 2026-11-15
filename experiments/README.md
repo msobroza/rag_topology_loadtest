@@ -4,6 +4,9 @@ The registry of every measurement taken with this repository: what was asked, on
 hardware, with which settings, and what each run measured. Results here are records, not
 code. The vocabulary is the one of [CONTEXT.md](../CONTEXT.md).
 
+New to the subject? [experiments-explained/](../experiments-explained/README.md) tells
+what these measurements showed, with one chart per finding and no vocabulary assumed.
+
 ## Conventions
 
 - **A sitting** is one stretch of work on one set of machines. It has one folder,

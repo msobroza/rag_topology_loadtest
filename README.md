@@ -121,6 +121,13 @@ question, its settings and the statistics of its runs (see
 [experiments/README.md](experiments/README.md)). They are records, and the rules above do
 not apply to them.
 
+`experiments-explained/` explains those measurements to a reader who does not know the
+domain: a tour with one chart per finding (see
+[experiments-explained/README.md](experiments-explained/README.md)). Its charts and the
+table behind each are drawn from the registry by `src/experiment_charts/`
+(`make experiment-charts`). That package is not part of the product: it imports nothing
+from `rag_load_test`, and the rules above do not apply to it.
+
 ### The tree
 
 ```text
@@ -272,8 +279,20 @@ src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test doub
   stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
   server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
   emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
+src/experiment_charts/  draws experiments-explained/ from experiments/ (make experiment-charts). Not the product: it
+                    imports nothing from rag_load_test or fake_domino (checked by tests/structure/test_layering.py)
+  registry_reading.py  ExperimentRegistry: every results.csv row and every experiments*.yaml entry of the registry
+  chart_table.py    ChartTable: the table behind one chart, written to experiments-explained/data/
+  chart_theme.py    ChartTheme (light and dark) and the themed figure, axes, titles and legend
+  chart_marks.py    the marks several charts share: grouped bars, lines with ringed markers, value labels
+  chart_selections.py  the run selections the catalog passes to a chart
+  base_experiment_chart.py  BaseExperimentChart: a slug, a title, table() and draw()
+  *_chart.py        one module per chart, each an implementation of BaseExperimentChart
+  chart_catalog.py  experiment_charts(): the ten charts in order, the one place that names experiment ids
+  write_experiment_charts.py  writes every chart's two figures and its table; python -m experiment_charts
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
 experiments/        the registry of every measurement: one folder per sitting (README.md, experiments*.yaml, results.csv)
+experiments-explained/  the measurements told to a newcomer: README.md, and figures/ and data/ drawn by src/experiment_charts/
 locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
 docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
 ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
@@ -283,6 +302,7 @@ tests/              pytest: no model weights, no network, no Elasticsearch; one 
   scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
   structure/        the import, placement and code-shape rules, read from the source with ast
   fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
+  experiment_charts/  the chart tool's tests: its tables against the registry, every chart drawn, data/ kept current
   emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
   helpers/          named fakes, fixtures and REPO_ROOT shared by several test files (on pytest's path)
 ```
@@ -1566,8 +1586,8 @@ so the asyncio-based service tests are never gevent-patched.
 
 `tests/` has one folder per layer of `src/rag_load_test` (`domain`, `application`,
 `config`, `adapters`, `entrypoints`, `loadtest`, `deploy`), plus `scripts` for the
-shell scripts, `structure` for the layering and code-shape rules and `fake_domino`
-for the fake's own tests. The folders are not packages, so a test file's name is
+shell scripts, `structure` for the layering and code-shape rules, `fake_domino`
+for the fake's own tests and `experiment_charts` for the chart tool's. The folders are not packages, so a test file's name is
 unique across the tree. What several files share (named fakes, fixtures,
 `REPO_ROOT`) is in `tests/helpers`, on pytest's path and imported by plain module
 name. The Chroma store's tests run a real embedded Chroma in a temporary folder.
