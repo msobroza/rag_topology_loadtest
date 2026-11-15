@@ -1,84 +1,303 @@
-# query_processing — one RAG workflow, three Domino topologies, one Locust suite
+# query_processing — workflows declared in files, deployed on Domino in topologies, measured with Locust
 
-A self-contained project that load tests **the same text RAG workflow**
-(sentence-transformers embedder → Elasticsearch → cross-encoder reranker →
-OpenAI, orchestrated by LangGraph, served by FastAPI) under three deployment
-topologies on Domino Data Lab 6.2 and compares them:
+This repository holds a toolkit, `query_processing`, and its first use case, a
+RAG workflow. A use case is a directory of settings, and two of its files say
+what runs and where. The RAG's workflow file,
+`query_processing_rag_usecase/workflow.yaml`, without its comments and with its
+two prompts shortened:
 
-| Topology | Domino apps | What runs where |
-| --- | --- | --- |
-| `monolith` | 1 | embedder + reranker + workflow + LLM client in one process |
-| `split-reranker` | 2 | **A** OpenVINO Model Server (OVMS) serving the reranker; **B** workflow + embedder |
-| `split-all` | 3 | **A** OVMS reranker; **C** OVMS embedder; **B** workflow calling A and C over HTTP |
+```yaml
+components:
+  embedder: {backend: local, source_id: Snowflake/snowflake-arctic-embed-l-v2.0, query_prefix: "query: "}
+  reranker: {backend: local, source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR}
+  llm:
+    backend: api
+    api: {url: https://api.openai.com/v1/chat/completions, api_format: openai, model: gpt-4o-mini}
+    http: {timeout_s: 120}
+  vector_store:
+    backend: elasticsearch
+    elasticsearch: {url: "http://localhost:9200", index: rag_passages}
+    chroma: {collection: rag_passages}
+graph:
+  stages:
+    embed:    {call: embedder}
+    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20}
+    rerank:   {call: reranker, top_k: 10}
+    generate: {call: llm, system_prompt: "…", user_prompt: "…"}
+  edges:
+    - [START, embed, retrieve, rerank]
+    - [generate, END]
+  conditional_edges:
+    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
+```
 
-The workflow code is identical everywhere; only the transport behind the
-`BaseEmbedder` and `BaseReranker` changes (in-process model vs. HTTP call to a
-model server), selected by each component's backend alone, which `qp-deploy`
-writes from the topology alias it deploys, and every topology reads the same
-Elasticsearch index.
+Its deploy file, `deploy.yaml`, is a copy of `deploy.example.yaml` edited for a
+site. The example, shortened:
 
-Around that comparison every stage has alternatives, each one setting away: the
-vector store (Elasticsearch or Chroma), how it is searched (dense, lexical or
-hybrid), any endpoint that speaks a known API format in place of a model of ours
-(an OpenAI-compatible gateway, Cohere's rerank route) and what runs the
-in-process models (OpenVINO or PyTorch). See
-[Retrieval, stores and model endpoints](#retrieval-stores-and-model-endpoints).
+```yaml
+topology: split-all
+topology_alias:
+  monolith:       {embedder: local,  reranker: local}
+  split-reranker: {embedder: local,  reranker: served}
+  split-all:      {embedder: served, reranker: served}
+app_name_prefix: qp-rag
+defaults: {environment_id: "<environment id>", server: fastapi}
+apps:
+  workflow: {kind: agent, autoscaling: {min_replicas: 1, max_replicas: 2}}
+overrides:
+  components:
+    vector_store: {elasticsearch: {url: "https://<elasticsearch host>:9200"}}
+```
 
-To run it on Domino, follow [Step by step: first test run on Domino](#step-by-step-first-test-run-on-domino).
+The workflow file declares the components, each with its backend (`local` in
+the process that calls it, `served` by a model server of ours, `api` at an
+endpoint we do not run, `fake`, `none` for a reranker, or the vector store's
+product), and the graph:
+stages, each an instance of a registered stage type that calls the component it
+names, linked by edges and by conditional edges that ask a registered edge
+condition. The deploy file chooses a topology by its topology alias (a row that
+puts each component it names `local` or `served`), says how each App runs on
+Domino, and holds this site's values under `overrides`, in the workflow file's
+shape.
 
-The repository holds two distributions (ADR 0005): the toolkit, all the code, in
-`query_processing/`, and the RAG use case, which installs it and holds settings
-only (its workflow file, deploy settings example, environment example and
-Makefile), in `query_processing_rag_usecase/`. Every command of this README is run
-from the use case's directory, where it finds the use case's files and writes its
-output, and a file path is relative to the toolkit's directory unless it says
-otherwise.
+The toolkit, `query_processing/`, holds all the code: the stage types, edge
+conditions, components and backends, the workflow app (`qp-serve`), the model
+server (`qp-model-server`), the deploy tool (`qp-deploy`), the load-test client
+(a Locust file and `qp-compare`) and a fake Domino. It ships no use case's
+models, prompts or sizes. A use case installs it and holds settings only: the
+RAG's, `query_processing_rag_usecase/`, adds an environment example, a
+`Makefile` of run targets and its tests to the two files. Its commands run in
+its directory, where they find `workflow.yaml`, `deploy.yaml` and `.env`
+(`QP_WORKFLOW_FILE` and `QP_DEPLOY_FILE` name others; with no workflow file, a
+command stops and says where it looked). Every command of this README runs
+there, and a file path is relative to the toolkit's directory, unless it says
+otherwise. The design is in
+[ADR 0003](docs/adr/0003-the-deploy-tool-resolves-the-topology.md) (the deploy
+tool resolves the topology), [ADR 0004](docs/adr/0004-the-workflow-graph-is-a-file.md)
+(the workflow graph is a file) and
+[ADR 0005](docs/adr/0005-toolkit-and-use-case-are-two-distributions.md) (the
+toolkit and a use case are two distributions), the vocabulary in
+[CONTEXT.md](CONTEXT.md).
 
-## Workflow
+## Overview
 
 ```mermaid
 flowchart LR
-    L[Locust] -->|POST /query, /retrieve| API[FastAPI · qp-serve]
-    API --> E["embed<br/>(BaseEmbedder: in-process, or an endpoint in the openai embeddings format)"]
-    E --> R["retrieve<br/>(BaseVectorStore: Elasticsearch or Chroma; dense, lexical or hybrid; top_k: 20)"]
-    R --> K["rerank<br/>(BaseReranker: in-process, or an endpoint in the cohere rerank format; top_k: 10)"]
-    K -->|mode = query| G["generate<br/>(BaseLLM: an endpoint in the openai chat format)"]
-    K -->|mode = retrieve| Z([response + timings_ms])
-    G --> Z
+    subgraph UC["query_processing_rag_usecase/"]
+        WF["workflow.yaml<br/>components and graph"]
+        DF["deploy.yaml<br/>topology alias, Apps, overrides"]
+    end
+    WF --> QD["qp-deploy"]
+    DF --> QD
+    QD -->|"first: one App per served component"| MS["qp-rag-embedder, qp-rag-reranker<br/>model servers of a model-server kind: fastapi or ovms"]
+    QD -->|"then: each component's backend and served URL"| WA["qp-rag-workflow<br/>the workflow app: qp-serve --domino"]
+    WA -->|"POST /v3/embeddings, /v3/rerank"| MS
+    WA -->|"api backend"| EP["the LLM's endpoint"]
+    WA --> ES[("Elasticsearch")]
+    LO["Locust"] -->|"POST /query, /retrieve"| WA
 ```
 
-Each stage is timed under its own name: a response's `timings_ms` has one key
-per stage of the graph, in the order of its description, 0 for a stage that did
-not run, then `total`; for this graph
-`timings_ms{embed,retrieve,rerank,generate,total}`. Locust turns those keys into
-per-stage statistics without knowing the graph. The graph is not wired by
-hand: it is declared in a workflow file, `workflow.yaml` (ADR 0004; see
-[The workflow file](#the-workflow-file)), and `build_workflow(graph,
-components)` builds it from the file's `graph` block: its stages, its edges and
-its conditional edges (`domain/graph_description.py`). Each stage is an
-instance of a registered stage type (`embed`, `retrieve`, `rerank`, `generate`),
-which defaults to the stage's name, and names the component it calls with
-`call` (`embedder`, `vector_store`, `reranker`, `llm`); plain edges are chains
-between the reserved `START` and `END`; the branch after rerank is a conditional
-edge asking the registered edge condition `is_query_mode`. The workflow file of
-the graph above is the RAG use case's
-(`query_processing_rag_usecase/workflow.yaml`): the toolkit ships none, and a
-command run where it finds none stops, saying where it looked.
+`qp-deploy` resolves the chosen topology alias against the workflow file's
+components and publishes one model server App per served component, named
+`<app_name_prefix>-<component>`, then the workflow App, whose launch script sets
+each named component's backend and served URL, the topology alias and the run
+label: `split-all` publishes three Apps, `monolith` one. Every App runs the
+toolkit's `domino/app.sh`, which starts its command in the use case's directory,
+where the workflow file is read; the git-ignored `deploy.yaml` stays where
+`qp-deploy` ran (ADR 0003). On a laptop, `qp-serve` runs each component on the
+backend its settings give. Inside the workflow app, LangGraph runs the graph of
+the file. The question is both the conversational and the standalone query of
+the workflow state, whose history is empty; `/retrieve` ends after rerank, where
+`is_query_mode` is false; `timings_ms` has one key per stage
+([HTTP API](#http-api)). Each component has alternatives a setting away:
+[Retrieval, stores and model endpoints](#retrieval-stores-and-model-endpoints).
 
-The request's question becomes both the conversational query and the
-standalone query of the workflow state, and the history is empty. The stages
-that search (embed, retrieve, rerank) read the standalone query; generate
-answers the conversational one, what the user asked. The embed stage embeds it
-with `BaseEmbedder.embed_query`, and the embedder puts its model's query prefix
-in front; passages are embedded with `embed_documents`, as they are. The
-retrieval mode and the sizes are settings of the retrieve and rerank stages, and
-the prompts are settings of the generate stage. A lexical workflow file has no
-embed stage and starts at retrieve: no vector is computed and `timings_ms` has
-no `embed` key. Lexical and hybrid retrieval also need the store's
-`BaseLexicalSearch`, which only a store that ranks text provides; the retrieve
-stage refuses any other when the graph is built, at start-up. Before that,
-before any component opens, `qp-serve` refuses a graph that cannot run (see
-[What start-up refuses in a graph](#what-start-up-refuses-in-a-graph)).
+## Quickstart
+
+### Install
+
+At the repository's root, create its one `.venv` on the Python of
+`.python-version`, 3.11 (`uv venv`, or `python3.11 -m venv .venv`), then
+install both distributions in one command, the toolkit first, since no package
+index has it:
+
+```bash
+make install-dev    # the toolkit with locust, pytest and the gate tools, and the use case
+```
+
+The `make` targets use that `.venv` without activating it; a command typed by
+name, such as `qp-serve`, needs its `bin/` on your `PATH`
+(`. .venv/bin/activate`). `make install` leaves out locust and the gate tools,
+which [Development](#development) describes.
+
+### First run, on fake backends
+
+No model weights, store, API key or network: the four variables put each
+component of the RAG's workflow file on its `fake` backend. The fake store is
+seeded with 200 synthetic documents as it opens, so there is nothing to ingest
+(`qp-ingest` refuses it); the fake LLM echoes the start of its prompt.
+
+```bash
+cd query_processing_rag_usecase
+export QP_COMPONENTS__EMBEDDER__BACKEND=fake QP_COMPONENTS__RERANKER__BACKEND=fake \
+  QP_COMPONENTS__LLM__BACKEND=fake QP_COMPONENTS__VECTOR_STORE__BACKEND=fake
+qp-serve --host 127.0.0.1 --port 18888    # leave it running
+```
+
+From a second shell, in the same directory (the second answer is cut where `...`
+stands: the question, the mode, the fake answer and the ten passages kept):
+
+```bash
+curl -s localhost:18888/readyz
+# {"status":"ready","checks":[{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 passages in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
+curl -s -X POST localhost:18888/query -H 'Content-Type: application/json' \
+  -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
+# {"request_id":"fd26bfa18f044416b2be1b4bd2b947c7","topology":null,"run_label":"embedder=fake+reranker=fake+llm=fake+vector_store=fake",...,
+#  "timings_ms":{"embed":0.08879206143319607,"retrieve":0.46491692773997784,"rerank":0.30445889569818974,"generate":0.015625031664967537,"total":5.137166939675808}}
+make loadtest RUN_NAME=first-run HOST=http://localhost:18888 USERS=2 SPAWN_RATE=2 RUN_TIME=5s
+make compare
+sed 's/<[^<>]*>/example/g' deploy.example.yaml > deploy.yaml
+make deploy-dry-run
+```
+
+`topology` is `null` since no topology alias was given, and the run label lists
+each component with its backend. Locust runs for five seconds and writes the
+run's files under `results/`, among them `first-run_stats.csv` and the target
+record `first-run_target.json`, which counts the responses under that run
+label; `make compare` writes `results/comparison.md`, one table per endpoint and
+per stage. `sed` copies the deploy example with each `<placeholder>` made a
+value; the dry run runs every check of a real deploy against a fake Domino in
+its own process, and sends nothing. It lists `qp-rag-embedder` and
+`qp-rag-reranker`, model servers of kind `fastapi`, then `qp-rag-workflow`,
+whose entry script holds:
+
+```text
+    export QP_TOPOLOGY_ALIAS=split-all
+    export QP_COMPONENTS__EMBEDDER__BACKEND=served
+    export QP_COMPONENTS__EMBEDDER__SERVED__URL=http://fake-domino.test/fake-owner/fake-project/r/notebookSession/app-1-v1-i/v3/embeddings
+    export QP_COMPONENTS__RERANKER__BACKEND=served
+    export QP_COMPONENTS__RERANKER__SERVED__URL=http://fake-domino.test/fake-owner/fake-project/r/notebookSession/app-2-v1-i/v3/rerank
+    export QP_RUN_LABEL=split-all+embedder=fastapi+reranker=fastapi
+```
+
+Stop `qp-serve` with Ctrl-C and delete `deploy.yaml`, which holds made-up
+values. The four variables stay set in the first shell: use a new one for the
+real run.
+
+### The real run
+
+The models, Elasticsearch and an API key, from the use case's directory:
+
+```bash
+cp .env.example .env          # set QP_COMPONENTS__LLM__API__API_KEY there, or uncomment QP_COMPONENTS__LLM__BACKEND=fake
+make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need make ovms-export first)
+make openvino-export          # once: both models from the Hugging Face Hub, converted under models/openvino
+make ingest                   # qp-ingest --synthetic 200 -> index rag_passages
+make serve                    # qp-serve on http://0.0.0.0:8888
+```
+
+The calls of the first run reach it on port 8888; `make infra-down` stops the
+containers. `make ingest` embeds with the file's embedder (`qp-ingest
+--embedder NAME` picks one of several) and upserts by passage id; `qp-ingest
+--corpus docs.jsonl` loads a real corpus, one `{"id","title","text","metadata"}`
+object per line. The export: [In-process models on OpenVINO](#in-process-models-on-openvino).
+
+**The split topologies on a laptop.** A component is moved behind a model
+server by its backend, `served`, and its served URL, and by nothing else. With
+the models exported for OVMS (`make ovms-export`, see
+[OpenVINO Model Server](#openvino-model-server)), `make infra-up` also serves
+the reranker on :8001 and the embedder on :8002:
+
+```bash
+# split-reranker: the reranker served by OVMS, the embedder in-process
+QP_COMPONENTS__RERANKER__BACKEND=served \
+  QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank make serve
+
+# split-all: the reranker and the embedder served by OVMS
+QP_COMPONENTS__RERANKER__BACKEND=served \
+  QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank \
+  QP_COMPONENTS__EMBEDDER__BACKEND=served \
+  QP_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings make serve
+```
+
+A `served` component is given only its URL, the full route: it is called in the
+standard format of its type, under its alias, with no key off Domino. No
+topology is reported, and the run label is
+`embedder=local+reranker=served+llm=api+vector_store=elasticsearch` for the
+first. Then [Load test and comparison](#load-test-and-comparison), and on Domino
+[Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands) or,
+by hand, [Step by step](#step-by-step-first-test-run-on-domino).
+
+## Starting a second use case
+
+A second use case is a directory of files, with no code (ADR 0005), in this
+repository beside the toolkit, as `query_processing_<name>_usecase/`:
+`qp-deploy` looks for the toolkit's launch script going up from where it runs
+and refuses to publish from anywhere else, and every App runs its command in
+that directory, where the workflow App installs the use case as it starts.
+Start from a copy of the RAG's:
+
+| File | What it states |
+| --- | --- |
+| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`. Each stage the component it `call`s and the settings its stage type requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's two prompts. No API key. |
+| `deploy.example.yaml` | Its own `app_name_prefix`, so that its Apps can share a Domino project with the RAG's; its `topology_alias` table over its own components, and `topology`; `defaults.environment_id`; a block of `apps` per App part; this site's `overrides`. Copied to the git-ignored `deploy.yaml`. |
+| `pyproject.toml` | A distribution of its own that depends on `query-processing`, with `packages = []`, which `domino/app.sh` installs with the toolkit. |
+| `.env.example` | The API keys, by their paths; `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a load test straight at a reranker. |
+| `Makefile` | Its run targets. The RAG's names the toolkit as `../query_processing`, and the RAG's components in `deploy-embedder`, `deploy-reranker` and `SERVE ?= reranker`. |
+| `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. |
+
+The root `Makefile` and the CI install and test the RAG use case only: install
+another with the toolkit in one command (`python -m pip install -e
+./query_processing -e ./query_processing_<name>_usecase`) and run its tests in
+its directory. The `rag` image of `domino/Dockerfile` takes
+`--build-arg USE_CASE=<its directory>`. A minimal workflow file, run from a
+scratch directory: a lexical search that keeps three passages, with no LLM:
+
+```yaml
+components:
+  embedder: {backend: fake, source_id: example-org/example-embedder}
+  reranker: {backend: fake, source_id: example-org/example-reranker}
+  vector_store: {backend: fake}
+graph:
+  stages:
+    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20}
+    rerank: {call: reranker, top_k: 3}
+  edges:
+    - [START, retrieve, rerank, END]
+```
+
+`qp-serve` in that directory answers `/retrieve` and `/query` alike: three
+passages, `"answer": null`, `timings_ms` with `retrieve`, `rerank` and `total`.
+The `fake` store is seeded through the file's embedder, so the file declares
+one that no stage calls: without it the app does not start (`vector_store
+unavailable: could not open backend 'fake': ValueError: ingestion embeds with
+one embedder component, and the workflow file declares 0 (its embedders:
+none)`). With `app_name_prefix: qp-search` and the topology alias
+`split-reranker: {reranker: served}`, a dry run from beside `query_processing/`
+publishes `qp-search-reranker`, then `qp-search-workflow`; from the scratch
+directory `qp-deploy` stops (`no query_processing/domino/app.sh in <directory>
+or any directory above it`).
+
+### What only the toolkit adds
+
+Code goes in the toolkit, even when one use case alone needs it (rule 8 of
+[Where a file goes](#where-a-file-goes)). Each of these is one new module, under
+`src/query_processing/`, that registers itself with its registry's decorator
+(rule 6); its package imports every module, so no list is edited. The module
+also gets its line in [the tree](#the-tree) and a test.
+
+| A new | Its module | Registered with | A test that adds one |
+| --- | --- | --- | --- |
+| stage type | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type`, `settings_type`, `reads` and `writes` (fields of the one `WorkflowState`) and defines `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
+| edge condition | `application/edge_conditions/<name>.py`: a function of the `WorkflowState` that returns a bool | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
+| backend | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
+| API format | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
+| model-server kind | `deploy/model_server_kinds/<name>_kind.py`: a `BaseModelServerKind` with its `routes` and `probe_route`; and the toolkit's `domino/model_servers/<name>.sh`, which defines `bootstrap_model_server` and `serve_model_server` | `@MODEL_SERVER_KINDS.register("<name>")` | `tests/deploy/test_a_new_model_server_kind.py` |
+
+The start-up checks and the graph builder read what a stage type declares, so
+neither changes. A component type of its own, a new port, is more than one
+module: its port, its settings, its registry of openers and its entry in
+`application/component_types.py`.
 
 ## Code layout
 
@@ -401,91 +620,6 @@ Makefile            installs both distributions in one command; hands check and 
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
-## Quickstart (monolith on a laptop)
-
-```bash
-make install-dev              # at the root: the toolkit with locust, pytest, ruff, black, mypy, and the use case, in one pip command
-cd query_processing_rag_usecase   # the RAG use case: every make target below runs here
-cp .env.example .env          # set QP_COMPONENTS__LLM__API__API_KEY, or QP_COMPONENTS__LLM__BACKEND=fake to skip the LLM
-make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need `make ovms-export` first)
-make openvino-export          # once: convert both models to OpenVINO under models/openvino (2.7 GB of downloads, ~4.5 GB on disk)
-make ingest                   # qp-ingest --synthetic 200 -> index rag_passages
-make serve                    # qp-serve on http://0.0.0.0:8888
-```
-
-The project runs on Python 3.11, named once in `.python-version` at the
-repository's root. The `make` targets use the one `.venv` at the repository's
-root when there is one, without activating it (`uv venv` there, which reads
-`.python-version`, or `python3.11 -m venv .venv`, before `make install-dev`);
-otherwise they use the commands on your `PATH`. `make install` and `make
-install-dev` run from the root and install both distributions in one command,
-the toolkit first: no package index has the toolkit the use case depends on.
-`make check` and each gate run from the root too, which hands them to
-`query_processing/`; `make check` then runs the use case's tests. The run
-targets are the use case's, and run from its directory: a command run where it
-finds no `workflow.yaml` (and `QP_WORKFLOW_FILE` unset) stops, saying where it
-looked.
-
-```bash
-curl -s -X POST localhost:8888/query -H 'Content-Type: application/json' \
-  -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
-curl -s -X POST localhost:8888/retrieve -H 'Content-Type: application/json' \
-  -d '{"question":"Do I need a receipt for an expense claim?"}'
-curl -s localhost:8888/readyz
-```
-
-`make ingest` embeds with the workflow file's embedder, on the backend its
-settings give it (`qp-ingest --embedder NAME` picks one when the file
-declares several), and upserts by passage id (idempotent); `qp-ingest --corpus docs.jsonl` loads a real corpus, one
-`{"id","title","text","metadata"}` object per line. `make infra-down` stops the containers.
-
-No Elasticsearch, model weights or generation API key at hand? Every backend has a `fake`:
-
-```bash
-QP_COMPONENTS__EMBEDDER__BACKEND=fake QP_COMPONENTS__RERANKER__BACKEND=fake QP_COMPONENTS__LLM__BACKEND=fake QP_COMPONENTS__VECTOR_STORE__BACKEND=fake make serve
-```
-
-serves the same routes from an in-memory store seeded with the 200 synthetic
-documents at start-up (nothing to ingest: `qp-ingest` refuses the fake store).
-
-## Split topologies on a laptop
-
-A component is moved behind a model server by setting two variables: its
-backend, `served`, and its served URL. Nothing else moves it.
-
-```bash
-make ovms-export              # once, after make install: export both models (int8) into ovms/models, needs HF Hub access
-make infra-up                 # the OVMS containers now serve the reranker on :8001 and the embedder on :8002
-
-# split-reranker: the reranker served by OVMS, the embedder in-process
-QP_COMPONENTS__RERANKER__BACKEND=served \
-  QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank make serve
-
-# split-all: the reranker and the embedder served by OVMS
-QP_COMPONENTS__RERANKER__BACKEND=served \
-  QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank \
-  QP_COMPONENTS__EMBEDDER__BACKEND=served \
-  QP_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings make serve
-```
-
-A component on the `served` backend is served by a model server of ours, and
-all it is given is the URL: the full route, here the compose ports plus OVMS's
-`/v3/rerank` and `/v3/embeddings`, with no default. It is called in the
-standard format of its type (`cohere` for rerank, `openai` for embedding,
-which OVMS and `qp-model-server` speak), under its alias, the name a model
-server serves it under, and with no key: only a workflow app started for
-Domino (`qp-serve --domino`) sends the run token. `qp-serve` refuses to start
-when a served component has no URL, naming the variable to set.
-The workflow app holds no topology rule (ADR 0003): each component runs on the
-backend its settings give, and no topology variable moves one, so both
-variables are needed. `QP_TOPOLOGY_ALIAS` is only a label, which `qp-deploy`
-sets on Domino and the app sends back as `X-RAG-Topology`; left unset, as here,
-no topology is reported. With no `QP_RUN_LABEL`, the run label lists each
-component with its backend, in the workflow file's order:
-`embedder=local+reranker=served+llm=api+vector_store=elasticsearch` for the
-first split above.
-`QP_COMPONENTS__RERANKER__BACKEND=none` skips reranking (`rerank ≈ 0 ms`).
-
 ## Load test and comparison
 
 One headless Locust run per topology, then a comparison table:
@@ -654,32 +788,8 @@ it as `qp-deploy` finds `deploy.yaml`: the file `QP_WORKFLOW_FILE` names (read
 from the environment, not from `.env`), else `workflow.yaml` in the working
 directory, a use case's; with neither, it stops, naming both places. The toolkit
 ships none and defaults none of a use case's models, prompts, sizes, index or
-collection. The RAG use case's, `query_processing_rag_usecase/workflow.yaml`:
-
-```yaml
-components:
-  embedder: {backend: local, source_id: Snowflake/snowflake-arctic-embed-l-v2.0, query_prefix: "query: "}
-  reranker: {backend: local, source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR}
-  llm:
-    backend: api
-    api: {url: https://api.openai.com/v1/chat/completions, api_format: openai, model: gpt-4o-mini}
-    http: {timeout_s: 120}
-  vector_store:
-    backend: elasticsearch
-    elasticsearch: {url: "http://localhost:9200", index: rag_passages}
-    chroma: {collection: rag_passages}
-graph:
-  stages:
-    embed:    {call: embedder}
-    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20}
-    rerank:   {call: reranker, top_k: 10}
-    generate: {call: llm, system_prompt: "…", user_prompt: "…"}
-  edges:
-    - [START, embed, retrieve, rerank]
-    - [generate, END]
-  conditional_edges:
-    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
-```
+collection. The RAG use case's, `query_processing_rag_usecase/workflow.yaml`, is
+the first example of this README.
 
 A component can take any name. Its type is the port it is used through,
 `embedder`, `reranker`, `llm` or `vector_store`, and defaults to its name, so a
@@ -1155,16 +1265,9 @@ at once. A `served` or `api` embedder or reranker reports ready in `/readyz`
 after one real minimal request to its endpoint, sent once without retry; on a
 metered API that request is billed like any other.
 
-An OVMS or FastAPI model server (what the split topologies use):
-
-```bash
-QP_COMPONENTS__EMBEDDER__BACKEND=served \
-  QP_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings \
-  QP_COMPONENTS__RERANKER__BACKEND=served \
-  QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank make serve
-```
-
-Nothing of ours serves an LLM yet: the LLM's `served` backend takes a URL and
+An OVMS or FastAPI model server is called as a `served` component, as in the
+split topologies on a laptop ([The real run](#the-real-run)). Nothing of ours
+serves an LLM yet: the LLM's `served` backend takes a URL and
 an alias (`QP_COMPONENTS__LLM__ALIAS`, since an LLM has no `source_id`) and is
 called in OpenAI's chat format, for when something does.
 
@@ -1401,17 +1504,11 @@ The table shows the three aliases of `deploy.example.yaml`.
 
 `qp-deploy` also gives the workflow App `QP_TOPOLOGY_ALIAS`, the alias it
 deploys, which the app only reports as `X-RAG-Topology`. The workflow role runs
-`qp-serve --domino` and passes every variable through untouched. Python then
-runs each component on the backend its variables give (the workflow app holds
-no topology rule: `qp-deploy` writes each backend), requires
-`QP_COMPONENTS__RERANKER__SERVED__URL` /
-`QP_COMPONENTS__EMBEDDER__SERVED__URL` for each served component (as
-everywhere), and calls each served component with the run token: `--domino`
-says the app runs on Domino. A component on `api`, the LLM's included, keeps
-its own key. `QP_COMPONENTS__RERANKER__BACKEND=none`
-and `fake` backends pass through untouched. The run label ends up in every response, so set a distinct
-`QP_RUN_LABEL` when testing several hardware tiers or model servers (`run_label`
-under the overrides of `deploy.yaml`, with `qp-deploy`).
+`qp-serve --domino`, which runs each component on the backend its variables give
+and calls each served component with the run token; a component on `api`, the
+LLM's included, keeps its own key. The run label ends up in every response, so
+set a distinct `QP_RUN_LABEL` when testing several hardware tiers or model
+servers (`run_label` under the overrides of `deploy.yaml`, with `qp-deploy`).
 
 **Environments.** `domino/Dockerfile` has two targets built from the repository's
 root, the build context (commands in its header): `rag` starts from
@@ -1636,18 +1733,10 @@ token and is not a secret. A misspelt key is refused with its name.
 topologies live in `deploy.yaml` (ADR 0003): `topology` chooses one by its alias,
 and `topology_alias` defines each alias as a row that says `local` (in the
 workflow App's process) or `served` (by a model server App of its own) for the
-components it names. `deploy.example.yaml` ships the three compared here:
-
-```yaml
-topology: split-all
-topology_alias:
-  monolith:       {embedder: local,  reranker: local}
-  split-reranker: {embedder: local,  reranker: served}
-  split-all:      {embedder: served, reranker: served}
-  # a fourth needs no change in code, e.g. split-embedder: {embedder: served, reranker: local}
-```
-
-No alias is defined in code: a `deploy.yaml` without the table deploys nothing.
+components it names. `deploy.example.yaml` ships the three compared here, shown
+at the top of this README; a fourth is one more row and no change in code, such
+as `split-embedder: {embedder: served, reranker: local}`. No alias is defined in
+code: a `deploy.yaml` without the table deploys nothing.
 `qp-deploy` reads the workflow file the workflow App reads (`QP_WORKFLOW_FILE`
 in its settings, else the one `qp-serve` finds in the use case's directory) for
 the components' names and types. It publishes one model server App per served
@@ -1777,7 +1866,7 @@ To click through the API or watch a
 deploy wait, serve the fake Domino and point `qp-deploy` at it:
 
 ```bash
-make fake-domino BEHAVIOUR=slow     # Swagger at http://localhost:8899/docs
+make -C ../query_processing fake-domino BEHAVIOUR=slow     # Swagger at http://localhost:8899/docs
 DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make deploy
 DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make status
 ```

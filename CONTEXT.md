@@ -1,6 +1,6 @@
-# RAG topology load test
+# query_processing
 
-One text RAG workflow, deployed in several topologies on Domino, and a Locust suite that measures each so they can be compared.
+A toolkit and its use cases. A use case declares its workflow and where its components run in two files; the toolkit serves the workflow, deploys it on Domino in the topology chosen, and drives it with a Locust suite so that topologies can be compared. They are two distributions: the toolkit, `query_processing`, holds all the code, and each use case holds settings only. The RAG is the first use case.
 
 ## Language
 
@@ -16,18 +16,18 @@ _Avoid_: project, app (that is what Domino publishes), workflow (a use case has 
 
 ### Applications
 
-The code is three applications over one shared domain; the README's "Where a file goes" places each.
+The toolkit's code is three applications over one shared domain, all in the `query_processing` distribution. A use case's distribution has no code: each application runs in the use case's directory and reads its files. The README's "Where a file goes" places each.
 
 **RAG system**:
-What runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export.
+What runs on Domino and what prepares a use case's data and models: the workflow app, the model server, ingestion, the corpus and the model export.
 _Avoid_: the app, the service, the product (the product is all three applications)
 
 **Deploy tool**:
-What publishes the Apps of a topology on Domino: `qp-deploy`.
+What publishes the Apps of a use case's topology on Domino, from its workflow file and its deploy settings: `qp-deploy`.
 _Avoid_: deployer, the CLI
 
 **Load-test client**:
-What drives a target and compares runs: the Locust file and `qp-compare`.
+What drives a target and compares runs: the toolkit's Locust file, run from a use case's directory, and `qp-compare`.
 _Avoid_: load tester, the client, Locust (that is the tool it runs on)
 
 ### Code structure
@@ -83,7 +83,7 @@ What runs an in-process model: `openvino` on files exported beforehand, or `torc
 _Avoid_: backend (that is the adapter kind), engine, device
 
 **Workflow app**:
-The process that serves the RAG workflow over HTTP.
+The process that serves a use case's workflow over HTTP: `qp-serve`.
 _Avoid_: service, API, RAG app, server
 
 **Model server**:
