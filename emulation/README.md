@@ -442,6 +442,15 @@ deadline. It showed:
   handed from `project.env`. The provider answered 401 to that key, so no
   generation ran.
 
+A second sitting that day, with two `n2-highmem-2` pool machines for the workflow
+and one bigger pool machine for the reranker (`n2-standard-8`, then
+`n2-standard-16`), showed:
+
+- The Workspace machine fetches the OVMS tarball at boot, and an OVMS deploy
+  needs no copy by hand.
+- `models/ovms-models.tar` is restored at boot on every pool machine.
+- A hardware tier per App: the reranker on one tier, the workflow on another.
+
 ## Not verified
 
 Not shown by the runs of 14 and 15 November 2026:
@@ -461,15 +470,11 @@ Not shown by the runs of 14 and 15 November 2026:
 - `/query` (generation) through the emulation: it is still unmeasured. The Project
   environment variable reached the Apps, but the provider refused the key (see
   "15 November 2026").
-- The Workspace machine fetching the OVMS tarball at boot: added after the sitting
-  of 15 November 2026, it has not run on a machine yet.
 - Of the cache bucket and the Spot machines (the rest ran on 14 November 2026, see
   "The cache bucket"):
   - a Spot machine taken back by Google, and the recovery steps of "Spot machines";
   - the self-deletion of a Spot machine at the end of `max_run_hours` (the machines
     of every sitting were deleted by hand), and an apply with `spot = false`;
-  - `models/ovms-models.tar` restored at boot: it was saved on 15 November 2026,
-    and no later boot has restored it yet;
   - `models-save FORCE=1`, and the boot's wait for a grant that has not applied yet
     (the first bucket call succeeded at once);
   - whether Elasticsearch's repository needs `roles/storage.legacyBucketReader`: it

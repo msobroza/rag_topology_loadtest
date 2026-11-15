@@ -915,9 +915,13 @@ RAG_OPENVINO_WEIGHT_FORMAT=int8 ./ovms/export_models.sh ovms/models-int8
 An OVMS models folder holds one export, of one weight format, recorded in its
 `weight-format` file (see "OpenVINO Model Server").
 
-The setting was built and tested against stand-ins only: the `int8` in-process
-export has not yet run on a real model. It is to be verified at the next
-sitting.
+Verified on an 8-CPU machine on 15 November 2026. The in-process `int8` export
+of the reranker took 13 seconds and holds 110.6 MB of 8-bit weights, against
+442.5 MB of 32-bit floats at `fp32`. `ovms/export_models.sh` exported `fp32` into
+a new folder and recorded it, and an OVMS export made before the setting was
+served as `int8`. On `int8` both servers served the same again, 1.56 and 1.57
+requests a second on one reranker alone, against 1.0 each at `fp32`. Ranking
+quality on `int8` weights is still unchecked.
 
 ## OpenVINO Model Server
 
