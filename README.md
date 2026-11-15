@@ -1071,6 +1071,7 @@ default:
 ```yaml
 defaults:
   environment_id: env-123          # required: the compute environment's id (in its page's URL)
+  environment_revision_id: rev-7   # optional: one build of env-123; "" = Domino chooses
   hardware_tier_id: small          # "" = the project's default tier
   settings: {RAG_ES_URL: https://es.example:9200}
 apps:
@@ -1078,6 +1079,7 @@ apps:
     kind: agent                    # the default for the workflow; model servers are apps
     autoscaling: {min_replicas: 1, max_replicas: 4, target_cpu_pct: 70}
   reranker:
+    environment_id: env-456        # its own environment, so not rev-7: Domino chooses
     hardware_tier_id: cpu-16
     settings: {RAG_RERANK_MODEL: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR}
 ```
@@ -1106,6 +1108,16 @@ workflow is an Agent unless told otherwise: its launch script also exports
 them), and `app.sh` then installs `.[domino]`, the extra that brings the tracing
 library. An existing App of the other kind is not converted: `rag-deploy` stops
 and says to delete it in Domino or change `kind`.
+
+**Environment revision.** `environment_revision_id` holds an App to one build
+of its environment: `rag-deploy` sends it in the App's version as
+`environmentRevisionId`, the name Domino's Apps API gives it, and sends nothing
+when it is unset, so that Domino chooses the revision. An App's own revision
+applies to its environment, its own or the default one. The default revision
+goes only with the default environment, so an App that sets its own
+`environment_id` does not take it. A default revision without a default
+`environment_id` is refused before anything is published, and so is an App with
+a revision but no environment.
 
 **Autoscaling.** `autoscaling` becomes the version's `autoscalingSpecification`
 (`enabled`, `minReplicas`, `maxReplicas`, `targetCpuAvgUtilizationPct`). Replicas
@@ -1143,12 +1155,12 @@ One-time prerequisites that stay manual: install the package in the Workspace
 make deploy-dry-run      # rag-deploy --dry-run deploy all: nothing is sent to Domino
 ```
 
-prints each App `rag-deploy` would publish (kind, environment, hardware tier,
-autoscaling, entry script), with every check of a real deploy. One of them: no
-value may still hold an `<angle-bracket>` placeholder from the example (in the
-`settings` of the Apps being deployed, their `environment_id` and
-`hardware_tier_id`, and `ovms_bundle`). The example copied unchanged stops on the
-first one:
+prints each App `rag-deploy` would publish (kind, environment, environment
+revision, hardware tier, autoscaling, entry script), with every check of a real
+deploy. One of them: no value may still hold an `<angle-bracket>` placeholder
+from the example (in the `settings` of the Apps being deployed, their
+`environment_id`, `environment_revision_id` and `hardware_tier_id`, and
+`ovms_bundle`). The example copied unchanged stops on the first one:
 
 ```
 rag-deploy: error: environment_id in defaults of deploy.yaml still holds the example placeholder '<environment id>': replace it with a real value
@@ -1208,6 +1220,8 @@ Domino**:
    lists the value; that the UI's **Deploy Agent** sends it is an assumption).
 6. The `[domino]` extra (`dominodatalab[agents]`) installs in the generic
    environment when an Agent starts.
+7. A version sent with `environmentRevisionId` starts on that revision of its
+   environment (the field is in Domino's Public API spec 6.3.1, optional there).
 
 If one of these fails, the step-by-step section below is the fallback.
 

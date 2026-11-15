@@ -23,7 +23,11 @@ import httpx
 from pydantic import ValidationError
 from starlette.types import ASGIApp
 
-from fake_domino.api_shapes import AppAutoscalingSpecification, AppCreationRequest
+from fake_domino.api_shapes import (
+    AppAutoscalingSpecification,
+    AppCreationRequest,
+    AppVersionCreationRequest,
+)
 from fake_domino.server import create_fake_domino, fake_domino_http
 from fake_domino.state import FakeDominoApps
 
@@ -111,7 +115,8 @@ def dry_run_report(creates: list[AppCreationRequest]) -> str:
         creates: The create requests the fake Domino received, in order.
 
     Returns:
-        Each App's kind, environment, tier, autoscaling and entry script, as text.
+        Each App's kind, environment and its revision, tier, autoscaling and entry
+        script, as text.
 
     Example:
         >>> print(dry_run_report(fake_apps.creates))
@@ -126,12 +131,18 @@ def dry_run_report(creates: list[AppCreationRequest]) -> str:
             create.name,
             f"  kind: {kinds[ctype]} (configurationType {ctype})",
             f"  environmentId: {version.environmentId}",
+            f"  environmentRevisionId: {_revision_text(version)}",
             f"  hardwareTierId: {version.hardwareTierId or '(the project default)'}",
             f"  autoscaling: {_autoscaling_text(version.autoscalingSpecification)}",
             "  entryScript:",
         ]
         lines += [f"    {line}" for line in (version.entryScript or "").splitlines()]
     return "\n".join(lines)
+
+
+def _revision_text(version: AppVersionCreationRequest) -> str:
+    # Not sent, Domino picks the revision itself; the report says so, not "".
+    return version.environmentRevisionId or "(chosen by Domino)"
 
 
 def _autoscaling_text(spec: AppAutoscalingSpecification | None) -> str:

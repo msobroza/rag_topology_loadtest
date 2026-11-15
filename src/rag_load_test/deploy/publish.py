@@ -149,7 +149,10 @@ def _route(app_url: str, path: str) -> str:
 
 
 def version_body(app: AppSettings, script: str) -> dict[str, object]:
-    """Build the version object: script, environment, and tier and autoscaling if set.
+    """Build the version object: script, environment, and what else is set.
+
+    The environment revision, the hardware tier and the autoscaling are sent
+    only when the App's settings set them.
 
     Args:
         app: The App's merged settings.
@@ -166,6 +169,10 @@ def version_body(app: AppSettings, script: str) -> dict[str, object]:
         "entryScript": script,
         "environmentId": app.environment_id,
     }
+    # The field's name in Domino's Public API spec (6.3.1), optional there: a
+    # version sent without it runs the revision Domino chooses.
+    if app.environment_revision_id:
+        body["environmentRevisionId"] = app.environment_revision_id
     if app.hardware_tier_id:
         body["hardwareTierId"] = app.hardware_tier_id
     if app.autoscaling is not None:
@@ -257,7 +264,8 @@ def deploy(
 ) -> None:
     """Publish ``target``, or every App the topology needs, in order.
 
-    Settings holding secrets, placeholders, no environment id or a missing OVMS
+    Settings holding secrets, placeholders, no environment id, a default
+    environment revision without the default environment, or a missing OVMS
     bundle are refused first, with ``DominoDeployError``. Redeploying a model
     server prints a note that the workflow App still calls its old instance.
 
@@ -306,6 +314,7 @@ def _note_the_workflow_calls_the_old_instance(
 
 
 def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> None:
+    _refuse_a_default_revision_alone(settings)
     for part in parts:
         if not settings.for_app(part).environment_id:
             raise DominoDeployError(
@@ -321,6 +330,23 @@ def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> No
             "the OVMS bundle folder (bin/ovms, lib/) or its .tar.gz, at a path the "
             "Apps can read"
         )
+
+
+def _refuse_a_default_revision_alone(settings: DeploySettings) -> None:
+    # It goes only with the default environment, so without one it would be
+    # silently dropped. An App's own revision without any environment is caught
+    # by the environment_id check, since that App has none.
+    defaults = settings.defaults
+    revision_id = defaults.environment_revision_id
+    if not revision_id or defaults.environment_id:
+        return
+    raise DominoDeployError(
+        f"defaults.environment_revision_id {revision_id!r} in {deploy_file()} has no "
+        "defaults.environment_id beside it: a default revision applies only together "
+        "with the default environment, so set defaults.environment_id to the "
+        "environment it is a build of, or set the revision in the block of each App "
+        "that sets its own environment_id"
+    )
 
 
 def model_server_urls(

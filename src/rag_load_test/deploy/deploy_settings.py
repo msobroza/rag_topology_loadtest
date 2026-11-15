@@ -87,6 +87,7 @@ class AppBlock(_Block):
 
     kind: AppKind | None = None
     environment_id: str | None = None
+    environment_revision_id: str | None = None  # one build of the environment
     hardware_tier_id: str | None = None
     autoscaling: Autoscaling | None = None
     settings: dict[str, str] = {}
@@ -114,6 +115,7 @@ class AppSettings:
     part: AppPart
     kind: AppKind
     environment_id: str
+    environment_revision_id: str  # "" = none: Domino chooses the revision
     hardware_tier_id: str
     autoscaling: Autoscaling | None
     settings: dict[str, str] = field(default_factory=dict)
@@ -180,7 +182,9 @@ class DeploySettings(BaseSettings):
     def for_app(self, part: AppPart) -> AppSettings:
         """Merge ``rag-<part>``'s settings: its own value, else the default.
 
-        ``settings`` entries are merged key by key, the App's own winning.
+        ``settings`` entries are merged key by key, the App's own winning. The
+        default environment revision goes only with the default environment: an
+        App that sets its own ``environment_id`` does not take it.
 
         Args:
             part: The App whose settings are merged.
@@ -193,10 +197,12 @@ class DeploySettings(BaseSettings):
             'cpu-16'
         """
         own, shared = self.apps.get(part, AppBlock()), self.defaults
+        environment_id, revision_id = _environment_of(own, shared)
         return AppSettings(
             part=part,
             kind=own.kind or shared.kind or DEFAULT_KIND[part],
-            environment_id=own.environment_id or shared.environment_id or "",
+            environment_id=environment_id,
+            environment_revision_id=revision_id,
             hardware_tier_id=own.hardware_tier_id or shared.hardware_tier_id or "",
             autoscaling=own.autoscaling or shared.autoscaling,
             settings=dict(sorted({**shared.settings, **own.settings}.items())),
@@ -212,6 +218,16 @@ class DeploySettings(BaseSettings):
         return WaitLimits(
             self.wait_timeout_s, self.poll_interval_s, self.no_instance_grace_s
         )
+
+
+def _environment_of(own: AppBlock, shared: AppBlock) -> tuple[str, str]:
+    # A revision is one build of one environment, so the default revision is a
+    # build of the default environment: given to an App that names another
+    # environment, it would pair that environment with a build of a different one.
+    if own.environment_id:
+        return own.environment_id, own.environment_revision_id or ""
+    revision_id = own.environment_revision_id or shared.environment_revision_id
+    return shared.environment_id or "", revision_id or ""
 
 
 def refuse_secrets(settings: DeploySettings) -> None:
@@ -275,6 +291,7 @@ def _values_used(
     ]
     for name, block in blocks:
         yield "environment_id", name, block.environment_id or ""
+        yield "environment_revision_id", name, block.environment_revision_id or ""
         yield "hardware_tier_id", name, block.hardware_tier_id or ""
         for key, value in block.settings.items():
             yield key, f"{name}.settings", value

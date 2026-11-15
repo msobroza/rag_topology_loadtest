@@ -26,11 +26,14 @@ pytest_plugins = ["domino_deploy_fixtures"]
 EXAMPLE_YAML = REPO_ROOT / "deploy.example.yaml"
 
 
-def dry_run_report(tier: str = "(the project default)") -> str:
+def dry_run_report(
+    tier: str = "(the project default)", revision: str = "(chosen by Domino)"
+) -> str:
     tail = launched()
+    environment = f"  environmentId: env-1\n  environmentRevisionId: {revision}\n"
     model_servers = "".join(
         f"\nrag-{part}\n  kind: app (configurationType STANDARD)\n"
-        f"  environmentId: env-1\n  hardwareTierId: {tier}\n  autoscaling: off\n"
+        f"{environment}  hardwareTierId: {tier}\n  autoscaling: off\n"
         f"  entryScript:\n    export RAG_ROLE=fastapi-{part}\n"
         f"    export RAG_BOOTSTRAP=1\n    {tail}\n"
         for part in ("embedder", "reranker")
@@ -40,7 +43,7 @@ def dry_run_report(tier: str = "(the project default)") -> str:
         "\nDry run: nothing was sent to Domino. rag-deploy would publish:\n"
         f"{model_servers}"
         "\nrag-workflow\n  kind: agent (configurationType AISYSTEM)\n"
-        f"  environmentId: env-1\n  hardwareTierId: {tier}\n"
+        f"{environment}  hardwareTierId: {tier}\n"
         "  autoscaling: minReplicas 1, maxReplicas 4, targetCpuAvgUtilizationPct 70\n"
         "  entryScript:\n"
         "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY=split-all\n"
@@ -74,6 +77,23 @@ def test_dry_run_shows_the_hardware_tier_when_set(run_main: RunMain) -> None:
     code, out, _ = run_main(["--dry-run", "deploy", "all"], None)
     assert code == 0
     assert out.endswith(dry_run_report("tier-8"))
+
+
+def test_dry_run_shows_the_environment_revision_when_set(run_main: RunMain) -> None:
+    revision = "  environment_revision_id: rev-7\n"
+    Path("deploy.yaml").write_text(ENV_1 + revision + WORKFLOW_SCALES)
+    code, out, _ = run_main(["--dry-run", "deploy", "all"], None)
+    assert code == 0
+    assert out.endswith(dry_run_report(revision="rev-7"))
+
+
+def test_dry_run_refuses_a_default_revision_without_the_default_environment(
+    run_main: RunMain,
+) -> None:
+    Path("deploy.yaml").write_text("defaults: {environment_revision_id: rev-7}\n")
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert (code, out) == (2, "")
+    assert "defaults.environment_revision_id 'rev-7' in deploy.yaml has no " in err
 
 
 def test_dry_run_still_requires_the_environment_id(run_main: RunMain) -> None:
@@ -146,3 +166,5 @@ def test_dry_run_of_the_example_with_real_values_publishes_every_app(
     assert out.startswith(deployed_lines(3))
     assert "    export RAG_ES_URL=https://real:9200\n" in out
     assert "  kind: agent (configurationType AISYSTEM)\n" in out
+    # The example holds no revision: Domino keeps choosing it.
+    assert out.count("  environmentRevisionId: (chosen by Domino)\n") == 3

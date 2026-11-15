@@ -39,6 +39,7 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
         part="workflow",
         kind="agent",
         environment_id="env-123",
+        environment_revision_id="",
         hardware_tier_id="small",
         autoscaling=Autoscaling(min_replicas=1, max_replicas=4),
         settings={
@@ -65,6 +66,42 @@ def test_an_apps_settings_win_over_the_defaults(deploy_file: Path) -> None:
         "RAG_A": "a",
         "RAG_ES_URL": "https://own.test",
     }
+
+
+def environment_of(settings: DeploySettings, part: str) -> tuple[str, str]:
+    app = settings.for_app(part)  # type: ignore[arg-type]
+    return app.environment_id, app.environment_revision_id
+
+
+def test_a_revision_set_for_an_app_or_in_the_defaults_is_taken(
+    deploy_file: Path,
+) -> None:
+    deploy_file.write_text(
+        "defaults: {environment_id: env-1, environment_revision_id: rev-1}\n"
+        "apps: {embedder: {environment_revision_id: rev-3}}\n"
+    )
+    settings = DeploySettings()
+    assert environment_of(settings, "workflow") == ("env-1", "rev-1")
+    assert environment_of(settings, "embedder") == ("env-1", "rev-3")
+
+
+def test_an_app_with_its_own_environment_does_not_take_the_default_revision(
+    deploy_file: Path,
+) -> None:
+    deploy_file.write_text(
+        "defaults: {environment_id: env-1, environment_revision_id: rev-1}\n"
+        "apps:\n"
+        "  reranker: {environment_id: env-2}\n"
+        "  embedder: {environment_id: env-2, environment_revision_id: rev-2}\n"
+    )
+    settings = DeploySettings()
+    assert environment_of(settings, "reranker") == ("env-2", "")
+    assert environment_of(settings, "embedder") == ("env-2", "rev-2")
+
+
+def test_with_no_revision_set_none_is_taken(deploy_file: Path) -> None:
+    deploy_file.write_text("defaults: {environment_id: env-1}\n")
+    assert environment_of(DeploySettings(), "workflow") == ("env-1", "")
 
 
 def test_kind_is_agent_for_the_workflow_and_app_for_model_servers_by_default(
@@ -232,6 +269,18 @@ def placeholder_message(key: str, block: str, value: str, path: Path) -> str:
             "environment_id",
             "defaults",
             "<environment id>",
+        ),
+        (
+            "defaults: {environment_revision_id: '<revision id>'}",
+            "environment_revision_id",
+            "defaults",
+            "<revision id>",
+        ),
+        (
+            "apps: {workflow: {environment_revision_id: '<revision id>'}}",
+            "environment_revision_id",
+            "apps.workflow",
+            "<revision id>",
         ),
         (
             "apps: {reranker: {hardware_tier_id: '<tier>'}}",

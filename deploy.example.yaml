@@ -42,6 +42,11 @@ defaults:
   # install their own dependencies when they start, on Python 3.11 (uv downloads
   # it when the environment has none).
   environment_id: "<environment id>"
+  # Optional: holds the Apps to one build of that environment, by the id of one of
+  # its revisions (sent to Domino as environmentRevisionId); "" = Domino chooses.
+  # It goes only with the environment above: an App that sets its own
+  # environment_id does not take it, and without environment_id it is refused.
+  environment_revision_id: ""
   # The hardware tier id; "" = the project's default.
   hardware_tier_id: ""
   # Environment variables for the App, exported by its launch script. rag-deploy
@@ -62,9 +67,10 @@ defaults:
     # RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
 
 # One block per App, for what really differs per App: kind (app | agent),
-# environment_id, hardware_tier_id, autoscaling {min_replicas (default 1),
-# max_replicas, target_cpu_pct (1..100)} and settings (merged with the defaults'
-# settings, this block's winning).
+# environment_id, environment_revision_id (a revision of this App's environment,
+# its own or the default one), hardware_tier_id, autoscaling {min_replicas
+# (default 1), max_replicas, target_cpu_pct (1..100)} and settings (merged with
+# the defaults' settings, this block's winning).
 apps:
   # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
   # An Agent also gets RAG_DOMINO_TRACING=1 and RAG_BOOTSTRAP_EXTRAS=domino unless

@@ -127,6 +127,24 @@ def test_redeploy_posts_a_new_version_instead_of_creating_an_app() -> None:
     assert ("POST", f"{APPS_PATH}/app-1/versions") in apps.received
 
 
+REVISION_1 = {"environment_id": "env-1", "environment_revision_id": "rev-1"}
+
+
+def test_a_revision_is_sent_as_environment_revision_id_and_domino_keeps_it() -> None:
+    apps = FakeDominoApps(["Running"])
+    add_app(apps, "rag-reranker")
+    publish(apps, make_settings(defaults=REVISION_1), "reranker")
+    publish(apps, make_settings(defaults=REVISION_1), "embedder")
+    redeployed, created = sent(apps.new_versions[0][1]), sent(apps.creates[0].version)
+    for version in (redeployed, created):
+        assert {k: v for k, v in version.items() if k != "entryScript"} == {
+            "environmentId": "env-1",
+            "environmentRevisionId": "rev-1",
+        }
+    current = make_client(apps).http.get(f"{APPS_PATH}/app-2").json()["currentVersion"]
+    assert current["environmentRevisionId"] == "rev-1"  # what a GET of the App shows
+
+
 def test_an_existing_app_of_the_other_kind_is_refused_not_converted() -> None:
     apps = FakeDominoApps(["Running"])
     add_app(apps, "rag-workflow", configuration_type="STANDARD")

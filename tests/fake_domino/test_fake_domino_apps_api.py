@@ -211,6 +211,18 @@ def test_configuration_type_and_autoscaling_are_echoed() -> None:
     }
 
 
+def test_a_versions_environment_revision_is_recorded_and_echoed() -> None:
+    apps = FakeDominoApps()
+    http = http_to(apps)
+    version = {**CREATE_BODY["version"], "environmentRevisionId": "rev-1"}  # type: ignore[dict-item]
+    app = http.post(APPS_PATH, json={**CREATE_BODY, "version": version}).json()
+    assert apps.creates[0].version.environmentRevisionId == "rev-1"
+    assert app["currentVersion"]["environmentRevisionId"] == "rev-1"
+    http.post(f"{APPS_PATH}/app-1/versions", json={"environmentId": "env-1"})
+    current = http.get(f"{APPS_PATH}/app-1").json()["currentVersion"]
+    assert current["environmentRevisionId"] == ""  # none sent: the response's default
+
+
 def test_an_app_created_without_a_configuration_type_is_standard() -> None:
     app = http_to(FakeDominoApps()).post(APPS_PATH, json=CREATE_BODY).json()
     assert app["configurationType"] == "STANDARD"

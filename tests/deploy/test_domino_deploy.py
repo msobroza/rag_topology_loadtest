@@ -269,6 +269,84 @@ def test_an_app_without_an_environment_is_named_before_anything_is_sent() -> Non
     assert apps.received == []
 
 
+def published_environments(apps: FakeDominoApps) -> list[tuple[str, str | None, str | None]]:  # fmt: skip
+    return [
+        (c.name, c.version.environmentId, c.version.environmentRevisionId)
+        for c in apps.creates
+    ]
+
+
+def test_the_default_revision_goes_only_with_the_default_environment() -> None:
+    apps = FakeDominoApps(["Running"])
+    settings = make_settings(
+        defaults={"environment_id": "env-1", "environment_revision_id": "rev-1"},
+        apps={"reranker": {"environment_id": "env-2"}},
+    )
+    run_deploy(apps, settings, "all")
+    assert published_environments(apps) == [
+        ("rag-embedder", "env-1", "rev-1"),
+        ("rag-reranker", "env-2", None),
+        ("rag-workflow", "env-1", "rev-1"),
+    ]
+
+
+def test_an_apps_own_revision_is_sent_in_its_version() -> None:
+    apps = FakeDominoApps(["Running"])
+    own = {"environment_id": "env-2", "environment_revision_id": "rev-2"}
+    settings = make_settings(apps={"reranker": own, "embedder": {"environment_revision_id": "rev-3"}})  # fmt: skip
+    run_deploy(apps, settings, "all")
+    assert published_environments(apps) == [
+        ("rag-embedder", "env-1", "rev-3"),
+        ("rag-reranker", "env-2", "rev-2"),
+        ("rag-workflow", "env-1", None),
+    ]
+
+
+def test_a_default_revision_without_the_default_environment_is_refused() -> None:
+    apps = FakeDominoApps(["Running"])
+    own = {"environment_id": "env-2"}
+    settings = make_settings(
+        topology="split-reranker",
+        defaults={"environment_revision_id": "rev-1"},
+        apps={"reranker": own, "workflow": own},
+    )
+    with pytest.raises(DominoDeployError) as caught:
+        run_deploy(apps, settings, "all")
+    assert str(caught.value) == (
+        "defaults.environment_revision_id 'rev-1' in deploy.yaml has no "
+        "defaults.environment_id beside it: a default revision applies only together "
+        "with the default environment, so set defaults.environment_id to the "
+        "environment it is a build of, or set the revision in the block of each App "
+        "that sets its own environment_id"
+    )
+    assert apps.received == []
+
+
+def test_an_apps_revision_without_any_environment_is_refused() -> None:
+    apps = FakeDominoApps(["Running"])
+    settings = make_settings(
+        topology="monolith",
+        defaults={},
+        apps={"workflow": {"environment_revision_id": "rev-1"}},
+    )
+    with pytest.raises(DominoDeployError) as caught:
+        run_deploy(apps, settings, "all")
+    assert str(caught.value).startswith("No environment_id for App rag-workflow: ")
+    assert apps.received == []
+
+
+def test_a_placeholder_in_a_revision_is_refused_before_anything_is_sent() -> None:
+    apps = FakeDominoApps(["Running"])
+    defaults = {"environment_id": "env-1", "environment_revision_id": "<revision id>"}
+    with pytest.raises(DominoDeployError) as caught:
+        run_deploy(apps, make_settings(defaults=defaults), "all")
+    assert str(caught.value) == (
+        "environment_revision_id in defaults of deploy.yaml still holds the example "
+        "placeholder '<revision id>': replace it with a real value"
+    )
+    assert apps.received == []
+
+
 def test_redeploying_a_model_server_says_the_workflow_calls_the_old_instance(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
