@@ -170,8 +170,12 @@ A stage whose work runs in the App's own process, on its CPUs: embed and rerank 
 _Avoid_: heavy stage, compute stage
 
 **Calibration**:
-Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest. An App does it at start-up, only for a parameter the settings leave at 0; `rag-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
+Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest; for a model server (OVMS), timing its stage under each candidate stream count and thread count, one server start per candidate, with several requests in flight. An App does it at start-up, only for a parameter the settings leave at 0; `rag-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
 _Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
+
+**Stream**:
+One request a model server runs on its model at the same time as others; its threads are shared among its streams. A lone request is fastest on one stream, so a stream count is chosen for a stated number of requests in flight. An in-process stage runs one stream.
+_Avoid_: instance, worker (a worker is a model call slot under torch), replica
 
 **Mode**:
 How far a request runs through the stages: `query` runs all four, `retrieve` stops after rerank.

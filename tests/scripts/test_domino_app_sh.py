@@ -19,6 +19,7 @@ from launch_script_stand_ins import (
     make_stand_ins,
     models_dir,
     ovms_bundle,
+    served_config,
     stand_in_env,
     started_env,
     write_fake,
@@ -54,11 +55,15 @@ def test_ovms_role_serves_directly_by_default(tmp_path: Path, bin_dir: Path) -> 
         tmp_path, bin_dir, RAG_ROLE="ovms-reranker", RAG_OVMS_MODELS_DIR=str(models)
     )
     assert result.returncode == 0, result.stderr
-    assert (
-        log(tmp_path, "ovms").strip()
-        == f"--rest_port 8888 --config_path {models}/config_reranker.json"
-    )
+    config = served_config(tmp_path)
+    assert log(tmp_path, "ovms").strip() == f"--rest_port 8888 --config_path {config}"
     assert log(tmp_path, "nginx") == ""
+    serving_dir = config.removesuffix("/config_reranker.json")
+    assert log(tmp_path, "rag-ovms-config").strip() == (
+        f"--serve reranker --models-dir {models} --serving-dir {serving_dir}"
+    )
+    assert serving_dir != str(models)  # a fresh folder of the App's own
+    assert Path(serving_dir).is_dir()
 
 
 def test_prefix_proxy_puts_nginx_in_front_of_ovms(
@@ -76,8 +81,10 @@ def test_prefix_proxy_puts_nginx_in_front_of_ovms(
     # The fakes exit at once, so app.sh reports the death and exits non-zero.
     assert result.returncode == 1
     assert "exited" in result.stderr
+    config = served_config(tmp_path)
+    assert config.endswith("/config_embedder.json")
     assert log(tmp_path, "ovms").strip() == (
-        f"--rest_bind_address 127.0.0.1 --rest_port 9000 --config_path {models}/config_embedder.json"
+        f"--rest_bind_address 127.0.0.1 --rest_port 9000 --config_path {config}"
     )
     assert log(tmp_path, "nginx").strip() == "-c /tmp/ovms-proxy.conf -g daemon off;"
     conf = (tmp_path / "nginx.conf").read_text()
@@ -266,7 +273,7 @@ def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
         "install -y --no-install-recommends libxml2 curl",
     ]
     assert log(tmp_path, "bundle-ovms").strip() == (
-        f"--rest_port 8888 --config_path {models}/config_reranker.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     )
     assert log(tmp_path, "ovms") == ""
     ld_path = (tmp_path / "bundle-ovms.ld").read_text().strip()
@@ -289,8 +296,9 @@ def test_bootstrap_unpacks_a_bundle_tarball(tmp_path: Path, bin_dir: Path) -> No
     )
     assert result.returncode == 0, result.stderr
     assert log(tmp_path, "bundle-ovms").strip() == (
-        f"--rest_port 8888 --config_path {models}/config_embedder.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     )
+    assert served_config(tmp_path).endswith("/config_embedder.json")
     ld_path = (tmp_path / "bundle-ovms.ld").read_text().strip()
     assert ld_path.split(":")[0].endswith("/ovms/lib")
     assert not ld_path.startswith(str(bundle))  # the unpacked copy, not the source

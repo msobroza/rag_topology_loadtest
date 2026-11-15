@@ -4,9 +4,10 @@
 #   monolith          (default) the workflow app for RAG_TOPOLOGY=monolith (the default)
 #   workflow          the workflow app for RAG_TOPOLOGY=split-reranker (the default) or
 #                     split-all
-#   ovms-reranker     OpenVINO Model Server serving config_reranker.json
-#   ovms-embedder     OpenVINO Model Server serving config_embedder.json
-#                     (both from RAG_OVMS_MODELS_DIR, /mnt/data/ovms-models by default)
+#   ovms-reranker     OpenVINO Model Server serving the reranker (config_reranker.json)
+#   ovms-embedder     OpenVINO Model Server serving the embedder (config_embedder.json)
+#                     (both exported in RAG_OVMS_MODELS_DIR, /mnt/data/ovms-models by
+#                     default, and served from a folder of the App's own; see below)
 #   fastapi-reranker / fastapi-embedder   the same models behind rag-model-server
 #                     (same /v3 routes and formats as OVMS) for the FastAPI-vs-OVMS experiment
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
@@ -35,6 +36,15 @@
 # An OVMS role whose folder holds another format stops before OVMS starts: set
 # RAG_OPENVINO_WEIGHT_FORMAT to the format found, or point RAG_OVMS_MODELS_DIR
 # at another folder, where the asked format is exported on first start.
+#
+# An OVMS role then starts ovms on the config `rag-ovms-config` prints: it
+# calibrates OVMS's streams and threads left at 0 by RAG_OVMS_NUM_STREAMS and
+# RAG_OVMS_THREADS (one ovms start per candidate), and writes, in a fresh
+# temporary folder, the export's config and graph with the choice; the export
+# itself is never written. When `rag-ovms-config` is not on PATH the project is
+# uv-installed into $HOME/rag-venv first; without uv the export's own config is
+# served as exported (one stream, no calibration), which a pinned RAG_OVMS_* refuses.
+# Pin both variables (rag-calibrate --ovms-models prints them) to skip calibration.
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedding and
 # rerank backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
@@ -92,11 +102,19 @@ render_proxy_config() {
   fi
 }
 
+# serve_ovms <part>: serve the reranker or the embedder with OpenVINO Model Server.
 serve_ovms() {
-  local config="$MODELS_DIR/$1"
+  local part=$1 config="$MODELS_DIR/config_$1.json"
   if [ ! -f "$config" ]; then provision_ovms_models "$config"; else require_ovms_weight_format; fi
   command -v ovms >/dev/null 2>&1 \
     || die "'ovms' binary not on PATH; use the environment built from domino/Dockerfile --target ovms"
+  # Installed here, not inside the command substitution below: its output must
+  # not land in the config path, and its PATH change must last.
+  if ! command -v rag-ovms-config >/dev/null 2>&1 && command -v uv >/dev/null 2>&1; then
+    install_project "$HOME/rag-venv" . >&2
+  fi
+  # set -e stops the App when the substitution fails (die only ends the subshell).
+  config=$(ovms_serving_config "$part" "$config")
   if [ "${RAG_OVMS_PREFIX_PROXY:-}" != 1 ]; then
     exec ovms --rest_port 8888 --config_path "$config"
   fi
@@ -124,6 +142,22 @@ require_ovms_weight_format() {
   if [ -f "$record" ]; then found=$(<"$record"); fi
   [ "$found" = "$WEIGHT_FORMAT" ] \
     || die "$MODELS_DIR (RAG_OVMS_MODELS_DIR) holds an OVMS export at weight format $found, but $WEIGHT_FORMAT was asked (RAG_OPENVINO_WEIGHT_FORMAT, fp32 when unset); set RAG_OPENVINO_WEIGHT_FORMAT=$found to serve that export, or point RAG_OVMS_MODELS_DIR at another folder, where $WEIGHT_FORMAT is exported on first start"
+}
+
+# ovms_serving_config <part> <export config>: print the config ovms starts with.
+ovms_serving_config() {
+  if ! command -v rag-ovms-config >/dev/null 2>&1; then
+    # A pin that cannot be applied must not be silently ignored.
+    [ -z "${RAG_OVMS_NUM_STREAMS:-}${RAG_OVMS_THREADS:-}" ] \
+      || die "RAG_OVMS_NUM_STREAMS / RAG_OVMS_THREADS are set but cannot be applied: 'rag-ovms-config' is not on PATH and 'uv' is not there to install it; install the project, or unset both"
+    echo "app.sh[$ROLE]: 'rag-ovms-config' not on PATH and no 'uv' to install it; serving $2 as exported (one stream, not calibrated)" >&2
+    echo "$2"
+    return
+  fi
+  local serving_dir
+  serving_dir=$(mktemp -d "${TMPDIR:-/tmp}/rag-ovms-serving.XXXXXX")
+  rag-ovms-config --serve "$1" --models-dir "$MODELS_DIR" --serving-dir "$serving_dir" \
+    || die "rag-ovms-config could not write the OVMS config for $1 (see above); to skip its calibration, pin both RAG_OVMS_NUM_STREAMS and RAG_OVMS_THREADS (rag-calibrate --ovms-models prints them)"
 }
 
 # provision_ovms_models <config>: export both models into $MODELS_DIR, once.
@@ -196,8 +230,8 @@ if [ "${RAG_BOOTSTRAP:-}" = 1 ]; then bootstrap; fi
 case "$ROLE" in
   monolith) serve_workflow_app monolith monolith ;;
   workflow) serve_workflow_app split-reranker split-reranker split-all ;;
-  ovms-reranker) serve_ovms config_reranker.json ;;
-  ovms-embedder) serve_ovms config_embedder.json ;;
+  ovms-reranker) serve_ovms reranker ;;
+  ovms-embedder) serve_ovms embedder ;;
   fastapi-reranker) serve_fastapi_model reranker ;;
   fastapi-embedder) serve_fastapi_model embedder ;;
   *) die "unknown RAG_ROLE '$ROLE'; expected monolith, workflow, ovms-reranker, ovms-embedder, fastapi-reranker or fastapi-embedder" ;;

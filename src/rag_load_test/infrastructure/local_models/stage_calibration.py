@@ -13,6 +13,10 @@ tuning. ``calibrate`` does the rest, the same way for every stage:
   as the fewest seconds of them;
 - once ``budget_s`` has passed no new trial starts, the first always runs.
 
+The last two rules, and the report, are ``TimedTrials``'s
+(``infrastructure/calibration/timed_trials.py``), shared with the calibration
+of a model server.
+
 Only the adapter of the fastest thread count so far is kept, so two models are
 never held longer than one comparison. The result is the adapter and a
 ``CalibrationReport`` of the choice and every trial; one ``stage_calibrated``
@@ -36,8 +40,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Generic, TypeVar
 
-from ...domain.calibration import CalibrationReport, StageTuning, TimedTrial, fastest
-from ..json_log import log_json
+from ...domain.calibration import CalibrationReport, StageTuning
+from ..calibration.timed_trials import CalibrationLimits, TimedTrials, untimed_report
 
 T = TypeVar("T")
 
@@ -103,14 +107,6 @@ class BaseCalibratedStage(ABC, Generic[T]):
 
 
 @dataclass(frozen=True)
-class CalibrationLimits:
-    """How long calibration may search, and how often it times each candidate."""
-
-    budget_s: float  # no new trial starts once this much time has passed
-    rounds: int  # timed requests per trial, after one warm-up
-
-
-@dataclass(frozen=True)
 class Calibrated(Generic[T]):
     """A calibrated stage's adapter, and the report of how it was chosen."""
 
@@ -152,9 +148,9 @@ async def calibrate(
     """
     if len(threads) == 1 and len(batch_sizes) == 1:
         return await _fixed(stage, StageTuning(threads[0], batch_sizes[0]), limits)
-    started = clock()
+    trials = TimedTrials(stage.stage, limits, clock)  # the budget counts loads too
     first = await stage.loaded(threads[0])
-    search = _Search(stage, first, limits, clock, started)
+    search = _Search(stage, first, trials)
     del first  # from here on the search alone holds a model
     return await search.run(threads, batch_sizes)
 
@@ -163,15 +159,7 @@ async def _fixed(
     stage: BaseCalibratedStage[T], tuning: StageTuning, limits: CalibrationLimits
 ) -> Calibrated[T]:
     adapter = stage.rebatched(await stage.loaded(tuning.threads), tuning.batch_size)
-    report = CalibrationReport(
-        stage=stage.stage,
-        chosen=tuning,
-        trials=(),
-        seconds=0.0,
-        budget_s=limits.budget_s,
-        cut_short=False,
-    )
-    return Calibrated(adapter, report)
+    return Calibrated(adapter, untimed_report(stage.stage, tuning, limits))
 
 
 class _Search(Generic[T]):
@@ -180,97 +168,38 @@ class _Search(Generic[T]):
     Args:
         stage: The stage under calibration.
         first: Its adapter loaded for the first thread count.
-        limits: The time budget and the timed rounds per trial.
-        clock: Seconds, as ``time.perf_counter`` gives them.
-        started: When calibration started, on ``clock``.
+        trials: The trials, started before ``first`` loaded.
     """
 
     def __init__(
-        self,
-        stage: BaseCalibratedStage[T],
-        first: T,
-        limits: CalibrationLimits,
-        clock: Callable[[], float],
-        started: float,
+        self, stage: BaseCalibratedStage[T], first: T, trials: TimedTrials
     ) -> None:
-        self._stage, self._limits, self._clock = stage, limits, clock
+        self._stage, self._trials = stage, trials
         self._kept = first  # the adapter of the fastest thread count so far
-        self._started = started
-        self._trials: list[TimedTrial] = []
-        self._cut_short = False
 
     async def run(
         self, threads: Sequence[int], batch_sizes: Sequence[int]
     ) -> Calibrated[T]:
         for batch_size in batch_sizes:
-            if not self._may_start():
+            if not self._trials.may_start():
                 break
             await self._time(self._kept, StageTuning(threads[0], batch_size))
         for count in threads[1:]:
-            if not self._may_start():
+            if not self._trials.may_start():
                 break
             await self._try_threads(count)
-        return self._finish()
+        report = self._trials.finish()
+        adapter = self._stage.rebatched(self._kept, report.chosen.batch_size)
+        return Calibrated(adapter, report)
 
     async def _try_threads(self, threads: int) -> None:
         # The candidate is dropped on return unless it became the fastest.
-        best = fastest(self._trials)
+        best = self._trials.fastest()
         candidate = await self._stage.loaded(threads)
         await self._time(candidate, StageTuning(threads, best.batch_size))
-        if fastest(self._trials).threads == threads:
+        if self._trials.fastest().threads == threads:
             self._kept = candidate
 
     async def _time(self, adapter: T, tuning: StageTuning) -> None:
         sized = self._stage.rebatched(adapter, tuning.batch_size)
-        await self._stage.serve_sample(sized)  # warm-up, not counted
-        rounds = [await self._timed(sized) for _ in range(self._limits.rounds)]
-        self._trials.append(TimedTrial(tuning, min(rounds)))
-
-    async def _timed(self, adapter: T) -> float:
-        start = self._clock()
-        await self._stage.serve_sample(adapter)
-        return self._clock() - start
-
-    def _may_start(self) -> bool:
-        # The first trial always runs, so a tiny budget keeps today's tuning.
-        if not self._trials:
-            return True
-        if self._clock() - self._started < self._limits.budget_s:
-            return True
-        self._cut_short = True
-        return False
-
-    def _finish(self) -> Calibrated[T]:
-        report = CalibrationReport(
-            stage=self._stage.stage,
-            chosen=fastest(self._trials),
-            trials=tuple(self._trials),
-            seconds=self._clock() - self._started,
-            budget_s=self._limits.budget_s,
-            cut_short=self._cut_short,
-        )
-        _log(report)
-        adapter = self._stage.rebatched(self._kept, report.chosen.batch_size)
-        return Calibrated(adapter, report)
-
-
-def _log(report: CalibrationReport) -> None:
-    chosen = report.chosen
-    log_json(
-        event="stage_calibrated",
-        stage=report.stage,
-        chosen={"threads": chosen.threads, "batch_size": chosen.batch_size},
-        trials=[_trial_fields(trial) for trial in report.trials],
-        seconds=round(report.seconds, 3),
-        budget_s=report.budget_s,
-        cut_short=report.cut_short,
-    )
-
-
-def _trial_fields(trial: TimedTrial) -> dict[str, float]:
-    tuning = trial.tuning
-    return {
-        "threads": tuning.threads,
-        "batch_size": tuning.batch_size,
-        "seconds": round(trial.seconds, 3),
-    }
+        await self._trials.time_trial(tuning, lambda: self._stage.serve_sample(sized))

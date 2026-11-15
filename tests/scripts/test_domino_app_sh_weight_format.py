@@ -19,6 +19,7 @@ from launch_script_stand_ins import (
     log,
     make_stand_ins,
     models_dir,
+    served_config,
     stand_in_env,
 )
 from rag_load_test.config.rag_settings import RagSettings
@@ -69,8 +70,10 @@ def test_an_export_of_the_weight_format_asked_is_served(
     result = run_ovms_reranker(tmp_path, bin_dir, models, **env)
 
     assert result.returncode == 0, result.stderr
+    # OVMS starts on the config rag-ovms-config printed for this export.
+    assert f"--models-dir {models} " in log(tmp_path, "rag-ovms-config")
     assert log(tmp_path, "ovms") == (
-        f"--rest_port 8888 --config_path {models}/config_reranker.json\n"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}\n"
     )
 
 

@@ -36,10 +36,10 @@ from ..domain.calibration import (
     halvings,
 )
 from ..domain.passages import ScoredPassage
+from ..infrastructure.calibration.timed_trials import CalibrationLimits
 from ..infrastructure.local_models.local_model import LocalModel
 from ..infrastructure.local_models.stage_calibration import (
     BaseCalibratedStage,
-    CalibrationLimits,
     calibrate,
 )
 

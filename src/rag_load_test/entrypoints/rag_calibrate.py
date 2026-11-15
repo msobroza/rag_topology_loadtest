@@ -9,11 +9,14 @@ start without calibrating, and every replica run the same values.
 
 Each model loads as an App would load it (``RAG_*`` overrides honoured), whatever
 the topology or Backend says, and every parameter is searched, pinned or not.
+With ``--ovms-models DIR`` it calibrates OpenVINO Model Server instead, on the
+export in DIR: its stream and thread counts, one ``ovms`` start per candidate.
 The logs, ``stage_calibrated`` included, go to standard error, so standard
 output can be appended to ``.env`` as it is.
 
 Example:
     $ RAG_CALIBRATION_ROUNDS=3 rag-calibrate --only reranker >> .env
+    $ rag-calibrate --ovms-models /mnt/data/ovms-models --only reranker
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import asyncio
 import logging
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import get_args
 
 from ..composition.calibrated_stages import ComponentCalibration
@@ -33,15 +37,19 @@ from ..domain.errors import RagDependencyError
 from ..domain.roles import ModelServerPart
 from ..infrastructure.local_models.model_provisioning import ModelProvisioningError
 from ..infrastructure.local_models.openvino_export import OpenVinoUnavailableError
+from ..infrastructure.one_line_failure import one_line_failure
+from ..infrastructure.ovms.ovms_process import OvmsStartError
 
 PROG = "rag-calibrate"
 PARTS: tuple[ModelServerPart, ...] = get_args(ModelServerPart)  # embedder, reranker
 # Failures an operator can act on (a bad setting, a model that cannot be found,
-# downloaded or exported, a missing package, a dependency that would not open);
-# anything else is a bug and keeps its traceback.
+# downloaded or exported, a missing package or ovms, an ovms that would not
+# start, a dependency that would not open); anything else is a bug and keeps its
+# traceback.
 EXPECTED_ERRORS = (
     ModelProvisioningError,
     OpenVinoUnavailableError,
+    OvmsStartError,
     RagDependencyError,
     OSError,
     ValueError,
@@ -71,6 +79,8 @@ def _choice(report: CalibrationReport) -> str:
     seconds = report.chosen_seconds
     if seconds is None:  # one candidate per parameter: nothing to compare
         return "the only candidate, not timed"
+    if report.requests > 1:
+        return f"{seconds:.3f} s for {report.requests} requests at once"
     return f"{seconds:.3f} s per request"
 
 
@@ -83,11 +93,15 @@ def _search(report: CalibrationReport) -> str:
     return text
 
 
-async def calibrate_parts(parts: Sequence[ModelServerPart]) -> int:
+async def calibrate_parts(
+    parts: Sequence[ModelServerPart], ovms_models: Path | None = None
+) -> int:
     """Calibrate each part in turn, printing its lines as soon as it is done.
 
     Args:
         parts: Which components to calibrate, in order.
+        ovms_models: OVMS's export to calibrate OVMS on; None for the
+            in-process models.
 
     Returns:
         0 once every part is printed; 1 after an expected failure, reported as
@@ -100,29 +114,32 @@ async def calibrate_parts(parts: Sequence[ModelServerPart]) -> int:
     try:
         settings = RagSettings()
     except ValueError as exc:  # pydantic's ValidationError is one
-        return _failed("cannot read the settings", exc)
+        return one_line_failure(PROG, "cannot read the settings", exc)
     async with CompositionRoot(settings) as composition:
-        return await _print_each(composition, parts)
+        return await _print_each(composition, parts, ovms_models)
 
 
 async def _print_each(
-    composition: CompositionRoot, parts: Sequence[ModelServerPart]
+    composition: CompositionRoot,
+    parts: Sequence[ModelServerPart],
+    ovms_models: Path | None,
 ) -> int:
     # Each part is printed as soon as it is done, so a later failure keeps it.
     for part in parts:
         try:
-            calibration = await composition.calibration(part)
+            calibration = await _calibration(composition, part, ovms_models)
         except EXPECTED_ERRORS as exc:
-            return _failed(f"cannot calibrate {part}", exc)
+            return one_line_failure(PROG, f"cannot calibrate {part}", exc)
         print("\n".join(env_lines(calibration)), flush=True)
     return 0
 
 
-def _failed(what: str, exc: BaseException) -> int:
-    # One line: pydantic's message spans several, and the value it names is on one.
-    detail = " ".join(str(exc).split())
-    print(f"{PROG}: {what}: {detail}", file=sys.stderr)
-    return 1
+async def _calibration(
+    composition: CompositionRoot, part: ModelServerPart, ovms_models: Path | None
+) -> ComponentCalibration:
+    if ovms_models is None:
+        return await composition.calibration(part)
+    return await composition.ovms_calibration(part, ovms_models)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -144,8 +161,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         "machine and print the RAG_* settings that pin the result, as .env lines.",
     )
     parser.add_argument("--only", choices=PARTS, help="calibrate just this model")
+    parser.add_argument(
+        "--ovms-models",
+        type=Path,
+        metavar="DIR",
+        help="calibrate OpenVINO Model Server on the export in DIR (needs ovms on "
+        "PATH) instead of the in-process models; it prints RAG_OVMS_NUM_STREAMS "
+        "and RAG_OVMS_THREADS, pinned per App (one OVMS App serves one model)",
+    )
     args = parser.parse_args(argv)
     # The Apps' log format, on stderr: stdout holds only the .env lines.
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     parts = [args.only] if args.only else list(PARTS)
-    return asyncio.run(calibrate_parts(parts))
+    return asyncio.run(calibrate_parts(parts, args.ovms_models))
