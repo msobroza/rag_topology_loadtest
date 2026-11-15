@@ -1,10 +1,11 @@
 """``SshAppLauncher``: runs an App as a systemd unit on its machine, over ``ssh``.
 
 Emulation only. One unit per machine (``PlacementSettings.unit``), run as the
-SSH user with its output in journald (``journalctl -u rag-app``). Starting stops
-and resets the previous unit, writes the start script (sent on stdin, never on
-the command line: it holds the project's secrets) to ``$HOME/<unit>.sh`` with
-mode 600, and starts it with ``systemd-run``. Every ``ssh`` call is
+SSH user with its output in journald (``journalctl -u rag-app``). Stopping stops
+and resets the unit. Starting does the same to the previous unit, writes the
+start script (sent on stdin, never on the command line: it holds the project's
+secrets) to ``$HOME/<unit>.sh`` with mode 600, and starts it with
+``systemd-run``. Every ``ssh`` call is
 non-interactive, has a connect timeout and a timeout of its own, and is never
 retried: the fake polls the state on every GET of the App instead.
 
@@ -91,14 +92,23 @@ class SshAppLauncher(BaseAppLauncher):
         )
         script = f'"$HOME"/{shlex.quote(self.settings.unit + ".sh")}'
         stop_timeout = f"TimeoutStopSec={math.ceil(self.settings.stop_timeout_seconds)}"
-        # stop and reset-failed fail when there is no previous unit: hence `;`.
         return (
-            f"sudo systemctl stop {unit}.service 2>/dev/null; "
-            f"sudo systemctl reset-failed {unit}.service 2>/dev/null; "
+            f"{self._stop_previous()}"
             f"umask 077 && cat > {script} && "
             f"sudo systemd-run --unit={unit} --uid={user} "
             f'--working-directory="$HOME" --property={stop_timeout} bash {script}'
         )
+
+    def stop_command(self) -> str:
+        """The remote command that stops and resets the machine's App.
+
+        Returns:
+            One shell command line; it fails only if the unit is still active.
+        """
+        # systemctl stop fails on a unit already gone (a transient one unloads
+        # when it ends), which is a success here: only a unit left active is not.
+        unit = shlex.quote(self.settings.unit)
+        return f"{self._stop_previous()}! systemctl is-active --quiet {unit}.service"
 
     def state_command(self) -> str:
         """The remote command that prints the unit's state.
@@ -125,6 +135,20 @@ class SshAppLauncher(BaseAppLauncher):
                 f"could not start unit {self.settings.unit} on {machine}: "
                 f"exit {result.returncode}: {result.stderr.strip()}"
             )
+
+    def stop(self, machine: str) -> None:
+        """Stop and reset ``machine``'s unit; a failure is logged, not raised.
+
+        Args:
+            machine: The machine's address.
+        """
+        try:
+            result = self._ssh(machine, self.stop_command(), stdin=None)
+        except AppLaunchError as exc:
+            _stop_failed(machine, str(exc))
+            return
+        if result.returncode != 0:
+            _stop_failed(machine, f"exit {result.returncode}: {result.stderr.strip()}")
 
     def state(self, machine: str) -> AppRunState:
         """Say how the App on ``machine`` is doing; a failed ``ssh`` is logged.
@@ -158,6 +182,14 @@ class SshAppLauncher(BaseAppLauncher):
             return AppRunState.RUNNING
         return AppRunState.STARTING
 
+    def _stop_previous(self) -> str:
+        # stop and reset-failed fail when there is no previous unit: hence `;`.
+        unit = shlex.quote(self.settings.unit)
+        return (
+            f"sudo systemctl stop {unit}.service 2>/dev/null; "
+            f"sudo systemctl reset-failed {unit}.service 2>/dev/null; "
+        )
+
     def _ssh(self, machine: str, command: str, stdin: str | None) -> CommandResult:
         # A local failure (ssh missing, timed out) reads like a remote one.
         argv = self.ssh_argv(machine, command)
@@ -172,3 +204,8 @@ def _unknown(error: str) -> AppRunState:
     # ssh could not ask the machine: log why and report the App as still starting.
     log_event(logging.WARNING, event="app_state_unknown", error=error)
     return AppRunState.STARTING
+
+
+def _stop_failed(machine: str, error: str) -> None:
+    # The machine is released anyway: the next App started there stops this one.
+    log_event(logging.WARNING, event="app_stop_failed", machine=machine, error=error)

@@ -10,7 +10,7 @@ To rehearse a Domino deployment on Google Cloud, and to compare topologies there
 
 ## Consequences
 
-- One machine per App: an App's `autoscalingSpecification` is accepted and ignored, and an App whose hardware tier has no free machine stays `Queued`.
+- One machine per App: an App's `autoscalingSpecification` is accepted and ignored, and an App whose hardware tier has no free machine stays `Queued`. (Replaced by ADR 0002: one machine per replica.)
 - A machine is a whole VM: an App sees the machine's CPUs, not a container's quota as on Domino.
 - Every call to an App passes the fake's proxy, a single Python process, so each comparison includes one run that bypasses it to show its share of the numbers. Absolute numbers do not transfer to Domino; differences between topologies do.
 - The key the fake uses to reach the machines is in Terraform's state, so the bucket holding that state stays private.

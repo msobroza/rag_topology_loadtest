@@ -17,8 +17,10 @@ Domino prefix is stripped before the App sees the path; and with an API key the
 "viewer's token" under extended propagation is the user's run token.
 Visibility and ``accessStatuses`` are stored and echoed, never enforced.
 
-Emulation only: an App placed on a machine is forwarded to
-``http://<machine>:<app_port>`` unless ``--upstream`` names it. One pooled
+Emulation only: an App placed on machines is forwarded to
+``http://<machine>:<app_port>`` of one of them, picked by the
+``replica_balancing`` rule (``replica_balancing.py``), unless ``--upstream``
+names it. One pooled
 ``httpx.AsyncClient`` carries every forwarded request for the fake's lifetime;
 ``aclose`` (on the app's shutdown) closes it.
 
@@ -47,6 +49,7 @@ from .identity import (
     caller_of,
 )
 from .proxy_settings import FakeDominoProxySettings, UnauthenticatedResponse
+from .replica_balancing import replica_balancer
 
 DOMINO_USERNAME_HEADER = "domino-username"
 LOGIN_PATH = f"{KEYCLOAK_REALM_PATH}/protocol/openid-connect/auth"  # assumed
@@ -65,7 +68,7 @@ class AppTarget(NamedTuple):
     version: FakeVersion  # whose instance answers
     prefix: str  # the Domino path in front of the App's own, e.g. "/apps/app-1"
     sub_path: str  # the App's own path, without the leading "/"
-    placed_upstream: str | None = None  # the App's machine, in the emulation
+    placed_upstreams: tuple[str, ...] = ()  # the App's machines, in the emulation
 
 
 class FakeAppProxy:
@@ -88,6 +91,7 @@ class FakeAppProxy:
     ) -> None:
         self.settings = settings
         self.tokens = FakeIdentityTokens()
+        self._balancer = replica_balancer(settings.replica_balancing)
         self._transport = transport
         self._client: httpx.AsyncClient | None = None  # made on first forward
 
@@ -136,11 +140,12 @@ class FakeAppProxy:
 
         Returns:
             The App's answer when an upstream is configured for it or it runs
-            on a machine (``--upstream`` wins); otherwise the ``/readyz``
-            stand-in, or 502 for any other path.
+            on machines (``--upstream`` wins; one machine is picked per
+            request); otherwise the ``/readyz`` stand-in, or 502 for any other
+            path.
         """
         name = target.app.request.name
-        upstream = self.settings.upstreams.get(name) or target.placed_upstream
+        upstream = self._upstream_for(request, target)
         if upstream is None and target.sub_path == "readyz":
             return readyz_stand_in(target.version)
         if upstream is None:
@@ -152,6 +157,15 @@ class FakeAppProxy:
         issuer = f"{str(request.base_url).rstrip('/')}{KEYCLOAK_REALM_PATH}"
         headers = _passed_on(request.headers) + self._identity(caller, target, issuer)
         return await self._forward(request, upstream, target, headers)
+
+    def _upstream_for(self, request: Request, target: AppTarget) -> str | None:
+        # --upstream wins; else one of the App's machines, by the balancing rule.
+        named = self.settings.upstreams.get(target.app.request.name)
+        if named or not target.placed_upstreams:
+            return named
+        client = request.client
+        connection = (client.host, client.port) if client is not None else None
+        return self._balancer.pick(target.app.id, target.placed_upstreams, connection)
 
     def _identity(
         self, caller: str, target: AppTarget, issuer: str

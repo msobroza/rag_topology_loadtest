@@ -48,10 +48,12 @@ PLACEMENT = PlacementSettings(
 
 
 class FakeAppLauncher(BaseAppLauncher):
-    """Records each start; reports the state a test sets per machine (default starting)."""
+    """Records each start and stop; reports the state a test sets per machine
+    (default starting)."""
 
     def __init__(self) -> None:
         self.starts: list[tuple[str, str]] = []  # (machine, script)
+        self.stops: list[str] = []  # machines
         self.states: dict[str, AppRunState] = {}
         self.unreachable: set[str] = set()
 
@@ -59,6 +61,9 @@ class FakeAppLauncher(BaseAppLauncher):
         if machine in self.unreachable:
             raise AppLaunchError(f"ssh to {machine}: Connection timed out")
         self.starts.append((machine, script))
+
+    def stop(self, machine: str) -> None:
+        self.stops.append(machine)
 
     def state(self, machine: str) -> AppRunState:
         return self.states.get(machine, AppRunState.STARTING)
