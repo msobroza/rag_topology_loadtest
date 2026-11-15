@@ -23,6 +23,7 @@ from emulation_machine_fakes import (
     FakeMachine,
     make_machine,
     restore_from_common_sh,
+    run_common_sh_function,
     run_machine_script,
 )
 
@@ -175,6 +176,62 @@ def test_the_boot_restore_refuses_an_object_of_another_shape(
 
     assert result.returncode != 0
     assert "models/openvino/nested/model.tar" in result.stderr
+
+
+def pinned_ovms_bundle(machine: FakeMachine, name: str, content: str) -> Path:
+    """A clone whose ovms/versions.env pins a tarball the download host serves."""
+    served = machine.root / "downloads" / name
+    served.parent.mkdir(exist_ok=True)
+    served.write_text(content)
+    repo = machine.root / "repo"
+    (repo / "ovms").mkdir(parents=True, exist_ok=True)
+    pin = f"OVMS_BINARY_URL=https://downloads.test/{name}\n"
+    (repo / "ovms" / "versions.env").write_text(pin)
+    return repo
+
+
+def fetch_ovms_bundle(
+    machine: FakeMachine, repo: Path, bundle: Path
+) -> subprocess.CompletedProcess[str]:
+    return run_common_sh_function(machine, "fetch_ovms_bundle", str(repo), str(bundle))
+
+
+def test_fetch_ovms_bundle_downloads_the_pinned_tarball(machine: FakeMachine) -> None:
+    repo = pinned_ovms_bundle(machine, "ovms-1.tar.gz", "binary one")
+    bundle = machine.root / "opt" / "ovms.tar.gz"
+
+    result = fetch_ovms_bundle(machine, repo, bundle)
+
+    assert result.returncode == 0, result.stderr
+    assert bundle.read_text() == "binary one"
+    url = "https://downloads.test/ovms-1.tar.gz"
+    assert Path(f"{bundle}.url").read_text() == f"{url}\n"
+
+
+def test_fetch_ovms_bundle_fetches_again_only_when_the_pin_changes(
+    machine: FakeMachine,
+) -> None:
+    repo = pinned_ovms_bundle(machine, "ovms-1.tar.gz", "binary one")
+    bundle = machine.root / "ovms.tar.gz"
+    assert fetch_ovms_bundle(machine, repo, bundle).returncode == 0
+    calls = machine.curl_argv().count("downloads.test")
+
+    assert fetch_ovms_bundle(machine, repo, bundle).returncode == 0
+    assert machine.curl_argv().count("downloads.test") == calls
+    pinned_ovms_bundle(machine, "ovms-2.tar.gz", "binary two")
+    assert fetch_ovms_bundle(machine, repo, bundle).returncode == 0
+    assert bundle.read_text() == "binary two"
+
+
+def test_fetch_ovms_bundle_without_a_pin_names_the_file(machine: FakeMachine) -> None:
+    repo = machine.root / "repo"
+    (repo / "ovms").mkdir(parents=True)
+    (repo / "ovms" / "versions.env").write_text("OVMS_VERSION=1\n")
+
+    result = fetch_ovms_bundle(machine, repo, machine.root / "ovms.tar.gz")
+
+    assert result.returncode != 0
+    assert f"no OVMS_BINARY_URL in {repo}/ovms/versions.env" in result.stderr
 
 
 def test_snapshot_save_replaces_the_snapshot_named_after_the_embedder(

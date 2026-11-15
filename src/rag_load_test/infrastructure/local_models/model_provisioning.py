@@ -7,6 +7,11 @@ downloads the model, converts it and saves it there (``export_embedder`` /
 directly. ``torch`` loads the id as before: the Hugging Face cache keeps its
 download. ``rag-export-openvino`` still writes the same folders ahead of time.
 
+Under ``openvino`` the packages are checked first, whether or not the folder
+exists: a missing one is then ``OpenVinoUnavailableError``, naming it and the pip
+extra, instead of the bare ``Exception`` sentence-transformers raises while
+loading (seen by rag-calibrate in the sitting of 15 November 2026).
+
 The export blocks for minutes, so it runs on the executor given, never on the
 event loop. No lock guards the folder: each App provisions on its own disk, and
 within one process ``ResourceScope`` opens each model once, so no two writers ever
@@ -19,6 +24,7 @@ Example:
     ...     runtime="openvino",
     ...     models_dir="models/openvino",
     ...     export=export_embedder,
+    ...     require_packages=require_openvino,
     ...     executor=pool,
     ... )
     >>> model.source  # "models/openvino/embedder", exported now or earlier
@@ -39,6 +45,8 @@ from .model_pool import run_blocking
 
 # ``export_embedder`` or ``export_reranker``: (model id, target folder) -> folder.
 Exporter = Callable[[str, Path], Path]
+# ``require_openvino``: returns when the runtime's packages import, else raises.
+PackageCheck = Callable[[], None]
 
 
 class ModelProvisioningError(RuntimeError):
@@ -51,6 +59,7 @@ async def provision_local_model(
     runtime: LocalModelRuntime,
     models_dir: str,
     export: Exporter,
+    require_packages: PackageCheck,
     executor: Executor,
 ) -> LocalModel:
     """Describe ``model_id``, exporting it first when ``openvino`` lacks its folder.
@@ -60,27 +69,48 @@ async def provision_local_model(
         runtime: ``openvino`` or ``torch``; only ``openvino`` ever exports.
         models_dir: The folder holding the OpenVINO exports.
         export: Downloads, converts and writes one model to a folder.
+        require_packages: Raises when the ``openvino`` runtime's packages are
+            missing; called under ``openvino`` before anything loads.
         executor: Where the blocking export runs, off the event loop.
 
     Returns:
         The model as ``local_model`` describes it once any export is done.
 
     Raises:
+        OpenVinoUnavailableError: Under ``openvino``, a package is missing (as
+            ``require_packages`` raises it); nothing is exported.
         ModelProvisioningError: The export failed; names the model, the folder
             and the cause. No folder is left behind.
+
+    Example:
+        >>> model = await provision_local_model(
+        ...     "org/reranker", runtime="torch", models_dir="models/openvino",
+        ...     export=export_reranker, require_packages=require_openvino,
+        ...     executor=pool,
+        ... )
+        >>> model.source
+        'org/reranker'
     """
-    folder = exported_model_dir(models_dir, model_id)
-    if runtime == "openvino" and not folder.is_dir():
-        try:
-            await run_blocking(executor, _timed_export, export, model_id, folder)
-        except Exception as exc:
-            raise ModelProvisioningError(
-                f"could not export {model_id!r} to OpenVINO in {folder}: "
-                f"{describe_error(exc)} (a first start downloads it from the Hugging "
-                "Face Hub, so it needs the network and no HF_HUB_OFFLINE=1; "
-                "rag-export-openvino writes the folder ahead of time)"
-            ) from exc
+    if runtime == "openvino":
+        require_packages()  # before the folder test: loading needs them too
+        folder = exported_model_dir(models_dir, model_id)
+        if not folder.is_dir():
+            await _export_into(folder, export, model_id, executor)
     return local_model(model_id, runtime=runtime, models_dir=models_dir)
+
+
+async def _export_into(
+    folder: Path, export: Exporter, model_id: str, executor: Executor
+) -> None:
+    try:
+        await run_blocking(executor, _timed_export, export, model_id, folder)
+    except Exception as exc:
+        raise ModelProvisioningError(
+            f"could not export {model_id!r} to OpenVINO in {folder}: "
+            f"{describe_error(exc)} (a first start downloads it from the Hugging "
+            "Face Hub, so it needs the network and no HF_HUB_OFFLINE=1; "
+            "rag-export-openvino writes the folder ahead of time)"
+        ) from exc
 
 
 # Runs on the executor; one JSON line once the folder is in place.

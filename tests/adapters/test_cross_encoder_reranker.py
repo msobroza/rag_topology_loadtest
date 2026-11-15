@@ -24,14 +24,25 @@ pytest_plugins = ["local_model_fixtures"]
 
 
 class FakeCrossEncoder:
-    """``predict`` double returning scripted scores as a float32 array."""
+    """``predict`` double returning scripted scores as a float32 array.
+
+    ``show_progress_bar`` has no default, so a ``predict`` call without it fails.
+    """
 
     def __init__(self, scores: Sequence[float]) -> None:
         self.scores = list(scores)
         self.calls: list[dict[str, Any]] = []
 
-    def predict(self, pairs: list[tuple[str, str]], *, batch_size: int) -> np.ndarray:
-        self.calls.append({"pairs": list(pairs), "batch_size": batch_size})
+    def predict(
+        self, pairs: list[tuple[str, str]], *, batch_size: int, show_progress_bar: bool
+    ) -> np.ndarray:
+        self.calls.append(
+            {
+                "pairs": list(pairs),
+                "batch_size": batch_size,
+                "show_progress_bar": show_progress_bar,
+            }
+        )
         return np.array(self.scores[: len(pairs)], dtype=np.float32)
 
 
@@ -50,7 +61,10 @@ async def test_cross_encoder_orders_by_score_and_truncates(
     assert all(type(p.rerank_score) is float for p in ranked)
     assert all(p.retrieval_score == 0.5 for p in ranked)
     expected_pairs = [("q", "text of a"), ("q", "text of b"), ("q", "text of c")]
-    assert model.calls == [{"pairs": expected_pairs, "batch_size": 4}]
+    # No tqdm bar on stderr per call (the Apps log at INFO).
+    assert model.calls == [
+        {"pairs": expected_pairs, "batch_size": 4, "show_progress_bar": False}
+    ]
 
 
 async def test_cross_encoder_empty_input_skips_model(

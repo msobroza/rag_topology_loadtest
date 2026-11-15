@@ -27,7 +27,7 @@ _INSTALL_HINT = "pip install 'sentence-transformers[openvino]'"
 
 
 class OpenVinoUnavailableError(ImportError):
-    """The OpenVINO packages the export needs are not installed."""
+    """The OpenVINO packages the ``openvino`` runtime needs are not installed."""
 
 
 def export_embedder(model_id: str, target: Path) -> Path:
@@ -84,8 +84,8 @@ def require_openvino() -> None:
             importlib.import_module(name)
         except ModuleNotFoundError as exc:
             raise OpenVinoUnavailableError(
-                f"OpenVINO export needs module {exc.name!r} (for {name!r}), "
-                f"which is not installed; {_INSTALL_HINT}"
+                f"the openvino runtime needs module {exc.name!r} (for {name!r}) "
+                f"to export or load a model, and it is not installed; {_INSTALL_HINT}"
             ) from exc
 
 

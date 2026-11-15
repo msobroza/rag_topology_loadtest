@@ -117,6 +117,9 @@ class RagSettings(BaseSettings):
     embedding_batch_size: int = Field(default=64, ge=1)  # texts per call
     # 0 = calibrated at start-up, up to the thread budget's share
     embedding_threads: int = Field(default=0, ge=0)
+    # Scale each vector the in-process embedder returns to unit length. Off is
+    # safe: every store compares vectors by cosine, which ignores their length.
+    embedding_normalize: bool = False
 
     # --- rerank ----------------------------------------------------------------------
     rerank_backend: RerankBackend = Field(

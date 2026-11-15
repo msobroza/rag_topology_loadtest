@@ -17,6 +17,7 @@ DOMINO_PORT='${domino_port}'
 POOL_ADDRESSES='${pool_addresses}'
 CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
+OVMS_BUNDLE='${ovms_bundle_path}'
 
 # The project's virtualenv in the clone, with the loadtest and emulation extras: rag-deploy,
 # rag-ingest, rag-fetch-corpus, locust and rag-domino-emulation.
@@ -74,7 +75,7 @@ write_deploy_yaml() {
 # Apps run on pool machines, so they are handed URLs on this machine's address.
 domino_host: "http://${workspace_address}:${domino_port}"
 run_token_url: "http://localhost:${domino_port}/access-token"
-# On every pool machine (for model_server: ovms).
+# On every pool machine and on this one (for model_server: ovms).
 ovms_bundle: "${ovms_bundle_path}"
 defaults:
   environment_id: "${environment_id}"
@@ -113,6 +114,9 @@ sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
 # Only the OpenVINO exports: what rag-ingest loads on this machine.
 write_cache_config "$CACHE_BUCKET" "$DATASET_PATH"
 restore_cached_models "$CACHE_BUCKET" "$CACHE_OPENVINO_PREFIX" "$DATASET_PATH"
+# rag-deploy checks that deploy.yaml's ovms_bundle exists on this machine before an
+# OVMS deploy, as on Domino where the Workspace mounts the Apps' Dataset.
+fetch_ovms_bundle "$REPO_PATH" "$OVMS_BUNDLE"
 install_project
 install_ssh_key
 write_fake_domino_config
