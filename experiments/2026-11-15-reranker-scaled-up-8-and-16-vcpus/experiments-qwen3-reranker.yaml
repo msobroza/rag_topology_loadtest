@@ -1,0 +1,248 @@
+# Sitting of 15 November 2026 from 14:00 UTC, last group: a larger reranker, Qwen3 with
+# 0.6 B parameters, on the big machine of phase B, first limited to 8 CPUs, then on its
+# 16. The owner's question: with a bigger reranker, and a model converted by OpenVINO,
+# does OVMS overtake the FastAPI model server? See README.md.
+#
+# Run names: q8-<cell>-<passages>-u<users> on 8 CPUs, q16-... on 16. Runs last 3 minutes.
+
+common:
+  code: &code branch claude/ovms-stream-calibration at commit f42b13e on the big machine and the Workspace
+  workspace: &workspace {machine_type: n2-standard-4, vcpus: 4, spot: false}
+  big_machine_8: &big_machine_8
+    machine_type: n2-standard-16
+    vcpus_online: 8
+    cores: 4
+    how: CPUs 4-7 and 12-15 taken offline, so cores 0-3 keep both threads, the shape of an 8-vCPU machine
+    hardware_tier: cpu-16
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+  big_machine_16: &big_machine_16
+    machine_type: n2-standard-16
+    vcpus_online: 16
+    cores: 8
+    hardware_tier: cpu-16
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+  hardware_8: &hardware_8
+    workspace: *workspace
+    reranker: {replicas: 1, machine: *big_machine_8}
+    idle: Elasticsearch and the two 2-vCPU machines
+  hardware_16: &hardware_16
+    workspace: *workspace
+    reranker: {replicas: 1, machine: *big_machine_16}
+    idle: Elasticsearch and the two 2-vCPU machines
+  models: &models
+    sentence_transformers: tomaarsen/Qwen3-Reranker-0.6B-seq-cls (2.38 GB, 32-bit floats; 28 layers, hidden size 1024)
+    openvino: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov (OpenVINO's conversion of it, 1.19 GB, 16-bit weights)
+  prompts: &prompts
+    source: both model cards give the same format, applied by the client
+    query: "<prefix><Instruct>: <instruction>\\n<Query>: <question>\\n"
+    document: "<Document>: <passage><suffix>"
+    prefix: >-
+      <|im_start|>system\nJudge whether the Document meets the requirements based on the
+      Query and the Instruct provided. Note that the answer can only be "yes" or
+      "no".<|im_end|>\n<|im_start|>user\n
+    suffix: "<|im_end|>\\n<|im_start|>assistant\\n<think>\\n\\n</think>\\n\\n"
+    instruction: Given a web search query, retrieve relevant passages that answer the query
+  load: &load
+    target: the reranker's machine, port 8888, without the emulated Domino's proxy
+    route: POST /v3/rerank
+    command: a Locust file of the sitting, the repository's rerank request with the prompts above
+    request: one of 50 synthetic questions, 20 passages, top_n 10
+    wait_between_requests: 0.2 to 1.0 s, as the repository's load test
+    duration: 3m
+  uniform: &uniform the load test's 20 synthetic passages, 303 to 380 characters
+  mixed: &mixed the calibration sample's 20 passages, 150 to 800 characters
+  fastapi_own: &fastapi_own
+    topology: split-reranker
+    model_server: fastapi
+    apps:
+      reranker:
+        hardware_tier_id: cpu-16
+        autoscaling: {min_replicas: 1, max_replicas: 1}
+        settings:
+          RAG_RERANK_MODEL: tomaarsen/Qwen3-Reranker-0.6B-seq-cls
+          RAG_OPENVINO_MODELS_DIR: a folder holding the project's own fp32 export of that model
+          RAG_RERANK_API_MODEL: qwen3-reranker
+          RAG_MODEL_CPUS: 8
+          RAG_CALIBRATION_BUDGET_S: 900
+    deploy_target: deploy-reranker
+  fastapi_ir_settings: &fastapi_ir_settings
+    RAG_RERANK_MODEL: OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov
+    RAG_OPENVINO_MODELS_DIR: the folder OVMS pulled that model into, so the server loads OpenVINO's files as they are
+    RAG_RERANK_API_MODEL: qwen3-reranker
+    RAG_CALIBRATION_BUDGET_S: 900
+  ovms_by_hand: &ovms_by_hand >-
+    none; OVMS started by hand on the big machine. The model was pulled as OpenVINO's card
+    says (ovms --pull --source_model OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov --task
+    rerank, 27 s); rag-ovms-config calibrated its streams and threads for 4 requests in
+    flight (RAG_CALIBRATION_USERS=4, RAG_CALIBRATION_BUDGET_S=900,
+    RAG_OVMS_START_TIMEOUT_S=300) and wrote the serving folder; ovms --rest_port 8888
+    served it
+  calibration_a: &calibration_a
+    chosen: {threads: 8, batch_size: 2, seconds_per_request: 4.53}
+    search_seconds: 128
+    trials_on_8_threads: {batch_20: 6.81, batch_10: 5.38, batch_5: 4.92, batch_2: 4.53, batch_1: 4.75}
+    trials_at_batch_2: {threads_4: 4.65, threads_2: 8.94, threads_1: 17.75}
+  calibration_b8: &calibration_b8
+    chosen: {threads: 8, batch_size: 2, seconds_per_request: 4.58}
+    search_seconds: 131
+    trials_on_8_threads: {batch_20: 6.76, batch_10: 5.21, batch_5: 5.00, batch_2: 4.58, batch_1: 5.07}
+    trials_at_batch_2: {threads_4: 5.03, threads_2: 9.17, threads_1: 18.00}
+  calibration_c8: &calibration_c8
+    chosen: {streams: 4, threads: 8}
+    requests_in_flight: 4
+    search_seconds: 390
+    trials_on_8_threads_seconds: {streams_1: 29.73, streams_2: 27.01, streams_4: 25.93, streams_8: 27.48}
+    trials_at_4_streams_seconds: {threads_4: 53.77}
+  calibration_b16: &calibration_b16
+    chosen: {threads: 16, batch_size: 2, seconds_per_request: 2.34}
+    search_seconds: 105
+    trials_on_16_threads: {batch_20: 3.31, batch_10: 2.59, batch_5: 2.50, batch_2: 2.34, batch_1: 2.67}
+    trials_at_batch_2: {threads_8: 2.44, threads_4: 4.46, threads_2: 8.53, threads_1: 16.77}
+  calibration_c16: &calibration_c16
+    chosen: {streams: 4, threads: 16}
+    requests_in_flight: 4
+    search_seconds: 311
+    trials_on_16_threads_seconds: {streams_1: 13.21, streams_2: 12.80, streams_4: 12.49, streams_8: 24.67, streams_16: 25.59}
+    trials_at_4_streams_seconds: {threads_8: 12.99, threads_4: 26.14}
+
+experiments:
+  - id: q-model-checks
+    question: Does each way of loading the model return the scores its model card prints for its own example?
+    code: *code
+    hardware: *hardware_8
+    models: *models
+    prompts: *prompts
+    deploy: none; a script on the big machine, and one request to each server once it served
+    measurements:
+      card_example: one question and four documents, formatted as above
+      card_scores: [0.0427, 0.9992, 0.4064, 0.9718]
+      sentence_transformers_on_own_fp32_export: {scores: [0.0427, 0.9992, 0.4064, 0.9718], export_and_load_s: 47.2}
+      sentence_transformers_on_openvino_fp16_file: {scores: [0.0427, 0.9992, 0.4059, 0.9718], load_s: 2.5}
+      sentence_transformers_under_torch: {scores: [0.0427, 0.9992, 0.4064, 0.9718], load_s: 2.7}
+      fastapi_model_server_own_export: {scores: [0.0427, 0.9992, 0.4064, 0.9718]}
+      fastapi_model_server_openvino_file: {scores: [0.0427, 0.9992, 0.4059, 0.9718]}
+      ovms_on_openvino_file: {scores: [0.0655, 0.9956, 0.4441, 0.9497]}
+    notes:
+      - OVMS ranks the four documents in the same order, with other values. Why was not established.
+
+  - id: q8-fastapi-own-export-uniform
+    question: Cell a. The FastAPI model server on the project's own fp32 export, 8 CPUs, uniform passages.
+    code: *code
+    hardware: *hardware_8
+    models: *models
+    prompts: *prompts
+    deploy: *fastapi_own
+    server: {weights: "fp32, the project's own export", runtime: openvino}
+    calibration: *calibration_a
+    load: {<<: *load, passages: *uniform, users: [1, 4]}
+    runs: [q8-fastapi-own-export-uniform-u1, q8-fastapi-own-export-uniform-u4]
+
+  - id: q8-fastapi-own-export-mixed
+    question: Cell a on passages of mixed length.
+    code: *code
+    hardware: *hardware_8
+    deploy: *fastapi_own
+    server: {weights: "fp32, the project's own export", runtime: openvino}
+    calibration: *calibration_a
+    load: {<<: *load, passages: *mixed, users: [4]}
+    runs: [q8-fastapi-own-export-mixed-u4]
+
+  - id: q8-fastapi-openvino-ir-uniform
+    question: Cell b. The FastAPI model server on OpenVINO's own conversion, 8 CPUs, uniform passages.
+    code: *code
+    hardware: *hardware_8
+    deploy: &fastapi_ir_8
+      topology: split-reranker
+      model_server: fastapi
+      apps:
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+          settings: {<<: *fastapi_ir_settings, RAG_MODEL_CPUS: 8}
+      deploy_target: deploy-reranker
+    server: {weights: "fp16, OpenVINO's conversion", runtime: openvino}
+    calibration: *calibration_b8
+    load: {<<: *load, passages: *uniform, users: [1, 4]}
+    runs: [q8-fastapi-openvino-ir-uniform-u1, q8-fastapi-openvino-ir-uniform-u4]
+
+  - id: q8-fastapi-openvino-ir-mixed
+    question: Cell b on passages of mixed length.
+    code: *code
+    hardware: *hardware_8
+    deploy: *fastapi_ir_8
+    server: {weights: "fp16, OpenVINO's conversion", runtime: openvino}
+    calibration: *calibration_b8
+    load: {<<: *load, passages: *mixed, users: [4]}
+    runs: [q8-fastapi-openvino-ir-mixed-u4]
+
+  - id: q8-ovms-openvino-ir-uniform
+    question: Cell c. OVMS on OpenVINO's own conversion, 8 CPUs, uniform passages.
+    code: *code
+    hardware: *hardware_8
+    deploy: *ovms_by_hand
+    server: {weights: "fp16, OpenVINO's conversion", streams: 4, threads: 8}
+    calibration: *calibration_c8
+    load: {<<: *load, passages: *uniform, users: [1, 4]}
+    runs: [q8-ovms-openvino-ir-uniform-u1, q8-ovms-openvino-ir-uniform-u4]
+    notes:
+      - RAG_MODEL_CPUS=8 for rag-ovms-config; OVMS itself saw the 8 CPUs online.
+
+  - id: q8-ovms-openvino-ir-mixed
+    question: Cell c on passages of mixed length.
+    code: *code
+    hardware: *hardware_8
+    deploy: *ovms_by_hand
+    server: {weights: "fp16, OpenVINO's conversion", streams: 4, threads: 8}
+    calibration: *calibration_c8
+    load: {<<: *load, passages: *mixed, users: [4]}
+    runs: [q8-ovms-openvino-ir-mixed-u4]
+
+  - id: q16-fastapi-openvino-ir-uniform
+    question: Cell b on the machine's 16 CPUs, uniform passages.
+    code: *code
+    hardware: *hardware_16
+    deploy: &fastapi_ir_16
+      topology: split-reranker
+      model_server: fastapi
+      apps:
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+          settings: {<<: *fastapi_ir_settings, RAG_MODEL_CPUS: 16}
+      deploy_target: deploy-reranker
+    server: {weights: "fp16, OpenVINO's conversion", runtime: openvino}
+    calibration: *calibration_b16
+    load: {<<: *load, passages: *uniform, users: [1, 4, 8]}
+    runs: [q16-fastapi-openvino-ir-uniform-u1, q16-fastapi-openvino-ir-uniform-u4, q16-fastapi-openvino-ir-uniform-u8]
+
+  - id: q16-fastapi-openvino-ir-mixed
+    question: Cell b on 16 CPUs, passages of mixed length.
+    code: *code
+    hardware: *hardware_16
+    deploy: *fastapi_ir_16
+    server: {weights: "fp16, OpenVINO's conversion", runtime: openvino}
+    calibration: *calibration_b16
+    load: {<<: *load, passages: *mixed, users: [4]}
+    runs: [q16-fastapi-openvino-ir-mixed-u4]
+
+  - id: q16-ovms-openvino-ir-uniform
+    question: Cell c on the machine's 16 CPUs, uniform passages.
+    code: *code
+    hardware: *hardware_16
+    deploy: *ovms_by_hand
+    server: {weights: "fp16, OpenVINO's conversion", streams: 4, threads: 16}
+    calibration: *calibration_c16
+    load: {<<: *load, passages: *uniform, users: [1, 4, 8]}
+    runs: [q16-ovms-openvino-ir-uniform-u1, q16-ovms-openvino-ir-uniform-u4, q16-ovms-openvino-ir-uniform-u8]
+    notes:
+      - RAG_MODEL_CPUS=16 for rag-ovms-config.
+
+  - id: q16-ovms-openvino-ir-mixed
+    question: Cell c on 16 CPUs, passages of mixed length.
+    code: *code
+    hardware: *hardware_16
+    deploy: *ovms_by_hand
+    server: {weights: "fp16, OpenVINO's conversion", streams: 4, threads: 16}
+    calibration: *calibration_c16
+    load: {<<: *load, passages: *mixed, users: [4]}
+    runs: [q16-ovms-openvino-ir-mixed-u4]

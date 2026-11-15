@@ -149,11 +149,41 @@ The FastAPI model server under `torch` runs several calls at once (`RAG_MODEL_WO
 4 here). Alone, `fp32`, requests a second: 0.90 at 4 users and 0.98 at 16 on 8 vCPUs,
 against 1.00 and 1.01 under `openvino`; 1.61 and 1.94 on 16 vCPUs, against 1.81 and 1.80.
 
+### A larger reranker did not turn the result
+
+The same comparison on Qwen3 with 0.6 B parameters, about five times the small
+reranker's size: the FastAPI model server on the project's own `fp32` export of
+`tomaarsen/Qwen3-Reranker-0.6B-seq-cls` and on OpenVINO's own conversion,
+`OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov`, and OVMS on that conversion. Every
+request carries the prompt format the two model cards give. One reranker alone, 3-minute
+runs, requests a second:
+
+| CPUs | Passages, users | FastAPI, own export | FastAPI, OpenVINO's files | OVMS, OpenVINO's files |
+|---|---|---|---|---|
+| 8 | uniform, 1 | 0.15, p50 6.3 s | 0.15, p50 6.0 s | 0.08, p50 12 s |
+| 8 | uniform, 4 | 0.16 | 0.17 | 0.16 |
+| 8 | mixed, 4 | 0.13 | 0.14 | 0.11 |
+| 16 | uniform, 1 | not run | 0.27, p50 3.1 s | 0.15, p50 6.0 s |
+| 16 | uniform, 4 | not run | 0.33 | 0.33 |
+| 16 | mixed, 4 | not run | 0.27 | 0.21 |
+
+- The conversion changes nothing: the project's export and OpenVINO's files serve alike.
+- Under load on uniform passages the two servers serve alike. On passages of mixed
+  length the FastAPI model server leads, through its batch size again: 4.5 s a request
+  in batches of 2 against 6.8 s as one batch of 20, on 8 CPUs.
+- Streams gain more here than on the small reranker, and cost the lone user. For
+  4 requests in flight on 8 CPUs, 4 streams took 25.9 s against 29.7 s on one; a lone
+  request then takes 12 s on OVMS against 6 s on the FastAPI model server.
+- OVMS does not return the model cards' reference scores. For the cards' own example
+  the FastAPI path returns 0.0427, 0.9992, 0.4064 and 0.9718, as the cards print; OVMS,
+  on the same model file, returns 0.0655, 0.9956, 0.4441 and 0.9497. The order is the
+  same. Why was not established.
+
 ## Which to use
 
 A reading of the results above, not a measurement.
 
-- **The FastAPI model server** for this reranker on machines of up to 8 cores. It
+- **The FastAPI model server** for these rerankers on machines of up to 8 cores. It
   serves as much as OVMS on the same weights, more on passages of mixed length, and
   under overload it loses fewer requests. It scales with the cores of one instance
   (0.28, 1.0 and 1.8 requests a second on 2, 8 and 16 vCPUs) and with replicas.
@@ -164,10 +194,17 @@ A reading of the results above, not a measurement.
 ## Limits
 
 - Each figure is one 2-minute run. The stream timings are one or two rounds each.
-- One model, `crossencoder-camembert-base-mmarcoFR`, at 20 passages a request.
+- Two models at 20 passages a request: `crossencoder-camembert-base-mmarcoFR` for
+  every figure but the last section's, and Qwen3 with 0.6 B parameters there, whose
+  runs hold 14 to 60 requests each.
 - Machines of 2, 8 and 16 vCPUs. Nothing here says what happens with more cores, or
   with several sockets.
 - Ranking quality on `int8` weights was not checked.
+
+## Where the runs are
+
+Every run behind these figures, with its settings and its statistics, is registered in
+`experiments/` (the two sittings of 15 November 2026).
 
 ## Pages read
 
@@ -175,5 +212,8 @@ A reading of the results above, not a measurement.
   `docs/mediapipe.md`, `docs/dynamic_input.md`, `docs/starting_server.md`,
   `docs/metrics.md`, `docs/model_server_rest_api_rerank.md`, `demos/rerank/README.md`
   of `github.com/openvinotoolkit/model_server` at tag `v2026.3.1`.
+- The model cards of `tomaarsen/Qwen3-Reranker-0.6B-seq-cls` and
+  `OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov` on Hugging Face, for the prompt format
+  and the OVMS command.
 - FastAPI: "Concurrency and async / await", "Deployments Concepts" and "Server
   Workers - Uvicorn with Workers" of `fastapi.tiangolo.com`.

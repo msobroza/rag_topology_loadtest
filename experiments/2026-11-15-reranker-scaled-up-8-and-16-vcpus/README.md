@@ -1,9 +1,8 @@
 # The reranker scaled up to 8, then 16 vCPUs: OVMS against FastAPI
 
-Sitting of 15 November 2026 from 14:00 UTC. Registered on 15 November 2026 from the
-notes, the phase scripts and the statistics files of the session that ran it. The
-sitting was still running when this was written: a Qwen3 reranker comparison is to be
-added in the same format (see "Adding to this sitting").
+Sitting of 15 November 2026, 14:00 to 19:44 UTC. Registered on 15 November 2026 from
+the notes, the phase scripts and the statistics files of the session that ran it. Its
+last group compares the two servers on a larger reranker, Qwen3 with 0.6 B parameters.
 
 ## Question
 
@@ -93,6 +92,31 @@ Settings in full: [experiments-phase-a-8-vcpus.yaml](experiments-phase-a-8-vcpus
 and [experiments-phase-b-16-vcpus.yaml](experiments-phase-b-16-vcpus.yaml). Every row
 of every run: [results.csv](results.csv).
 
+### Qwen3 reranker, 0.6 B parameters
+
+The big machine of phase B, first with 8 CPUs online (4 cores with both threads), then
+with its 16. One reranker alone; 3 minutes a run; 20 passages a request; the prompt
+format of the two model cards on every request. Cell a is the FastAPI model server on
+the project's own `fp32` export of `tomaarsen/Qwen3-Reranker-0.6B-seq-cls`; cells b and
+c are the FastAPI model server and OVMS on OpenVINO's conversion,
+`OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov`. Every cell is calibrated. "uniform" are
+the load test's passages (303 to 380 characters), "mixed" the calibration sample's
+(150 to 800). Settings: `experiments-qwen3-reranker.yaml`.
+
+| Id | What varies | Users | Headline |
+|---|---|---|---|
+| `q-model-checks` | Each way of loading the model, on the cards' example | none | FastAPI path returns the cards' scores; OVMS returns other values in the same order |
+| `q8-fastapi-own-export-uniform` | Cell a, 8 CPUs (8 threads, batch 2) | 1, 4 | 0.15 req/s at 1 user, p50 6.3 s; 0.16 at 4, p50 25 s |
+| `q8-fastapi-own-export-mixed` | Cell a, mixed passages | 4 | 0.13 req/s, p50 30 s |
+| `q8-fastapi-openvino-ir-uniform` | Cell b, 8 CPUs (8 threads, batch 2) | 1, 4 | 0.15 req/s at 1 user, p50 6.0 s; 0.17 at 4, p50 23 s |
+| `q8-fastapi-openvino-ir-mixed` | Cell b, mixed passages | 4 | 0.14 req/s, p50 27 s |
+| `q8-ovms-openvino-ir-uniform` | Cell c, 8 CPUs (4 streams) | 1, 4 | 0.08 req/s at 1 user, p50 12 s; 0.16 at 4, p50 22 s, p95 39 s |
+| `q8-ovms-openvino-ir-mixed` | Cell c, mixed passages | 4 | 0.11 req/s, p50 35 s |
+| `q16-fastapi-openvino-ir-uniform` | Cell b, 16 CPUs (16 threads, batch 2) | 1, 4, 8 | 0.27 req/s at 1 user, p50 3.1 s; 0.33 at 4 and 8 |
+| `q16-fastapi-openvino-ir-mixed` | Cell b, 16 CPUs, mixed passages | 4 | 0.27 req/s, p50 14 s |
+| `q16-ovms-openvino-ir-uniform` | Cell c, 16 CPUs (4 streams) | 1, 4, 8 | 0.15 req/s at 1 user, p50 6.0 s; 0.33 at 4, 0.34 at 8 with p95 36 s |
+| `q16-ovms-openvino-ir-mixed` | Cell c, 16 CPUs, mixed passages | 4 | 0.21 req/s, p50 16 s, p95 29 s |
+
 ## What it showed
 
 - On 8 vCPUs both servers served about 1 request a second alone on `fp32`. One request
@@ -113,22 +137,26 @@ of every run: [results.csv](results.csv).
 - Calibration for 16 in flight at start failed the App in phase A (the calibration used
   the workflow's 30 s timeout). With the fix, in phase B, the App started and the search
   was cut short by the budget.
+- The larger reranker did not turn the result. On Qwen3 the conversion changed nothing
+  (cells a and b served alike), the two servers served alike under load on uniform
+  passages (0.16 to 0.17 requests a second on 8 CPUs, 0.33 on 16), and the FastAPI model
+  server led on passages of mixed length (0.14 against 0.11 on 8 CPUs, 0.27 against 0.21
+  on 16).
+- For Qwen3 streams gained more than for the small reranker: 4 requests in flight took
+  25.9 s on 4 streams against 29.7 s on one, on 8 CPUs. They cost the lone user: 12 s a
+  request on OVMS against 6 s on the FastAPI model server.
+- OVMS does not return the model cards' reference scores for their own example, on the
+  same model file on which the FastAPI path does.
 
 ## Limits
 
 - One 2-minute run per point. The calibration and probe timings are one or two rounds
   each; candidates within a few percent swap places from run to run.
-- One model at 20 passages a request. One reranker machine of 8, then 16 vCPUs.
+- Two models at 20 passages a request. One reranker machine of 8, then 16 vCPUs; the
+  Qwen3 runs on 8 CPUs are the 16-vCPU machine with half its CPUs offline.
+- The Qwen3 runs hold 14 to 60 requests each.
 - Ranking quality on `int8` weights was not checked.
 - Two runs are void and stay in `results.csv` for the record:
   `v16-alone-ovms-fp32-1streams-2workers-u16` and `-u32`. OVMS was not serving: the
   previous OVMS still held the port when it was started, a fault of the driving script.
 - Phase B's machines did not all run the same commit (see "Settings").
-
-## Adding to this sitting
-
-The Qwen3 reranker comparison of the same sitting belongs here. Add its experiments to a
-new `experiments-<phase>.yaml` beside the two above, with the same keys and anchors; add
-its runs' statistics rows to `results.csv` with the same columns and rounding; add a
-table under "Experiments" and its findings under "What it showed". Every figure comes
-from a statistics file or the session's notes.

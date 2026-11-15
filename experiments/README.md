@@ -65,7 +65,7 @@ throw-away script that is not kept in the repository.
 | 14 November 2026 | [2026-11-14-baseline-three-topologies-fastapi-8-vcpus](2026-11-14-baseline-three-topologies-fastapi-8-vcpus/README.md) | Which topology serves `/retrieve` best with FastAPI model servers? | 3 x 8 vCPUs | 5 | 8 |
 | 14 November 2026 | [2026-11-14-cache-bucket-cold-and-warm-sittings](2026-11-14-cache-bucket-cold-and-warm-sittings/README.md) | Does a sitting restored from the cache bucket measure what a sitting built from scratch measures? | 3 x 8 vCPUs, Spot | 2 | 2 |
 | 15 November 2026 | [2026-11-15-ovms-against-fastapi-equal-hardware](2026-11-15-ovms-against-fastapi-equal-hardware/README.md) | Does OVMS serve the reranker better than the FastAPI model server, on equal hardware? | 4 x 2 vCPUs, Spot | 22 | 57 |
-| 15 November 2026 | [2026-11-15-reranker-scaled-up-8-and-16-vcpus](2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md) | Does one bigger reranker machine favour OVMS over the FastAPI model server? | 2 x 2 vCPUs and 1 x 8, then 16 vCPUs | 30 | 67 |
+| 15 November 2026 | [2026-11-15-reranker-scaled-up-8-and-16-vcpus](2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md) | Does one bigger reranker machine favour OVMS over the FastAPI model server? | 2 x 2 vCPUs and 1 x 8, then 16 vCPUs | 41 | 84 |
 
 Every sitting ran on the Google Cloud emulation of Domino (`emulation/`), with the French
 corpus (1,223 documents, 1,592 passages), the reranker
