@@ -36,6 +36,9 @@ SettingsFactory = Callable[..., RagSettings]
 EMBEDDER_WEIGHTS = "embedder:Snowflake/snowflake-arctic-embed-l-v2.0"
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
 TOKEN_URL = "http://token.test/access-token"
+PINNED_THREADS = {"embedding_threads": 1, "rerank_threads": 1}  # no calibration
+# Too small for a second trial: calibration keeps the thread budget's share.
+FIRST_CANDIDATES = {"calibration_budget_s": 1e-9}
 EMBED_URL = "http://embedder/v3/embeddings"
 RERANK_URL = "http://reranker/v3/rerank"
 
@@ -184,7 +187,8 @@ async def test_api_embedder_batches_and_retries_as_configured(
 async def test_local_models_use_the_configured_batch_sizes(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(embedding_batch_size=16, rerank_batch_size=8)
+    batch_sizes = {"embedding_batch_size": 16, "rerank_batch_size": 8}
+    settings = settings_factory(**batch_sizes, **PINNED_THREADS)
     candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
     async with CompositionRoot(settings) as composition:
         await (await composition.local_embedder()).embed(["hello"])
@@ -263,7 +267,8 @@ async def test_ingest_ports_leave_the_llm_shut(
 async def test_ingest_ports_load_only_the_embedder_weights(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(es_url=UNREACHABLE_ES)  # local embedder and reranker
+    # local embedder and reranker
+    settings = settings_factory(es_url=UNREACHABLE_ES, **PINNED_THREADS)
     async with CompositionRoot(settings) as composition:
         await composition.ingest_ports()
 
@@ -274,7 +279,10 @@ async def test_local_models_ignore_the_configured_backend(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = settings_factory(  # both backends api
-        topology="split-all", embedding_api_url=EMBED_URL, rerank_api_url=RERANK_URL
+        topology="split-all",
+        embedding_api_url=EMBED_URL,
+        rerank_api_url=RERANK_URL,
+        **PINNED_THREADS,
     )
     async with CompositionRoot(settings) as composition:
         embedder = await composition.local_embedder()
@@ -377,7 +385,8 @@ async def test_local_model_scopes_carry_the_thread_budget(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     container = FakeCpuCounter(8, "container")
-    composition = CompositionRoot(settings_factory(), container_cpus=container)
+    settings = settings_factory(**FIRST_CANDIDATES)
+    composition = CompositionRoot(settings, container_cpus=container)
     with caplog.at_level("INFO", logger="rag_load_test"):
         embedder, reranker = await open_local_models(composition)
 
@@ -396,7 +405,7 @@ async def test_local_model_scopes_carry_the_thread_budget(
 async def test_a_thread_override_replaces_one_share(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(embedding_threads=1)
+    settings = settings_factory(embedding_threads=1, **FIRST_CANDIDATES)
     composition = CompositionRoot(
         settings, container_cpus=FakeCpuCounter(8, "container")
     )

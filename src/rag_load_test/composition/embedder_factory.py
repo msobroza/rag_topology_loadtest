@@ -11,12 +11,11 @@ from collections.abc import Mapping
 from ..adapters.embedder.api.api_embedder import open_api_embedder
 from ..adapters.embedder.base_embedder import BaseEmbedder
 from ..adapters.embedder.fake.fake_embedder import FakeEmbedder
-from ..adapters.embedder.local.sentence_transformer_embedder import (
-    SentenceTransformerEmbedder,
-)
 from ..config.rag_settings import RagSettings
 from ..infrastructure.local_models.openvino_export import export_embedder
+from ..infrastructure.local_models.stage_calibration import calibrate
 from .base_port_factory import BasePortFactory
+from .calibrated_stages import EmbedStage, calibration_limits, candidates
 from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
 from .resource_scope import Opener, ResourceScope
@@ -26,7 +25,8 @@ class EmbedderFactory(BasePortFactory[BaseEmbedder]):
     """The embedder of each Backend: ``local``, ``api`` or ``fake``.
 
     Args:
-        settings: The embedding Backend, model, endpoint and batch size.
+        settings: The embedding Backend, model, endpoint, batch size and threads
+            (0 = calibrated at start-up).
         scope: Opens the embedder once.
         http: The shared HTTP client, for the ``api`` Backend.
         local_models: The thread budget, pool and files, for the ``local`` one.
@@ -94,11 +94,12 @@ class EmbedderFactory(BasePortFactory[BaseEmbedder]):
         model = await local_models.local_model(
             settings.embedding_model, export_embedder
         )
-        return SentenceTransformerEmbedder.from_pretrained(
-            model,
-            pool,
-            batch_size=settings.embedding_batch_size,
-            threads=budget.embedder_threads,
+        # A query is one text, so only the threads are searched.
+        return await calibrate(
+            EmbedStage(model, pool, settings),
+            threads=candidates(settings.embedding_threads, budget.embedder_threads),
+            batch_sizes=(settings.embedding_batch_size,),
+            limits=calibration_limits(settings),
         )
 
     async def _api(self) -> BaseEmbedder:

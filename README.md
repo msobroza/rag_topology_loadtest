@@ -128,6 +128,7 @@ src/rag_load_test/
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
+    calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
     backends.py     the Backend and Runtime names, the variants every topology allows, the defaults
     topology.py     the topology rule: backends per topology, contradictions
     run_label.py    the run label: its default for a configuration, what a valid one is
@@ -197,6 +198,7 @@ src/rag_load_test/
       model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
       openvino_export.py  convert one embedder or reranker to OpenVINO files
       native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
+      stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate, keep the fastest
       cpu_count.py  where the CPU count comes from: RAG_MODEL_CPUS, the Domino hardware tier, the container
     http/           what every adapter that calls out shares
       http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
@@ -213,6 +215,7 @@ src/rag_load_test/
     resource_scope.py  ResourceScope: each resource opened once, all closed together
     http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source
     local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
+    calibrated_stages.py  RerankStage, EmbedStage: the CPU-bound stages calibration times, and their candidates
     base_port_factory.py  BasePortFactory: the supplied port, else the one its Backend names, opened once
     embedder_factory.py  EmbedderFactory: local, api, fake
     reranker_factory.py  RerankerFactory: local, api, fake, none
@@ -471,7 +474,7 @@ with a one-line usage error, not a traceback.
 | `RAG_EMBEDDING_API_KEY` | `` | empty = no `Authorization` header; `domino` = the Domino run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a bearer token |
 | `RAG_EMBEDDING_API_MODEL` | `snowflake-arctic-embed-l-v2.0` | the model name sent to the endpoint; our model servers serve `RAG_EMBEDDING_MODEL` under this name |
 | `RAG_EMBEDDING_BATCH_SIZE` | `64` | texts per call, in process or per endpoint request (>= 1) |
-| `RAG_EMBEDDING_THREADS` | `0` | native (OpenMP/BLAS) threads one in-process embed call may use; `0` = the budget's share |
+| `RAG_EMBEDDING_THREADS` | `0` | native (OpenMP/BLAS) threads one in-process embed call may use; `0` = calibrated at start-up, up to the budget's share |
 | **Rerank** | | |
 | `RAG_RERANK_BACKEND` | from the topology | `local` \| `api` \| `fake` \| `none`; `api`, `fake` and `none` (or the topology's own value) may override it |
 | `RAG_RERANK_MODEL` | `antoinelouis/crossencoder-camembert-base-mmarcoFR` | the `local` model (a Hugging Face id or a folder); also what our model servers load |
@@ -479,8 +482,8 @@ with a one-line usage error, not a traceback.
 | `RAG_RERANK_API_FORMAT` | `cohere` | the request and response shapes the route speaks |
 | `RAG_RERANK_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY` |
 | `RAG_RERANK_API_MODEL` | `crossencoder-camembert-base-mmarcoFR` | the model name sent; our model servers serve `RAG_RERANK_MODEL` under this name |
-| `RAG_RERANK_BATCH_SIZE` | `32` | pairs per batch for the in-process cross-encoder (>= 1) |
-| `RAG_RERANK_THREADS` | `0` | native threads one in-process rerank call may use; `0` = the budget's share |
+| `RAG_RERANK_BATCH_SIZE` | `0` | passages per batch for the in-process cross-encoder; `0` = calibrated at start-up, up to `RAG_TOP_K_RETRIEVE` |
+| `RAG_RERANK_THREADS` | `0` | native threads one in-process rerank call may use; `0` = calibrated at start-up, up to the budget's share |
 | **Generation** | | |
 | `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network) |
 | `RAG_GENERATION_API_URL` | `https://api.openai.com/v1/chat/completions` | the full route of the endpoint |
@@ -509,6 +512,8 @@ with a one-line usage error, not a traceback.
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
 | `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
+| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search at start-up; no new candidate starts after them (> 0) |
+| `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
 | `RAG_HTTP_RETRIES` | `2` | endpoint retries (embedding, rerank and generation) on transport errors, 5xx, 429, and 401 when the key is `domino`; hardware-tier lookup retries on transport errors |
@@ -572,6 +577,36 @@ threadpoolctl scope of that size. A non-zero `RAG_EMBEDDING_THREADS` or
 Autoscaled Apps start more pods of the same tier, so every new process works its
 budget out again; the result is one `thread_budget` JSON log line, which names
 the runtime.
+
+**Calibration.** The budget's share is an upper bound, not always the fastest
+choice. So when an in-process model loads, the process times its stage (embed
+or rerank) under each candidate and keeps the fastest. It does so only for a
+parameter left at `0`: `RAG_RERANK_BATCH_SIZE` tries `RAG_TOP_K_RETRIEVE`, then
+half of it, down to 1; `RAG_RERANK_THREADS` and `RAG_EMBEDDING_THREADS` try the
+budget's share, then half of it, down to 1. The embedder's batch size is not
+searched: a query is one text. Batch sizes are timed first, on the budget's
+share, then each smaller thread count with the best batch size: a load is the
+expensive part. Each candidate serves one untimed warm-up request, then
+`RAG_CALIBRATION_ROUNDS` timed ones, through the same adapter a real request
+uses. It costs start-up time, up to `RAG_CALIBRATION_BUDGET_S` per stage (plus
+the trial running when it runs out); no new App instance is needed. The result
+is one `stage_calibrated` JSON log line per stage: the choice, every trial and
+its seconds, the time spent, and whether the budget cut the search short.
+
+Why: on a 2-CPU App machine (one core, two hyper-threads), under `openvino`, a
+rerank request of 20 passages took 5.49 s with one batch of 20, 3.38 s with
+batches of 2, and 2.94 s with batches of 2 on 2 real threads: 0.340 requests
+per second instead of 0.182. OpenVINO had kept to the physical core until it was
+allowed hyper-threads (`ENABLE_HYPER_THREADING`, now always set). Two copies of
+the model with one thread each gave nothing more.
+
+Limits. It times one request at a time, which is how a stage runs under
+`openvino`. With a fixed number of users, latency is the users divided by the
+requests per second, so the fastest request is the best at any number of users.
+Its passages are synthetic, cut to 150 to 800 characters. The result is not
+remembered between starts: every process calibrates again. Under `torch` with
+several workers, calls share the CPUs, and calibration does not time them
+together.
 
 ## Retrieval, stores and model endpoints
 
@@ -729,7 +764,8 @@ needs the Hub, about 5.5 GB of disk for both models and several GB of memory
 while converting; with `HF_HUB_OFFLINE=1` or no network it fails, naming the
 model and the folder. The command is for filling the folder ahead of time, as
 the `rag` Docker image does at build. Each call uses the threads the thread
-budget gives it (OpenVINO's `INFERENCE_NUM_THREADS`).
+budget gives it, or fewer when calibration finds them faster (OpenVINO's
+`INFERENCE_NUM_THREADS`, with `ENABLE_HYPER_THREADING`).
 
 The OpenVINO packages come with the install (`sentence-transformers[openvino]`).
 Their `optimum-intel` accepts transformers below 5.6 only, so pip holds
