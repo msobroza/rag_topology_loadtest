@@ -25,7 +25,7 @@ dependencies = [
     "httpx>=0.27",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "pyyaml>=6",  # config/prompts.yaml, read by pydantic-settings
+    "pyyaml>=6",  # config/workflow.yaml, read by pydantic-settings
     "joblib>=1.3",  # cpu_count() honours the container's CPU quota
     "threadpoolctl>=3.1",  # per-model caps on OpenMP/BLAS threads
 ]
@@ -80,7 +80,7 @@ rag-domino-emulation = "fake_domino.emulation.server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"rag_load_test" = ["py.typed", "config/prompts.yaml"]
+"rag_load_test" = ["py.typed", "config/workflow.yaml"]
 "fake_domino" = ["py.typed"]
 
 [tool.pytest.ini_options]
@@ -169,7 +169,7 @@ python_version = "3.11"
 ignore_missing_imports = true
 mypy_path = "src"
 # BaseSettings fields fill from the env and YAML, so the plugin types __init__
-# with every field optional (RagSettings() has required prompts).
+# with every field optional (RagSettings() has a required graph).
 plugins = ["pydantic.mypy"]
 
 [tool.complexipy]
@@ -201,6 +201,6 @@ package_module_name_map = { dominodatalab = "domino" }
 
 [tool.deptry.per_rule_ignores]
 DEP002 = [
-    "pyyaml",  # pydantic-settings' YAML source reads config/prompts.yaml with it
+    "pyyaml",  # pydantic-settings' YAML source reads the workflow file with it
     "dominodatalab",  # imported by module name (domino.*) through importlib, see find_add_tracing
 ]

@@ -109,8 +109,7 @@ settings = RagSettings(
     rerank_backend="api",
     rerank_api_url="http://reranker.test/flat",
     rerank_api_format="flat",
-    top_k_retrieve=5,
-    top_k_rerank=3,
+    graph={"stages": {"retrieve": {"top_k": 5}, "rerank": {"top_k": 3}}},
 )
 composition = CompositionRoot(settings, transport=httpx.MockTransport(flat_endpoint))
 with TestClient(create_app(composition)) as client:

@@ -23,7 +23,6 @@ from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store impor
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
-from rag_load_test.domain.backends import LEXICAL_STORE_BACKENDS
 from rag_load_test.domain.passages import ScoredPassage
 
 
@@ -34,10 +33,6 @@ def test_elasticsearch_and_the_in_memory_store_rank_text_and_chroma_does_not() -
     assert not issubclass(ChromaVectorStore, BaseLexicalSearch)
     for store in (ElasticsearchVectorStore, InMemoryVectorStore, ChromaVectorStore):
         assert issubclass(store, BaseVectorStore)
-
-
-def test_the_lexical_store_backends_are_the_stores_that_rank_text() -> None:
-    assert LEXICAL_STORE_BACKENDS == ("elasticsearch", "fake")
 
 
 def test_fakes_subclass_their_ports() -> None:

@@ -1,4 +1,4 @@
-"""``RagSettings``: default models, retrieval mode, temperature, runtime, store."""
+"""``RagSettings``: default models, temperature, runtime, store, the retrieval label."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
+from rag_graphs import rag_graph
 from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.domain.graph_description import GraphDescription
 
 SettingsFactory = Callable[..., RagSettings]
 
@@ -30,7 +32,6 @@ def test_defaults_of_the_new_options(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
     assert s.generation_temperature == 0.0
-    assert (s.retrieval_mode, s.hybrid_rrf_k) == ("dense", 60)
     assert (s.local_model_runtime, s.openvino_models_dir) == (
         "openvino",
         "models/openvino",
@@ -49,14 +50,13 @@ def test_the_new_options_read_rag_prefixed_variables(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("RAG_GENERATION_TEMPERATURE", "0.7")
-    monkeypatch.setenv("RAG_RETRIEVAL_MODE", "hybrid")
     monkeypatch.setenv("RAG_VECTOR_STORE_BACKEND", "fake")
     monkeypatch.setenv("RAG_LOCAL_MODEL_RUNTIME", "torch")
 
     s = settings_factory()
 
     assert s.generation_temperature == 0.7
-    assert (s.retrieval_mode, s.vector_store_backend) == ("hybrid", "fake")
+    assert s.vector_store_backend == "fake"
     assert s.local_model_runtime == "torch"
 
 
@@ -68,8 +68,6 @@ def test_the_new_options_read_rag_prefixed_variables(
     [
         ("generation_temperature", -0.1),
         ("generation_temperature", 2.1),
-        ("hybrid_rrf_k", 0),
-        ("retrieval_mode", "sparse"),
         ("local_model_runtime", "onnx"),
         ("vector_store_backend", "qdrant"),
     ],
@@ -79,31 +77,6 @@ def test_an_out_of_range_option_is_refused_at_construction(
 ) -> None:
     with pytest.raises(ValidationError, match=field):
         settings_factory(**{field: value})
-
-
-@pytest.mark.parametrize("mode", ["lexical", "hybrid"])
-def test_a_text_ranking_mode_on_chroma_is_refused_with_the_values_and_the_fix(
-    settings_factory: SettingsFactory, mode: str
-) -> None:
-    with pytest.raises(ValidationError) as info:
-        settings_factory(retrieval_mode=mode, vector_store_backend="chroma")
-
-    message = str(info.value)
-    assert f"RAG_RETRIEVAL_MODE={mode!r} needs a store that ranks text" in message
-    assert "RAG_VECTOR_STORE_BACKEND='chroma' has none" in message
-    assert "use 'elasticsearch' or 'fake', or RAG_RETRIEVAL_MODE=dense" in message
-
-
-@pytest.mark.parametrize(
-    ("mode", "store"),
-    [("dense", "chroma"), ("hybrid", "elasticsearch"), ("lexical", "fake")],
-)
-def test_a_retrieval_mode_its_store_can_serve_is_accepted(
-    settings_factory: SettingsFactory, mode: str, store: str
-) -> None:
-    s = settings_factory(retrieval_mode=mode, vector_store_backend=store)
-
-    assert (s.retrieval_mode, s.vector_store_backend) == (mode, store)
 
 
 @pytest.mark.parametrize("temperature", [0.0, 1.0, 2.0])
@@ -119,30 +92,37 @@ def test_the_temperature_may_be_anything_the_generation_api_accepts(
 # --- retrieval -------------------------------------------------------------------
 
 
-def test_the_retrieve_stage_carries_the_retrieval_mode_and_the_fusion_constant(
-    settings_factory: SettingsFactory,
+@pytest.mark.parametrize("mode", ["lexical", "hybrid"])
+def test_a_text_ranking_mode_on_chroma_is_left_to_the_retrieve_stage(
+    settings_factory: SettingsFactory, mode: str
 ) -> None:
-    graph = settings_factory(retrieval_mode="hybrid", hybrid_rrf_k=10).workflow_graph()
+    # One refusal only, the retrieve stage's when the graph is built at start-up.
+    s = settings_factory(graph=rag_graph(mode), vector_store_backend="chroma")
 
-    retrieve = graph.stages["retrieve"].stage_settings
-    assert (retrieve["retrieval_mode"], retrieve["rrf_k"]) == ("hybrid", 10)
-    assert "embed" in graph.stages
-
-
-def test_the_lexical_graph_has_no_embed_stage_and_starts_at_retrieve(
-    settings_factory: SettingsFactory,
-) -> None:
-    graph = settings_factory(
-        retrieval_mode="lexical", vector_store_backend="fake"
-    ).workflow_graph()
-
-    assert list(graph.stages) == ["retrieve", "rerank", "generate"]
-    assert graph.edges[0] == ["START", "retrieve", "rerank"]
+    assert s.graph.stages["retrieve"].stage_settings["retrieval_mode"] == mode
 
 
 def test_the_retrieval_mode_and_the_store_name_the_run(
     settings_factory: SettingsFactory,
 ) -> None:
-    s = settings_factory(vector_store_backend="fake", retrieval_mode="lexical")
+    s = settings_factory(vector_store_backend="fake", graph=rag_graph("lexical"))
 
     assert s.run_label == "monolith+store=fake+retrieval=lexical"
+
+
+def test_the_run_label_reads_the_retrieval_mode_from_the_graph(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE", "hybrid")
+
+    assert settings_factory().run_label == "monolith+retrieval=hybrid"
+
+
+def test_a_graph_without_a_retrieve_stage_names_no_retrieval_mode(
+    settings_factory: SettingsFactory,
+) -> None:
+    graph = GraphDescription.model_validate(
+        {"stages": {"rerank": {"call": "reranker", "top_k": 1}}}
+    )
+
+    assert settings_factory(graph=graph).run_label == "monolith"

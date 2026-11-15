@@ -1,4 +1,4 @@
-"""Runtime configuration from ``RAG_*`` environment variables (or a ``.env`` file).
+"""Runtime configuration: the workflow file, ``RAG_*`` variables and a ``.env`` file.
 
 Three model components, one block of settings each: embedding, rerank and
 generation. A component's backend says how it runs: ``local`` (a model loaded
@@ -10,14 +10,19 @@ only repeat that choice or pick a variant that loads no model of ours. A
 contradiction, an ``api`` backend without a URL or a bad ``RAG_RUN_LABEL`` fails
 construction, so at start-up.
 
+The workflow graph, its stages and their own settings (the retrieval mode, the
+sizes, the prompts) is the ``graph`` field, read from the workflow file
+(``workflow_file.py``). Each top-level key of the file is a field here, so each
+of its values has a variable, its path's levels joined by ``__``:
+``RAG_GRAPH__STAGES__RERANK__TOP_K``.
+
 Example:
-    >>> settings = RagSettings()  # from the env
+    >>> settings = RagSettings()  # from the env and the workflow file
     >>> settings = RagSettings(_env_file=None, rerank_backend="fake")  # in tests
 
-Every tunable is a field here, so one ``RAG_*`` variable changes it; adapters
-receive the values from the ``composition`` package and never read this module. The
-prompts come from a YAML file, the lowest-priority source (see
-``prompts_source.py``).
+Every tunable is a field here, or a setting of a stage in the graph, so one
+``RAG_*`` variable changes it; adapters receive the values from the
+``composition`` package and never read this module.
 """
 
 from __future__ import annotations
@@ -35,23 +40,21 @@ from ..domain.api_endpoint import ApiEndpoint
 from ..domain.backends import (
     DEFAULT_GENERATION_BACKEND,
     DEFAULT_VECTOR_STORE_BACKEND,
-    LEXICAL_STORE_BACKENDS,
     EmbeddingBackend,
     GenerationBackend,
     LocalModelRuntime,
     RerankBackend,
     VectorStoreBackend,
 )
-from ..domain.graph_description import END, START, GraphDescription
-from ..domain.prompts import RagPrompts
-from ..domain.retrieval_mode import DEFAULT_RETRIEVAL_MODE, RetrievalMode
+from ..domain.graph_description import GraphDescription
+from ..domain.retrieval_mode import DEFAULT_RETRIEVAL_MODE
 from ..domain.run_label import default_run_label, validate_run_label
 from ..domain.topology import (
     Topology,
     resolve_embedding_backend,
     resolve_rerank_backend,
 )
-from .prompts_source import prompts_path, prompts_source
+from .workflow_file import workflow_file, workflow_file_source
 
 # Shown in the error for an ``api`` backend without a URL: one route per component.
 _API_URL_EXAMPLES = {
@@ -65,8 +68,9 @@ class RagSettings(BaseSettings):
     """The whole runtime configuration, one field per ``RAG_*`` variable.
 
     Construction resolves the backends from the topology, fills the default run
-    label and checks the endpoints, retrieval sizes and prompts, so a bad
-    configuration fails at start-up.
+    label and checks the endpoints, so a bad configuration fails at start-up.
+    The settings of a stage are checked by its stage type, when the graph is
+    built at start-up.
 
     Example:
         >>> RagSettings(topology="split-reranker",
@@ -77,9 +81,18 @@ class RagSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RAG_",
         env_file=".env",
+        # Between the levels of a value of the workflow file, in its variable.
+        env_nested_delimiter="__",
+        # Other RAG_* variables are read by other settings (RAG_LOADTEST_*,
+        # RAG_DEPLOY_*); the workflow file refuses an unknown key itself.
         extra="ignore",
         protected_namespaces=(),
     )
+
+    # --- the workflow graph ----------------------------------------------------------
+    # The workflow file's graph block: its stages with their own settings (the
+    # retrieval mode, the sizes, the prompts), its edges and conditional edges.
+    graph: GraphDescription
 
     # --- topology and run label ----------------------------------------------------
     topology: Topology = "monolith"
@@ -126,6 +139,10 @@ class RagSettings(BaseSettings):
     rerank_batch_size: int = Field(default=0, ge=0)
     # 0 = calibrated at start-up, up to the thread budget's share
     rerank_threads: int = Field(default=0, ge=0)
+    # Passages calibration reranks in one sample request, keeping them all; also
+    # the largest batch size it tries. The reranker's own: calibration reads no
+    # stage's setting.
+    rerank_calibration_passages: int = Field(default=20, ge=1)
 
     # --- generation ------------------------------------------------------------------
     generation_backend: GenerationBackend = DEFAULT_GENERATION_BACKEND
@@ -153,14 +170,6 @@ class RagSettings(BaseSettings):
     chroma_collection: str = "rag_passages"
     # Same size as ``make ingest`` so a fake-store app answers like an ingested one.
     fake_store_seed_documents: int = Field(default=200, ge=1)
-
-    # --- retrieval and prompts (no prompt default: see prompts.yaml) -----------------
-    retrieval_mode: RetrievalMode = DEFAULT_RETRIEVAL_MODE  # dense | lexical | hybrid
-    hybrid_rrf_k: int = Field(default=60, ge=1)  # rank constant of the hybrid fusion
-    top_k_retrieve: int = Field(default=20, ge=1)  # candidates from the store
-    top_k_rerank: int = Field(default=10, ge=1)  # passages kept and sent to the LLM
-    system_prompt: str
-    user_prompt: str  # holds {context} and {question}
 
     # --- in-process models and threads -----------------------------------------------
     local_model_runtime: LocalModelRuntime = "openvino"  # openvino | torch
@@ -209,26 +218,26 @@ class RagSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Order the sources: init kwargs > environment > .env > secrets > prompts YAML.
+        """Order the sources: init kwargs > environment > .env > the workflow file.
+
+        The class defaults come last. The sources are merged key by key, so a
+        variable such as ``RAG_GRAPH__STAGES__RERANK__TOP_K`` overrides one value
+        of the file and keeps the others.
 
         Args:
             settings_cls: The settings class being built.
             init_settings: Constructor arguments.
             env_settings: ``RAG_*`` environment variables.
             dotenv_settings: The ``.env`` file.
-            file_secret_settings: The secrets directory.
+            file_secret_settings: Not read: no secrets directory is configured.
 
         Returns:
             The sources, highest priority first.
         """
-        prompts = prompts_source(settings_cls, prompts_path())
-        return (
-            init_settings,
-            env_settings,
-            dotenv_settings,
-            file_secret_settings,
-            prompts,
-        )
+        # Pydantic passes every source by keyword, so the names stay.
+        del file_secret_settings
+        workflow = workflow_file_source(settings_cls, workflow_file())
+        return init_settings, env_settings, dotenv_settings, workflow
 
     @model_validator(mode="after")
     def resolve_topology(self) -> RagSettings:
@@ -270,52 +279,6 @@ class RagSettings(BaseSettings):
                 raise ValueError(_missing_url_message(component, url))
         return self
 
-    @model_validator(mode="after")
-    def check_stage_sizes_and_prompts(self) -> RagSettings:
-        """Fail at start-up, not on the first query, on bad sizes or prompts.
-
-        ``RagPrompts`` checks the user template and raises its own ``ValueError``.
-
-        Returns:
-            The settings, unchanged.
-
-        Raises:
-            ValueError: If ``top_k_rerank`` exceeds ``top_k_retrieve``: the
-                reranker can keep at most the candidates retrieval returns.
-        """
-        if self.top_k_rerank > self.top_k_retrieve:
-            raise ValueError(
-                f"RAG_TOP_K_RERANK={self.top_k_rerank} exceeds "
-                f"RAG_TOP_K_RETRIEVE={self.top_k_retrieve}: the reranker can keep "
-                "at most the candidates retrieval returns"
-            )
-        # Built for its check of the user template, as the generate stage builds it.
-        RagPrompts(system=self.system_prompt, user=self.user_prompt)
-        return self
-
-    @model_validator(mode="after")
-    def check_retrieval_store(self) -> RagSettings:
-        """Fail at start-up when lexical or hybrid retrieval has no store ranking text.
-
-        Returns:
-            The settings, unchanged.
-
-        Raises:
-            ValueError: If ``retrieval_mode`` is ``lexical`` or ``hybrid`` and
-                ``vector_store_backend`` is not in ``LEXICAL_STORE_BACKENDS``.
-        """
-        if self.retrieval_mode == "dense":
-            return self
-        if self.vector_store_backend in LEXICAL_STORE_BACKENDS:
-            return self
-        raise ValueError(
-            f"RAG_RETRIEVAL_MODE={self.retrieval_mode!r} needs a store that ranks "
-            f"text: RAG_VECTOR_STORE_BACKEND={self.vector_store_backend!r} has none "
-            "(Chroma ranks text on Chroma Cloud only); use "
-            f"{' or '.join(map(repr, LEXICAL_STORE_BACKENDS))}, or "
-            "RAG_RETRIEVAL_MODE=dense"
-        )
-
     @classmethod
     def variable_of(cls, field: str) -> str:
         """Return the environment variable a field is read from.
@@ -343,58 +306,6 @@ class RagSettings(BaseSettings):
         if isinstance(alias, AliasChoices):
             return str(alias.choices[0])
         return str(cls.model_config.get("env_prefix", "")) + field.upper()
-
-    def workflow_graph(self) -> GraphDescription:
-        """Describe the RAG graph these settings run: its stages and their edges.
-
-        embed, retrieve, rerank and generate, each calling one of the four
-        components, then generate or the end after rerank, by the request's
-        mode. A lexical retrieval computes no vector, so its graph has no embed
-        stage and starts at retrieve.
-
-        Returns:
-            The graph description, the retrieval settings, sizes and prompts on
-            the stages that use them.
-
-        Example:
-            >>> build_workflow(RagSettings().workflow_graph(), deps.components())
-        """
-        stages = self._rag_stages()
-        searched = ["embed", "retrieve", "rerank"]
-        if self.retrieval_mode == "lexical":  # no vector to compute
-            del stages["embed"]
-            searched.remove("embed")
-        return GraphDescription.model_validate(
-            {
-                "stages": stages,
-                "edges": [[START, *searched], ["generate", END]],
-                "conditional_edges": [
-                    {
-                        "source": "rerank",
-                        "path": "is_query_mode",
-                        "path_map": {True: "generate", False: END},
-                    }
-                ],
-            }
-        )
-
-    def _rag_stages(self) -> dict[str, dict[str, object]]:
-        # Each stage of the RAG: the component it calls and its own settings.
-        return {
-            "embed": {"call": "embedder"},
-            "retrieve": {
-                "call": "vector_store",
-                "retrieval_mode": self.retrieval_mode,
-                "top_k": self.top_k_retrieve,
-                "rrf_k": self.hybrid_rrf_k,
-            },
-            "rerank": {"call": "reranker", "top_k": self.top_k_rerank},
-            "generate": {
-                "call": "llm",
-                "system_prompt": self.system_prompt,
-                "user_prompt": self.user_prompt,
-            },
-        }
 
     def embedding_api(self) -> ApiEndpoint:
         """Return the embedding endpoint, from the four ``embedding_api_*`` fields.
@@ -454,8 +365,17 @@ class RagSettings(BaseSettings):
             rerank=self.rerank_backend,
             store=self.vector_store_backend,
             generation=self.generation_backend,
-            retrieval=self.retrieval_mode,
+            retrieval=self._retrieval_mode(),
         )
+
+    def _retrieval_mode(self) -> str:
+        # The label still names the retrieval mode off its default, as it did when
+        # the mode was a variable: it is read from the graph's retrieve stage.
+        for name, stage in self.graph.stages.items():
+            if stage.type_name(name) == "retrieve":
+                mode = stage.stage_settings.get("retrieval_mode")
+                return str(mode or DEFAULT_RETRIEVAL_MODE)
+        return DEFAULT_RETRIEVAL_MODE
 
 
 def _missing_url_message(component: str, url: str) -> str:

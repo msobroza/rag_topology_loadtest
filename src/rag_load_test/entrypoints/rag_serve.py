@@ -178,7 +178,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with composition:
         deps = await composition.workflow_dependencies()
         app.state.deps = deps
-        workflow = build_workflow(settings.workflow_graph(), deps.components())
+        workflow = build_workflow(settings.graph, deps.components())
         app.state.run = traced(workflow.run, enabled=settings.domino_tracing)
         log_json(
             event="rag_startup",

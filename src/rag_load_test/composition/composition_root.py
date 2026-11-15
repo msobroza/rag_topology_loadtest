@@ -24,7 +24,7 @@ not guarded against running concurrently.
 Example:
     >>> async with CompositionRoot(RagSettings()) as composition:
     ...     deps = await composition.workflow_dependencies()
-    ...     graph = composition.settings.workflow_graph()
+    ...     graph = composition.settings.graph  # from the workflow file
     ...     workflow = build_workflow(graph, deps.components())
     ...     result = await workflow.run("How many vacation days?")
 """

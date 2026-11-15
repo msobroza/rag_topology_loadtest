@@ -31,8 +31,8 @@ To run it on Domino, follow [Step by step: first test run on Domino](#step-by-st
 flowchart LR
     L[Locust] -->|POST /query, /retrieve| API[FastAPI · rag-serve]
     API --> E["embed<br/>(BaseEmbedder: in-process, or an endpoint in the openai embeddings format)"]
-    E --> R["retrieve<br/>(BaseVectorStore: Elasticsearch or Chroma; dense, lexical or hybrid; RAG_TOP_K_RETRIEVE=20)"]
-    R --> K["rerank<br/>(BaseReranker: in-process, or an endpoint in the cohere rerank format; RAG_TOP_K_RERANK=10)"]
+    E --> R["retrieve<br/>(BaseVectorStore: Elasticsearch or Chroma; dense, lexical or hybrid; top_k: 20)"]
+    R --> K["rerank<br/>(BaseReranker: in-process, or an endpoint in the cohere rerank format; top_k: 10)"]
     K -->|mode = query| G["generate<br/>(BaseLLM: an endpoint in the openai chat format)"]
     K -->|mode = retrieve| Z([response + timings_ms])
     G --> Z
@@ -43,29 +43,30 @@ per stage of the graph, in the order of its description, 0 for a stage that did
 not run, then `total`; for this graph
 `timings_ms{embed,retrieve,rerank,generate,total}`. Locust turns those keys into
 per-stage statistics without knowing the graph. The graph is not wired by
-hand: `build_workflow(graph, components)` builds it from a description of its
-stages, its edges and its conditional edges (`domain/graph_description.py`,
-shaped as the workflow file's `graph` block of ADR 0004). Each stage is an
-instance of a registered stage type (`embed`, `retrieve`, `rerank`, `generate`)
-and names the component it calls (`embedder`, `vector_store`, `reranker`,
-`llm`); plain edges are chains between the reserved `START` and `END`; the
-branch after rerank is a conditional edge asking the registered edge condition
-`is_query_mode`. Until the workflow file lands, `RagSettings.workflow_graph()`
-writes that description from the `RAG_*` variables, so nothing changes for a
-user.
+hand: it is declared in a workflow file, `workflow.yaml` (ADR 0004; see
+[The workflow file](#the-workflow-file)), and `build_workflow(graph,
+components)` builds it from the file's `graph` block: its stages, its edges and
+its conditional edges (`domain/graph_description.py`). Each stage is an
+instance of a registered stage type (`embed`, `retrieve`, `rerank`, `generate`),
+which defaults to the stage's name, and names the component it calls with
+`call` (`embedder`, `vector_store`, `reranker`, `llm`); plain edges are chains
+between the reserved `START` and `END`; the branch after rerank is a conditional
+edge asking the registered edge condition `is_query_mode`. A workflow file equal
+to the graph above ships with the code (`src/rag_load_test/config/workflow.yaml`)
+and is used when no other is found.
 
 The request's question becomes both the conversational query and the
 standalone query of the workflow state, and the history is empty. The stages
 that search (embed, retrieve, rerank) read the standalone query; generate
 answers the conversational one, what the user asked. The embed stage embeds it
 with `BaseEmbedder.embed_query`, and the embedder puts its model's query prefix
-in front; passages are embedded with `embed_documents`, as they are. The prompts
-live in `src/rag_load_test/config/prompts.yaml` and are settings of the generate
-stage. With `RAG_RETRIEVAL_MODE=lexical` the graph has no embed stage and starts
-at retrieve: no vector is computed and `timings_ms` has no `embed` key. Lexical
-and hybrid retrieval also need the store's `BaseLexicalSearch`, which only a
-store that ranks text provides; the retrieve stage refuses any other when the
-graph is built, at start-up.
+in front; passages are embedded with `embed_documents`, as they are. The
+retrieval mode and the sizes are settings of the retrieve and rerank stages, and
+the prompts are settings of the generate stage. A lexical workflow file has no
+embed stage and starts at retrieve: no vector is computed and `timings_ms` has
+no `embed` key. Lexical and hybrid retrieval also need the store's
+`BaseLexicalSearch`, which only a store that ranks text provides; the retrieve
+stage refuses any other when the graph is built, at start-up.
 
 ## Code layout
 
@@ -92,7 +93,7 @@ The tree is three applications over one shared domain. The domain
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
    | `deploy` | `deploy` and `domain`; `rag_deploy.py` alone may also import the fake Domino |
-   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the four `RAG_*` values a load test sends |
+   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two model names a load test sends |
 
 2. **Commands.** A command lives in its own application, in a module named
    exactly after it with hyphens as underscores: the RAG system's six in
@@ -194,10 +195,10 @@ src/rag_load_test/
       is_query_mode.py  is_query_mode: whether the request goes on to generate
     ingest.py       embed passages in batches and upsert them
   config/           the settings; imports domain only
-    rag_settings.py RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)
+    rag_settings.py RagSettings: every RAG_* variable and tunable, and the graph (pydantic-settings, .env and workflow file aware)
     component_settings.py  ComponentSettings and each type's: a component's backend and blocks in the workflow file's shape, derived from RagSettings
-    prompts.yaml    the system prompt and user template (RAG_PROMPTS_FILE picks another file)
-    prompts_source.py  the settings source that reads the prompts YAML
+    workflow.yaml   the workflow file that ships with the code: today's RAG graph, used when no other is found
+    workflow_file.py  workflow_file (RAG_WORKFLOW_FILE, else ./workflow.yaml, else the packaged one) and the settings source that reads it
     domino_rules.py apply_domino_rules: settings made fit for a Domino App (rag-serve --domino)
   adapters/         the ports and their implementations, nothing else (rule 4)
                     (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
@@ -526,9 +527,83 @@ prefix on the wire and `/docs` works behind the proxy.
 flags, not settings); `rag-serve --domino` (what `domino/app.sh` runs) also
 sets `RAG_EMBEDDING_API_KEY` / `RAG_RERANK_API_KEY` to `domino` for a component
 on the `api` backend whose key was not set. A settings mistake ends `rag-serve`
-with a one-line usage error, not a traceback.
+with a one-line usage error, not a traceback. A stage setting its stage type
+refuses, such as a user prompt without `{context}`, is found as the graph is
+built, once the components are open: the app then fails to start before it
+serves, and the server logs the refusal.
 
-## Configuration (`RAG_*` environment variables or `.env`)
+## Configuration (the workflow file, `RAG_*` environment variables or `.env`)
+
+### The workflow file
+
+The workflow graph is declared in a workflow file: its stages, each with the
+component it calls and its own settings, its plain edges as chains, and its
+conditional edges in a block of their own, spelled with LangGraph's names (ADR
+0004). A command finds it as `rag-deploy` finds `deploy.yaml`: the file
+`RAG_WORKFLOW_FILE` names (read from the environment, not from `.env`), else
+`workflow.yaml` in the working directory, else the one that ships with the code,
+`src/rag_load_test/config/workflow.yaml`, which is today's RAG graph:
+
+```yaml
+graph:
+  stages:
+    embed:    {call: embedder}
+    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20}
+    rerank:   {call: reranker, top_k: 10}
+    generate: {call: llm, system_prompt: "…", user_prompt: "…"}
+  edges:
+    - [START, embed, retrieve, rerank]
+    - [generate, END]
+  conditional_edges:
+    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
+```
+
+| Stage | Setting | In the packaged file | Meaning |
+| --- | --- | --- | --- |
+| every stage | `call` | | the component it calls: `embedder`, `vector_store`, `reranker` or `llm` |
+| every stage | `type` | not written: the stage's name | the stage type it is an instance of |
+| `retrieve` | `retrieval_mode` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` when the graph is built |
+| `retrieve` | `top_k` | `20` | candidates from the vector store (>= 1) |
+| `retrieve` | `rrf_k` | not written: `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
+| `rerank` | `top_k` | `10` | passages kept after reranking and sent to the LLM (>= 1) |
+| `generate` | `system_prompt`, `user_prompt` | the RAG's two prompts | the user template must hold `{context}` and `{question}`, and any other brace is doubled |
+
+Each top-level key of the file is a setting, so every value in it has an
+environment variable named by its path, its levels joined by `__`, and the
+variable wins over the file:
+
+```bash
+RAG_GRAPH__STAGES__RERANK__TOP_K=5 make serve
+RAG_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT="Answer in French." make serve
+```
+
+Sources win in this order: constructor arguments, environment variables, `.env`,
+the workflow file, then the defaults of the code. A top-level key of the file
+that is no setting, and a key a stage or the graph does not know, are refused at
+start-up with the key named, as is a stage without `call`. A stage type checks
+only its own settings, so nothing checks any more that the rerank stage's `top_k`
+stays within the retrieve stage's: above it, the reranker keeps every candidate,
+and a reranker endpoint is asked for a `top_n` above the documents it is sent.
+
+Lexical retrieval is a workflow file without the embed stage:
+
+```yaml
+graph:
+  stages:
+    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20}
+    rerank:   {call: reranker, top_k: 10}
+    generate: {call: llm, system_prompt: "…", user_prompt: "…"}
+  edges:
+    - [START, retrieve, rerank]
+    - [generate, END]
+  conditional_edges:
+    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
+```
+
+`RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the packaged file
+is accepted too, but its embed stage then embeds every question for nothing.
+
+### Variables
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -551,8 +626,9 @@ with a one-line usage error, not a traceback.
 | `RAG_RERANK_API_FORMAT` | `cohere` | the request and response shapes the route speaks |
 | `RAG_RERANK_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY` |
 | `RAG_RERANK_API_MODEL` | `crossencoder-camembert-base-mmarcoFR` | the model name sent; our model servers serve `RAG_RERANK_MODEL` under this name |
-| `RAG_RERANK_BATCH_SIZE` | `0` | passages per batch for the in-process cross-encoder; `0` = calibrated at start-up, up to `RAG_TOP_K_RETRIEVE` |
+| `RAG_RERANK_BATCH_SIZE` | `0` | passages per batch for the in-process cross-encoder; `0` = calibrated at start-up, up to `RAG_RERANK_CALIBRATION_PASSAGES` |
 | `RAG_RERANK_THREADS` | `0` | native threads one in-process rerank call may use; `0` = calibrated at start-up, up to the budget's share |
+| `RAG_RERANK_CALIBRATION_PASSAGES` | `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
 | **Generation** | | |
 | `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network) |
 | `RAG_GENERATION_API_URL` | `https://api.openai.com/v1/chat/completions` | the full route of the endpoint |
@@ -564,9 +640,9 @@ with a one-line usage error, not a traceback.
 | **Everything else** | | |
 | `RAG_LOCAL_MODEL_RUNTIME` | `openvino` | what runs the in-process models: `openvino` \| `torch` |
 | `RAG_OPENVINO_MODELS_DIR` | `models/openvino` | where `rag-export-openvino` writes and the `openvino` runtime looks first, one folder per model |
+| `RAG_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory and the packaged one (environment only, not `.env`) |
+| `RAG_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `RAG_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
 | `RAG_VECTOR_STORE_BACKEND` | `elasticsearch` | `elasticsearch` \| `chroma` \| `fake` (in-memory, seeded with the synthetic corpus at start-up) |
-| `RAG_RETRIEVAL_MODE` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store; no embed stage) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` |
-| `RAG_HYBRID_RRF_K` | `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
 | `RAG_CHROMA_URL` | `` | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `RAG_CHROMA_PATH` |
 | `RAG_CHROMA_PATH` | `chroma` | folder of the embedded Chroma store |
 | `RAG_CHROMA_COLLECTION` | `rag_passages` | Chroma collection holding the passages |
@@ -575,10 +651,6 @@ with a one-line usage error, not a traceback.
 | `RAG_ES_INDEX` | `rag_passages` | Elasticsearch index holding the passages |
 | `RAG_ES_TEXT_ANALYZER` | `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `RAG_DOMINO_TRACING` | `false` | wrap the workflow run with Domino `add_tracing` |
-| `RAG_TOP_K_RETRIEVE` | `20` | candidates from the vector store (>= 1) |
-| `RAG_TOP_K_RERANK` | `10` | passages kept after reranking and sent to the LLM (>= 1, <= `RAG_TOP_K_RETRIEVE`) |
-| `RAG_SYSTEM_PROMPT` / `RAG_USER_PROMPT` | from `prompts.yaml` | override one prompt; the user template must hold `{context}` and `{question}` |
-| `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
 | `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
 | `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
@@ -591,6 +663,7 @@ with a one-line usage error, not a traceback.
 | `RAG_DOMINO_TOKEN_TTL_S` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | `200` | synthetic documents seeded into the `fake` vector store at start-up |
 | `RAG_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
+| `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | `20`, `10` | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the defaults are the packaged workflow file's sizes, and the workflow app no longer reads either |
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
 | `RAG_LOADTEST_WAIT_MIN_S`, `RAG_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
@@ -598,16 +671,17 @@ with a one-line usage error, not a traceback.
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
 
-Every tunable is a field of `RagSettings` in `config/rag_settings.py`; adapters get
-the values as constructor arguments from the `composition/` package. Locust's rerank
-users send `RAG_TOP_K_RETRIEVE` documents with `top_n=RAG_TOP_K_RERANK`, like the
-workflow. Sources win in this order: constructor arguments, environment, `.env`,
-then the prompts YAML. An invalid backend, topology, retrieval mode or runtime
-name, a backend that contradicts the topology, a bad run label, a temperature
-outside 0 to 2, `RAG_TOP_K_RERANK` above `RAG_TOP_K_RETRIEVE`, a component on
-the `api` backend whose `RAG_*_API_URL` does not start with `http://` or
-`https://`, lexical or hybrid retrieval on a store that ranks no text, a user
-prompt missing a placeholder, or a missing prompts file fails at start-up with
+Every tunable is a field of `RagSettings` in `config/rag_settings.py`, or a
+setting of a stage of its graph; adapters get the values as constructor
+arguments from the `composition/` package. Sources win in the order the workflow
+file's section gives. An invalid backend, topology or runtime name, a backend
+that contradicts the topology, a bad run label, a temperature outside 0 to 2, a
+component on the `api` backend whose `RAG_*_API_URL` does not start with
+`http://` or `https://`, a missing workflow file or an unknown key in it fails
+as the settings are read. An unknown stage type or edge condition, a stage
+setting its stage type refuses (an unknown key, a retrieval mode, a size below
+1, a user prompt missing a placeholder), and lexical or hybrid retrieval on a
+store that ranks no text fail as the graph is built. Both are at start-up, with
 the offending value. For example:
 
 ```
@@ -624,11 +698,16 @@ settings, and the registry refuses the name and lists the known ones:
 rag-serve: error: unknown rerank API format 'jina' (expected one of: 'cohere')
 ```
 
-Earlier versions named the model settings differently; none of the old names is
-read any more:
+Earlier versions named some settings differently; none of the old names is read
+any more by the workflow app:
 
 | Old | New |
 | --- | --- |
+| `RAG_RETRIEVAL_MODE` | the retrieve stage's `retrieval_mode` in the workflow file (`RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE`); a lexical workflow file has no embed stage |
+| `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | the retrieve and rerank stages' `top_k` (`RAG_GRAPH__STAGES__RETRIEVE__TOP_K`, `RAG_GRAPH__STAGES__RERANK__TOP_K`); Locust still reads the old names for a `rerank` target |
+| `RAG_HYBRID_RRF_K` | the retrieve stage's `rrf_k` |
+| `RAG_SYSTEM_PROMPT`, `RAG_USER_PROMPT`, `RAG_PROMPTS_FILE` (`config/prompts.yaml`) | the generate stage's `system_prompt` and `user_prompt`, in the workflow file |
+| the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `RAG_RERANK_CALIBRATION_PASSAGES` passages, all kept |
 | `RAG_EMBEDDER_*`, `RAG_RERANKER_*` (backend, model, query prefix, batch size, threads) | `RAG_EMBEDDING_*`, `RAG_RERANK_*` |
 | `RAG_OVMS_EMBEDDINGS_URL`, `RAG_OVMS_RERANK_URL` (a base URL with a localhost default) | `RAG_EMBEDDING_API_URL`, `RAG_RERANK_API_URL` (the full route, no default) |
 | `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | `RAG_EMBEDDING_API_MODEL`, `RAG_RERANK_API_MODEL` |
@@ -660,7 +739,8 @@ the runtime.
 **Calibration.** The budget's share is an upper bound, not always the fastest
 choice. So when an in-process model loads, the process times its stage (embed
 or rerank) under each candidate and keeps the fastest. It does so only for a
-parameter left at `0`: `RAG_RERANK_BATCH_SIZE` tries `RAG_TOP_K_RETRIEVE`, then
+parameter left at `0`: `RAG_RERANK_BATCH_SIZE` tries
+`RAG_RERANK_CALIBRATION_PASSAGES` (20, the size of the sample request), then
 half of it, down to 1; `RAG_RERANK_THREADS` and `RAG_EMBEDDING_THREADS` try the
 budget's share, then half of it, down to 1. The embedder's batch size is not
 searched: a query is one text. Batch sizes are timed first, on the budget's
@@ -726,13 +806,13 @@ not calibrated by it.
 
 ## Retrieval, stores and model endpoints
 
-**Retrieval mode** (`RAG_RETRIEVAL_MODE`). `dense` asks the store for the
-passages nearest to the question's vector. `lexical` asks for the passages whose
-words match best, as the store ranks them: no vector is needed, so the graph
-has no embed stage (no `embed` timing; the embedder still loads, so
-`RAG_EMBEDDING_BACKEND=fake` saves the weights). `hybrid` asks both ways at
-once, `RAG_TOP_K_RETRIEVE` each, and fuses the two rankings by reciprocal rank
-(`1 / (RAG_HYBRID_RRF_K + rank)`, summed per passage). The fusion runs in the
+**Retrieval mode** (the retrieve stage's `retrieval_mode`). `dense` asks the
+store for the passages nearest to the question's vector. `lexical` asks for the
+passages whose words match best, as the store ranks them: no vector is needed,
+so a lexical workflow file has no embed stage (no `embed` timing; the embedder
+still loads, so `RAG_EMBEDDING_BACKEND=fake` saves the weights). `hybrid` asks
+both ways at once, the retrieve stage's `top_k` each, and fuses the two rankings
+by reciprocal rank (`1 / (rrf_k + rank)`, summed per passage). The fusion runs in the
 workflow, so it needs no Elasticsearch licence, at the price of two store calls
 where a server-side fusion would make one. Passages are always ingested with
 their vectors, so one index serves the three modes.
@@ -750,8 +830,8 @@ are refused at start-up.
 Embedded by default: a folder (`RAG_CHROMA_PATH`), no server to run, filled by
 `make ingest` like any store. `RAG_CHROMA_URL` points at a Chroma server instead.
 Chroma serves dense retrieval only. Open-source Chroma filters text by substring
-but does not rank it (its ranked Search API is Chroma Cloud only), so
-`RAG_RETRIEVAL_MODE=lexical` or `hybrid` with `chroma` stops `rag-serve` at
+but does not rank it (its ranked Search API is Chroma Cloud only), so a
+`lexical` or `hybrid` retrieve stage with `chroma` stops `rag-serve` at
 start-up.
 
 **Model endpoints.** A component on the `api` backend calls an endpoint, and

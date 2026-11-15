@@ -126,6 +126,9 @@ def test_settings_field_set_is_pinned() -> None:
     # moved or added here on purpose; so were Chroma, the retrieval mode and the
     # in-process model runtime, and the two limits of calibration. Each model component (embedding, rerank,
     # generation) has one block of settings, its endpoint in four *_api_* fields.
+    # The retrieval mode, the sizes and the prompts moved onto the stages of the
+    # graph, read from the workflow file; the reranker has the size of its own
+    # calibration request.
     assert sorted(RagSettings.model_fields) == [
         "calibration_budget_s",
         "calibration_rounds",
@@ -158,10 +161,10 @@ def test_settings_field_set_is_pinned() -> None:
         "generation_backend",
         "generation_temperature",
         "generation_timeout_s",
+        "graph",
         "http_backoff_s",
         "http_retries",
         "http_timeout_s",
-        "hybrid_rrf_k",
         "local_model_runtime",
         "model_cpus",
         "model_workers",
@@ -172,14 +175,10 @@ def test_settings_field_set_is_pinned() -> None:
         "rerank_api_url",
         "rerank_backend",
         "rerank_batch_size",
+        "rerank_calibration_passages",
         "rerank_model",
         "rerank_threads",
-        "retrieval_mode",
         "run_label",
-        "system_prompt",
-        "top_k_rerank",
-        "top_k_retrieve",
         "topology",
-        "user_prompt",
         "vector_store_backend",
     ]

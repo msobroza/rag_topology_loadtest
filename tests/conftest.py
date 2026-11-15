@@ -15,6 +15,22 @@ import pytest
 from rag_load_test.application.rag_dependencies import RagDependencies
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.config.workflow_file import (
+    PACKAGED_WORKFLOW,
+    WORKFLOW_FILE_VARIABLE,
+)
+
+
+@pytest.fixture(autouse=True)
+def _the_packaged_workflow_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test reads the workflow file that ships with the code, unless it says.
+
+    A ``workflow.yaml`` left in the working directory, or ``RAG_WORKFLOW_FILE``
+    set in the shell, would change the graph the tests run. A test names
+    another file with the variable, or unsets it to find one in the working
+    directory; an autouse fixture is set up before the test's own.
+    """
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(PACKAGED_WORKFLOW))
 
 
 @pytest.fixture

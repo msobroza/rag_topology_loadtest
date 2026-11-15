@@ -1,0 +1,40 @@
+# The RAG workflow (ADR 0004): what the workflow app runs when it finds no
+# other workflow file. RAG_WORKFLOW_FILE names another; else a workflow.yaml in
+# the working directory is used before this one. Each top-level key is a
+# setting, and each value is overridden by the variable its path names, its
+# levels joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5.
+graph:
+  # Each stage is an instance of the stage type of its name, unless `type`
+  # names another, and calls the component that `call` names. Every other key
+  # is a setting of the stage.
+  stages:
+    embed:
+      call: embedder
+    retrieve:
+      call: vector_store
+      # dense | lexical | hybrid; a lexical workflow has no embed stage
+      retrieval_mode: dense
+      top_k: 20 # candidates from the store
+    rerank:
+      call: reranker
+      top_k: 10 # passages kept and sent to the LLM
+    generate:
+      call: llm
+      system_prompt: >-
+        You answer questions using only the numbered context passages.
+        Cite passages as [n]. If the context is insufficient, say so.
+      # It holds {context} and {question}; any other brace is doubled.
+      user_prompt: |-
+        Context:
+        {context}
+
+        Question: {question}
+  # Chains of plain edges, one edge per pair; START and END are reserved.
+  edges:
+    - [START, embed, retrieve, rerank]
+    - [generate, END]
+  # A registered edge condition, and where its true and false answers lead.
+  conditional_edges:
+    - source: rerank
+      path: is_query_mode
+      path_map: {true: generate, false: END}

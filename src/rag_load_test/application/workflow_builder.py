@@ -10,7 +10,7 @@ its ``path`` names, handed to LangGraph as it is registered: LangGraph names the
 branch after the function, and Domino tracing needs that name.
 
 Example:
-    >>> workflow = build_workflow(settings.workflow_graph(), deps.components())
+    >>> workflow = build_workflow(settings.graph, deps.components())
     >>> result = await workflow.run("How many vacation days?")
 """
 
@@ -88,7 +88,7 @@ def build_workflow(
             stage type, or a stage type refuses its component.
 
     Example:
-        >>> build_workflow(settings.workflow_graph(), deps.components())
+        >>> build_workflow(settings.graph, deps.components())
     """
     # ty 0.0.100 does not match a TypedDict class against LangGraph's
     # TypedDictLike protocol (its __required_keys__); mypy accepts it.

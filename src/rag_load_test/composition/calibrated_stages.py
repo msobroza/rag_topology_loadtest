@@ -11,7 +11,7 @@ searches.
 
 Example:
     >>> calibrated = await calibrate(
-    ...     CalibratedRerankStage(model, pool, passages=20, top_n=10),
+    ...     CalibratedRerankStage(model, pool, passages=20),
     ...     threads=candidates(local.threads, budget.reranker_threads),
     ...     batch_sizes=candidates(local.batch_size, local.calibration_passages),
     ...     limits=local_models.calibration_limits,
@@ -126,28 +126,26 @@ async def component_calibration(
 class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
     """The rerank stage on the in-process cross-encoder, as calibration times it.
 
-    Its sample is a question and ``passages`` passages, kept to ``top_n``, as
-    the workflow reranks its candidates.
+    Its sample is a question and ``passages`` passages, all kept: the model
+    scores every candidate whatever it keeps, so the number kept does not
+    change the time.
 
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
         passages: How many passages the sample request reranks.
-        top_n: How many of them it keeps.
 
     Example:
-        >>> stage = CalibratedRerankStage(model, pool, passages=20, top_n=10)
+        >>> stage = CalibratedRerankStage(model, pool, passages=20)
         >>> reranker = await stage.loaded(threads=2)
     """
 
     stage = "rerank"
 
-    def __init__(
-        self, model: LocalModel, pool: Executor, *, passages: int, top_n: int
-    ) -> None:
+    def __init__(self, model: LocalModel, pool: Executor, *, passages: int) -> None:
         self._model, self._pool = model, pool
         sample = calibration_sample(passages)
-        self._question, self._top_n = sample.question, top_n
+        self._question = sample.question
         self._passages = [
             ScoredPassage(id=f"calibration-{i}", text=text, retrieval_score=0.0)
             for i, text in enumerate(sample.passages)
@@ -186,7 +184,8 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         Args:
             adapter: The reranker under trial.
         """
-        await adapter.rerank(self._question, self._passages, top_n=self._top_n)
+        passages = self._passages
+        await adapter.rerank(self._question, passages, top_n=len(passages))
 
     def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
         """Name the two settings rerank calibration searches.

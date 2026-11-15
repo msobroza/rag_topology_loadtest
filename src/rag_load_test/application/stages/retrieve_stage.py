@@ -6,8 +6,8 @@ reciprocal rank. Lexical and hybrid need a store that ranks text: the store's
 own ``BaseLexicalSearch``, refused when the stage is built if it has none.
 
 Example:
-    >>> stage = RetrieveStage(store, RetrieveSettings(
-    ...     retrieval_mode="hybrid", top_k=20, rrf_k=60))
+    >>> stage = RetrieveStage(
+    ...     store, RetrieveSettings(retrieval_mode="hybrid", top_k=20))
     >>> await stage.run({"query_embedding": vector, "standalone_query": "vacation"})
     {'candidates': [...]}
 """
@@ -43,13 +43,16 @@ CandidateFinder = Callable[[WorkflowState], Awaitable[list[ScoredPassage]]]
 class RetrieveSettings(StageSettings):
     """How the retrieve stage searches, how many candidates it keeps, and the fusion.
 
-    ``rrf_k`` is the rank constant of the fusion a ``hybrid`` retrieval ends
-    with.
+    The retrieval mode and ``top_k`` are the use case's choices, so a workflow
+    file states them. ``rrf_k`` is the rank constant of the fusion a ``hybrid``
+    retrieval ends with, a technical default a file may leave out.
     """
 
     retrieval_mode: RetrievalMode
     top_k: int = Field(ge=1)
-    rrf_k: int = Field(ge=1)
+    # 60, as in the paper that defined the fusion (Cormack, Clarke and Buettcher,
+    # SIGIR 2009); smaller widens the gap between ranks.
+    rrf_k: int = Field(default=60, ge=1)
 
 
 def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSearch:
@@ -72,8 +75,8 @@ def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSea
         return store
     raise ValueError(
         f"retrieval_mode={mode!r} needs a store that ranks text, but the vector "
-        "store ranks no text: set RAG_VECTOR_STORE_BACKEND=elasticsearch, or "
-        "RAG_RETRIEVAL_MODE=dense"
+        "store ranks no text: set RAG_VECTOR_STORE_BACKEND=elasticsearch, or the "
+        "retrieve stage's retrieval_mode to dense"
     )
 
 

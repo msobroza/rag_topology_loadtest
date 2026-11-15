@@ -7,6 +7,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
+from rag_graphs import rag_graph
 from rag_load_test.config.component_settings import (
     ChromaSettings,
     ElasticsearchSettings,
@@ -46,7 +47,7 @@ def test_the_defaults_take_the_workflow_file_shape(
     reranker = components.reranker
     assert reranker.backend == "local"
     assert reranker.local == RerankerLocalSettings(
-        batch_size=0, threads=0, calibration_passages=20, calibration_top_n=10
+        batch_size=0, threads=0, calibration_passages=20
     )
     assert reranker.api.api_format == "cohere"
     llm = components.llm
@@ -75,8 +76,7 @@ def test_every_flat_value_reaches_its_component_block(
         rerank_api_url=RERANK_URL,
         rerank_batch_size=4,
         rerank_threads=2,
-        top_k_retrieve=12,
-        top_k_rerank=5,
+        rerank_calibration_passages=12,
         generation_timeout_s=9.0,
         http_retries=0,
         http_backoff_s=0.0,
@@ -100,7 +100,7 @@ def test_every_flat_value_reaches_its_component_block(
     assert (embedder.api.url, embedder.api.api_key) == (EMBED_URL, "domino")
     assert embedder.api.batch_size == 8
     assert reranker.local == RerankerLocalSettings(
-        batch_size=4, threads=2, calibration_passages=12, calibration_top_n=5
+        batch_size=4, threads=2, calibration_passages=12
     )
     assert reranker.api.url == RERANK_URL
     assert components.llm.http == HttpCallSettings(
@@ -118,6 +118,15 @@ def test_every_flat_value_reaches_its_component_block(
         url="http://chroma:8000", path="here", collection="passages"
     )
     assert store.fake == FakeStoreSettings(seed_documents=12)
+
+
+def test_the_calibration_request_reads_no_stages_setting(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(graph=rag_graph(retrieve_top_k=7, rerank_top_k=3))
+
+    local = component_settings_of(settings).reranker.local
+    assert local.calibration_passages == 20  # the reranker's own default
 
 
 def test_a_copy_keeps_a_backend_name_the_settings_would_refuse(

@@ -3,10 +3,10 @@
 A component's settings are its backend, the settings common to its type, and
 one block per backend that has settings, named after that backend: the
 embedder's ``local`` block holds what its in-process model takes, its ``api``
-block what its endpoint takes. ``WorkflowComponents`` is the file's
-``components`` key. Until that file arrives, ``component_settings_of`` derives
-the shape from the flat ``RAG_*`` variables, so no variable changes; only the
-``composition`` package reads it, to open each component.
+block what its endpoint takes. ``WorkflowComponents`` will be the workflow
+file's ``components`` key. Until the components move into that file,
+``component_settings_of`` derives the shape from the flat ``RAG_*`` variables;
+only the ``composition`` package reads it, to open each component.
 
 A backend is a plain name here: the openers registered in ``composition/``
 know which ones exist, and refuse any other.
@@ -92,14 +92,13 @@ class InProcessModelSettings(_SettingsBlock):
 
 
 class RerankerLocalSettings(InProcessModelSettings):
-    """The reranker's ``local`` block, with the shape of its calibration request.
+    """The reranker's ``local`` block, with the size of its calibration request.
 
-    The request reranks ``calibration_passages`` passages, which also bound the
-    batch sizes tried, and keeps ``calibration_top_n`` of them.
+    The request reranks ``calibration_passages`` passages and keeps them all;
+    their number also bounds the batch sizes tried.
     """
 
     calibration_passages: int
-    calibration_top_n: int
 
 
 class HttpCallSettings(_SettingsBlock):
@@ -220,13 +219,12 @@ def _embedder_of(settings: RagSettings) -> EmbedderSettings:
 
 
 def _reranker_of(settings: RagSettings) -> RerankerSettings:
-    # The calibration request is the one the workflow sends: top_k_retrieve
-    # candidates, top_k_rerank of them kept.
+    # The calibration request is sized by the reranker's own setting: the code
+    # that opens a component cannot read the settings of the stage calling it.
     local = RerankerLocalSettings(
         batch_size=settings.rerank_batch_size,
         threads=settings.rerank_threads,
-        calibration_passages=settings.top_k_retrieve,
-        calibration_top_n=settings.top_k_rerank,
+        calibration_passages=settings.rerank_calibration_passages,
     )
     return RerankerSettings(
         backend=settings.rerank_backend,

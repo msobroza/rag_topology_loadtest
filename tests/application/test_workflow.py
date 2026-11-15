@@ -1,4 +1,4 @@
-"""The RAG graph, built from the settings' description over fake ports, and the prompts."""
+"""The RAG graph of the packaged workflow file, built over fake ports, and the prompts."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from typing import Any
 
 import pytest
 
+from rag_graphs import rag_graph
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
 from rag_load_test.application.rag_dependencies import RagDependencies
 from rag_load_test.application.workflow import CompiledWorkflow, stage_timings
 from rag_load_test.application.workflow_builder import build_workflow
 from rag_load_test.application.workflow_state import initial_state
-from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
 from rag_load_test.domain.prompts import RagPrompts
 from workflow_fakes import (
@@ -31,24 +31,15 @@ VACATION_QUESTION = synthetic_questions(1)[0]
 # The four stages in the graph's order, then the total: the keys of today's response.
 TIMING_KEYS = ["embed", "retrieve", "rerank", "generate", "total"]
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
-FAKE_BACKENDS = {
-    "embedding_backend": "fake",
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
-    "vector_store_backend": "fake",
-}
 WorkflowFor = Callable[..., CompiledWorkflow]
 
 
 @pytest.fixture
-def workflow_for(
-    settings_factory: Callable[..., RagSettings],
-) -> WorkflowFor:
-    """The RAG graph of all-fake settings with ``overrides``, over ``deps``."""
+def workflow_for() -> WorkflowFor:
+    """Today's graph with ``changes`` (see ``rag_graph``), over ``deps``."""
 
-    def make(deps: RagDependencies, **overrides: object) -> CompiledWorkflow:
-        graph = settings_factory(**FAKE_BACKENDS, **overrides).workflow_graph()
-        return build_workflow(graph, deps.components())
+    def make(deps: RagDependencies, **changes: Any) -> CompiledWorkflow:
+        return build_workflow(rag_graph(**changes), deps.components())
 
     return make
 
@@ -133,8 +124,8 @@ async def test_non_default_settings_size_retrieval_rerank_and_prompt(
     deps = dataclasses.replace(fake_deps, reranker=NoReranker())
     workflow = workflow_for(
         deps,
-        top_k_retrieve=3,
-        top_k_rerank=2,
+        retrieve_top_k=3,
+        rerank_top_k=2,
         system_prompt="s",
         user_prompt="ASK {question} USING {context}",
     )
@@ -152,7 +143,7 @@ async def test_the_reranker_gets_the_question_the_retrieve_size_and_its_own(
 ) -> None:
     reranker = RecordingReranker()
     deps = dataclasses.replace(fake_deps, reranker=reranker)
-    workflow = workflow_for(deps, top_k_retrieve=7, top_k_rerank=4)
+    workflow = workflow_for(deps, retrieve_top_k=7, rerank_top_k=4)
 
     await workflow.run(VACATION_QUESTION, mode="retrieve")
 
@@ -196,7 +187,7 @@ async def test_dense_mode_asks_the_store_by_vector_only(
 ) -> None:
     store, embedder = ScriptedStore(["a", "b"], ["z"]), RecordingEmbedder()
     deps = scripted_deps(fake_deps, store, embedder)
-    workflow = workflow_for(deps, top_k_retrieve=2, top_k_rerank=2)
+    workflow = workflow_for(deps, retrieve_top_k=2, rerank_top_k=2)
 
     result = await workflow.run("vacation days", mode="retrieve")
 
@@ -210,7 +201,7 @@ async def test_lexical_mode_skips_the_embed_stage_and_asks_by_words(
     store, embedder = ScriptedStore(["a"], ["z", "y"]), RecordingEmbedder()
     deps = scripted_deps(fake_deps, store, embedder)
     workflow = workflow_for(
-        deps, retrieval_mode="lexical", top_k_retrieve=2, top_k_rerank=2
+        deps, retrieval_mode="lexical", retrieve_top_k=2, rerank_top_k=2
     )
 
     result = await workflow.run("vacation days", mode="retrieve")
@@ -228,12 +219,12 @@ async def test_hybrid_mode_asks_both_ways_and_fuses_by_rank(
     store, embedder = ScriptedStore(["a", "b", "c"], ["b", "d"]), RecordingEmbedder()
     deps = scripted_deps(fake_deps, store, embedder)
     workflow = workflow_for(
-        deps, retrieval_mode="hybrid", top_k_retrieve=3, top_k_rerank=3
+        deps, retrieval_mode="hybrid", retrieve_top_k=3, rerank_top_k=3
     )
 
     result = await workflow.run("vacation days", mode="retrieve")
 
-    # b is in both rankings; a and d each lead one; c is cut by top_k_retrieve.
+    # b is in both rankings; a and d each lead one; c is cut by retrieve's top_k.
     assert [p.id for p in result.passages] == ["b", "a", "d"]
     assert sorted(store.calls, key=lambda call: call[0]) == [
         ("dense", [1.0, 0.0], 3),

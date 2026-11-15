@@ -207,8 +207,7 @@ settings = RagSettings(
     rerank_backend="fake",
     generation_backend="fake",
     vector_store_backend="fake",
-    top_k_retrieve=5,
-    top_k_rerank=3,
+    graph={"stages": {"retrieve": {"top_k": 5}, "rerank": {"top_k": 3}}},
 ).model_copy(update={"rerank_backend": "reversed"})
 with TestClient(create_app(CompositionRoot(settings))) as client:
     answer = client.post("/retrieve", json={"question": "vacation days"}).json()

@@ -46,7 +46,7 @@ class RagDependencies:
             The embedder, reranker, LLM and vector store, by their fixed names.
 
         Example:
-            >>> build_workflow(settings.workflow_graph(), deps.components())
+            >>> build_workflow(settings.graph, deps.components())
         """
         return {
             "embedder": self.embedder,

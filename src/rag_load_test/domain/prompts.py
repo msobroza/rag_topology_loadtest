@@ -1,7 +1,7 @@
 r"""The prompts the workflow sends to the LLM, as a value object.
 
-The texts live in ``config/prompts.yaml`` and reach the workflow through
-``RagSettings``; this module only knows how to turn them into messages.
+The texts are settings of the generate stage, in the workflow file; this module
+only knows how to turn them into messages.
 
 Example:
     >>> prompts = RagPrompts(system="Cite [n].", user="{context}\n\nQ: {question}")

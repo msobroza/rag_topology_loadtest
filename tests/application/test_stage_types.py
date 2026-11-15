@@ -8,6 +8,7 @@ from typing import Any, get_type_hints
 import pytest
 from pydantic import ValidationError
 
+from rag_graphs import rag_graph
 from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
 from rag_load_test.adapters.llm.base_llm import BaseLLM
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
@@ -30,7 +31,6 @@ from rag_load_test.application.stages.retrieve_stage import (
 )
 from rag_load_test.application.workflow_builder import open_stage
 from rag_load_test.application.workflow_state import WorkflowState
-from rag_load_test.config.rag_settings import RagSettings
 from workflow_fakes import (
     DenseOnlyStore,
     RecordingEmbedder,
@@ -65,9 +65,9 @@ def test_each_rag_stage_type_is_registered_under_its_name_and_calls_a_port(
 
 @pytest.mark.parametrize("mode", ["dense", "lexical", "hybrid"])
 async def test_each_rag_stage_reads_and_writes_fields_of_the_workflow_state(
-    fake_deps: RagDependencies, fake_settings: RagSettings, mode: str
+    fake_deps: RagDependencies, mode: str
 ) -> None:
-    graph = fake_settings.model_copy(update={"retrieval_mode": mode}).workflow_graph()
+    graph = rag_graph(mode)
 
     stages = [
         open_stage(name, description, fake_deps.components(), STAGE_TYPES)
@@ -97,6 +97,18 @@ def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
 
     assert stage.reads == reads
     assert stage.writes == {"candidates"}
+
+
+def test_the_fusion_constant_is_a_default_and_the_use_cases_choices_are_not() -> None:
+    settings = RetrieveSettings.model_validate({"retrieval_mode": "hybrid", "top_k": 5})
+
+    assert settings.rrf_k == 60
+    with pytest.raises(ValidationError) as missing:
+        RetrieveSettings.model_validate({})
+    assert {error["loc"] for error in missing.value.errors()} == {
+        ("retrieval_mode",),
+        ("top_k",),
+    }
 
 
 @pytest.mark.parametrize(

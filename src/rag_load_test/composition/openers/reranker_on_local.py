@@ -86,9 +86,7 @@ async def calibrate_reranker_on_local(
 async def _calibrated_stage(
     component: RerankerSettings, local_models: LocalModelResources
 ) -> CalibratedRerankStage:
-    local = component.local
     pool = await local_models.model_pool()
     model = await local_models.local_model(component.source_id, export_reranker)
-    return CalibratedRerankStage(
-        model, pool, passages=local.calibration_passages, top_n=local.calibration_top_n
-    )
+    passages = component.local.calibration_passages
+    return CalibratedRerankStage(model, pool, passages=passages)

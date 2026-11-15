@@ -1,4 +1,4 @@
-"""``RagSettings``: the tunables, their validation, and the prompts read from YAML."""
+"""``RagSettings``: the tunables, their validation, and the graph of the workflow file."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from rag_graphs import packaged_graph, write_workflow_file
 from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 
 SettingsFactory = Callable[..., RagSettings]
 SYSTEM_PROMPT = (
@@ -18,10 +20,9 @@ SYSTEM_PROMPT = (
 USER_PROMPT = "Context:\n{context}\n\nQuestion: {question}"
 
 
-@pytest.fixture(autouse=True)
-def _no_prompt_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("RAG_PROMPTS_FILE", "RAG_SYSTEM_PROMPT", "RAG_USER_PROMPT"):
-        monkeypatch.delenv(name, raising=False)
+def stage_settings(settings: RagSettings) -> dict[str, dict[str, object]]:
+    """Each stage's own settings, by stage name."""
+    return {name: stage.stage_settings for name, stage in settings.graph.stages.items()}
 
 
 # --- tunables ------------------------------------------------------------------
@@ -30,9 +31,9 @@ def _no_prompt_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
-    assert (s.top_k_retrieve, s.top_k_rerank) == (20, 10)
     assert s.es_index == "rag_passages"
     assert (s.embedding_batch_size, s.rerank_batch_size) == (64, 0)
+    assert s.rerank_calibration_passages == 20
     assert s.model_workers == 4
     assert (s.calibration_budget_s, s.calibration_rounds) == (90.0, 1)
     assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (30.0, 2, 0.2)
@@ -45,11 +46,10 @@ def test_tunables_read_rag_prefixed_env(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env = {
-        "RAG_TOP_K_RETRIEVE": "50",
-        "RAG_TOP_K_RERANK": "10",
         "RAG_ES_INDEX": "passages_v2",
         "RAG_EMBEDDING_BATCH_SIZE": "16",
         "RAG_RERANK_BATCH_SIZE": "8",
+        "RAG_RERANK_CALIBRATION_PASSAGES": "12",
         "RAG_MODEL_WORKERS": "2",
         "RAG_HTTP_TIMEOUT_S": "5.5",
         "RAG_HTTP_RETRIES": "0",
@@ -64,25 +64,16 @@ def test_tunables_read_rag_prefixed_env(
         monkeypatch.setenv(name, value)
 
     s = settings_factory()
-    assert (s.top_k_retrieve, s.top_k_rerank, s.es_index) == (50, 10, "passages_v2")
+    assert s.es_index == "passages_v2"
     assert (s.embedding_batch_size, s.rerank_batch_size, s.model_workers) == (16, 8, 2)
+    assert s.rerank_calibration_passages == 12
     assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (5.5, 0, 0.5)
     assert (s.domino_token_url, s.domino_token_ttl_s) == ("http://token.test/t", 60.0)
     assert s.fake_store_seed_documents == 30
     assert (s.calibration_budget_s, s.calibration_rounds) == (12.5, 3)
 
 
-def test_top_k_rerank_above_top_k_retrieve_fails_naming_both(
-    settings_factory: SettingsFactory,
-) -> None:
-    with pytest.raises(ValidationError) as caught:
-        settings_factory(top_k_retrieve=3, top_k_rerank=7)
-
-    assert "RAG_TOP_K_RERANK=7" in str(caught.value)
-    assert "RAG_TOP_K_RETRIEVE=3" in str(caught.value)
-
-
-@pytest.mark.parametrize("field", ["top_k_retrieve", "top_k_rerank", "model_workers"])
+@pytest.mark.parametrize("field", ["rerank_calibration_passages", "model_workers"])
 def test_counts_below_one_are_rejected(
     settings_factory: SettingsFactory, field: str
 ) -> None:
@@ -90,104 +81,119 @@ def test_counts_below_one_are_rejected(
         settings_factory(**{field: 0})
 
 
-def test_the_workflow_graph_carries_the_sizes_and_the_prompts_on_their_stages(
+# --- the workflow file -------------------------------------------------------------
+
+
+def test_the_packaged_workflow_file_is_todays_graph(
     settings_factory: SettingsFactory,
 ) -> None:
-    graph = settings_factory(top_k_retrieve=8, top_k_rerank=2).workflow_graph()
+    s = settings_factory()
 
-    settings = {name: stage.stage_settings for name, stage in graph.stages.items()}
-    assert settings == {
+    assert stage_settings(s) == {
         "embed": {},
-        "retrieve": {"retrieval_mode": "dense", "top_k": 8, "rrf_k": 60},
-        "rerank": {"top_k": 2},
+        "retrieve": {"retrieval_mode": "dense", "top_k": 20},
+        "rerank": {"top_k": 10},
         "generate": {"system_prompt": SYSTEM_PROMPT, "user_prompt": USER_PROMPT},
     }
-    calls = {name: stage.call for name, stage in graph.stages.items()}
+    calls = {name: stage.call for name, stage in s.graph.stages.items()}
     assert calls == {
         "embed": "embedder",
         "retrieve": "vector_store",
         "rerank": "reranker",
         "generate": "llm",
     }
-
-
-def test_the_workflow_graph_is_todays_graph(settings_factory: SettingsFactory) -> None:
-    graph = settings_factory().workflow_graph()
-
-    assert graph.edge_pairs() == [
+    assert s.graph.edge_pairs() == [
         ("START", "embed"),
         ("embed", "retrieve"),
         ("retrieve", "rerank"),
         ("generate", "END"),
     ]
-    (branch,) = graph.conditional_edges
+    (branch,) = s.graph.conditional_edges
     assert (branch.source, branch.path) == ("rerank", "is_query_mode")
     assert branch.path_map == {True: "generate", False: "END"}
-    assert all(stage.type is None for stage in graph.stages.values())
+    # The type of each stage is its name.
+    assert all(stage.type is None for stage in s.graph.stages.values())
 
 
-# --- prompts --------------------------------------------------------------------
-
-
-def test_packaged_prompts_equal_the_historic_strings(
-    settings_factory: SettingsFactory,
-) -> None:
-    s = settings_factory()
-
-    assert s.system_prompt == SYSTEM_PROMPT
-    assert s.user_prompt == USER_PROMPT
-
-
-def test_env_overrides_one_prompt_and_keeps_the_other(
+def test_a_variable_overrides_one_prompt_and_keeps_the_other(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_SYSTEM_PROMPT", "Answer in French.")
+    monkeypatch.setenv("RAG_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT", "Be terse.")
 
-    s = settings_factory()
-    assert (s.system_prompt, s.user_prompt) == ("Answer in French.", USER_PROMPT)
+    generate = stage_settings(settings_factory())["generate"]
+
+    assert generate == {"system_prompt": "Be terse.", "user_prompt": USER_PROMPT}
 
 
-def test_init_kwargs_override_the_env_prompt(
-    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+def test_the_sources_win_in_their_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("RAG_USER_PROMPT", "env {context} {question}")
-
-    s = settings_factory(user_prompt="kwarg {question} {context}")
-    assert s.user_prompt == "kwarg {question} {context}"
-
-
-def test_prompts_file_env_points_at_another_yaml(
-    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    prompts = tmp_path / "prompts.yaml"
-    prompts.write_text(
-        "system_prompt: Be terse.\nuser_prompt: '{question} given {context}'\n",
+    # One key per source, each set by that source and every source below it.
+    graph = packaged_graph()
+    graph["stages"]["retrieve"].update(top_k=7, rrf_k=61)
+    graph["stages"]["rerank"]["top_k"] = 5
+    workflow = write_workflow_file(tmp_path / "workflow.yaml", graph)
+    with workflow.open("a", encoding="utf-8") as file:
+        file.write("es_index: from_the_file\n")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "RAG_GRAPH__STAGES__RETRIEVE__TOP_K=8\n"
+        "RAG_GRAPH__STAGES__RERANK__TOP_K=6\n"
+        "RAG_GRAPH__STAGES__RETRIEVE__RRF_K=62\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("RAG_PROMPTS_FILE", str(prompts))
+    monkeypatch.setenv("RAG_GRAPH__STAGES__RERANK__TOP_K", "4")
+    monkeypatch.setenv("RAG_GRAPH__STAGES__RETRIEVE__RRF_K", "63")
 
-    s = settings_factory()
-    assert (s.system_prompt, s.user_prompt) == (
-        "Be terse.",
-        "{question} given {context}",
+    s = RagSettings(
+        _env_file=dotenv,  # type: ignore[call-arg]
+        graph={"stages": {"retrieve": {"rrf_k": 64}}},
     )
 
+    retrieve, rerank = stage_settings(s)["retrieve"], stage_settings(s)["rerank"]
+    assert int(retrieve["rrf_k"]) == 64  # constructor > environment
+    assert int(rerank["top_k"]) == 4  # environment > .env
+    assert int(retrieve["top_k"]) == 8  # .env > the workflow file
+    assert s.es_index == "from_the_file"  # the workflow file > the class default
+    assert s.model_workers == 4  # the class default
+    assert retrieve["retrieval_mode"] == "dense"  # each source sets only its keys
 
-def test_a_missing_prompts_file_fails_naming_the_path(
-    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+
+def test_an_unknown_top_level_key_of_the_file_is_refused_naming_it(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    missing = tmp_path / "nowhere" / "prompts.yaml"
-    monkeypatch.setenv("RAG_PROMPTS_FILE", str(missing))
+    workflow = write_workflow_file(tmp_path / "workflow.yaml", packaged_graph())
+    with workflow.open("a", encoding="utf-8") as file:
+        file.write("top_k_retrieve: 20\n")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
 
-    with pytest.raises(OSError, match=r"nowhere/prompts\.yaml"):
+    with pytest.raises(ValueError, match=r"unknown key.*'top_k_retrieve'"):
         settings_factory()
 
 
-def test_a_user_prompt_without_a_placeholder_fails_at_construction(
-    settings_factory: SettingsFactory,
+def test_an_unknown_key_of_the_graph_is_refused_naming_it(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with pytest.raises(ValidationError, match=r"\{context\}"):
-        settings_factory(user_prompt="Question: {question}")
+    monkeypatch.setenv("RAG_GRAPH__STAGEZ__RERANK__TOP_K", "3")
+
+    with pytest.raises(ValidationError, match=r"graph\.stagez"):
+        settings_factory()
+
+
+def test_a_file_without_a_graph_is_refused_naming_it(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workflow = tmp_path / "workflow.yaml"
+    workflow.write_text("es_index: passages\n", encoding="utf-8")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+
+    with pytest.raises(ValidationError, match="graph"):
+        settings_factory()
 
 
 # --- thread budget inputs ---------------------------------------------------------

@@ -35,9 +35,11 @@ def test_the_four_model_values_default_to_the_rag_systems(
     settings = settings_from(monkeypatch, {})
     rag = settings_factory()
 
+    # The sizes are the stages' of the workflow file that ships with the code.
+    stages = rag.graph.stages
     assert (settings.top_k_retrieve, settings.top_k_rerank) == (
-        rag.top_k_retrieve,
-        rag.top_k_rerank,
+        stages["retrieve"].stage_settings["top_k"],
+        stages["rerank"].stage_settings["top_k"],
     )
     assert (settings.rerank_api_model, settings.embedding_api_model) == (
         rag.rerank_api_model,

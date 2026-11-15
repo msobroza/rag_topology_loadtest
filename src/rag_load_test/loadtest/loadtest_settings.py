@@ -2,13 +2,14 @@
 
 ``locustfile.py`` builds one ``LoadTestSettings()`` at import, from the
 environment and ``.env``, as the RAG system's and the deploy tool's settings are
-read. Most variables are ``RAG_LOADTEST_*``. Four are the RAG system's own
-(``RAG_TOP_K_RETRIEVE``, ``RAG_TOP_K_RERANK``, ``RAG_RERANK_API_MODEL``,
-``RAG_EMBEDDING_API_MODEL``): a request sent to a model server directly carries
-what the workflow app would send, driven by the same variables, with the same
-defaults. ``DOMINO_API_KEY`` is Domino's. This is the one module of the
-load-test client that imports the config package, and only for those four
-defaults: it never builds the RAG system's settings.
+read. Most variables are ``RAG_LOADTEST_*``. Two are the RAG system's own
+(``RAG_RERANK_API_MODEL``, ``RAG_EMBEDDING_API_MODEL``), and two were
+(``RAG_TOP_K_RETRIEVE``, ``RAG_TOP_K_RERANK``, now the sizes of the workflow
+file's stages): a request sent to a model server directly carries what the
+workflow app would send, with the same defaults. ``DOMINO_API_KEY`` is Domino's.
+This is the one module of the load-test client that imports the config package,
+and only for the defaults of the two model names: it never builds the RAG
+system's settings.
 
 Example:
     >>> LoadTestSettings().target  # "rag" unless RAG_LOADTEST_TARGET says otherwise
@@ -49,8 +50,8 @@ def rag_default(field: str) -> Any:
         The default that field declares.
 
     Example:
-        >>> rag_default("top_k_retrieve")
-        20
+        >>> rag_default("rerank_api_model")
+        'crossencoder-camembert-base-mmarcoFR'
     """
     return RagSettings.model_fields[field].default
 
@@ -92,13 +93,16 @@ class LoadTestSettings(BaseSettings):
     )
     questions_file: Path | None = None  # replaces the synthetic questions when set
     # --- what a model server is sent: the RAG system's variables and defaults ---------
+    # The workflow app no longer reads these two: its sizes are settings of its
+    # stages, in the workflow file. These defaults are the sizes of the file
+    # that ships with the code.
     top_k_retrieve: int = Field(
-        default=rag_default("top_k_retrieve"),
+        default=20,
         ge=1,
         validation_alias=_variable("RAG_TOP_K_RETRIEVE", "top_k_retrieve"),
     )
     top_k_rerank: int = Field(
-        default=rag_default("top_k_rerank"),
+        default=10,
         ge=1,
         validation_alias=_variable("RAG_TOP_K_RERANK", "top_k_rerank"),
     )
@@ -193,8 +197,8 @@ class LoadTestSettings(BaseSettings):
                 f"RAG_LOADTEST_WAIT_MAX_S={self.wait_max_s} is below "
                 f"RAG_LOADTEST_WAIT_MIN_S={self.wait_min_s}; expected max >= min"
             )
-        # The RAG system's own rule: a request with a top_n above its candidates
-        # is one the workflow app never sends.
+        # A request with a top_n above its candidates is one the workflow app
+        # never sends with the workflow file that ships with the code.
         if self.top_k_rerank > self.top_k_retrieve:
             raise ValueError(
                 f"RAG_TOP_K_RERANK={self.top_k_rerank} exceeds "

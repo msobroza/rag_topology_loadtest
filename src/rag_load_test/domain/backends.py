@@ -20,8 +20,6 @@ EmbeddingBackend = Literal["local", "api", "fake"]
 RerankBackend = Literal["local", "api", "fake", "none"]
 GenerationBackend = Literal["api", "fake"]
 VectorStoreBackend = Literal["elasticsearch", "chroma", "fake"]
-# The stores that rank text themselves; open-source Chroma does not (Cloud only).
-LEXICAL_STORE_BACKENDS: tuple[VectorStoreBackend, ...] = ("elasticsearch", "fake")
 # What runs an in-process model: OpenVINO on its exported files, or PyTorch.
 LocalModelRuntime = Literal["openvino", "torch"]
 
