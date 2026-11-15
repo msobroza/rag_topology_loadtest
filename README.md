@@ -499,6 +499,7 @@ with a one-line usage error, not a traceback.
 | `RAG_EMBEDDING_API_MODEL` | `snowflake-arctic-embed-l-v2.0` | the model name sent to the endpoint; our model servers serve `RAG_EMBEDDING_MODEL` under this name |
 | `RAG_EMBEDDING_BATCH_SIZE` | `64` | texts per call, in process or per endpoint request (>= 1) |
 | `RAG_EMBEDDING_THREADS` | `0` | native (OpenMP/BLAS) threads one in-process embed call may use; `0` = calibrated at start-up, up to the budget's share |
+| `RAG_EMBEDDING_NORMALIZE` | `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. It does not change OVMS: its own export normalises on its side (the exporter's default) |
 | **Rerank** | | |
 | `RAG_RERANK_BACKEND` | from the topology | `local` \| `api` \| `fake` \| `none`; `api`, `fake` and `none` (or the topology's own value) may override it |
 | `RAG_RERANK_MODEL` | `antoinelouis/crossencoder-camembert-base-mmarcoFR` | the `local` model (a Hugging Face id or a folder); also what our model servers load |

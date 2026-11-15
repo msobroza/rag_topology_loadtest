@@ -231,7 +231,7 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
-        settings: ``embedding_query_prefix``.
+        settings: ``embedding_query_prefix`` and ``embedding_normalize``.
 
     Example:
         >>> stage = EmbedStage(model, pool, settings)
@@ -244,6 +244,8 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
         self, model: LocalModel, pool: Executor, settings: RagSettings
     ) -> None:
         self._model, self._pool = model, pool
+        # Calibration times the encode the App will run, normalised or not.
+        self._normalize = settings.embedding_normalize
         question = calibration_sample(1).question
         self._query = settings.embedding_query_prefix + question
 
@@ -257,7 +259,11 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
             The embedder, at batch size 1 until ``rebatched``.
         """
         return SentenceTransformerEmbedder.from_pretrained(
-            self._model, self._pool, batch_size=1, threads=threads
+            self._model,
+            self._pool,
+            batch_size=1,
+            threads=threads,
+            normalize_embeddings=self._normalize,
         )
 
     def rebatched(

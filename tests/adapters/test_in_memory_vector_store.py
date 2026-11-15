@@ -27,6 +27,20 @@ async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> No
     assert hits[0].metadata == {"page": 3, "src": "a.pdf"}
 
 
+async def test_in_memory_store_ranks_by_direction_not_length() -> None:
+    store = InMemoryVectorStore()
+    await store.upsert(
+        [Passage(id="long-off", text="a"), Passage(id="short-on", text="b")],
+        [[10.0, 10.0], [0.3, 0.0]],
+    )
+
+    hits = await store.query([2.0, 0.0], top_k=2)
+
+    assert [h.id for h in hits] == ["short-on", "long-off"]
+    assert hits[0].retrieval_score == pytest.approx(1.0)
+    assert hits[1].retrieval_score == pytest.approx(2**-0.5)
+
+
 async def test_in_memory_store_finds_passages_by_their_words() -> None:
     store = InMemoryVectorStore()
     passages = [
