@@ -34,10 +34,11 @@ coverage.xml
 *.swp
 .DS_Store
 
+# The toolkit's commands run from query_processing/, so what they write is there.
 # Load-test output (keep the directory), exported OVMS models, secrets
-results/*
-!results/.gitkeep
-ovms/models/
+/query_processing/results/*
+!/query_processing/results/.gitkeep
+/query_processing/ovms/models/
 .env
 deploy.env
 # rag-deploy: its settings and the App ids it has seen
@@ -46,8 +47,8 @@ deploy.yaml
 
 # Written at run time by the defaults: the OpenVINO exports (RAG_LOCAL_MODELS__OPENVINO_DIR)
 # and the embedded Chroma store (RAG_COMPONENTS__VECTOR_STORE__CHROMA__PATH).
-/models/
-/chroma/
+/query_processing/models/
+/query_processing/chroma/
 
 # A fetched corpus (rag-fetch-corpus): never committed.
-/data/
+/query_processing/data/

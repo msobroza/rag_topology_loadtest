@@ -91,7 +91,7 @@ variable "git_ref" {
 }
 
 variable "repo_path" {
-  description = "Absolute path of the clone on every machine: rag-deploy runs domino/app.sh by this path on each App's machine."
+  description = "Absolute path of the clone on every machine: rag-deploy runs query_processing/domino/app.sh under this path on each App's machine."
   type        = string
   default     = "/repos/rag_topology_loadtest"
 

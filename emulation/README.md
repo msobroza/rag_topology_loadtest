@@ -4,12 +4,13 @@
 the three topologies were deployed through the emulated Domino and measured on
 real models, and two later sittings tried the cache bucket. "Verified on 14
 November 2026" and "Not verified" at the end say what ran and what has not;
-`tests/emulation/` still checks the files only by parsing them.
+`query_processing/tests/emulation/` still checks the files only by parsing them.
 
 The emulation is temporary: it lets the owner rehearse a Domino deployment, and
 compare topologies, before the real Domino is available. All of it lives in this
-folder, `tests/emulation/` and the emulation's own subpackage, so that it can be
-removed without touching the rest (see "Removing the emulation").
+folder, `query_processing/tests/emulation/` and the emulation's own subpackage,
+so that it can be removed without touching the rest (see "Removing the
+emulation").
 
 Terraform creates what already exists before anyone deploys on a real Domino (ADR
 `docs/adr/0001-emulation-platform-and-app-placement.md`). Then the project's
@@ -110,12 +111,15 @@ make -C emulation ssh           # gcloud compute ssh ubuntu@<name>-workspace ...
 ```
 
 The shell starts in the repository (`/repos/rag_topology_loadtest`, the same path
-on every machine) with the project's virtualenv on `PATH`, and with
+on every machine) with the project's virtualenv (`.venv` at the repository's root)
+on `PATH`, and with
 `DOMINO_API_PROXY=http://localhost:8899`, `DOMINO_PROJECT_ID` and
 `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
 set, as a Domino Workspace would have them (the Project environment variables are
-exported too). `deploy.yaml` is already written for this emulation, the
-Elasticsearch URL and the OpenVINO folder under its `overrides`; edit it as on
+exported too). The toolkit's commands run in `query_processing/`, and the targets
+below run them there. `query_processing/deploy.yaml` is already written for this
+emulation, the Elasticsearch URL and the OpenVINO folder under its `overrides`;
+edit it as on
 Domino (topology, per-App blocks, each model server App's `server`, the
 overrides), or override the topology with `RAG_DEPLOY_TOPOLOGY`.
 
@@ -139,8 +143,8 @@ make -C emulation status               # each App's status and URL, then the wor
 make -C emulation loadtest RUN_NAME=split-all             # through the emulated Domino's proxy
 make -C emulation app-machines                            # which pool machine runs the workflow
 make -C emulation loadtest-direct APP_HOST=<address> RUN_NAME=split-all-direct   # bypassing the proxy
-make compare
-make -C emulation results-save         # results/ as one archive in the bucket; prints its gs:// URL
+make -C query_processing compare
+make -C emulation results-save         # query_processing/results/ as one archive in the bucket; prints its gs:// URL
 make -C emulation cache-status         # the bucket's objects, then the index snapshots
 ```
 
@@ -184,6 +188,7 @@ for every method and sub-path, and forwards the request to a real app on your
 machine when `--upstream` names one for that App:
 
 ```bash
+cd query_processing                                  # the toolkit's directory
 make model-server SERVE=reranker PORT=8011           # a real model server
 rag-domino-emulation --upstream rag-reranker=http://localhost:8011
 DOMINO_API_PROXY=http://localhost:8899 DOMINO_PROJECT_ID=local make deploy-reranker
@@ -331,7 +336,7 @@ the machines as to be created again: `make -C emulation plan apply` brings back
 fresh machines with fresh disks, so the Workspace's results and `deploy.yaml` edits
 are gone, and the Apps must be deployed again. The index and the models come back
 from the cache bucket (`corpus-restore`; the models at boot) if they were saved.
-Save `results/` before the deadline (`make -C emulation results-save`).
+Save `query_processing/results/` before the deadline (`make -C emulation results-save`).
 `destroy` works at any time, with or without the machines.
 
 A startup script runs at every boot. A pool machine re-created alone gets a new
@@ -424,10 +429,13 @@ Not shown by the runs of 14 November 2026:
 Delete:
 
 - `emulation/` (run `make -C emulation destroy` first if anything is still up)
-- `tests/emulation/`
-- `src/fake_domino/emulation/` and its tests `tests/fake_domino/test_fake_domino_emulation_*`
-- the `rag-domino-emulation` script entry and the `emulation` extra in `pyproject.toml`
-- the `pyjwt`, `cryptography` and `python-hcl2` dev dependencies in `pyproject.toml`
+- `query_processing/tests/emulation/`
+- `query_processing/src/fake_domino/emulation/` and its tests
+  `query_processing/tests/fake_domino/test_fake_domino_emulation_*`
+- the `rag-domino-emulation` script entry and the `emulation` extra in
+  `query_processing/pyproject.toml`
+- the `pyjwt`, `cryptography` and `python-hcl2` dev dependencies in
+  `query_processing/pyproject.toml`
 - in the main `README.md`: the paragraph pointing to this folder, and the lines marked
   TEMPORARY in its code layout
 - the "Emulation" block of `CONTEXT.md`
@@ -436,4 +444,4 @@ Delete:
 `docs/adr/0002-replicas-on-machines-and-an-assumed-balancing-rule.md` may be kept as
 history.
 
-Then `make check` must still pass.
+Then `make check` (at the repository's root) must still pass.

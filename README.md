@@ -26,6 +26,10 @@ in-process models (OpenVINO or PyTorch). See
 
 To run it on Domino, follow [Step by step: first test run on Domino](#step-by-step-first-test-run-on-domino).
 
+The code is in `query_processing/`, the toolkit's directory: every command and
+file path of this README is run from, or relative to, that directory unless it
+says otherwise.
+
 ## Workflow
 
 ```mermaid
@@ -74,6 +78,12 @@ before any component opens, `rag-serve` refuses a graph that cannot run (see
 ## Code layout
 
 ### Where a file goes
+
+The toolkit is one distribution, in `query_processing/`: every path of this
+section and of the tree below it is relative to that directory, except the
+repository's own entries at the end of the tree (`emulation/`, `docs/`, the root
+`Makefile`, `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and
+`.github/`).
 
 The tree is three applications over one shared domain. The domain
 (`domain/`) is the language all three use: no I/O, no framework.
@@ -174,192 +184,198 @@ test double, not part of the product, and the rule does not apply to it.
 ### The tree
 
 ```text
-src/rag_load_test/
-  __init__.py       package docstring, __version__
-  domain/           no I/O, no framework; imports no other package
-    passages.py     Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
-    api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
-    standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
-    errors.py       RagDependencyError, describe_error
-    registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules
-    prompts.py      RagPrompts: system prompt + user template -> chat messages
-    graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
-    retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
-    rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
-    thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
-    calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
-    backends.py     the Runtime names (what runs an in-process model), and what a Backend is
-    run_label.py    the run label: its default (each component with its backend), what a valid one is
-    roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
-    corpus.py       synthetic handbook corpus, its questions, chunking
-  application/      use cases over the ports; imports domain and the adapters' ports only
-    rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
-    workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
-    component_types.py  COMPONENT_TYPES: each component type's port, which the start-up checks read before any component opens
-    graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares; WorkflowGraphError
-    workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
-    workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
-    stages/         the stage types (rule 6); importing it imports every module, so each registers itself
-      base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, STAGE_TYPES
-      embed_stage.py  EmbedStage: the standalone query's vector, from the embedder
-      retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
-      rerank_stage.py  RerankStage: the candidates the reranker scores best
-      generate_stage.py  GenerateStage: the answer to the conversational query, from the LLM
-    edge_conditions/  the edge conditions (rule 6); importing it imports every module
-      edge_condition.py  EdgeCondition: a function of the workflow state that returns a bool; EDGE_CONDITIONS
-      is_query_mode.py  is_query_mode: whether the request goes on to generate
-    ingest.py       embed passages in batches and upsert them
-  config/           the settings; imports domain only
-    rag_settings.py RagSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
-    component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
-    shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
-    workflow.yaml   the workflow file that ships with the code: the RAG's components and graph, used when no other is found
-    workflow_file.py  workflow_file (RAG_WORKFLOW_FILE, else ./workflow.yaml, else the packaged one), the settings source that reads it, declared_alias
-  adapters/         the ports and their implementations, nothing else (rule 4)
-                    (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
-    embedder/       the embedder
-      base_embedder.py  BaseEmbedder, the port: embed_query (the model's query prefix in front) and embed_documents (as they are)
-      local/        backend: local
-        sentence_transformer_embedder.py  SentenceTransformerEmbedder: a sentence-transformers model in this process
-      api/          backends: served and api; importing it imports every module, so each format registers itself
-        api_embedder.py  ApiEmbedder, and open_api_embedder: the embedder of one endpoint
-        base_embedding_api_format.py  BaseEmbeddingApiFormat (a request body builder and an answer reader, no HTTP), EMBEDDING_API_FORMATS: the formats by name
-        openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
-      fake/         backend: fake
-        fake_embedder.py  FakeEmbedder: a hashed bag of words
-    reranker/       the reranker
-      base_reranker.py  BaseReranker, the port
-      local/        backend: local
-        cross_encoder_reranker.py  CrossEncoderReranker: a cross-encoder model in this process
-      api/          backends: served and api; importing it imports every module, so each format registers itself
-        api_reranker.py  ApiReranker, and open_api_reranker: the reranker of one endpoint
-        base_rerank_api_format.py  BaseRerankApiFormat, RERANK_API_FORMATS: the formats by name
-        cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
-      fake/         backend: fake
-        fake_reranker.py  FakeReranker: token overlap with the query
-      none/         backend: none
-        no_reranker.py  NoReranker: retrieval order kept
-    llm/            the LLM of the generation component
-      base_llm.py   BaseLLM, the port
-      api/          backends: served and api; importing it imports every module, so each format registers itself
-        api_llm.py  ApiLLM, and open_api_llm: the LLM of one endpoint
-        base_generation_api_format.py  BaseGenerationApiFormat, GENERATION_API_FORMATS: the formats by name
-        openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
-      fake/         backend: fake
-        fake_llm.py  FakeLLM: an echo
-    vector_store/   the vector store
-      base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
-      elasticsearch/  backend: elasticsearch
-        elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
-      chroma/       backend: chroma
-        chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
-      fake/         backend: fake
-        in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-  infrastructure/   technical code that implements no port; imports itself and domain only
-    endpoint/       what every api implementation shares, on the served and api backends
-      api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
-      bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
-      open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
-    local_models/   what the local implementations share
-      local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
-      model_pool.py  model_executor, run_blocking: the one bounded thread pool the models run on
-      model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
-      openvino_export.py  convert one embedder or reranker to OpenVINO files
-      native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
-      stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate, keep the fastest
-      cpu_count.py  where the CPU count comes from: RAG_LOCAL_MODELS__CPUS, the Domino hardware tier, the container
-    http/           what every adapter that calls out shares
-      http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
-      json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
-    corpora/        an outside source: the public corpora rag-fetch-corpus downloads
-      catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
-      download.py   download a corpus's files under one HttpPolicy and convert them
-      conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
-      jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
-    fake_text.py    tokenize, cosine: the text helpers the fake implementations share
-    json_log.py     log_json: the one log format
-  composition/      the composition root: builds the adapters from the settings (rule 5)
-    composition_root.py  CompositionRoot: settings in, ready ports out; what each command asks for
-    resource_scope.py  ResourceScope: each resource opened once, all closed together
-    http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
-    local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
-    calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
-    component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
-    registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
-    openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
-      component_openers.py  SharedResources (what an opener is given), ComponentOpeners, the four registries (EMBEDDER_OPENERS, ...) and OPENERS_BY_TYPE
-      embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for rag-calibrate
-      embedder_on_served.py  the embedder of a model server of ours: its served URL, the standard format, its alias
-      embedder_on_api.py  the embedder of an endpoint we do not run; open_embedder_at, which both use
-      embedder_on_fake.py  FakeEmbedder
-      reranker_on_local.py  the in-process reranker, calibrated at 0; calibrate_reranker_on_local for rag-calibrate
-      reranker_on_served.py  the reranker of a model server of ours: its served URL, the standard format, its alias
-      reranker_on_api.py  the reranker of an endpoint we do not run; open_reranker_at, which both use
-      reranker_on_fake.py  FakeReranker
-      reranker_on_none.py  NoReranker
-      llm_on_served.py  the LLM of a model server of ours (none serves one yet): its served URL, the standard format, its alias
-      llm_on_api.py  the LLM of an endpoint we do not run, under its own timeout; open_llm_at, which both use
-      llm_on_fake.py  FakeLLM
-      vector_store_on_elasticsearch.py  Elasticsearch, its client closed with the scope
-      vector_store_on_chroma.py  Chroma, a server or embedded
-      vector_store_on_fake.py  the in-memory store, seeded through the embedder
-  entrypoints/      the RAG system's commands: FastAPI apps and CLIs
-    rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), --domino, Domino tracing, JSON logs, a refused graph as one line
-    rag_model_server.py  rag-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
-    rag_served_models.py  rag-served-models: each embedder and reranker of the workflow file (name, type, source id, alias), one line of shell words each
-    rag_export_openvino.py  rag-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
-    rag_calibrate.py  rag-calibrate: calibrate the in-process models here, print the environment paths that pin them
-    rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
-    rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
-  deploy/           the deploy tool: rag-deploy on Domino 6.2
-    deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), RAG_DEPLOY_* overrides; Placement (local or served); override_values, each override by its path
-    workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
-    overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
-    registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
-    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
-    model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
-      base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
-      fastapi_kind.py  fastapi: rag-model-server, an embedder or a reranker on the /v3 routes
-      ovms_kind.py  ovms: OpenVINO Model Server on its /v3 routes, from the OVMS bundle it refuses when missing
-    publish.py      the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
-    endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
-    app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
-    status.py       rag-deploy status: one line per App, then the workflow App's /readyz
-    rag_deploy.py   rag-deploy: the parser, url, --dry-run
-    apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
-  loadtest/         the load-test client, with locustfile.py
-    loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four values a model-server request carries (two sizes, two aliases), Domino auth
-    request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
-    response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
-    target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
-    rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
-src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
-                    It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
-                    tests/structure/test_layering.py)
-  api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
-  state.py          FakeDominoApps: the fake's Apps, versions and instances
-  instances.py      BaseInstanceScheduler: what decides an instance's status; by default the --behaviour scripts
-  apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
-  stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
-  server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
-  emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
+query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (every make target runs here),
+                    vulture_whitelist.py, .env.example, deploy.example.yaml, results/ (load-test output, git-ignored)
+  src/rag_load_test/
+    __init__.py       package docstring, __version__
+    domain/           no I/O, no framework; imports no other package
+      passages.py     Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
+      api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
+      standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
+      errors.py       RagDependencyError, describe_error
+      registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules
+      prompts.py      RagPrompts: system prompt + user template -> chat messages
+      graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
+      retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
+      rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
+      thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
+      calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
+      backends.py     the Runtime names (what runs an in-process model), and what a Backend is
+      run_label.py    the run label: its default (each component with its backend), what a valid one is
+      roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
+      corpus.py       synthetic handbook corpus, its questions, chunking
+    application/      use cases over the ports; imports domain and the adapters' ports only
+      rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
+      workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
+      component_types.py  COMPONENT_TYPES: each component type's port, which the start-up checks read before any component opens
+      graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares; WorkflowGraphError
+      workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
+      workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
+      stages/         the stage types (rule 6); importing it imports every module, so each registers itself
+        base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, STAGE_TYPES
+        embed_stage.py  EmbedStage: the standalone query's vector, from the embedder
+        retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
+        rerank_stage.py  RerankStage: the candidates the reranker scores best
+        generate_stage.py  GenerateStage: the answer to the conversational query, from the LLM
+      edge_conditions/  the edge conditions (rule 6); importing it imports every module
+        edge_condition.py  EdgeCondition: a function of the workflow state that returns a bool; EDGE_CONDITIONS
+        is_query_mode.py  is_query_mode: whether the request goes on to generate
+      ingest.py       embed passages in batches and upsert them
+    config/           the settings; imports domain only
+      rag_settings.py RagSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
+      component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
+      shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
+      workflow.yaml   the workflow file that ships with the code: the RAG's components and graph, used when no other is found
+      workflow_file.py  workflow_file (RAG_WORKFLOW_FILE, else ./workflow.yaml, else the packaged one), the settings source that reads it, declared_alias
+    adapters/         the ports and their implementations, nothing else (rule 4)
+                      (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
+      embedder/       the embedder
+        base_embedder.py  BaseEmbedder, the port: embed_query (the model's query prefix in front) and embed_documents (as they are)
+        local/        backend: local
+          sentence_transformer_embedder.py  SentenceTransformerEmbedder: a sentence-transformers model in this process
+        api/          backends: served and api; importing it imports every module, so each format registers itself
+          api_embedder.py  ApiEmbedder, and open_api_embedder: the embedder of one endpoint
+          base_embedding_api_format.py  BaseEmbeddingApiFormat (a request body builder and an answer reader, no HTTP), EMBEDDING_API_FORMATS: the formats by name
+          openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
+        fake/         backend: fake
+          fake_embedder.py  FakeEmbedder: a hashed bag of words
+      reranker/       the reranker
+        base_reranker.py  BaseReranker, the port
+        local/        backend: local
+          cross_encoder_reranker.py  CrossEncoderReranker: a cross-encoder model in this process
+        api/          backends: served and api; importing it imports every module, so each format registers itself
+          api_reranker.py  ApiReranker, and open_api_reranker: the reranker of one endpoint
+          base_rerank_api_format.py  BaseRerankApiFormat, RERANK_API_FORMATS: the formats by name
+          cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
+        fake/         backend: fake
+          fake_reranker.py  FakeReranker: token overlap with the query
+        none/         backend: none
+          no_reranker.py  NoReranker: retrieval order kept
+      llm/            the LLM of the generation component
+        base_llm.py   BaseLLM, the port
+        api/          backends: served and api; importing it imports every module, so each format registers itself
+          api_llm.py  ApiLLM, and open_api_llm: the LLM of one endpoint
+          base_generation_api_format.py  BaseGenerationApiFormat, GENERATION_API_FORMATS: the formats by name
+          openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
+        fake/         backend: fake
+          fake_llm.py  FakeLLM: an echo
+      vector_store/   the vector store
+        base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
+        elasticsearch/  backend: elasticsearch
+          elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+        chroma/       backend: chroma
+          chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
+        fake/         backend: fake
+          in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
+    infrastructure/   technical code that implements no port; imports itself and domain only
+      endpoint/       what every api implementation shares, on the served and api backends
+        api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
+        bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
+        open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
+      local_models/   what the local implementations share
+        local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
+        model_pool.py  model_executor, run_blocking: the one bounded thread pool the models run on
+        model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
+        openvino_export.py  convert one embedder or reranker to OpenVINO files
+        native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
+        stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate, keep the fastest
+        cpu_count.py  where the CPU count comes from: RAG_LOCAL_MODELS__CPUS, the Domino hardware tier, the container
+      http/           what every adapter that calls out shares
+        http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
+        json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
+      corpora/        an outside source: the public corpora rag-fetch-corpus downloads
+        catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
+        download.py   download a corpus's files under one HttpPolicy and convert them
+        conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
+        jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
+      fake_text.py    tokenize, cosine: the text helpers the fake implementations share
+      json_log.py     log_json: the one log format
+    composition/      the composition root: builds the adapters from the settings (rule 5)
+      composition_root.py  CompositionRoot: settings in, ready ports out; what each command asks for
+      resource_scope.py  ResourceScope: each resource opened once, all closed together
+      http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
+      local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
+      calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
+      component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
+      registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
+      openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
+        component_openers.py  SharedResources (what an opener is given), ComponentOpeners, the four registries (EMBEDDER_OPENERS, ...) and OPENERS_BY_TYPE
+        embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for rag-calibrate
+        embedder_on_served.py  the embedder of a model server of ours: its served URL, the standard format, its alias
+        embedder_on_api.py  the embedder of an endpoint we do not run; open_embedder_at, which both use
+        embedder_on_fake.py  FakeEmbedder
+        reranker_on_local.py  the in-process reranker, calibrated at 0; calibrate_reranker_on_local for rag-calibrate
+        reranker_on_served.py  the reranker of a model server of ours: its served URL, the standard format, its alias
+        reranker_on_api.py  the reranker of an endpoint we do not run; open_reranker_at, which both use
+        reranker_on_fake.py  FakeReranker
+        reranker_on_none.py  NoReranker
+        llm_on_served.py  the LLM of a model server of ours (none serves one yet): its served URL, the standard format, its alias
+        llm_on_api.py  the LLM of an endpoint we do not run, under its own timeout; open_llm_at, which both use
+        llm_on_fake.py  FakeLLM
+        vector_store_on_elasticsearch.py  Elasticsearch, its client closed with the scope
+        vector_store_on_chroma.py  Chroma, a server or embedded
+        vector_store_on_fake.py  the in-memory store, seeded through the embedder
+    entrypoints/      the RAG system's commands: FastAPI apps and CLIs
+      rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), --domino, Domino tracing, JSON logs, a refused graph as one line
+      rag_model_server.py  rag-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
+      rag_served_models.py  rag-served-models: each embedder and reranker of the workflow file (name, type, source id, alias), one line of shell words each
+      rag_export_openvino.py  rag-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
+      rag_calibrate.py  rag-calibrate: calibrate the in-process models here, print the environment paths that pin them
+      rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
+      rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
+    deploy/           the deploy tool: rag-deploy on Domino 6.2
+      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), RAG_DEPLOY_* overrides; Placement (local or served); override_values, each override by its path
+      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
+      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
+      registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
+      topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
+      model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
+        base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
+        fastapi_kind.py  fastapi: rag-model-server, an embedder or a reranker on the /v3 routes
+        ovms_kind.py  ovms: OpenVINO Model Server on its /v3 routes, from the OVMS bundle it refuses when missing
+      publish.py      the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
+      endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
+      app_id_cache.py the App ids already seen (.rag-deploy-cache.json): an App is redeployed, never created twice
+      status.py       rag-deploy status: one line per App, then the workflow App's /readyz
+      rag_deploy.py   rag-deploy: the parser, url, --dry-run
+      apps_client.py  the Domino 6.2 beta Apps API calls rag-deploy makes (find, create, add a version, get, list instances) and the wait until Running
+    loadtest/         the load-test client, with locustfile.py
+      loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four values a model-server request carries (two sizes, two aliases), Domino auth
+      request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
+      response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
+      target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
+      rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
+  src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
+                      It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
+                      tests/structure/test_layering.py)
+    api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
+    state.py          FakeDominoApps: the fake's Apps, versions and instances
+    instances.py      BaseInstanceScheduler: what decides an instance's status; by default the --behaviour scripts
+    apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
+    stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
+    server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, rag-fake-domino
+    emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
+  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
+  docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
+  ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
+  domino/             app.sh (one entry point: the workflow app or a model server, from RAG_ROLE), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
+  tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
+    domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
+    scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
+    structure/        the import, placement and code-shape rules, read from the source with ast
+    fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
+    emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
+    helpers/          named fakes, fixtures, and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
-locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; `locust` finds it in this directory
-docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002)
-ovms/               versions.env (single OVMS version pin), export_models.sh, models/ (exported, git-ignored)
-domino/             app.sh (one entry point: the workflow app or a model server, from RAG_ROLE), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
-tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/rag_load_test/
-  domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
-  scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
-  structure/        the import, placement and code-shape rules, read from the source with ast
-  fake_domino/      the fake Domino's own tests; they import nothing from rag_load_test
-  emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
-  helpers/          named fakes, fixtures and REPO_ROOT shared by several test files (on pytest's path)
+docs/adr/           the decisions
+Makefile            hands install, install-dev, check and each gate to query_processing/, with the one .venv here
+.python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
 ## Quickstart (monolith on a laptop)
 
 ```bash
+cd query_processing           # the toolkit: every make target below runs here
 make install-dev              # pip install -e ".[dev]" (locust, pytest, ruff, black, mypy)
 cp .env.example .env          # set RAG_COMPONENTS__LLM__API__API_KEY, or RAG_COMPONENTS__LLM__BACKEND=fake to skip the LLM
 make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need `make ovms-export` first)
@@ -368,10 +384,13 @@ make ingest                   # rag-ingest --synthetic 200 -> index rag_passages
 make serve                    # rag-serve on http://0.0.0.0:8888
 ```
 
-The project runs on Python 3.11, named once in `.python-version`. The `make`
-targets use a `.venv` in this directory when there is one, without activating it
-(`uv venv`, which reads `.python-version`, or `python3.11 -m venv .venv`, before
-`make install-dev`); otherwise they use the commands on your `PATH`.
+The project runs on Python 3.11, named once in `.python-version` at the
+repository's root. The `make` targets use the one `.venv` at the repository's
+root when there is one, without activating it (`uv venv` there, which reads
+`.python-version`, or `python3.11 -m venv .venv`, before `make install-dev`);
+otherwise they use the commands on your `PATH`. `make install`, `make
+install-dev`, `make check` and each gate also run from the root, which hands
+them to `query_processing/`.
 
 ```bash
 curl -s -X POST localhost:8888/query -H 'Content-Type: application/json' \
@@ -1272,8 +1291,8 @@ image (it pre-downloads the source ids) and refill the models Dataset.
 ## Deploying on Domino 6.2
 
 Every app is published with the same entry point, `domino/app.sh`,
-which `cd`s into the project root, reads its role from `RAG_ROLE` and listens on
-`0.0.0.0:8888` (a Domino requirement). Only environment variables differ between
+which `cd`s into the toolkit's directory (`query_processing/`), reads its role
+from `RAG_ROLE` and listens on `0.0.0.0:8888` (a Domino requirement). Only environment variables differ between
 topologies, so the Locust numbers stay comparable.
 
 An App has one of two roles: the workflow app (`RAG_ROLE=workflow`, the
@@ -1316,8 +1335,8 @@ and `fake` backends pass through untouched. The run label ends up in every respo
 `RAG_RUN_LABEL` when testing several hardware tiers or model servers (`run_label`
 under the overrides of `deploy.yaml`, with `rag-deploy`).
 
-**Environments.** `domino/Dockerfile` has two targets built from the project
-root (commands in its header): `rag` starts from
+**Environments.** `domino/Dockerfile` has two targets built from the repository's
+root, the build context (commands in its header): `rag` starts from
 `quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard`,
 installs this package with the `[loadtest,domino]` extras into a virtualenv of
 its own on Python 3.11 (the image's Python is 3.10 and its packages clash with
@@ -1426,8 +1445,8 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 
 ### Deploy on Domino in a few commands
 
-From the repository root (for example `/repos/<project>`) in a Workspace of the one
-project that hosts all the Apps:
+From the toolkit's directory (for example `/repos/<project>/query_processing`) in a
+Workspace of the one project that hosts all the Apps:
 
 ```bash
 cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, each App's server
@@ -1448,8 +1467,9 @@ also needs access to GitHub, where `uv` downloads it from. For an App served by 
 `bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
 example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
 root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
-the directory `rag-deploy` runs from, so run it from the repository root (the Apps
-mount the repository at the same path); elsewhere it refuses to publish.
+the directory `rag-deploy` runs from, so run it from the toolkit's directory,
+`query_processing/` (the Apps mount the repository at the same path); elsewhere it
+refuses to publish.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
@@ -1548,7 +1568,7 @@ topology_alias:
 
 No alias is defined in code: a `deploy.yaml` without the table deploys nothing.
 `rag-deploy` reads the workflow file the workflow App reads (`RAG_WORKFLOW_FILE`
-in its settings, else the one `rag-serve` finds from the repository root) for
+in its settings, else the one `rag-serve` finds from the toolkit's directory) for
 the components' names and types. It publishes one model server App per served
 component, in the workflow file's order, then the workflow App, whose launch
 script gets `RAG_COMPONENTS__<COMPONENT>__BACKEND` for every component the row
@@ -1753,11 +1773,11 @@ instance. Replace the placeholders once; the code itself does not change.
 | hardware tier | the same CPU tier (4+ cores) for every model app; one for the workflow apps |
 
 **1. Environments (once).** Either build and push both images from the
-project root, then create two Environments from them as custom base images:
+repository's root, then create two Environments from them as custom base images:
 
 ```bash
-docker build -f domino/Dockerfile --target rag  -t <registry>/rag-load-test-rag  .
-docker build -f domino/Dockerfile --target ovms -t <registry>/rag-load-test-ovms .
+docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/rag-load-test-rag  .
+docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/rag-load-test-ovms .
 docker push <registry>/rag-load-test-rag && docker push <registry>/rag-load-test-ovms
 ```
 
@@ -1881,17 +1901,21 @@ make test          # pytest: fakes + httpx.MockTransport only; no weights, no ne
 make format        # ruff --fix + black
 ```
 
+These run from the repository's root, whose `Makefile` hands them to
+`query_processing/`'s, or from `query_processing/` itself, with the same result
+(`make -C query_processing check`).
 `make check` is the project's quality gate, and the GitHub Actions workflow
 `.github/workflows/checks.yml` runs the same command on every pull request and on
 every push to `main`. The verdict is deterministic: every gate tool is pinned to an
 exact version in the `dev` extra, and every threshold is written in
-`pyproject.toml`. Two platforms are supported and no other is targeted: Domino's
-Ubuntu, and macOS for local work. CI runs the gates inside the image
-`domino/Dockerfile` builds from (Domino's 6.2 standard environment, Ubuntu
-22.04), as the `ubuntu` user Domino runs Apps as, and in a virtualenv on the
-Python of `.python-version`, which is how the Apps start too. The workflow reads
-the image from the Dockerfile's `BASE_IMAGE` line, so the two cannot drift. Each
-gate is also a `make` target of its own:
+`query_processing/pyproject.toml`. Two platforms are supported and no other is
+targeted: Domino's Ubuntu, and macOS for local work. CI runs the gates inside the
+image `query_processing/domino/Dockerfile` builds from (Domino's 6.2 standard
+environment, Ubuntu 22.04), as the `ubuntu` user Domino runs Apps as, and in a
+virtualenv on the Python of `.python-version`, which is how the Apps start too.
+The workflow reads the image from the Dockerfile's `BASE_IMAGE` line, so the two
+cannot drift. Each gate is also a `make` target of its own, and its paths below
+are in `query_processing/`:
 
 | target | runs | passes when |
 |---|---|---|
@@ -1936,5 +1960,5 @@ so the asyncio-based service tests are never gevent-patched.
 shell scripts, `structure` for the layering and code-shape rules and `fake_domino`
 for the fake's own tests. The folders are not packages, so a test file's name is
 unique across the tree. What several files share (named fakes, fixtures,
-`REPO_ROOT`) is in `tests/helpers`, on pytest's path and imported by plain module
-name. The Chroma store's tests run a real embedded Chroma in a temporary folder.
+`REPO_ROOT` and `TOOLKIT_ROOT`) is in `tests/helpers`, on pytest's path and
+imported by plain module name. The Chroma store's tests run a real embedded Chroma in a temporary folder.

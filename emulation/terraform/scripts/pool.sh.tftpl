@@ -13,12 +13,13 @@ DOMINO_PORT='${domino_port}'
 CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 
-# fetch_ovms_bundle: the OVMS binary tarball the cloned ref pins (ovms/versions.env),
-# fetched again only when that pin changes. deploy.yaml's ovms_bundle names it.
+# fetch_ovms_bundle: the OVMS binary tarball the cloned ref pins
+# (query_processing/ovms/versions.env), fetched again only when that pin changes.
+# deploy.yaml's ovms_bundle names it.
 fetch_ovms_bundle() {
   local url
-  url=$(sed -n 's/^OVMS_BINARY_URL=//p' "$REPO_PATH/ovms/versions.env")
-  [ -n "$url" ] || die "no OVMS_BINARY_URL in $REPO_PATH/ovms/versions.env"
+  url=$(sed -n 's/^OVMS_BINARY_URL=//p' "$REPO_PATH/query_processing/ovms/versions.env")
+  [ -n "$url" ] || die "no OVMS_BINARY_URL in $REPO_PATH/query_processing/ovms/versions.env"
   if [ -s "$OVMS_BUNDLE" ] && [ "$(cat "$OVMS_BUNDLE.url" 2>/dev/null)" = "$url" ]; then return 0; fi
   install -d -m 755 "$(dirname "$OVMS_BUNDLE")"
   download "$url" "$OVMS_BUNDLE"
@@ -26,13 +27,14 @@ fetch_ovms_bundle() {
   printf '%s\n' "$url" >"$OVMS_BUNDLE.url"
 }
 
-# warm_app_dependencies: app.sh's install_project, run once at boot. app.sh runs
-# these two commands at every App start; done here they fill uv's cache, so an
-# App's own install takes seconds. ".[domino]" because an Agent's launch script asks
-# for that extra (RAG_BOOTSTRAP_EXTRAS) and it is a superset of the plain install.
+# warm_app_dependencies: app.sh's install_project, run once at boot, from the
+# toolkit's directory as app.sh runs it. app.sh runs these two commands at every
+# App start; done here they fill uv's cache, so an App's own install takes seconds.
+# ".[domino]" because an Agent's launch script asks for that extra
+# (RAG_BOOTSTRAP_EXTRAS) and it is a superset of the plain install.
 warm_app_dependencies() {
-  retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv "$HOME/rag-venv" --python "$(cat .python-version)"' _ "$REPO_PATH"
-  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python "$HOME/rag-venv/bin/python" ".[domino]"' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv "$HOME/rag-venv" --python "$(cat ../.python-version)"' _ "$REPO_PATH/query_processing"
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python "$HOME/rag-venv/bin/python" ".[domino]"' _ "$REPO_PATH/query_processing"
 }
 
 ensure_ubuntu_user
