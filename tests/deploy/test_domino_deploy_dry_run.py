@@ -47,8 +47,8 @@ def dry_run_report(
         "  autoscaling: minReplicas 1, maxReplicas 4, targetCpuAvgUtilizationPct 70\n"
         "  entryScript:\n"
         "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY=split-all\n"
-        f"    export RAG_COMPONENTS__RERANKER__API__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
-        f"    export RAG_COMPONENTS__EMBEDDER__API__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
+        f"    export RAG_COMPONENTS__RERANKER__SERVED__URL={INSTANCES_URL}/app-2-v1-i/v3/rerank\n"
+        f"    export RAG_COMPONENTS__EMBEDDER__SERVED__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
         "    export RAG_RUN_LABEL=split-all-fastapi\n"
         f"{agent_exports}    export RAG_BOOTSTRAP=1\n    {tail}\n"
     )

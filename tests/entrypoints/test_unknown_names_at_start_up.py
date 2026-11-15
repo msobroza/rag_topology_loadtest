@@ -41,7 +41,7 @@ UNKNOWN_NAMES = {
     "a backend": (
         {"RAG_COMPONENTS__RERANKER__BACKEND": "gpu"},
         "RAG_COMPONENTS__RERANKER__BACKEND: unknown reranker backend 'gpu' "
-        "(expected one of: 'api', 'fake', 'local', 'none')",
+        "(expected one of: 'api', 'fake', 'local', 'none', 'served')",
     ),
 }
 

@@ -48,7 +48,7 @@ def default_run_label(
         The topology plus ``+<choice>=<value>`` for each choice off its default.
 
     Example:
-        >>> default_run_label("split-all", embedding="api", rerank="api",
+        >>> default_run_label("split-all", embedding="served", rerank="served",
         ...                   store="elasticsearch", generation="fake")
         'split-all+generation=fake'
     """

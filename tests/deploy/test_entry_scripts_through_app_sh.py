@@ -12,6 +12,7 @@ topology or maps to another server fails here rather than at App start on Domino
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import get_args
@@ -28,6 +29,8 @@ from launch_script_stand_ins import (
     stand_in_env,
     started_env,
 )
+from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from rag_load_test.deploy.publish import entry_script
 from rag_load_test.domain.roles import (
     AppPart,
@@ -120,8 +123,35 @@ def test_a_split_workflow_starts_with_the_url_of_each_model_server(
     assert result.returncode == 0, result.stderr
     started = started_env(tmp_path, "venv-rag-serve")
     expected = {
-        "embedder": f"RAG_COMPONENTS__EMBEDDER__API__URL={APP_URLS['embedder']}/v3/embeddings",
-        "reranker": f"RAG_COMPONENTS__RERANKER__API__URL={APP_URLS['reranker']}/v3/rerank",
+        "embedder": f"RAG_COMPONENTS__EMBEDDER__SERVED__URL={APP_URLS['embedder']}/v3/embeddings",
+        "reranker": f"RAG_COMPONENTS__RERANKER__SERVED__URL={APP_URLS['reranker']}/v3/rerank",
     }
     servers = model_servers_for_topology(topology)
     assert [expected[server] in started for server in servers] == [True] * len(servers)
+
+
+@pytest.mark.parametrize("topology", ["split-reranker", "split-all"])
+def test_the_workflow_app_reads_each_model_server_as_a_served_component(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, topology: Topology
+) -> None:
+    result, _ = run_entry_script(tmp_path, topology, "workflow", "fastapi")
+    assert result.returncode == 0, result.stderr
+    # The settings rag-serve reads from what app.sh started it with, and nothing
+    # else: no RAG_* of the shell but the workflow file the tests read.
+    for name in [n for n in os.environ if n.startswith("RAG_")]:
+        if name != WORKFLOW_FILE_VARIABLE:
+            monkeypatch.delenv(name)
+    for line in started_env(tmp_path, "venv-rag-serve"):
+        monkeypatch.setenv(*line.split("=", 1))
+
+    components = RagSettings(_env_file=None).components
+
+    placed = {
+        name: (components[name].backend, components[name].served.url)
+        for name in ("embedder", "reranker")
+    }
+    routes = {"embedder": "/v3/embeddings", "reranker": "/v3/rerank"}
+    expected = {"embedder": ("local", ""), "reranker": ("local", "")}
+    for name in model_servers_for_topology(topology):
+        expected[name] = ("served", APP_URLS[name] + routes[name])
+    assert placed == expected

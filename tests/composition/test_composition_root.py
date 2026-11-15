@@ -118,19 +118,18 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
         return httpx.Response(200, json={"results": [result]})
 
     settings = settings_factory(
-        topology="split-all",  # both ports on a model server
+        topology="split-all",  # both ports served by a model server of ours
         components__llm__backend="fake",
-        components__embedder__api__api_key="domino",
-        components__reranker__api__api_key="domino",
         domino_token_url=TOKEN_URL,
         http_timeout_s=7.5,
-        components__embedder__api__url=EMBED_URL,
-        components__reranker__api__url=RERANK_URL,
+        components__embedder__served__url=EMBED_URL,
+        components__reranker__served__url=RERANK_URL,
     )
     composition = CompositionRoot(
         settings,
         vector_store=InMemoryVectorStore(),
         transport=httpx.MockTransport(model_servers),
+        on_domino=True,
     )
     async with composition:
         deps = await composition.workflow_dependencies()
@@ -267,10 +266,10 @@ async def test_ingest_ports_load_only_the_embedder_weights(
 async def test_local_models_ignore_the_configured_backend(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(  # both backends api
+    settings = settings_factory(  # both backends served
         topology="split-all",
-        components__embedder__api__url=EMBED_URL,
-        components__reranker__api__url=RERANK_URL,
+        components__embedder__served__url=EMBED_URL,
+        components__reranker__served__url=RERANK_URL,
         **PINNED_THREADS,
     )
     async with CompositionRoot(settings) as composition:
@@ -331,7 +330,7 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
     transport = ClosingRecorderTransport()
     settings = settings_factory(
         topology="split-reranker",
-        components__reranker__api__url=RERANK_URL,
+        components__reranker__served__url=RERANK_URL,
         components__llm__backend="fake",
     )
     composition = CompositionRoot(

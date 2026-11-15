@@ -13,18 +13,19 @@ components:
   # unless `type` names it, and states its backend. A model's source_id is its
   # Hugging Face id or a folder; its alias, the name a model server serves it
   # under, is the last part of the source_id unless `alias` says otherwise.
-  # The settings of one backend sit in a block named after it (local, api).
+  # The settings of one backend sit in a block named after it (local, served,
+  # api): served is a model server of ours, api an endpoint we do not run.
   embedder:
-    # local | api | fake; RAG_TOPOLOGY=split-all moves it behind a model server
+    # local | served | api | fake; RAG_TOPOLOGY=split-all moves it to served
     backend: local
     source_id: Snowflake/snowflake-arctic-embed-l-v2.0
     query_prefix: "query: " # in front of every query, never of a passage
   reranker:
-    # local | api | fake | none; a split RAG_TOPOLOGY moves it behind a model server
+    # local | served | api | fake | none; a split RAG_TOPOLOGY moves it to served
     backend: local
     source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR
   llm:
-    backend: api # api | fake
+    backend: api # served | api | fake
     api:
       url: https://api.openai.com/v1/chat/completions
       api_format: openai

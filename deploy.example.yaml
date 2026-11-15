@@ -58,8 +58,8 @@ defaults:
   # The hardware tier id; "" = the project's default.
   hardware_tier_id: ""
   # Environment variables for the App, exported by its launch script. rag-deploy
-  # itself sets RAG_ROLE, RAG_TOPOLOGY, RAG_COMPONENTS__RERANKER__API__URL,
-  # RAG_COMPONENTS__EMBEDDER__API__URL, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those
+  # itself sets RAG_ROLE, RAG_TOPOLOGY, RAG_COMPONENTS__RERANKER__SERVED__URL,
+  # RAG_COMPONENTS__EMBEDDER__SERVED__URL, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those
   # win), and RAG_RUN_LABEL unless set here. A value of the workflow file is set
   # by the variable its path names, its levels joined by __.
   settings:

@@ -10,9 +10,10 @@ backend (``component_settings.py``). An API key is read from the environment,
 by its path, such as ``RAG_COMPONENTS__LLM__API__API_KEY``.
 
 ``RAG_TOPOLOGY`` places the components named ``embedder`` and ``reranker``:
-one on ``local`` is moved behind a model server (``api``) when the topology
-says so (the rule lives in ``domain/topology.py``). A component on ``api``
-without a URL or a bad ``RAG_RUN_LABEL`` fails construction, so at start-up.
+one on ``local`` is moved behind a model server of ours (``served``) when the
+topology says so (the rule lives in ``domain/topology.py``). A component on
+``served`` or ``api`` without a URL, or a bad ``RAG_RUN_LABEL``, fails
+construction, so at start-up.
 The vector store and the settings the components share are still flat
 variables.
 
@@ -62,11 +63,19 @@ from .component_settings import (
 )
 from .workflow_file import workflow_file, workflow_file_source
 
-# Shown in the error for an ``api`` backend without a URL: one route per type.
-_API_URL_EXAMPLES = {
-    "embedder": "http://localhost:8002/v3/embeddings",
-    "reranker": "http://localhost:8001/v3/rerank",
-    "llm": "https://api.openai.com/v1/chat/completions",
+# Shown in the error for a backend called over HTTP without a URL: one route
+# per backend and type, a model server of ours or an endpoint we do not run.
+_URL_EXAMPLES = {
+    "served": {
+        "embedder": "http://localhost:8002/v3/embeddings",
+        "reranker": "http://localhost:8001/v3/rerank",
+        "llm": "http://localhost:8000/v3/chat/completions",
+    },
+    "api": {
+        "embedder": "https://api.openai.com/v1/embeddings",
+        "reranker": "https://api.cohere.com/v2/rerank",
+        "llm": "https://api.openai.com/v1/chat/completions",
+    },
 }
 # The components a topology places, by name, and the field of TopologyBackends
 # that holds their backend; the deploy tool's App parts have the same names.
@@ -83,9 +92,9 @@ class RagSettings(BaseSettings):
 
     Example:
         >>> RagSettings(topology="split-reranker", components={"reranker": {
-        ...     "api": {"url": "http://host:8001/v3/rerank"}}}
+        ...     "served": {"url": "http://host:8001/v3/rerank"}}}
         ... ).components["reranker"].backend
-        'api'
+        'served'
     """
 
     model_config = SettingsConfigDict(
@@ -226,26 +235,51 @@ class RagSettings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def check_api_endpoints(self) -> RagSettings:
-        """Fail at start-up when a component on the ``api`` backend has no URL.
+    def check_endpoint_urls(self) -> RagSettings:
+        """Fail at start-up when a component on ``served`` or ``api`` has no URL.
 
         Runs after ``resolve_topology``, so a backend the topology implies counts.
-        The URL of a component on another backend is not checked.
+        The URL is the one of the block named after the backend; the URL of a
+        component on another backend is not checked.
 
         Returns:
             The settings, unchanged.
 
         Raises:
-            ValueError: If an ``api`` component's URL does not start with
-                ``http://`` or ``https://``; the message names the variables,
-                the value and an example.
+            ValueError: If the URL of a ``served`` or ``api`` component does not
+                start with ``http://`` or ``https://``; the message names the
+                variables, the value and an example.
         """
         for name, component in self.components.items():
-            url = component.api.url
-            if component.backend == "api" and not url.startswith(
-                ("http://", "https://")
-            ):
-                raise ValueError(self._missing_url_message(name, component.type, url))
+            url = _endpoint_url(component)
+            if url is not None and not url.startswith(("http://", "https://")):
+                raise ValueError(self._missing_url_message(name, component, url))
+        return self
+
+    @model_validator(mode="after")
+    def check_served_aliases(self) -> RagSettings:
+        """Fail at start-up when a component on ``served`` has no alias.
+
+        A model server of ours serves a model under its alias, the model name a
+        served component sends. An LLM has no source id to default it from.
+
+        Returns:
+            The settings, unchanged.
+
+        Raises:
+            ValueError: If a ``served`` component's alias is empty; the message
+                names the variables to set.
+        """
+        for name, component in self.components.items():
+            if component.backend == "served" and not component.alias:
+                backend = self.variable_of("components", name, "backend")
+                alias = self.variable_of("components", name, "alias")
+                source_id = self.variable_of("components", name, "source_id")
+                raise ValueError(
+                    f"{backend}='served' needs {alias}, the name its model server "
+                    f"serves it under (or {source_id}, whose last part it "
+                    "defaults to); got ''"
+                )
         return self
 
     @classmethod
@@ -370,14 +404,17 @@ class RagSettings(BaseSettings):
         backend = placed_backend(self.topology, placed, component.backend)
         return component.model_copy(update={"backend": backend})
 
-    def _missing_url_message(self, name: str, component_type: str, url: str) -> str:
+    def _missing_url_message(
+        self, name: str, component: ModelComponent, url: str
+    ) -> str:
         # Variables, value, example: the same shape for every component.
-        backend = self.variable_of("components", name, "backend")
-        url_variable = self.variable_of("components", name, "api", "url")
+        backend = component.backend
+        backend_variable = self.variable_of("components", name, "backend")
+        url_variable = self.variable_of("components", name, backend, "url")
+        example = _URL_EXAMPLES[backend][component.type]
         return (
-            f"{backend}='api' needs {url_variable}, the full route of the "
-            f"endpoint (for example {_API_URL_EXAMPLES[component_type]}); "
-            f"got {url!r}"
+            f"{backend_variable}={backend!r} needs {url_variable}, the full route "
+            f"of the endpoint (for example {example}); got {url!r}"
         )
 
     def _default_label(self) -> str:
@@ -400,3 +437,13 @@ class RagSettings(BaseSettings):
                 mode = stage.stage_settings.get("retrieval_mode")
                 return str(mode or DEFAULT_RETRIEVAL_MODE)
         return DEFAULT_RETRIEVAL_MODE
+
+
+def _endpoint_url(component: ModelComponent) -> str | None:
+    # The URL of a component called over HTTP, from the block of its backend;
+    # None for a backend that calls no endpoint.
+    if component.backend == "served":
+        return component.served.url
+    if component.backend == "api":
+        return component.api.url
+    return None

@@ -75,7 +75,7 @@ class Registry(Generic[_Entry]):
 
         Example:
             >>> RERANKER_OPENERS.names()
-            ('api', 'fake', 'local', 'none')
+            ('api', 'fake', 'local', 'none', 'served')
         """
         return tuple(sorted(self._entries))
 

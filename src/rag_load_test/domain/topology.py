@@ -1,19 +1,18 @@
 """The Topology: where the models run, and so which backends it implies.
 
 A topology is a closed set; it says where the in-process models run, so it
-places the embedder and the reranker: ``local`` in this process, or ``api``
+places the embedder and the reranker: ``local`` in this process, or ``served``
 behind a model server of ours. A component it places follows it while the
 component's backend is ``local``; any other backend (an endpoint we do not
 run, ``fake``, ``none``) loads no model of ours here and is kept. The run label
 that names a configuration is in ``run_label.py``. Pure functions only: the
-settings call them at construction; the Domino rule that ``rag-serve --domino``
-applies lives in ``config/domino_rules.py``.
+settings call them at construction.
 
 Example:
     >>> placed_backend("split-reranker", "rerank", "local")
-    'api'
+    'served'
     >>> TOPOLOGY_BACKENDS["split-all"].embedding
-    'api'
+    'served'
 """
 
 from __future__ import annotations
@@ -24,6 +23,8 @@ Topology = Literal["monolith", "split-reranker", "split-all"]
 # The two components a topology places, by the field of TopologyBackends.
 PlacedComponent = Literal["embedding", "rerank"]
 LOCAL = "local"
+# The backend of a component a model server of ours serves.
+SERVED = "served"
 
 
 class TopologyBackends(NamedTuple):
@@ -34,9 +35,9 @@ class TopologyBackends(NamedTuple):
 
 
 TOPOLOGY_BACKENDS: dict[Topology, TopologyBackends] = {
-    "monolith": TopologyBackends(embedding="local", rerank="local"),
-    "split-reranker": TopologyBackends(embedding="local", rerank="api"),
-    "split-all": TopologyBackends(embedding="api", rerank="api"),
+    "monolith": TopologyBackends(embedding=LOCAL, rerank=LOCAL),
+    "split-reranker": TopologyBackends(embedding=LOCAL, rerank=SERVED),
+    "split-all": TopologyBackends(embedding=SERVED, rerank=SERVED),
 }
 
 
@@ -58,7 +59,7 @@ def placed_backend(topology: Topology, component: PlacedComponent, stated: str) 
 
     Example:
         >>> placed_backend("split-all", "embedding", "local")
-        'api'
+        'served'
         >>> placed_backend("split-all", "rerank", "none")
         'none'
     """

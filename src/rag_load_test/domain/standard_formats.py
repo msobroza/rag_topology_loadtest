@@ -3,17 +3,29 @@
 Embedding speaks OpenAI's embeddings format, rerank Cohere's rerank format and
 generation OpenAI's chat format. These classes are the project's own contract:
 the endpoint adapters build and read them, the model server answers in them and
-the load test sends them. The format names and the ``/v3`` routes are in
+the load test sends them. ``STANDARD_API_FORMATS`` names each component type's
+format as its registry knows it; the ``/v3`` routes are in
 ``domain/api_endpoint.py``.
 
 Example:
     >>> CohereRerankRequest(model="r", query="q", documents=["a"]).to_wire()
     {'model': 'r', 'query': 'q', 'documents': ['a']}
+    >>> STANDARD_API_FORMATS["reranker"]
+    'cohere'
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# The standard format of each component type, by the name its registry of API
+# formats gives it: a component on the ``served`` backend is called in it, and
+# an ``api`` block names it unless it says otherwise.
+STANDARD_API_FORMATS: dict[str, str] = {
+    "embedder": "openai",
+    "reranker": "cohere",
+    "llm": "openai",
+}
 
 
 class BaseApiRequest(BaseModel):

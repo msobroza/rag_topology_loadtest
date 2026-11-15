@@ -6,7 +6,8 @@ application's package; the README's module tree lists every package and module
 of ``rag_load_test`` and nothing else; no two modules share a file name; the
 adapters hold only the component packages, each with its port in
 ``base_<component>.py`` and one directory per Backend holding one implementation
-of the port, and no port is implemented anywhere else. The
+of the port, the ``api`` directory implementing both ``served`` and ``api``, and
+no port is implemented anywhere else. The
 fake Domino is not the product: its commands and modules are outside the rule.
 """
 
@@ -250,6 +251,10 @@ def test_no_two_modules_of_the_product_share_a_file_name() -> None:
 # --- adapters: only ports and their implementations, one package per component ------
 
 ADAPTERS = PACKAGE / "adapters"
+# A Backend implemented in another Backend's directory: served and api differ
+# only in how the endpoint is resolved, so the one HTTP implementation, in api/,
+# serves both (the owner's decision: two directories would hold one class twice).
+SHARED_DIRECTORIES = {"served": "api"}
 # Component package -> its port classes, and the Backend values that name its
 # implementation directories: those registered for a model component's type,
 # and the vector store's closed set.
@@ -290,7 +295,8 @@ def component_problems(
     """What breaks the layout of one component package.
 
     The layout: ``base_<component>.py`` holds the port, and each Backend value is
-    a directory holding exactly one implementation of it.
+    a directory holding exactly one implementation of it, except a Backend of
+    ``SHARED_DIRECTORIES``, implemented in the directory it names.
 
     Example::
 
@@ -298,6 +304,8 @@ def component_problems(
         # [] when embedder/ has base_embedder.py, local/ and api/, one class each
     """
     name = component.name
+    shared = {b: SHARED_DIRECTORIES[b] for b in backends if b in SHARED_DIRECTORIES}
+    backends = tuple(sorted({SHARED_DIRECTORIES.get(b, b) for b in backends}))
     problems = (
         []
         if (component / f"base_{name}.py").is_file()
@@ -312,7 +320,12 @@ def component_problems(
     directories = {path.parent.name for path in component.glob("*/__init__.py")}
     problems += [f"{name}: no {b}/ directory" for b in backends if b not in directories]
     problems += [
-        f"{name}/{d}/ is not a Backend" for d in sorted(directories - set(backends))
+        (
+            f"{name}/{d}/ is not a Backend directory: {d} is implemented in {shared[d]}/"
+            if d in shared
+            else f"{name}/{d}/ is not a Backend"
+        )
+        for d in sorted(directories - set(backends))
     ]
     for backend in sorted(directories & set(backends)):
         classes = [
@@ -335,6 +348,8 @@ def test_the_component_layout_on_a_literal_package(tmp_path: Path) -> None:
         "api/__init__.py": "",
         "api/a.py": "class A(BaseEmbedder): ...\nclass B(base_embedder.BaseEmbedder): ...",
         "gpu/__init__.py": "",
+        "served/__init__.py": "",
+        "served/s.py": "class S(BaseEmbedder): ...",
         "http_helpers.py": "def get(): ...",
     }
     for name, source in sources.items():
@@ -342,11 +357,12 @@ def test_the_component_layout_on_a_literal_package(tmp_path: Path) -> None:
         (tmp_path / "embedder" / name).write_text(source, encoding="utf-8")
 
     assert component_problems(
-        tmp_path / "embedder", {"BaseEmbedder"}, ("local", "api", "fake")
+        tmp_path / "embedder", {"BaseEmbedder"}, ("local", "served", "api", "fake")
     ) == [
         "embedder/http_helpers.py is neither the port nor a Backend directory",
         "embedder: no fake/ directory",
         "embedder/gpu/ is not a Backend",
+        "embedder/served/ is not a Backend directory: served is implemented in api/",
         "embedder/api/ implements the port 2 times: ['A', 'B']",
     ]
     assert component_problems(tmp_path / "reranker", {"BaseReranker"}, ()) == [

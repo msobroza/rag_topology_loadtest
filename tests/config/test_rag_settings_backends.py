@@ -36,12 +36,13 @@ def test_settings_read_rag_prefixed_env(
     settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", RERANK_URL)
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SERVED__URL", RERANK_URL)
     monkeypatch.setenv("RAG_RUN_LABEL", "split-reranker-fastapi")
     monkeypatch.setenv("RAG_DOMINO_TRACING", "true")
 
     s = settings_factory()
-    assert s.components["reranker"].backend == "api"
+    assert s.components["reranker"].backend == "served"
+    assert s.components["reranker"].served.url == RERANK_URL
     assert s.run_label == "split-reranker-fastapi"
     assert s.domino_tracing is True
 
@@ -50,8 +51,8 @@ def test_settings_read_rag_prefixed_env(
     ("topology", "embedding", "rerank"),
     [
         ("monolith", "local", "local"),
-        ("split-reranker", "local", "api"),
-        ("split-all", "api", "api"),
+        ("split-reranker", "local", "served"),
+        ("split-all", "served", "served"),
     ],
 )
 def test_the_topology_moves_a_local_component_behind_a_model_server(
@@ -63,8 +64,8 @@ def test_the_topology_moves_a_local_component_behind_a_model_server(
 ) -> None:
     # The workflow file says local for both; the topology variable wins over it.
     monkeypatch.setenv("RAG_TOPOLOGY", topology)
-    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__API__URL", EMBED_URL)
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", RERANK_URL)
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__SERVED__URL", EMBED_URL)
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SERVED__URL", RERANK_URL)
 
     s = settings_factory()
     assert backends(s) == (embedding, rerank)
@@ -78,8 +79,8 @@ def test_the_topology_places_only_the_embedder_and_the_reranker(
 
     s = settings_factory(
         topology="split-all",
-        components__embedder__api__url=EMBED_URL,
-        components__reranker__api__url=RERANK_URL,
+        components__embedder__served__url=EMBED_URL,
+        components__reranker__served__url=RERANK_URL,
         components={"other": other},
     )
 
@@ -96,12 +97,27 @@ def test_a_backend_off_local_is_kept_whatever_the_topology(
     assert backends(settings_factory()) == ("fake", "none")
 
 
+def test_an_endpoint_we_do_not_run_is_kept_whatever_the_topology(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    # A topology serves the components of ours; an api endpoint stays where it is.
+    s = settings_factory(
+        topology="split-all",
+        components__embedder__backend="api",
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__served__url=RERANK_URL,
+    )
+
+    assert backends(s) == ("api", "served")
+    assert s.run_label == "split-all+embedding=api"
+
+
 def test_settings_default_run_label_names_the_variant_backends(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     s = settings_factory(
         topology="split-all",
-        components__embedder__api__url=EMBED_URL,
+        components__embedder__served__url=EMBED_URL,
         components__reranker__backend="none",
         components__llm__backend="fake",
     )

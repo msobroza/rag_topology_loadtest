@@ -37,6 +37,7 @@ def value_at(settings: RagSettings, path: str) -> Any:
         ("components__embedder__local__batch_size", 0),
         ("components__embedder__local__threads", -1),
         ("components__embedder__api__batch_size", 0),
+        ("components__embedder__served__batch_size", 0),
         ("components__reranker__local__batch_size", -1),
         ("components__reranker__local__threads", -1),
         ("components__reranker__local__calibration_passages", 0),
@@ -44,6 +45,7 @@ def value_at(settings: RagSettings, path: str) -> Any:
         ("calibration_rounds", 0),
         ("components__llm__http__timeout_s", 0),
         ("components__llm__api__temperature", 2.5),
+        ("components__llm__served__temperature", 2.5),
     ],
 )
 def test_out_of_range_values_are_refused_naming_their_path(
@@ -123,11 +125,8 @@ def test_an_api_block_gives_its_endpoint(
 def test_an_api_block_without_a_model_sends_the_alias(
     settings_factory: SettingsFactory,
 ) -> None:
-    # Our model servers serve a model under its alias: a split topology sends it.
     s = settings_factory(
-        topology="split-all",
-        components__embedder__api__url=EMBED_URL,
-        components__reranker__api__url=RERANK_URL,
+        components__embedder__backend="api", components__embedder__api__url=EMBED_URL
     )
 
     embedder = s.components["embedder"]
@@ -147,56 +146,104 @@ def test_an_api_format_is_passed_on_for_its_registry_to_check(
     assert s.components[component].api.api_format == "jina"
 
 
-# --- check_api_endpoints ---------------------------------------------------------
+# --- check_endpoint_urls ---------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("overrides", "component", "example"),
+    ("overrides", "component", "backend", "example"),
     [
         (
-            {"components__embedder__backend": "api"},
+            {"components__embedder__backend": "served"},
             "EMBEDDER",
+            "served",
             "http://localhost:8002/v3/embeddings",
         ),
         (
             {"topology": "split-reranker"},
             "RERANKER",
+            "served",
             "http://localhost:8001/v3/rerank",
+        ),
+        (
+            {"components__llm__backend": "served"},
+            "LLM",
+            "served",
+            "http://localhost:8000/v3/chat/completions",
+        ),
+        (
+            # A served component reads the URL of its served block only.
+            {
+                "components__reranker__backend": "served",
+                "components__reranker__api__url": RERANK_URL,
+            },
+            "RERANKER",
+            "served",
+            "http://localhost:8001/v3/rerank",
+        ),
+        (
+            {"components__embedder__backend": "api"},
+            "EMBEDDER",
+            "api",
+            "https://api.openai.com/v1/embeddings",
+        ),
+        (
+            # An api component reads the URL of its api block only.
+            {
+                "components__reranker__backend": "api",
+                "components__reranker__served__url": RERANK_URL,
+            },
+            "RERANKER",
+            "api",
+            "https://api.cohere.com/v2/rerank",
         ),
         (
             {"components__llm__api__url": ""},
             "LLM",
+            "api",
             "https://api.openai.com/v1/chat/completions",
         ),
     ],
-    ids=["embedder", "reranker-from-the-topology", "llm"],
+    ids=[
+        "served-embedder",
+        "served-reranker-from-the-topology",
+        "served-llm",
+        "served-reranker-with-an-api-url",
+        "api-embedder",
+        "api-reranker-with-a-served-url",
+        "api-llm",
+    ],
 )
-def test_an_api_backend_without_a_url_is_refused_naming_the_paths(
+def test_a_component_called_over_http_without_a_url_is_refused_naming_the_paths(
     settings_factory: SettingsFactory,
     overrides: dict[str, str],
     component: str,
+    backend: str,
     example: str,
 ) -> None:
     with pytest.raises(ValidationError) as caught:
         settings_factory(**overrides)
 
     variable = f"RAG_COMPONENTS__{component}"
+    block = backend.upper()
     assert (
-        f"{variable}__BACKEND='api' needs {variable}__API__URL, the full route of "
-        f"the endpoint (for example {example}); got ''"
+        f"{variable}__BACKEND={backend!r} needs {variable}__{block}__URL, the full "
+        f"route of the endpoint (for example {example}); got ''"
     ) in str(caught.value)
 
 
+@pytest.mark.parametrize("backend", ["served", "api"])
 @pytest.mark.parametrize("url", ["localhost:8001/v3/rerank", "ftp://h/rerank", " "])
 def test_a_url_that_is_not_http_is_refused_with_its_value(
-    settings_factory: SettingsFactory, url: str
+    settings_factory: SettingsFactory, url: str, backend: str
 ) -> None:
     with pytest.raises(ValidationError) as caught:
         settings_factory(
-            components__reranker__backend="api", components__reranker__api__url=url
+            components__reranker__backend=backend,
+            **{f"components__reranker__{backend}__url": url},
         )
 
-    assert "RAG_COMPONENTS__RERANKER__API__URL, the full route" in str(caught.value)
+    variable = f"RAG_COMPONENTS__RERANKER__{backend.upper()}__URL"
+    assert f"{variable}, the full route" in str(caught.value)
     assert f"got {url!r}" in str(caught.value)
 
 
@@ -209,6 +256,15 @@ def test_an_http_or_https_url_is_accepted(
     )
 
     assert settings.components["reranker"].api.url == url
+
+
+def test_a_served_url_is_accepted(settings_factory: SettingsFactory) -> None:
+    settings = settings_factory(
+        components__reranker__backend="served",
+        components__reranker__served__url=RERANK_URL,
+    )
+
+    assert settings.components["reranker"].served.url == RERANK_URL
 
 
 @pytest.mark.parametrize(
@@ -233,5 +289,9 @@ def test_the_url_is_not_checked_for_another_backend(
 ) -> None:
     s = settings_factory(**overrides)
 
-    urls = (s.components["embedder"].api.url, s.components["reranker"].api.url)
-    assert urls == ("", "")
+    urls = [
+        url
+        for name in ("embedder", "reranker")
+        for url in (s.components[name].served.url, s.components[name].api.url)
+    ]
+    assert urls == ["", "", "", ""]

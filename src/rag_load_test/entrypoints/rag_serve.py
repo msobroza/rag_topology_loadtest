@@ -36,7 +36,6 @@ from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
-from ..config.domino_rules import apply_domino_rules
 from ..config.rag_settings import RagSettings
 from ..domain.errors import RagDependencyError
 from ..domain.passages import RagMode, ScoredPassage
@@ -351,11 +350,12 @@ async def readyz(request: Request) -> JSONResponse:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run ``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888.
 
-    ``--domino`` defaults the API key of an embedder or reranker on the ``api``
-    backend (``RAG_COMPONENTS__<NAME>__API__API_KEY``) to ``domino``; a
-    settings mistake, an unknown backend or API format and a graph that cannot
-    run included, exits as a usage error before any component opens, not a
-    crash.
+    ``--domino`` says the app runs as a Domino App: a component on the
+    ``served`` backend, a model server of ours and so another App behind
+    Domino's proxy, is then called with the run token; off Domino it is called
+    with no key. A settings mistake, an unknown backend or API format and a
+    graph that cannot run included, exits as a usage error before any
+    component opens, not a crash.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -371,17 +371,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--domino",
         action="store_true",
-        help="default the model-server API keys to the Domino run token",
+        help="run as a Domino App: call the served components with the run token",
     )
     args = parser.parse_args(argv)
     try:
         settings = RagSettings()
-        if args.domino:
-            settings = apply_domino_rules(settings)
         check_registered_names(settings)
         check_graph(settings.graph, settings.component_types())
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    uvicorn.run(create_app(CompositionRoot(settings)), host=args.host, port=args.port)
+    composition = CompositionRoot(settings, on_domino=args.domino)
+    uvicorn.run(create_app(composition), host=args.host, port=args.port)
     return 0

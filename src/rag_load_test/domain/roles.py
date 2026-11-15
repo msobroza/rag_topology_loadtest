@@ -1,7 +1,7 @@
 """The Apps a Topology needs, and the Role each one is published as.
 
 Both follow from ``TOPOLOGY_BACKENDS``: a component whose implied backend is
-``api`` is served by a model server App of ours, and the workflow App is always
+``served`` is served by a model server App of ours, and the workflow App is always
 there, last, since it is published with the model servers' URLs. The Role is
 what ``domino/app.sh`` reads from ``RAG_ROLE`` to start an App: ``role_for``
 gives it for a Topology, an App part and a model-server kind. The launch script
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from .topology import TOPOLOGY_BACKENDS, Topology
+from .topology import SERVED, TOPOLOGY_BACKENDS, Topology
 
 # What one Domino App is published as: RAG_ROLE, read by domino/app.sh.
 Role = Literal[
@@ -50,8 +50,8 @@ def model_servers_for_topology(topology: Topology) -> list[ModelServerPart]:
         topology: The topology being deployed.
 
     Returns:
-        ``embedder`` when the topology implies the ``api`` embedding backend,
-        then ``reranker`` when it implies the ``api`` rerank backend.
+        ``embedder`` when the topology implies the ``served`` embedding
+        backend, then ``reranker`` when it implies the ``served`` rerank backend.
 
     Example:
         >>> model_servers_for_topology("split-all")
@@ -62,7 +62,7 @@ def model_servers_for_topology(topology: Topology) -> list[ModelServerPart]:
         ("embedder", implied.embedding),
         ("reranker", implied.rerank),
     )
-    return [part for part, backend in served if backend == "api"]
+    return [part for part, backend in served if backend == SERVED]
 
 
 def apps_for_topology(topology: Topology) -> list[AppPart]:

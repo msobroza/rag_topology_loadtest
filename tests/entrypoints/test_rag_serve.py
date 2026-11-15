@@ -317,55 +317,27 @@ def _capture_served_ports(monkeypatch: pytest.MonkeyPatch) -> list[CompositionRo
     return served
 
 
-def test_main_without_domino_leaves_the_keys_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", RERANK_URL)
-    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__API__API_KEY", raising=False)
-    served = _capture_served_ports(monkeypatch)
-
-    assert main([]) == 0
-
-    assert served[0].settings.components["reranker"].api.api_key == ""
-
-
 def test_main_domino_refuses_a_model_server_component_without_its_url(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
-    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__API__URL", raising=False)
+    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__SERVED__URL", raising=False)
     served = _capture_served_ports(monkeypatch)
 
     with pytest.raises(SystemExit) as exited:
         main(["--domino"])
 
     assert exited.value.code == 2
-    assert "needs RAG_COMPONENTS__RERANKER__API__URL" in capsys.readouterr().err
+    assert "needs RAG_COMPONENTS__RERANKER__SERVED__URL" in capsys.readouterr().err
     assert served == []
-
-
-def test_main_domino_serves_with_the_run_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", RERANK_URL)
-    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__API__API_KEY", raising=False)
-    served = _capture_served_ports(monkeypatch)
-
-    assert main(["--domino"]) == 0
-
-    reranker = served[0].settings.components["reranker"]
-    assert reranker.api.api_key == "domino"
-    assert (reranker.backend, reranker.api.url) == ("api", RERANK_URL)
 
 
 def test_main_ends_on_invalid_settings_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # split-all moves the embedder behind a model server, and no URL is set.
+    # split-all moves the embedder to the served backend, and no URL is set.
     monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
-    monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__API__URL", raising=False)
+    monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__SERVED__URL", raising=False)
     served = _capture_served_ports(monkeypatch)
 
     with pytest.raises(SystemExit) as exited:
@@ -373,7 +345,7 @@ def test_main_ends_on_invalid_settings_without_a_traceback(
 
     assert exited.value.code == 2
     err = capsys.readouterr().err
-    assert "RAG_COMPONENTS__EMBEDDER__BACKEND='api' needs" in err
+    assert "RAG_COMPONENTS__EMBEDDER__BACKEND='served' needs" in err
     assert "Traceback" not in err
     assert served == []
 

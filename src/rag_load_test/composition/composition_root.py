@@ -83,6 +83,9 @@ class CompositionRoot:
         settings: The components, backends and sizes the ports are built from.
         transport: The HTTP transport of the shared client; None for the real
             network (tests pass an ``httpx.MockTransport``).
+        on_domino: Whether the process runs as a Domino App, where a component
+            on the ``served`` backend is called with the run token
+            (``rag-serve --domino``); off Domino it is called with no key.
         container_cpus: Counts the container's CPUs when nothing earlier in the
             chain answers; None for ``ContainerCpus()``.
         **supplied: Ready-made ports by component name (``embedder``,
@@ -99,13 +102,14 @@ class CompositionRoot:
         settings: RagSettings,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        on_domino: bool = False,
         container_cpus: BaseCpuCounter | None = None,
         **supplied: object,
     ) -> None:
         self.settings = settings
         self._components = settings.all_components()
         self._scope = scope = ResourceScope("CompositionRoot")
-        http = HttpResources(settings, scope, transport)
+        http = HttpResources(settings, scope, transport, on_domino=on_domino)
         self._local_models = local_models = LocalModelResources(
             settings, scope, http, container_cpus or ContainerCpus()
         )
@@ -172,7 +176,7 @@ class CompositionRoot:
     async def local_embedder(self, name: str) -> BaseEmbedder:
         """Open the named embedder in this process, whatever its backend says.
 
-        A model server is what the ``api`` backend calls, so it always loads the
+        A model server is what the ``served`` backend calls, so it always loads the
         local model.
 
         Args:
@@ -194,7 +198,7 @@ class CompositionRoot:
     async def local_reranker(self, name: str) -> BaseReranker:
         """Open the named reranker in this process, whatever its backend says.
 
-        A model server is what the ``api`` backend calls, so it always loads the
+        A model server is what the ``served`` backend calls, so it always loads the
         local model.
 
         Args:

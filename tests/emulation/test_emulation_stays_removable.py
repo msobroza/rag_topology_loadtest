@@ -37,7 +37,6 @@ SHARED_FILES_THAT_NAME_IT = {
 # The project's own settings: what the owner reads to configure a real Domino.
 PROJECT_SETTINGS_FILES = (
     "src/rag_load_test/config/rag_settings.py",
-    "src/rag_load_test/config/domino_rules.py",
     "src/rag_load_test/deploy/deploy_settings.py",
     "deploy.example.yaml",
     ".env.example",

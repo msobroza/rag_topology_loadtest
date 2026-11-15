@@ -7,17 +7,18 @@ reranker ``POST /v3/rerank`` (Cohere's rerank format). Both answer
 ``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/api_endpoint.py``
 and bodies are the standard formats' own models (``OpenAIEmbeddingsRequest``,
 ``CohereRerankRequest`` of ``domain/standard_formats.py``), the shapes the ``api``
-adapters speak, so client and server cannot drift apart; the answers are built
+adapters speak on the ``served`` and ``api`` backends, so client and server
+cannot drift apart; the answers are built
 by the three functions at the end of this module. It serves its model under
 the component's alias, and loads the weights its source id names; like OVMS, a
 request for any model but this server's alias is a 404. The workflow app cannot
-tell the two servers apart, so ``RAG_COMPONENTS__RERANKER__API__URL`` can point
-at either and the same load test compares FastAPI with OVMS.
+tell the two servers apart, so ``RAG_COMPONENTS__RERANKER__SERVED__URL`` can
+point at either and the same load test compares FastAPI with OVMS.
 
 Example:
     $ rag-model-server --serve reranker --port 8011
-    $ RAG_TOPOLOGY=split-reranker \
-    >   RAG_COMPONENTS__RERANKER__API__URL=http://localhost:8011/v3/rerank rag-serve
+    $ RAG_COMPONENTS__RERANKER__BACKEND=served \
+    >   RAG_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8011/v3/rerank rag-serve
 """
 
 from __future__ import annotations

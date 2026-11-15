@@ -164,13 +164,13 @@ def test_workflow_role_passes_backends_and_auth_through_untouched(
         bin_dir,
         RAG_ROLE="workflow",
         RAG_COMPONENTS__RERANKER__BACKEND="none",
-        RAG_COMPONENTS__RERANKER__API__URL="http://a/v3/rerank",
+        RAG_COMPONENTS__RERANKER__SERVED__URL="http://a/v3/rerank",
     )
 
     assert result.returncode == 0, result.stderr
     env = rag_serve_env(tmp_path)
     assert "RAG_COMPONENTS__RERANKER__BACKEND=none" in env
-    assert "RAG_COMPONENTS__RERANKER__API__URL=http://a/v3/rerank" in env
+    assert "RAG_COMPONENTS__RERANKER__SERVED__URL=http://a/v3/rerank" in env
     assert not any(
         line.startswith("RAG_COMPONENTS__EMBEDDER__BACKEND=") for line in env
     )

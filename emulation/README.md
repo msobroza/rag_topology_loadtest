@@ -84,7 +84,7 @@ make -C emulation setup BUCKET=<globally unique bucket name>   # Terraform into 
 Optional, for the generation endpoint's API key (a Project environment variable):
 
 ```bash
-printf 'RAG_GENERATION_API_KEY=%s\n' "<key>" | gcloud secrets create rag-emu-project-env --data-file=-
+printf 'RAG_COMPONENTS__LLM__API__API_KEY=%s\n' "<key>" | gcloud secrets create rag-emu-project-env --data-file=-
 ```
 
 ### 2. Create the emulation
@@ -191,9 +191,10 @@ curl -i -H "Authorization: Bearer $(curl -s localhost:8899/access-token)" \
   "$url/v3/models/crossencoder-camembert-base-mmarcoFR"                          # 200, from :8011
 ```
 
-With `RAG_RERANK_API_URL=$url/v3/rerank` and `RAG_RERANK_API_KEY=domino`, a
-workflow app on the same machine fetches its token from the emulated Domino and
-calls the reranker through the proxy, as it would on Domino.
+With `RAG_COMPONENTS__RERANKER__BACKEND=served` and
+`RAG_COMPONENTS__RERANKER__SERVED__URL=$url/v3/rerank`, a workflow app started
+with `rag-serve --domino` on the same machine fetches its token from the
+emulated Domino and calls the reranker through the proxy, as it would on Domino.
 
 | The request | What the emulated Domino does |
 |---|---|

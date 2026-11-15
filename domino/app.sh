@@ -30,11 +30,11 @@
 # RAG_OPENVINO_MODELS_DIR on their first start (RAG_LOCAL_MODEL_RUNTIME=openvino).
 #
 # Both workflow app roles run `rag-serve --domino`: Python moves the embedder and
-# the reranker behind a model server from RAG_TOPOLOGY
+# the reranker to the served backend from RAG_TOPOLOGY
 # (src/rag_load_test/domain/topology.py), requires
-# RAG_COMPONENTS__EMBEDDER__API__URL / RAG_COMPONENTS__RERANKER__API__URL for every
-# component on a model server (rag-deploy sets them) and defaults its
-# RAG_COMPONENTS__<NAME>__API__API_KEY to domino.
+# RAG_COMPONENTS__EMBEDDER__SERVED__URL / RAG_COMPONENTS__RERANKER__SERVED__URL for
+# every served component (rag-deploy sets them) and, on Domino, calls each served
+# component with the run token.
 # A role here only picks its default topology and refuses one it does not serve.
 #
 # OVMS has no base-path option. When Domino forwards the app path prefix

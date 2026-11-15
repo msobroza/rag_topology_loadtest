@@ -46,9 +46,9 @@ from repo_paths import REPO_ROOT
 
 # Each component type's openers, and the backends registered for it: today's.
 OPENERS: dict[str, tuple[ComponentOpeners[Any, Any], tuple[str, ...]]] = {
-    "embedder": (EMBEDDER_OPENERS, ("api", "fake", "local")),
-    "reranker": (RERANKER_OPENERS, ("api", "fake", "local", "none")),
-    "llm": (LLM_OPENERS, ("api", "fake")),
+    "embedder": (EMBEDDER_OPENERS, ("api", "fake", "local", "served")),
+    "reranker": (RERANKER_OPENERS, ("api", "fake", "local", "none", "served")),
+    "llm": (LLM_OPENERS, ("api", "fake", "served")),
     "vector_store": (VECTOR_STORE_OPENERS, get_args(VectorStoreBackend)),
 }
 
@@ -94,7 +94,7 @@ async def test_an_unknown_backend_fails_naming_the_known_ones(
     settings = settings_factory(
         **FAKE_BACKENDS | {"components__reranker__backend": "gpu"}
     )
-    known = "'api', 'fake', 'local', 'none'"
+    known = "'api', 'fake', 'local', 'none', 'served'"
 
     async with CompositionRoot(settings) as composition:
         with pytest.raises(RagDependencyError) as raised:

@@ -8,9 +8,10 @@ and refuse any other. A model component has a source id (the weights) and an
 alias (the name a model server serves it under), which defaults to the last
 part of the source id. The settings common to its type sit beside them, and
 those of one backend in a block named after it: the embedder's ``local``
-block holds what its in-process model takes, its ``api`` block what its
-endpoint takes. A key the type does not have, a block of a backend it does
-not have included, is refused.
+block holds what its in-process model takes, its ``served`` block the route
+of the model server of ours that serves it, its ``api`` block what an
+endpoint we do not run takes. A key the type does not have, a block of a
+backend it does not have included, is refused.
 
 The vector store is still read from flat ``RAG_*`` variables; its settings
 take the same shape here, and ``RagSettings`` builds them.
@@ -29,6 +30,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..domain.api_endpoint import ApiEndpoint
+from ..domain.standard_formats import STANDARD_API_FORMATS
 
 # The name of the vector store, which no file declares yet: it is the
 # component a retrieve stage calls, read from the flat RAG_* variables.
@@ -40,8 +42,26 @@ class _SettingsBlock(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class EndpointSettings(_SettingsBlock):
-    """An ``api`` block: the endpoint's full route, API format, key and model name.
+class ServedSettings(_SettingsBlock):
+    """A ``served`` block: the full route of the model server of ours that serves it.
+
+    The rest of the endpoint follows from the component, so it is not set: the
+    standard format of its type, its alias as the model name, and the Domino
+    run token when the app runs on Domino (``composition/http_resources.py``).
+
+    Example:
+        >>> ServedSettings(url="http://reranker-app/v3/rerank").url
+        'http://reranker-app/v3/rerank'
+    """
+
+    url: str = ""  # the full route, e.g. http://host:8001/v3/rerank
+
+
+class EndpointSettings(ServedSettings):
+    """An ``api`` block: an endpoint we do not run, its API format, key and model name.
+
+    It holds what a ``served`` block holds, plus what a served component takes
+    from its type, its alias and where the app runs: the format, model and key.
 
     Example:
         >>> EndpointSettings(url="http://h/v3/rerank", api_format="cohere"
@@ -49,7 +69,6 @@ class EndpointSettings(_SettingsBlock):
         'alias'
     """
 
-    url: str = ""  # the full route, e.g. http://host:8001/v3/rerank
     # A format registered in adapters/<component>/api/. The settings cannot
     # import that registry, so each command refuses an unknown name before it
     # opens anything (composition/registered_names.py).
@@ -63,8 +82,7 @@ class EndpointSettings(_SettingsBlock):
         """Return the endpoint the block describes.
 
         Args:
-            alias: The component's alias, sent when the block names no model:
-                our model servers serve a model under its alias.
+            alias: The component's alias, sent when the block names no model.
 
         Returns:
             Its URL, API format, key and model name.
@@ -76,24 +94,34 @@ class EndpointSettings(_SettingsBlock):
         return ApiEndpoint(self.url, self.api_format, self.api_key, self.model or alias)
 
 
-class EmbedderEndpointSettings(EndpointSettings):
+class EmbedderServedSettings(ServedSettings):
+    """The embedder's ``served`` block: a route, and the texts sent per request."""
+
+    batch_size: int = Field(default=64, ge=1)
+
+
+class EmbedderEndpointSettings(EndpointSettings, EmbedderServedSettings):
     """The embedder's ``api`` block: an endpoint, and the texts sent per request."""
 
-    api_format: str = "openai"
-    batch_size: int = Field(default=64, ge=1)
+    api_format: str = STANDARD_API_FORMATS["embedder"]
 
 
 class RerankerEndpointSettings(EndpointSettings):
     """The reranker's ``api`` block: an endpoint in a rerank API format."""
 
-    api_format: str = "cohere"
+    api_format: str = STANDARD_API_FORMATS["reranker"]
 
 
-class LlmEndpointSettings(EndpointSettings):
+class LlmServedSettings(ServedSettings):
+    """The LLM's ``served`` block: a route, and the temperature sent."""
+
+    temperature: float = Field(default=0.0, ge=0, le=2)
+
+
+class LlmEndpointSettings(EndpointSettings, LlmServedSettings):
     """The LLM's ``api`` block: an endpoint, and the temperature sent."""
 
-    api_format: str = "openai"
-    temperature: float = Field(default=0.0, ge=0, le=2)
+    api_format: str = STANDARD_API_FORMATS["llm"]
 
 
 class EmbedderLocalSettings(_SettingsBlock):
@@ -197,7 +225,7 @@ class ModelComponentSettings(ComponentSettings):
 
 
 class EmbedderSettings(ModelComponentSettings):
-    """An embedder: its weights, its query prefix, a ``local`` and an ``api`` block.
+    """An embedder: its weights, its query prefix, and one block per backend.
 
     Example:
         >>> settings.components["embedder"].query_prefix
@@ -210,22 +238,28 @@ class EmbedderSettings(ModelComponentSettings):
     # (arctic-embed expects "query: "); "" for a model that takes none.
     query_prefix: str = ""
     local: EmbedderLocalSettings = Field(default_factory=EmbedderLocalSettings)
+    served: EmbedderServedSettings = Field(default_factory=EmbedderServedSettings)
     api: EmbedderEndpointSettings = Field(default_factory=EmbedderEndpointSettings)
 
 
 class RerankerSettings(ModelComponentSettings):
-    """A reranker: its weights, a ``local`` and an ``api`` block."""
+    """A reranker: its weights, a ``local``, a ``served`` and an ``api`` block."""
 
     type: Literal["reranker"] = "reranker"
     source_id: str
     local: RerankerLocalSettings = Field(default_factory=RerankerLocalSettings)
+    served: ServedSettings = Field(default_factory=ServedSettings)
     api: RerankerEndpointSettings = Field(default_factory=RerankerEndpointSettings)
 
 
 class LlmSettings(ModelComponentSettings):
-    """An LLM: an ``api`` block, and the timeout of its calls. It has no ``local``."""
+    """An LLM: a ``served`` and an ``api`` block, and the timeout of its calls.
+
+    It has no ``local`` block: no LLM runs in the app's process.
+    """
 
     type: Literal["llm"] = "llm"
+    served: LlmServedSettings = Field(default_factory=LlmServedSettings)
     api: LlmEndpointSettings = Field(default_factory=LlmEndpointSettings)
     http: LlmHttpSettings = Field(default_factory=LlmHttpSettings)
 

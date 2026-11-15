@@ -19,6 +19,7 @@ from rag_load_test.adapters.reranker.api.base_rerank_api_format import (
 )
 from rag_load_test.adapters.reranker.api.cohere_rerank_format import CohereRerankFormat
 from rag_load_test.domain.registry import Registry
+from rag_load_test.domain.standard_formats import STANDARD_API_FORMATS
 
 REGISTRIES: dict[str, Registry[type]] = {
     "embedding": EMBEDDING_API_FORMATS,
@@ -54,3 +55,16 @@ def test_an_unknown_format_names_the_component_and_the_known_formats(
     assert str(refused.value) == (
         f"unknown {component} API format 'jina' (expected one of: {known})"
     )
+
+
+@pytest.mark.parametrize(
+    ("component_type", "component"),
+    [("embedder", "embedding"), ("reranker", "rerank"), ("llm", "generation")],
+)
+def test_the_standard_format_of_each_component_type_is_registered(
+    component_type: str, component: str
+) -> None:
+    # A served component is called in it, so it must be one the registry knows.
+    name = STANDARD_API_FORMATS[component_type]
+
+    assert REGISTRIES[component].get(name) is not None

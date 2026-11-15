@@ -11,7 +11,7 @@ Example:
     >>> @LLM_OPENERS.register("fake")
     ... async def open_llm_on_fake(component, shared): return FakeLLM()
     >>> LLM_OPENERS.get("echo")
-    ValueError: unknown llm backend 'echo' (expected one of: 'api', 'fake')
+    ValueError: unknown llm backend 'echo' (expected one of: 'api', 'fake', 'served')
 """
 
 from __future__ import annotations

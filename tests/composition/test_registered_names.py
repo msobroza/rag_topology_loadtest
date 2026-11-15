@@ -52,9 +52,9 @@ def test_an_unknown_api_format_is_refused_whatever_the_backend(
 @pytest.mark.parametrize(
     ("component", "known"),
     [
-        ("embedder", "'api', 'fake', 'local'"),
-        ("reranker", "'api', 'fake', 'local', 'none'"),
-        ("llm", "'api', 'fake'"),
+        ("embedder", "'api', 'fake', 'local', 'served'"),
+        ("reranker", "'api', 'fake', 'local', 'none', 'served'"),
+        ("llm", "'api', 'fake', 'served'"),
     ],
 )
 def test_a_backend_without_an_opener_is_refused_naming_its_path(
