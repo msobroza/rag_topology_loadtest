@@ -10,9 +10,10 @@
 #
 # What the components share is four more top-level blocks, left out here, so
 # each takes its defaults (the README lists them): local_models (runtime:
-# openvino | torch, openvino_dir, workers, cpus), calibration (budget_s,
-# rounds), http (timeout_s, retries, backoff_s: the default of every
-# component's own http block) and domino (token_url, token_ttl_s, tracing).
+# openvino | torch, openvino_dir, openvino_weight_format: fp32 | int8, workers,
+# cpus), calibration (budget_s, rounds, users), http (timeout_s, retries,
+# backoff_s: the default of every component's own http block) and domino
+# (token_url, token_ttl_s, tracing).
 # For example QP_LOCAL_MODELS__RUNTIME=torch or QP_HTTP__RETRIES=0.
 components:
   # Each component is of the type of its name (embedder, reranker, llm or

@@ -91,7 +91,8 @@ defaults:
   # The variables the launch script reads that are no value of the workflow
   # file, exported by the App's launch script: QP_OVMS_MODELS_DIR,
   # QP_BOOTSTRAP_EXTRAS, QP_WORKFLOW_FILE (the workflow file the Apps read,
-  # from this directory), ... A value of the workflow file goes under
+  # from this directory), an OVMS App's QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS
+  # (in that App's own block below), ... A value of the workflow file goes under
   # overrides below: written here, it is refused, naming its place there.
   # qp-deploy itself sets QP_ROLE (workflow or model-server),
   # QP_MODEL_SERVER_COMPONENT and QP_MODEL_SERVER_KIND, QP_OVMS_BUNDLE,
@@ -122,6 +123,10 @@ apps:
     kind: app
     # server: ovms  # this App alone served by OVMS (needs ovms_bundle)
     # hardware_tier_id: <a tier with 16 cores>
+    # What qp-calibrate --ovms-models printed for this App's tier, so its OVMS
+    # starts without calibrating its streams and threads (one OVMS App serves
+    # one component, so they are this App's, not every App's):
+    # settings: {QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8}
 
 # This site's values of the workflow file, in its own shape (components, graph,
 # local_models, calibration, http, domino, run_label), for every App: each one is
@@ -155,6 +160,10 @@ overrides:
   # folder there is converted in memory at every start), and how many model
   # calls run at once (torch only; openvino runs one call at a time):
   # local_models: {openvino_dir: /domino/datasets/local/<dataset>/openvino, workers: 2}
+  # What both OpenVINO exports store the weights as, fp32 (default) or int8, a
+  # key of the same block; an OVMS folder exported at another format stops its
+  # App (see the README):
+  # local_models: {openvino_weight_format: fp32}
   # The default timeout, retries and backoff of every call to a served or api
   # component:
   # http: {timeout_s: 30, retries: 2, backoff_s: 0.2}

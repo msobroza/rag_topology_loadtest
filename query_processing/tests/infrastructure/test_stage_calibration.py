@@ -13,9 +13,9 @@ from query_processing.domain.calibration import (
     StageTuning,
     TimedTrial,
 )
+from query_processing.infrastructure.calibration.timed_trials import CalibrationLimits
 from query_processing.infrastructure.local_models.stage_calibration import (
     Calibrated,
-    CalibrationLimits,
     calibrate,
 )
 
@@ -184,12 +184,13 @@ async def test_one_log_line_names_the_stage_the_choice_and_every_trial(
         {
             "event": "stage_calibrated",
             "stage": "fake",
-            "chosen": {"threads": 2, "batch_size": 10},
+            "chosen": {"threads": 2, "batch_size": 10, "streams": 1},
             "trials": [
-                {"threads": 2, "batch_size": 20, "seconds": 5.491},
-                {"threads": 2, "batch_size": 10, "seconds": 3.38},
-                {"threads": 1, "batch_size": 10, "seconds": 4.0},
+                {"threads": 2, "batch_size": 20, "streams": 1, "seconds": 5.491},
+                {"threads": 2, "batch_size": 10, "streams": 1, "seconds": 3.38},
+                {"threads": 1, "batch_size": 10, "streams": 1, "seconds": 4.0},
             ],
+            "requests": 1,
             # two loads of 1 s, and two requests (warm-up, round) per trial
             "seconds": 27.743,
             "budget_s": 1000.0,

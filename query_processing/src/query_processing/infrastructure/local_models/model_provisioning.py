@@ -1,11 +1,13 @@
 """Give an in-process model its OpenVINO export on the first start that lacks it.
 
 Under the ``openvino`` runtime a model loads from its folder under the models
-directory (``QP_LOCAL_MODELS__OPENVINO_DIR``). When that folder is missing, the start
-downloads the model, converts it and saves it there (``export_embedder`` /
-``export_reranker``), then loads the folder; every later start loads the folder
-directly. ``torch`` loads the id as before: the Hugging Face cache keeps its
-download. ``qp-export-openvino`` still writes the same folders ahead of time.
+directory (``QP_LOCAL_MODELS__OPENVINO_DIR``), one folder per weight format
+(``QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT``). When that folder is missing, the
+start downloads the model, converts it at that weight format and saves it there
+(``export_embedder`` / ``export_reranker``), then loads the folder; every later
+start loads the folder directly. Changing the weight format therefore exports
+again on the next start. ``torch`` loads the id as before: the Hugging Face cache
+keeps its download. ``qp-export-openvino`` still writes the same folders ahead of time.
 
 Under ``openvino`` the packages are checked first, whether or not the folder
 exists: a missing one is then ``OpenVinoUnavailableError``, naming it and the pip
@@ -22,7 +24,7 @@ Example:
     >>> model = await provision_local_model(
     ...     "org/embedder",
     ...     runtime="openvino",
-    ...     models_dir="models/openvino",
+    ...     exports=OpenVinoExports("models/openvino", "fp32"),
     ...     export=export_embedder,
     ...     require_packages=require_openvino,
     ...     executor=pool,
@@ -37,14 +39,15 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from pathlib import Path
 
-from ...domain.backends import LocalModelRuntime
+from ...domain.backends import LocalModelRuntime, OpenVinoWeightFormat
 from ...domain.errors import describe_error
 from ..json_log import log_json
-from .local_model import LocalModel, exported_model_dir, local_model
+from .local_model import LocalModel, OpenVinoExports, local_model
 from .model_pool import run_blocking
 
-# ``export_embedder`` or ``export_reranker``: (model id, target folder) -> folder.
-Exporter = Callable[[str, Path], Path]
+# ``export_embedder`` or ``export_reranker``:
+# (model id, target folder, weight format) -> folder.
+Exporter = Callable[[str, Path, OpenVinoWeightFormat], Path]
 # ``require_openvino``: returns when the runtime's packages import, else raises.
 PackageCheck = Callable[[], None]
 
@@ -57,7 +60,7 @@ async def provision_local_model(
     model_id: str,
     *,
     runtime: LocalModelRuntime,
-    models_dir: str,
+    exports: OpenVinoExports,
     export: Exporter,
     require_packages: PackageCheck,
     executor: Executor,
@@ -67,7 +70,9 @@ async def provision_local_model(
     Args:
         model_id: The model's Hugging Face id or path.
         runtime: ``openvino`` or ``torch``; only ``openvino`` ever exports.
-        models_dir: The folder holding the OpenVINO exports.
+        exports: The folder holding the OpenVINO exports and the weight format:
+            which folder loads, and what a missing one is exported at. ``torch``
+            ignores it.
         export: Downloads, converts and writes one model to a folder.
         require_packages: Raises when the ``openvino`` runtime's packages are
             missing; called under ``openvino`` before anything loads.
@@ -84,7 +89,8 @@ async def provision_local_model(
 
     Example:
         >>> model = await provision_local_model(
-        ...     "org/reranker", runtime="torch", models_dir="models/openvino",
+        ...     "org/reranker", runtime="torch",
+        ...     exports=OpenVinoExports("models/openvino", "fp32"),
         ...     export=export_reranker, require_packages=require_openvino,
         ...     executor=pool,
         ... )
@@ -93,20 +99,34 @@ async def provision_local_model(
     """
     if runtime == "openvino":
         require_packages()  # before the folder test: loading needs them too
-        folder = exported_model_dir(models_dir, model_id)
+        folder = exports.folder(model_id)
         if not folder.is_dir():
-            await _export_into(folder, export, model_id, executor)
-    return local_model(model_id, runtime=runtime, models_dir=models_dir)
+            await _export_into(
+                folder, export, model_id, exports.weight_format, executor
+            )
+    return local_model(
+        model_id,
+        runtime=runtime,
+        models_dir=exports.models_dir,
+        weight_format=exports.weight_format,
+    )
 
 
 async def _export_into(
-    folder: Path, export: Exporter, model_id: str, executor: Executor
+    folder: Path,
+    export: Exporter,
+    model_id: str,
+    weight_format: OpenVinoWeightFormat,
+    executor: Executor,
 ) -> None:
     try:
-        await run_blocking(executor, _timed_export, export, model_id, folder)
+        await run_blocking(
+            executor, _timed_export, export, model_id, folder, weight_format
+        )
     except Exception as exc:
         raise ModelProvisioningError(
-            f"could not export {model_id!r} to OpenVINO in {folder}: "
+            f"could not export {model_id!r} to OpenVINO ({weight_format}) in "
+            f"{folder}: "
             f"{describe_error(exc)} (a first start downloads it from the Hugging "
             "Face Hub, so it needs the network and no HF_HUB_OFFLINE=1; "
             "qp-export-openvino writes the folder ahead of time)"
@@ -114,13 +134,16 @@ async def _export_into(
 
 
 # Runs on the executor; one JSON line once the folder is in place.
-def _timed_export(export: Exporter, model_id: str, folder: Path) -> None:
+def _timed_export(
+    export: Exporter, model_id: str, folder: Path, weight_format: OpenVinoWeightFormat
+) -> None:
     started = time.monotonic()
-    export(model_id, folder)
+    export(model_id, folder, weight_format)
     seconds = round(time.monotonic() - started, 1)
     log_json(
         event="local_model_provisioned",
         model=model_id,
         folder=str(folder),
+        weight_format=weight_format,
         seconds=seconds,
     )

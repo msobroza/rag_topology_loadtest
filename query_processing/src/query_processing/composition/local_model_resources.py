@@ -4,7 +4,8 @@ The thread budget comes from the first CPU counter that answers
 (``QP_LOCAL_MODELS__CPUS``, the Domino tier, the container; see
 ``infrastructure/local_models/cpu_count.py``). The pool is created on first need
 and shut down with the scope. Under the ``openvino`` runtime a model whose
-folder is missing is exported there first, on the pool, since it takes minutes
+folder is missing is exported there first, at the settings' weight format, on
+the pool, since it takes minutes
 (``infrastructure/local_models/model_provisioning.py``).
 
 Example:
@@ -19,6 +20,7 @@ from typing import NamedTuple
 
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.thread_budget import ThreadBudget, plan_thread_budget
+from ..infrastructure.calibration.timed_trials import CalibrationLimits
 from ..infrastructure.local_models.cpu_count import (
     BaseCpuCounter,
     DominoHardwareTierCpus,
@@ -26,7 +28,7 @@ from ..infrastructure.local_models.cpu_count import (
     first_cpu_count,
     work_out_thread_budget,
 )
-from ..infrastructure.local_models.local_model import LocalModel
+from ..infrastructure.local_models.local_model import LocalModel, OpenVinoExports
 from ..infrastructure.local_models.model_pool import model_executor
 from ..infrastructure.local_models.model_provisioning import (
     Exporter,
@@ -35,7 +37,6 @@ from ..infrastructure.local_models.model_provisioning import (
 )
 from ..infrastructure.local_models.native_threads import settle_torch_thread
 from ..infrastructure.local_models.openvino_export import require_openvino
-from ..infrastructure.local_models.stage_calibration import CalibrationLimits
 from .http_resources import HttpResources
 from .resource_scope import OWNED, ResourceScope
 
@@ -54,9 +55,9 @@ class LocalModelResources:
     runs the models, and the budget and rounds every calibration runs under.
 
     Args:
-        settings: The CPUs and workers, the runtime and its folder (its
-            ``local_models`` block), the calibration budget and rounds (its
-            ``calibration`` block).
+        settings: The CPUs and workers, the runtime, its folder and its
+            weight format (its ``local_models`` block), the calibration budget
+            and rounds (its ``calibration`` block).
         scope: Opens the budget and the pool once and shuts the pool down.
         http: The shared HTTP client, for the Domino hardware tier lookup.
         container_cpus: Counts the container's CPUs when nothing earlier in the
@@ -137,10 +138,12 @@ class LocalModelResources:
 
         Args:
             model_id: The model's Hugging Face id or local path.
-            export: Converts this kind of model to OpenVINO files.
+            export: Converts this kind of model to OpenVINO files, at the weight
+                format the settings name.
 
         Returns:
-            The files the model loads from and what runs it.
+            The files the model loads from (the export of the settings' weight
+            format, under ``openvino``) and what runs it.
 
         Example:
             >>> await local_models.local_model("org/rerank", export_reranker)
@@ -149,7 +152,9 @@ class LocalModelResources:
         return await provision_local_model(
             model_id,
             runtime=local_models.runtime,
-            models_dir=local_models.openvino_dir,
+            exports=OpenVinoExports(
+                local_models.openvino_dir, local_models.openvino_weight_format
+            ),
             export=export,
             require_packages=self._require_openvino_packages,
             executor=await self.model_pool(),

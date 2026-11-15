@@ -15,10 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from launch_script_stand_ins import model_server_env
+from launch_script_stand_ins import (
+    model_server_env,
+    served_config,
+    write_ovms_config_stand_in,
+)
 from repo_paths import TOOLKIT_ROOT
 
-SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id")
+SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id", "mktemp")
 EXPORTER_VENV = "ovms-exporter-venv"
 OVMS_SH = TOOLKIT_ROOT / "domino" / "model_servers" / "ovms.sh"
 
@@ -64,7 +68,8 @@ def tree(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def bin_dir(tmp_path: Path) -> Path:
-    """Fake ``ovms`` and ``uv``; ``uv venv <dir>`` fills <dir>/bin with fakes."""
+    """Fake ``ovms``, ``qp-ovms-config`` and ``uv``; ``uv venv <dir>`` fills
+    <dir>/bin with fakes."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name in SYSTEM_TOOLS:
@@ -72,6 +77,7 @@ def bin_dir(tmp_path: Path) -> Path:
         assert found, f"{name} is needed on PATH to run app.sh"
         (bin_dir / name).symlink_to(found)
     logging_fake(bin_dir / "ovms", tmp_path / "ovms.log")
+    write_ovms_config_stand_in(bin_dir / "qp-ovms-config", tmp_path)
     venv_fakes = "".join(
         f"printf '#!/usr/bin/env bash\\n' > \"$2/bin/{name}\"; "
         f'chmod +x "$2/bin/{name}"\n'
@@ -89,11 +95,13 @@ def run_app(
     tmp_path: Path, tree: Path, bin_dir: Path, component: str, **env: str
 ) -> subprocess.CompletedProcess[str]:
     """Run the copied app.sh as an OVMS model server of ``component``."""
-    home = tmp_path / "home"
+    home, temporary = tmp_path / "home", tmp_path / "tmp"
     home.mkdir(exist_ok=True)
+    temporary.mkdir(exist_ok=True)
     full_env = {
         "PATH": str(bin_dir),
         "HOME": str(home),
+        "TMPDIR": str(temporary),
         **model_server_env("ovms", component),
         **env,
     }
@@ -122,6 +130,7 @@ def test_a_present_config_is_served_without_any_export(
     models = tmp_path / "models"
     models.mkdir()
     (models / "config_reranker.json").write_text("{}")
+    (models / "weight-format").write_text("fp32\n")
 
     result = run_app(
         tmp_path, tree, bin_dir, "reranker", QP_OVMS_MODELS_DIR=str(models)
@@ -130,7 +139,7 @@ def test_a_present_config_is_served_without_any_export(
     assert result.returncode == 0, result.stderr
     assert (log(tmp_path, "export"), log(tmp_path, "uv")) == ([], [])
     assert log(tmp_path, "ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_reranker.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     ]
 
 
@@ -162,7 +171,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
         f"served={project}/bin/qp-served-models"
     ]
     assert log(tmp_path, "ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_{component}.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     ]
     assert f"exporting the models into {models}" in result.stderr
 
@@ -237,7 +246,7 @@ def test_bootstrap_installs_the_ovms_bundle_then_exports(
     assert len(log(tmp_path, "apt-get")) == 2
     assert len(log(tmp_path, "export")) == 1
     assert log(tmp_path, "bundle-ovms") == [
-        f"--rest_port 8888 --config_path {models}/config_reranker.json"
+        f"--rest_port 8888 --config_path {served_config(tmp_path)}"
     ]
 
 

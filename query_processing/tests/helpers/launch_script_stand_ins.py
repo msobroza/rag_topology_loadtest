@@ -1,9 +1,10 @@
 """Stand-in binaries for running ``domino/app.sh`` without installing anything.
 
-``ovms``, ``nginx``, ``rag-*``, ``uv``, ``sudo`` and ``apt-get`` are replaced by
+``ovms``, ``nginx``, ``qp-*``, ``uv``, ``sudo`` and ``apt-get`` are replaced by
 scripts that record their argv (and the ``QP_*`` variables they were started
-with) under ``tmp_path``. Used by the launch script's own tests and by the
-deploy tests that run every entry script through it.
+with) under ``tmp_path``; ``qp-ovms-config`` also prints the config it would
+write (``served_config`` reads it back). Used by the launch script's own tests
+and by the deploy tests that run every entry script through it.
 
 Example::
 
@@ -51,6 +52,35 @@ def stay_until_the_other_is_done(tmp_path: Path, name: str) -> str:
     )
 
 
+def write_ovms_config_stand_in(
+    path: Path, tmp_path: Path, name: str = "qp-ovms-config"
+) -> None:
+    """A ``qp-ovms-config`` that logs its argv and prints the config it would write.
+
+    It prints ``<serving dir>/config_<part>.json``, as the real one does, and
+    appends it to ``<name>.out`` (argv to ``<name>.log``); only shell builtins,
+    so it runs on any PATH.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$@" >> "{tmp_path}/{name}.log"\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in --serve) part=$2 ;; --serving-dir) dir=$2 ;; esac\n'
+        "  shift\n"
+        "done\n"
+        f'echo "$dir/config_$part.json" >> "{tmp_path}/{name}.out"\n'
+        'echo "$dir/config_$part.json"\n'
+    )
+    path.chmod(0o755)
+
+
+def served_config(tmp_path: Path, name: str = "qp-ovms-config") -> str:
+    """The config path the ``qp-ovms-config`` stand-in printed last, "" if none."""
+    out = tmp_path / f"{name}.out"
+    return out.read_text().splitlines()[-1] if out.exists() else ""
+
+
 def make_stand_ins(tmp_path: Path) -> Path:
     """Fake binaries that append their argv (and nginx its config) to <name>.log.
 
@@ -76,7 +106,8 @@ def make_stand_ins(tmp_path: Path) -> Path:
             + "exit 0\n"
         )
         script.chmod(0o755)
-    # sudo runs its command; ``uv venv <dir>`` makes a venv whose rag-* log apart.
+    write_ovms_config_stand_in(bin_dir / "qp-ovms-config", tmp_path)
+    # sudo runs its command; ``uv venv <dir>`` makes a venv whose qp-* log apart.
     write_fake(bin_dir / "sudo", tmp_path / "sudo.log", 'exec "$@"\n')
     venv_fakes = "".join(
         "printf '#!/usr/bin/env bash\\n"
@@ -98,10 +129,12 @@ def stand_in_env(tmp_path: Path, bin_dir: Path, **env: str) -> dict[str, str]:
     """The environment to run app.sh in: the stand-ins first on PATH, no QP_*."""
     # A QP_* variable from the developer's shell would leak into the role under test.
     inherited = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
-    home = tmp_path / "home"
+    home, temporary = tmp_path / "home", tmp_path / "tmp"
     home.mkdir(exist_ok=True)
+    temporary.mkdir(exist_ok=True)  # mktemp's folders land here, not in /tmp
     path = f"{bin_dir}:{os.environ['PATH']}"
-    return {**inherited, "PATH": path, "HOME": str(home), **env}
+    paths = {"PATH": path, "HOME": str(home), "TMPDIR": str(temporary)}
+    return {**inherited, **paths, **env}
 
 
 def model_server_env(kind: str, component: str) -> dict[str, str]:
@@ -129,12 +162,17 @@ def started_in(tmp_path: Path, name: str) -> Path:
     return Path((tmp_path / f"{name}.cwd").read_text().splitlines()[-1])
 
 
-def models_dir(tmp_path: Path) -> Path:
-    """A models folder holding both OVMS configs, so no OVMS model server exports."""
+def models_dir(tmp_path: Path, weight_format: str = "fp32") -> Path:
+    """A models folder holding both OVMS configs, so no OVMS model server exports.
+
+    Its ``weight-format`` record says ``weight_format``; fp32 is what app.sh asks
+    for when QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT is unset.
+    """
     models = tmp_path / "models"
     models.mkdir()
     (models / "config_reranker.json").write_text("{}")
     (models / "config_embedder.json").write_text("{}")
+    (models / "weight-format").write_text(f"{weight_format}\n")
     return models
 
 

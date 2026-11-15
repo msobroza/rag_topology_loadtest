@@ -17,7 +17,7 @@ from repo_paths import TOOLKIT_ROOT
 ROOT = TOOLKIT_ROOT
 
 
-def test_each_line_names_a_component_its_type_source_id_and_alias(
+def test_each_line_names_a_component_its_type_source_id_alias_and_weight_format(
     settings_factory: Callable[..., WorkflowSettings],
 ) -> None:
     settings = settings_factory(
@@ -25,11 +25,12 @@ def test_each_line_names_a_component_its_type_source_id_and_alias(
         components__embedder__alias="embed",
         components__reranker__source_id="org/rerank",
         components__reranker__alias="rerank",
+        local_models__openvino_weight_format="int8",
     )
 
     assert served_model_lines(settings) == [
-        "embedder embedder org/embed embed",
-        "reranker reranker org/rerank rerank",
+        "embedder embedder org/embed embed int8",
+        "reranker reranker org/rerank rerank int8",
     ]
 
 
@@ -40,9 +41,9 @@ def test_an_embedder_or_reranker_of_any_name_is_listed_and_an_llm_is_not(
     settings = settings_factory(components={"coarse": coarse})
 
     assert served_model_lines(settings) == [
-        "embedder embedder fixture-org/fixture-embedder fixture-embedder",
-        "reranker reranker fixture-org/fixture-reranker fixture-reranker",
-        "coarse reranker /models/coarse-rr/ coarse-rr",
+        "embedder embedder fixture-org/fixture-embedder fixture-embedder fp32",
+        "reranker reranker fixture-org/fixture-reranker fixture-reranker fp32",
+        "coarse reranker /models/coarse-rr/ coarse-rr fp32",
     ]
 
 
@@ -60,9 +61,9 @@ def test_qp_served_models_prints_the_workflow_files_components(
 ) -> None:
     assert main([]) == 0
 
-    assert capsys.readouterr().out.splitlines() == [
-        "embedder embedder fixture-org/fixture-embedder fixture-embedder",
-        "reranker reranker fixture-org/fixture-reranker fixture-reranker",
+    assert capsys.readouterr().out.splitlines() == [  # fp32 is the default
+        "embedder embedder fixture-org/fixture-embedder fixture-embedder fp32",
+        "reranker reranker fixture-org/fixture-reranker fixture-reranker fp32",
     ]
 
 
@@ -78,8 +79,8 @@ def test_qp_served_models_honours_overrides_and_quotes_for_eval(
     assert main([]) == 0
 
     assert capsys.readouterr().out.splitlines() == [
-        "embedder embedder 'org/embed v2' embed",
-        "reranker reranker org/rerank 'it'\"'\"'s; rm -rf $HOME'",
+        "embedder embedder 'org/embed v2' embed fp32",
+        "reranker reranker org/rerank 'it'\"'\"'s; rm -rf $HOME' fp32",
     ]
 
 
@@ -104,8 +105,8 @@ def test_qp_served_models_output_round_trips_through_bash_eval(
     )
 
     assert result.stdout.splitlines() == [
-        "embedder|embedder|fixture-org/fixture-embedder|fixture-embedder|",
-        "reranker|reranker|fixture-org/fixture-reranker|it's; echo pwned|",
+        "embedder|embedder|fixture-org/fixture-embedder|fixture-embedder|fp32|",
+        "reranker|reranker|fixture-org/fixture-reranker|it's; echo pwned|fp32|",
     ]
 
 

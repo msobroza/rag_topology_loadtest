@@ -21,10 +21,11 @@ EXPORT_SH = TOOLKIT_ROOT / "ovms" / "export_models.sh"
 SYSTEM_PATH = "/usr/bin:/bin"  # dirname, mkdir, env: what the script itself needs
 
 # Quoted the way qp-served-models quotes, so the script's eval is exercised too:
-# name, type, source id, alias. The reranker is named after no type.
+# name, type, source id, alias, weight format (the same on every line). The
+# reranker is named after no type.
 FAKE_SERVED_MODELS = """\
-embedder embedder org/custom-embed custom-embed
-coarse reranker org/custom-rerank 'custom rerank; touch pwned'
+embedder embedder org/custom-embed custom-embed fp32
+coarse reranker org/custom-rerank 'custom rerank; touch pwned' fp32
 """
 
 
@@ -75,6 +76,12 @@ def run_export(
     )
 
 
+def served_models_fake(bin_dir: Path, weight_format: str = "fp32") -> None:
+    """A ``qp-served-models`` printing FAKE_SERVED_MODELS at ``weight_format``."""
+    output = FAKE_SERVED_MODELS.replace(" fp32\n", f" {weight_format}\n")
+    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{output}EOF\n")
+
+
 def calls(tmp_path: Path, name: str) -> list[str]:
     path = tmp_path / f"{name}.log"
     return path.read_text().splitlines() if path.exists() else []
@@ -88,7 +95,7 @@ def export_call(tmp_path: Path, task: str) -> str:
 def test_each_served_model_is_exported_under_its_component_name(
     tmp_path: Path, bin_dir: Path
 ) -> None:
-    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
+    served_models_fake(bin_dir)
 
     result = run_export(tmp_path, bin_dir)
 
@@ -109,7 +116,7 @@ def test_without_a_folder_the_models_land_in_the_working_directorys_ovms_models(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     # The working directory is the use case's: every output of a command is there.
-    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{FAKE_SERVED_MODELS}EOF\n")
+    served_models_fake(bin_dir)
 
     result = run_export(tmp_path, bin_dir, with_folder=False)
 
@@ -123,7 +130,7 @@ def test_without_a_folder_the_models_land_in_the_working_directorys_ovms_models(
 def test_a_served_model_of_another_type_stops_the_export(
     tmp_path: Path, bin_dir: Path
 ) -> None:
-    lines = "llm llm org/chat chat\n"
+    lines = "llm llm org/chat chat fp32\n"
     write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{lines}EOF\n")
 
     result = run_export(tmp_path, bin_dir)
@@ -150,3 +157,79 @@ def test_path_hides_any_installed_qp_served_models() -> None:
     # Guards the failure test above: it is only meaningful if PATH has no real one.
     for directory in SYSTEM_PATH.split(os.pathsep):
         assert not (Path(directory) / "qp-served-models").exists()
+
+
+@pytest.mark.parametrize("weight_format", ["fp32", "int8"])
+def test_both_exports_use_the_weight_format_and_the_folder_records_it(
+    tmp_path: Path, bin_dir: Path, weight_format: str
+) -> None:
+    served_models_fake(bin_dir, weight_format)
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    for task in ("rerank_ov", "embeddings_ov"):
+        assert f"<--weight-format><{weight_format}>" in export_call(tmp_path, task)
+    record = tmp_path / "models" / "weight-format"
+    assert record.read_text() == f"{weight_format}\n"
+
+
+def test_no_weight_format_is_hard_coded() -> None:
+    assert "--weight-format int8" not in EXPORT_SH.read_text()
+
+
+def test_a_folder_of_the_same_weight_format_is_exported_again(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    served_models_fake(bin_dir, "int8")
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "config_coarse.json").write_text("{}")
+    (models / "weight-format").write_text("int8\n")
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert len(calls(tmp_path, "python")) == 3  # pip, then both exports
+
+
+@pytest.mark.parametrize(
+    ("record", "found", "asked"),
+    [("int8\n", "int8", "fp32"), ("fp32\n", "fp32", "int8"), (None, "int8", "fp32")],
+    ids=["int8-folder", "fp32-folder", "folder-from-before-the-record"],
+)
+def test_a_folder_of_another_weight_format_is_refused_before_any_download(
+    tmp_path: Path, bin_dir: Path, record: str | None, found: str, asked: str
+) -> None:
+    # The exporter skips a model folder that exists: it would keep the old weights.
+    served_models_fake(bin_dir, asked)
+    models = tmp_path / "models"
+    models.mkdir()
+    (models / "config_embedder.json").write_text("{}")
+    if record is not None:
+        (models / "weight-format").write_text(record)
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 1
+    assert str(models) in result.stderr
+    assert f"weight format {found}" in result.stderr
+    assert f"{asked} was asked" in result.stderr
+    assert "another folder" in result.stderr
+    assert (calls(tmp_path, "curl"), calls(tmp_path, "python")) == ([], [])
+    assert (models / "weight-format").exists() == (record is not None)
+
+
+def test_a_qp_served_models_without_the_weight_format_says_to_reinstall(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    # An older qp-served-models prints four words a line: no weight format.
+    older = FAKE_SERVED_MODELS.replace(" fp32\n", "\n")
+    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{older}EOF\n")
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 1
+    assert "printed no weight format" in result.stderr
+    assert "make install" in result.stderr
+    assert calls(tmp_path, "python") == []

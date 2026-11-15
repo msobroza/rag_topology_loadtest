@@ -345,7 +345,7 @@ The toolkit is three applications over one shared domain. The domain
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
 
 2. **Commands.** A command lives in its own application, in a module named
-   exactly after it with hyphens as underscores: the RAG system's six in
+   exactly after it with hyphens as underscores: the RAG system's eight in
    `entrypoints/` (`qp-serve` is `entrypoints/qp_serve.py`), `qp-deploy` in
    `deploy/qp_deploy.py`, `qp-compare` in `loadtest/qp_compare.py`.
 3. **One name, one module.** No two modules share a file name. A settings module
@@ -365,7 +365,9 @@ The toolkit is three applications over one shared domain. The domain
    implements no port is not an adapter and lives in `infrastructure/`: what
    the `api` implementations share (`endpoint/`), what the `local` ones share
    (`local_models/`), `http/`, the corpora `qp-fetch-corpus` downloads
-   (`corpora/`), `json_log.py` and `fake_text.py`. Building the implementations
+   (`corpora/`), the calibration loops (`calibration/`), OpenVINO Model Server's
+   graph, serving folder and process (`ovms/`), `openvino_cpu_properties.py`,
+   `one_line_failure.py`, `json_log.py` and `fake_text.py`. Building the implementations
    from the settings is not an adapter either: that is `composition/`, rule 5.
 5. **Composition.** `composition/` is the composition root, the only code that
    reads the settings to build an adapter. Each job has one module:
@@ -440,8 +442,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
       rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
       thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
-      calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
-      backends.py     the Runtime names (what runs an in-process model), and what a Backend is
+      calibration.py  StageTuning (threads, batch size, streams), halvings, fastest, calibration_sample: the rules of calibration, no clock
+      backends.py     the Runtime names (what runs an in-process model), the Weight format names (what an OpenVINO export stores its weights as), and what a Backend is
       run_label.py    the run label: its default (each component with its backend), what a valid one is
       roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
       corpus.py       synthetic handbook corpus, its questions, chunking
@@ -467,6 +469,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
       workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
+      ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout), no value of the workflow file
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder
@@ -518,7 +521,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         model_provisioning.py  provision_local_model: an in-process model's OpenVINO export, made on the first start that lacks it
         openvino_export.py  convert one embedder or reranker to OpenVINO files
         native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
-        stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate, keep the fastest
+        stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate batch size and thread count, keep the fastest
         cpu_count.py  where the CPU count comes from: QP_LOCAL_MODELS__CPUS, the Domino hardware tier, the container
       http/           what every adapter that calls out shares
         http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
@@ -528,6 +531,15 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         download.py   download a corpus's files under one HttpPolicy and convert them
         conversion.py a fetched file's text into documents or questions; CorpusFormatError names the file and line
         jsonl_files.py  write JSON lines atomically: a temporary file, then a rename
+      calibration/    the calibration loops
+        timed_trials.py  CalibrationLimits, TimedTrials: the trials, the budget rule, the report and its stage_calibrated line
+        served_stage_calibration.py  BaseServedStage, calibrate_served: one model server start per candidate, streams then threads
+      ovms/           OpenVINO Model Server, run by us
+        ovms_graph.py  ovms_plugin_config, graph_with_plugin_config: the graph's one plugin_config line for a tuning
+        ovms_serving_folder.py  write_ovms_serving_folder: the export linked, a graph of our own; the export is never written
+        ovms_process.py  OvmsProcess: one ovms on a free local port for an async with, waited for and stopped
+      openvino_cpu_properties.py  openvino_cpu_properties: INFERENCE_NUM_THREADS and ENABLE_HYPER_THREADING for a thread count
+      one_line_failure.py  one_line_failure: how a command reports a failure an operator can act on, on one stderr line
       fake_text.py    tokenize, cosine: the text helpers the fake implementations share
       json_log.py     log_json: the one log format
     composition/      the composition root: builds the adapters from the settings (rule 5)
@@ -536,6 +548,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
+      ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
+      ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
       registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
@@ -558,9 +572,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     entrypoints/      the RAG system's commands: FastAPI apps and CLIs
       qp_serve.py     qp-serve: the FastAPI app (/query /retrieve /healthz /readyz), --domino, Domino tracing, JSON logs, a refused graph as one line
       qp_model_server.py  qp-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
-      qp_served_models.py  qp-served-models: each embedder and reranker of the workflow file (name, type, source id, alias), one line of shell words each
+      qp_served_models.py  qp-served-models: each embedder and reranker of the workflow file (name, type, source id, alias, then the weight format), one line of shell words each
       qp_export_openvino.py  qp-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
-      qp_calibrate.py  qp-calibrate: calibrate the in-process models here, print the environment paths that pin them
+      qp_calibrate.py  qp-calibrate: calibrate the in-process models (or OVMS) here, print the environment paths (or the OVMS App's variables) that pin them
+      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its streams and threads calibrated first
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
@@ -746,6 +761,20 @@ declares, `/v3/rerank` / `/v3/embeddings` for both.
 `QP_LOADTEST_TARGET` selects the Locust user class: `rag` (default,
 `/query` + `/retrieve`), `rerank` or `embeddings`.
 
+**Compare servers on the same weight format.** The FastAPI model server runs the
+in-process export and OVMS its own export; both read the workflow file's
+`local_models.openvino_weight_format` (`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`:
+`fp32` or `int8`, see [Weight format](#weight-format)). Measured on 15 November 2026,
+one reranker replica on a 2-CPU machine: the reranker's export is 442 MB at
+`fp32` and 111 MB at `int8`. OVMS on `int8` looked 38 to 65% faster than the
+FastAPI model server on `fp32`, and the whole lead was the 8-bit weights: on the
+same weights both served the same, 0.24 requests a second each at `fp32` and
+0.36 to 0.38 at `int8`. Ranking quality on `int8` weights was not checked.
+
+`docs/model-servers.md` sets the two servers side by side: what the documentation
+of OVMS and of FastAPI says about serving, how each is set up here, and what the
+sittings measured (streams, batch size, order of service).
+
 ## HTTP API
 
 | Route | Body → result |
@@ -855,8 +884,8 @@ value is the default below; a workflow file may write any of them, and a
 variable named by its path wins over the file:
 
 ```yaml
-local_models: {runtime: openvino, openvino_dir: models/openvino, workers: 4, cpus: 0}
-calibration:  {budget_s: 90, rounds: 1}
+local_models: {runtime: openvino, openvino_dir: models/openvino, openvino_weight_format: fp32, workers: 4, cpus: 0}
+calibration:  {budget_s: 90, rounds: 1, users: 4}
 http:         {timeout_s: 30, retries: 2, backoff_s: 0.2}
 domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240, tracing: false}
 ```
@@ -864,11 +893,13 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 | Block | Key | Default | Meaning |
 | --- | --- | --- | --- |
 | `local_models` | `runtime` | `openvino` | what runs the in-process models, those of the components on `local`: `openvino` \| `torch` |
-| `local_models` | `openvino_dir` | `models/openvino` | where `qp-export-openvino` writes and the `openvino` runtime looks first, one folder per model |
+| `local_models` | `openvino_dir` | `models/openvino` | where `qp-export-openvino` writes and the `openvino` runtime looks first, one folder per model and weight format |
+| `local_models` | `openvino_weight_format` | `fp32` | what both OpenVINO exports (in-process and OVMS) store the weights as: `fp32` \| `int8` (8-bit weight compression only); changing it exports again, into `<model>-int8` in-process. See [Weight format](#weight-format) |
 | `local_models` | `workers` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time (>= 1) |
 | `local_models` | `cpus` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
-| `calibration` | `budget_s` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `qp-calibrate`); no new candidate starts after them (> 0) |
+| `calibration` | `budget_s` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `qp-calibrate`); no new candidate starts after them, and an OVMS trial still running then is abandoned (> 0) |
 | `calibration` | `rounds` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
+| `calibration` | `users` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
 | `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the RAG's LLM sets `120`); also the timeout of the hardware-tier lookup |
 | `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
 | `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
@@ -978,6 +1009,9 @@ before the app serves, with one line in the server's log.
 | `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `QP_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `QP_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
 | `QP_LOCAL_MODELS__...`, `QP_CALIBRATION__...`, `QP_HTTP__...`, `QP_DOMINO__...` | from the workflow file, else the defaults | one value of a block the components share, named by its path, such as `QP_LOCAL_MODELS__CPUS` or `QP_DOMINO__TRACING` (see the shared blocks above) |
+| `QP_OVMS_NUM_STREAMS` | `0` | an OVMS model server App's own, no value of the workflow file: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs. Set in that App's block of `deploy.yaml` (`apps.<component>.settings`) |
+| `QP_OVMS_THREADS` | `0` | an OVMS App's own: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `QP_OVMS_NUM_STREAMS` is refused |
+| `QP_OVMS_START_TIMEOUT_S` | `120` | an OVMS App's own: how long one OVMS start may take to answer before its calibration fails (> 0) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | Domino's own run variables, not settings of ours: read as-is (no `QP_` prefix) to look up the run's hardware tier |
 | `QP_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `QP_TOP_K_RETRIEVE`, `QP_TOP_K_RERANK` | none: required by the `rerank` target | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the use case's sizes, which its `.env.example` states (the RAG's: `20`, `10`, its stages' `top_k`), and the workflow app does not read either. The aliases a model-server target sends default to the workflow file's, which only that target reads |
@@ -988,11 +1022,15 @@ before the app serves, with one line in the server's log.
 | `QP_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `QP_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `qp-fetch-corpus` writes, or one question per line); `QP_LOADTEST_QUESTIONS` then does not apply |
 
-Every tunable is a setting of a component, a setting the components share,
+Every tunable of the workflow is a setting of a component, a setting the components share,
 or a setting of a stage of the graph, each read from the workflow file and its
 environment path; only the topology alias and the run label, two labels, are
 flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
-get the values as constructor arguments from the `composition/` package. Sources
+get the values as constructor arguments from the `composition/` package. An OVMS
+model server App's own three variables (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`,
+`QP_OVMS_START_TIMEOUT_S`) are no value of the workflow file: they belong to one
+App and its hardware, so they are flat, the fields of `OvmsSettings` in
+`config/ovms_settings.py`, and set in that App's block of `deploy.yaml`. Sources
 win in the order the workflow file's section gives. An invalid runtime or
 component type, a run label or topology alias no header can carry (a default
 run label too long or with a component name outside those characters included:
@@ -1076,6 +1114,41 @@ for the reranker on a 2-CPU machine. `qp-calibrate` finds the values once
 instead (below). Under `torch` with several workers, calls share the CPUs, and
 calibration does not time them together.
 
+**Calibrating OVMS.** An OVMS App is calibrated too, on its two parameters: its
+stream count (`QP_OVMS_NUM_STREAMS`, requests OVMS runs at once on its model)
+and its thread count (`QP_OVMS_THREADS`, the threads all its streams share).
+A lone request is always fastest on one stream, since it gets every thread.
+Streams only pay when several requests are in flight, so a stream count is
+chosen for a stated load: `QP_CALIBRATION__USERS` requests at once, 4 by
+default. A trial is the time until all of them are answered. OVMS takes its
+settings only when it starts, so each candidate is one start of `ovms`. Every
+stream count (1, 2, 4, ... up to the CPUs, 1 first) is timed on all the CPUs;
+then each smaller thread count, as long as it is at least the best stream
+count, with that stream count. The warm-up and rounds are the in-process ones,
+and so is the sample: a reranker's `local.calibration_passages` passages, all
+kept, or one question an embedder embeds as a query.
+The budget also bounds a trial: one still running when it is spent is
+abandoned, its `ovms` stopped, and the search ends there. The fastest completed
+trial wins; if none completed, the first candidate is kept untimed: one stream,
+which is what the export runs. So calibration lasts about the budget plus one
+start, and a slow candidate never fails the App. The requests go through the
+workflow app's own `api` adapters, with no retry: a retried request would be
+timed as one slow request. Each waits up to `QP_CALIBRATION__BUDGET_S`, not
+the component's HTTP timeout (`http.timeout_s`), since it may wait behind the
+others in flight. The result is one `stage_calibrated` line, which also names
+the streams and the requests, then one `ovms_serving_config` line.
+
+Run on real machines on 15 November 2026 (OVMS 2026.3.1, one reranker of 8 and of
+16 CPUs), before the commands and variables took the names of today. For 4
+requests in flight the whole search took 151 seconds on 8 CPUs,
+six candidates, so the default budget of 90 seconds covers the stream counts and
+not the thread counts. On both machines one request already used every core, and
+streams gained 2% at most: 1, 2 and 4 streams were within a few percent of each
+other, and more were slower. With one timed round such candidates swap places
+from run to run: the same machine kept 1 stream at one start and 4 at another.
+Raise `QP_CALIBRATION__ROUNDS` for a steadier choice. `docs/model-servers.md` has
+the figures.
+
 **Pinning the result** (`qp-calibrate`). Run it once on a machine of the App's
 hardware tier that holds the models. It calibrates the component `--only`
 names, else every embedder and reranker of the workflow file, and loads each
@@ -1131,8 +1204,38 @@ embedder prints `QP_COMPONENTS__EMBEDDER__LOCAL__THREADS` only: its batch size i
 not searched. A name that is no embedder or reranker of the workflow file is a
 usage error.
 A failure it can explain (a bad setting, a model it cannot load or export) is
-one line on standard error and exit code 1. OVMS has its own settings and is
-not calibrated by it.
+one line on standard error and exit code 1.
+
+With `--ovms-models DIR` it calibrates OVMS instead, on the export in DIR
+(`ovms` must be on `PATH`), in a temporary folder it removes; `--only` still
+picks one component. It searches both parameters, even pinned ones. Each
+component prints the same two variables, the OVMS App's own, since one OVMS App
+serves one component: pin them in that App's block of `deploy.yaml`
+(`apps.<component>.settings`, which its second comment names), not under
+`overrides`, which every App gets.
+
+```bash
+qp-calibrate --ovms-models /mnt/data/ovms-models --only reranker
+```
+
+On an 8-CPU machine on 15 November 2026, with 16 requests in flight
+(`QP_CALIBRATION__USERS=16`) and a budget of 1,500 seconds, it printed this
+(shown with today's variable names, and with the component's name and the
+`deploy.yaml` comment it did not print yet):
+
+```
+# reranker (rerank): timed on 8 CPUs under ovms, 30.812 s for 16 requests at once; tried 6 candidates in 503.5 s
+# deploy.yaml, under apps.reranker.settings: QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8
+QP_OVMS_NUM_STREAMS=2
+QP_OVMS_THREADS=8
+```
+
+```yaml
+apps:
+  reranker:
+    server: ovms
+    settings: {QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8}
+```
 
 ## Moving from the old names
 
@@ -1185,8 +1288,10 @@ any more by the workflow app:
 | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
 | `RAG_CHROMA_URL`, `RAG_CHROMA_PATH`, `RAG_CHROMA_COLLECTION` | its `chroma` block: `QP_COMPONENTS__VECTOR_STORE__CHROMA__URL`, `__PATH`, `__COLLECTION` |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | its `fake` block: `QP_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS` |
-| `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `QP_LOCAL_MODELS__RUNTIME`, `QP_LOCAL_MODELS__OPENVINO_DIR`, `QP_LOCAL_MODELS__WORKERS`, `QP_LOCAL_MODELS__CPUS` |
-| `RAG_CALIBRATION_BUDGET_S`, `RAG_CALIBRATION_ROUNDS` | the `calibration` block: `QP_CALIBRATION__BUDGET_S`, `QP_CALIBRATION__ROUNDS` |
+| `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_OPENVINO_WEIGHT_FORMAT`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `QP_LOCAL_MODELS__RUNTIME`, `QP_LOCAL_MODELS__OPENVINO_DIR`, `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`, `QP_LOCAL_MODELS__WORKERS`, `QP_LOCAL_MODELS__CPUS` |
+| `RAG_CALIBRATION_BUDGET_S`, `RAG_CALIBRATION_ROUNDS`, `RAG_CALIBRATION_USERS` | the `calibration` block: `QP_CALIBRATION__BUDGET_S`, `QP_CALIBRATION__ROUNDS`, `QP_CALIBRATION__USERS` |
+| `RAG_OVMS_NUM_STREAMS`, `RAG_OVMS_THREADS`, `RAG_OVMS_START_TIMEOUT_S` | `QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`, `QP_OVMS_START_TIMEOUT_S`: an OVMS model server App's own variables, no value of the workflow file, set in that App's block of `deploy.yaml` (`apps.<component>.settings`) |
+| the calibration request OVMS was sent, sized by `RAG_TOP_K_RETRIEVE` and kept to `RAG_TOP_K_RERANK` | the reranker's `local.calibration_passages` passages, all kept, as for its in-process calibration |
 | `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` | the top-level `http` block: `QP_HTTP__TIMEOUT_S`, `QP_HTTP__RETRIES`, `QP_HTTP__BACKOFF_S` |
 | `RAG_DOMINO_TOKEN_URL`, `RAG_DOMINO_TOKEN_TTL_S`, `RAG_DOMINO_TRACING` | the `domino` block: `QP_DOMINO__TOKEN_URL`, `QP_DOMINO__TOKEN_TTL_S`, `QP_DOMINO__TRACING` |
 | `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `QP_COMPONENTS__LLM__API__MODEL`, `QP_COMPONENTS__LLM__API__TEMPERATURE` |
@@ -1331,7 +1436,7 @@ QP_LOADTEST_QUESTIONS_FILE=data/quebec/questions.jsonl make loadtest RUN_NAME=mo
   `not_ready` while the index is missing or empty.
 * On Domino every workflow app points at one shared cluster (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`
   in the project's environment variables), so the corpus is ingested once. All
-  topologies embed with `snowflake-arctic-embed-l-v2.0` (in-process or its int8 OVMS
+  topologies embed with `snowflake-arctic-embed-l-v2.0` (in-process or its OVMS
   export), so one index serves every run. Its vectors have 1024 dimensions: an
   index filled by an earlier embedder (384 for `bge-small-en-v1.5`) cannot take
   them, so ingest into a new index (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`).
@@ -1379,6 +1484,47 @@ never run), anything on x86 Linux, which is what Domino runs, and speed there.
 On the Mac, where OpenVINO defaults to half precision, it was slower than
 PyTorch.
 
+### Weight format
+
+The workflow file's `local_models.openvino_weight_format`
+(`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`) says what an OpenVINO export stores
+its weights as: `fp32` (32-bit floats, the default) or `int8` (weights stored as
+8-bit integers; weight compression only, not full quantization). It is one
+setting read by both exports: `qp-export-openvino` and a first start of the
+in-process models, and `ovms/export_models.sh` through `qp-served-models`.
+`fp32` is the default because it is what the in-process models have always run,
+and ranking quality on `int8` weights has not been checked.
+
+In-process, each weight format has its own folder: `<model>` for `fp32` (every
+export made before the setting holds 32-bit weights and keeps its place) and
+`<model>-int8` for `int8`. An export of another format is never loaded. A start
+that finds no folder for its format exports one, so changing the setting
+exports again from the Hub. The `torch` runtime ignores the setting. To export
+`int8` ahead of time, from the use case's directory:
+
+```bash
+QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=int8 make openvino-export    # -> models/openvino/<model name>-int8/
+QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=int8 ../query_processing/ovms/export_models.sh ovms/models-int8
+```
+
+An OVMS models folder holds one export, of one weight format, recorded in its
+`weight-format` file (see [OpenVINO Model Server](#openvino-model-server)).
+
+On Domino, state the format under the overrides of `deploy.yaml`
+(`overrides: {local_models: {openvino_weight_format: int8}}`), which every App
+gets as the variable. An OVMS App checks its folder against that variable
+before any Python runs: it does not see a format written only in the workflow
+file or in `.env`, and then asks for `fp32`.
+
+Verified on an 8-CPU machine on 15 November 2026, before the setting and the
+commands took the names of today. The in-process `int8` export
+of the reranker took 13 seconds and holds 110.6 MB of 8-bit weights, against
+442.5 MB of 32-bit floats at `fp32`. `ovms/export_models.sh` exported `fp32` into
+a new folder and recorded it, and an OVMS export made before the setting was
+served as `int8`. On `int8` both servers served the same again, 1.56 and 1.57
+requests a second on one reranker alone, against 1.0 each at `fp32`. Ranking
+quality on `int8` weights is still unchecked.
+
 ## OpenVINO Model Server
 
 `ovms/versions.env` is the single pin of the OpenVINO Model Server version,
@@ -1397,7 +1543,8 @@ rerankers of the workflow file, whatever their names (here `reranker`,
 `Snowflake/snowflake-arctic-embed-l-v2.0`, served as
 `snowflake-arctic-embed-l-v2.0`: each alias is the source id's last part).
 `qp-served-models` prints them, `QP_*` overrides included, one line of
-shell-quoted words each (name, type, source id, alias) for `export_models.sh`;
+shell-quoted words each (name, type, source id, alias, then the weight format,
+the same on every line) for `export_models.sh`;
 the `rag` Domino image reads the source ids from the use case's workflow file,
 which it copies beside the use case it installs.
 
@@ -1411,10 +1558,24 @@ downloads `export_model.py` and its `requirements.txt` from the OVMS repository 
 separate environment, which it needs: the exporter pins its own
 sentence-transformers and OpenVINO versions and would downgrade this project's),
 then runs `rerank_ov` for each reranker and `embeddings_ov --pooling CLS` for
-each embedder, with `--weight-format int8`. The result is one
+each embedder, with `--weight-format` set to the weight format
+`qp-served-models` prints (`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`: `fp32` by
+default, or `int8`). The result is one
 `config_<component>.json` per component (`config_reranker.json`,
-`config_embedder.json`) and one directory per model; the configs reference the
+`config_embedder.json`), one directory per model and a one-line
+`weight-format` file, written last; the configs reference the
 model directories relatively, so the tree can be mounted anywhere.
+
+A models folder holds one export, of one weight format. A folder holding a
+config but no `weight-format` file was exported before the setting existed and
+holds `int8`. The script refuses to export into a folder of another weight
+format, since OVMS's exporter skips a model folder that exists and would leave
+the old weights under the new label: export into another folder instead. An
+OVMS App whose folder holds another format than
+`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` asks stops before OVMS starts and
+names both ways out: set `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` to the format
+found, or point `QP_OVMS_MODELS_DIR` at another folder, where the asked format
+is exported on first start.
 
 **On Domino the export is optional.** A model server App of kind `ovms`
 (`domino/model_servers/ovms.sh`) that finds its component's
@@ -1425,9 +1586,36 @@ needs `uv`, installs the toolkit and the use case into `$HOME/qp-venv` when
 prebuilt `ovms` image has no `uv`, so there the models still have to be mounted.
 This path has not been run for real.
 
+**How an OVMS App starts.** Once the export is there,
+`domino/model_servers/ovms.sh` runs
+`qp-ovms-config --serve <component> --models-dir "$QP_OVMS_MODELS_DIR" --serving-dir <a fresh temporary folder>`
+and starts `ovms` on the config it prints. That command calibrates each of
+`QP_OVMS_NUM_STREAMS` and `QP_OVMS_THREADS` left at `0` (see "Calibrating
+OVMS" above), then writes the serving folder for the choice: a copy of the
+export's `config_<component>.json`, and a `<alias>/` folder that links every
+file of the export's but `graph.pbtxt`. The graph is written there with its one
+`plugin_config` line set to `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and
+`ENABLE_HYPER_THREADING`, and no `PERFORMANCE_HINT` (OVMS refuses it with
+`NUM_STREAMS`). The export is never written, so it can stay on a read-only
+Dataset shared by several Apps. With both variables pinned nothing is
+calibrated and the App starts at once. When `qp-ovms-config` is not on `PATH`
+(the `ovms` kind's bootstrap installs no project), the script installs the
+toolkit and the use case with `uv` into `$HOME/qp-venv` first. Without `uv` it
+serves the export's own config, one stream and not calibrated, and says so on
+standard error; a pinned `QP_OVMS_NUM_STREAMS` or `QP_OVMS_THREADS` then stops
+the App, since it cannot be applied. If `qp-ovms-config` fails, the App stops
+and its message says to pin both variables to skip calibration. The prefix
+proxy (`QP_OVMS_PREFIX_PROXY=1`) serves the same config. Verified on a real
+OVMS on 15 November 2026, with the command under its name of that day: OVMS
+follows the linked model files of the serving folder, and it takes
+`NUM_STREAMS`, `INFERENCE_NUM_THREADS` and `ENABLE_HYPER_THREADING` together.
+The prefix proxy and the start without `uv` have only run against stand-ins,
+and so has all of it since the command took the toolkit's names and settings.
+
 **Compose** (`make infra-up`) mounts `ovms/models` read-only at `/workspace` and
 starts the reranker with `--rest_port 8001 --config_path /workspace/config_reranker.json`,
-the embedder on `8002` with `config_embedder.json`. Verify:
+the embedder on `8002` with `config_embedder.json`. It serves the export as
+exported: one stream, not calibrated. Verify:
 
 ```bash
 curl -s localhost:8001/v2/health/ready && echo reranker ready
@@ -1537,7 +1725,7 @@ apps can reach in Project → Settings → Environment variables, then run `make
 
 **Publishing.** For each app (Apps → Publish): entry point
 `domino/app.sh`, the environment from the table, a CPU tier with
-at least 4 cores (the int8 OVMS models and the in-process models are CPU-bound;
+at least 4 cores (the OVMS models and the in-process models are CPU-bound;
 8 cores for the monolith is a fair baseline) and the variables above (project
 variables are inherited by every app, so use one project per app when two apps
 need different values). Publish the OVMS apps first, copy their URLs from the
@@ -1617,6 +1805,8 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `qp-serve: error: ...` in a workflow app's log | a settings mistake: a `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_COMPONENTS__EMBEDDER__SERVED__URL` missing for a component on the `served` backend, or an unknown backend or API format; the message names the variable and the fix |
 | `app.sh[...]: unknown QP_ROLE '...'` | an old role (`monolith`, `ovms-reranker`, ...): the roles are `workflow` and `model-server`, the latter with `QP_MODEL_SERVER_COMPONENT` and `QP_MODEL_SERVER_KIND` |
 | `app.sh[model-server ovms ...]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `QP_OVMS_MODELS_DIR` |
+| `app.sh[model-server ovms ...]: ... holds an OVMS export at weight format ...` | the folder's export is of another weight format than the App asks; set `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` to the format found (`overrides.local_models.openvino_weight_format` in `deploy.yaml`), or point `QP_OVMS_MODELS_DIR` at another folder |
+| `app.sh[model-server ovms ...]: qp-ovms-config could not write the OVMS config` | OVMS's calibration failed (its reason is on the line above); pin `QP_OVMS_NUM_STREAMS` and `QP_OVMS_THREADS` in that App's `settings` to start without it |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `QP_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
 
 ### Deploy on Domino in a few commands
@@ -1710,7 +1900,9 @@ read back.
 reads that is no value of the workflow file (merged with the defaults', the
 App's winning; YAML numbers and booleans are exported as strings), for example
 `QP_OVMS_MODELS_DIR` (for example `/domino/datasets/local/<dataset>/ovms-models`),
-`QP_BOOTSTRAP_EXTRAS` or `QP_WORKFLOW_FILE`. A value of the workflow file
+`QP_BOOTSTRAP_EXTRAS` or `QP_WORKFLOW_FILE`, and an OVMS App's own stream and
+thread counts once calibrated (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`, in that
+App's block: `qp-calibrate --ovms-models` prints them). A value of the workflow file
 written there, such as `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, is
 refused before anything is published, naming the place under `overrides` where
 it belongs. `qp-deploy` sets `QP_ROLE`,
