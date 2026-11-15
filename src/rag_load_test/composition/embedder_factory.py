@@ -12,10 +12,17 @@ from ..adapters.embedder.api.api_embedder import open_api_embedder
 from ..adapters.embedder.base_embedder import BaseEmbedder
 from ..adapters.embedder.fake.fake_embedder import FakeEmbedder
 from ..config.rag_settings import RagSettings
+from ..domain.calibration import halvings
 from ..infrastructure.local_models.openvino_export import export_embedder
 from ..infrastructure.local_models.stage_calibration import calibrate
 from .base_port_factory import BasePortFactory
-from .calibrated_stages import EmbedStage, calibration_limits, candidates
+from .calibrated_stages import (
+    ComponentCalibration,
+    EmbedStage,
+    calibration_limits,
+    candidates,
+    component_calibration,
+)
 from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
 from .resource_scope import Opener, ResourceScope
@@ -82,25 +89,52 @@ class EmbedderFactory(BasePortFactory[BaseEmbedder]):
             return self._supplied
         return await self._local()
 
+    async def calibration(self) -> ComponentCalibration:
+        """Calibrate the in-process embedder here, searching its threads.
+
+        A pinned ``RAG_EMBEDDING_THREADS`` is searched too: revisiting it is the
+        point. The batch size stays as set: a query is one text. The model is
+        dropped once timed.
+
+        Returns:
+            The report, the CPUs and runtime it ran on, and the pinning settings.
+
+        Example:
+            >>> (await embedder_factory.calibration()).pinned
+            {'RAG_EMBEDDING_THREADS': 2}
+        """
+        settings = self._settings
+        machine = await self._local_models.unpinned_budget()
+        return await component_calibration(
+            await self._stage(),
+            threads=halvings(machine.budget.embedder_threads),
+            batch_sizes=(settings.embedding_batch_size,),
+            settings=settings,
+            cpus=machine.cpus,
+        )
+
     async def _local(self) -> BaseEmbedder:
         return await self._scope.once("local_embedder", "local", self._load)
 
-    async def _load(self) -> BaseEmbedder:
+    async def _stage(self) -> EmbedStage:
         settings, local_models = self._settings, self._local_models
-        budget, pool = (
-            await local_models.thread_budget(),
-            await local_models.model_pool(),
-        )
+        pool = await local_models.model_pool()
         model = await local_models.local_model(
             settings.embedding_model, export_embedder
         )
+        return EmbedStage(model, pool, settings)
+
+    async def _load(self) -> BaseEmbedder:
+        settings = self._settings
+        budget = await self._local_models.thread_budget()
         # A query is one text, so only the threads are searched.
-        return await calibrate(
-            EmbedStage(model, pool, settings),
+        calibrated = await calibrate(
+            await self._stage(),
             threads=candidates(settings.embedding_threads, budget.embedder_threads),
             batch_sizes=(settings.embedding_batch_size,),
             limits=calibration_limits(settings),
         )
+        return calibrated.adapter
 
     async def _api(self) -> BaseEmbedder:
         return open_api_embedder(

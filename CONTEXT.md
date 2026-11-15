@@ -166,7 +166,7 @@ A stage whose work runs in the App's own process, on its CPUs: embed and rerank 
 _Avoid_: heavy stage, compute stage
 
 **Calibration**:
-Timing a CPU-bound stage at start-up under each candidate batch size and thread count, and keeping the fastest; done only for a parameter the settings leave at 0.
+Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest. An App does it at start-up, only for a parameter the settings leave at 0; `rag-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
 _Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
 
 **Mode**:

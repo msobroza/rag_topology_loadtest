@@ -226,6 +226,7 @@ src/rag_load_test/
     rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
     rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
+    rag_calibrate.py  rag-calibrate: calibrate the in-process models here, print the RAG_* lines that pin them
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
     rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
   deploy/           the deploy tool: rag-deploy on Domino 6.2
@@ -512,7 +513,7 @@ with a one-line usage error, not a traceback.
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
 | `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
-| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search at start-up; no new candidate starts after them (> 0) |
+| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
 | `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
@@ -603,10 +604,47 @@ the model with one thread each gave nothing more.
 Limits. It times one request at a time, which is how a stage runs under
 `openvino`. With a fixed number of users, latency is the users divided by the
 requests per second, so the fastest request is the best at any number of users.
-Its passages are synthetic, cut to 150 to 800 characters. The result is not
-remembered between starts: every process calibrates again. Under `torch` with
-several workers, calls share the CPUs, and calibration does not time them
-together.
+Its passages are synthetic, cut to 150 to 800 characters. An App does not
+remember the result: every start and every replica calibrates again, about 70 s
+for the reranker on a 2-CPU machine. `rag-calibrate` finds the values once
+instead (below). Under `torch` with several workers, calls share the CPUs, and
+calibration does not time them together.
+
+**Pinning the result** (`rag-calibrate`). Run it once on a machine of the App's
+hardware tier that holds the models. It loads each in-process model as an App
+would (`RAG_EMBEDDING_MODEL`, `RAG_RERANK_MODEL`, `RAG_LOCAL_MODEL_RUNTIME`,
+`RAG_OPENVINO_MODELS_DIR`, the thread budget), whatever the topology says. It
+searches every parameter, even one already pinned: revisiting it is the point.
+`RAG_CALIBRATION_BUDGET_S` and `RAG_CALIBRATION_ROUNDS` apply as set. Standard
+output holds only `.env` lines: one comment per stage, then its settings. The
+logs go to standard error.
+
+```bash
+make calibrate                                  # rag-calibrate: both models
+RAG_CALIBRATION_ROUNDS=3 RAG_CALIBRATION_BUDGET_S=600 rag-calibrate --only reranker
+```
+
+On a 2-CPU machine under `openvino` it printed this in 96 s (GCP sitting of
+2026-11-15; the seconds vary):
+
+```
+# embed: timed on 2 CPUs under openvino, 0.193 s per request; tried 2 candidates in 24.8 s
+RAG_EMBEDDING_THREADS=1
+# rerank: timed on 2 CPUs under openvino, 4.691 s per request; tried 6 candidates in 68.2 s
+RAG_RERANK_THREADS=2
+RAG_RERANK_BATCH_SIZE=1
+```
+
+There a batch size of 1 took 4.69 s and one of 2 took 4.77 s, against 7.06 s for
+one batch of 20: the two smallest are within a few percent, so either may win a
+run. An App of the same tier chose 2 at its own start that day.
+
+Put these lines in `deploy.yaml`'s `settings` or in `.env`. Then an App starts
+without calibrating, and every replica of the tier runs the same values. The
+embedder prints `RAG_EMBEDDING_THREADS` only: its batch size is not searched.
+A failure it can explain (a bad setting, a model it cannot load or export) is
+one line on standard error and exit code 1. OVMS has its own settings and is
+not calibrated by it.
 
 ## Retrieval, stores and model endpoints
 

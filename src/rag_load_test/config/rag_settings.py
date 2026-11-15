@@ -320,6 +320,34 @@ class RagSettings(BaseSettings):
             "RAG_RETRIEVAL_MODE=dense"
         )
 
+    @classmethod
+    def variable_of(cls, field: str) -> str:
+        """Return the environment variable a field is read from.
+
+        Args:
+            field: The field name.
+
+        Returns:
+            Its alias when it has one (Domino's own variables), else the prefix
+            and the field name in capitals.
+
+        Raises:
+            ValueError: If ``field`` is not a field of these settings.
+
+        Example:
+            >>> RagSettings.variable_of("rerank_threads")
+            'RAG_RERANK_THREADS'
+        """
+        if field not in cls.model_fields:
+            raise ValueError(
+                f"RagSettings has no field {field!r}; expected one of its fields, "
+                "such as 'rerank_threads'"
+            )
+        alias = cls.model_fields[field].validation_alias
+        if isinstance(alias, AliasChoices):
+            return str(alias.choices[0])
+        return str(cls.model_config.get("env_prefix", "")) + field.upper()
+
     def workflow_parameters(self) -> WorkflowParameters:
         """Build what ``RagWorkflow`` runs with: retrieval mode, sizes and prompts.
 

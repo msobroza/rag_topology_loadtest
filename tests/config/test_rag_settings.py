@@ -224,3 +224,14 @@ def test_negative_thread_budget_inputs_are_rejected(
 ) -> None:
     with pytest.raises(ValidationError, match=field):
         settings_factory(**{field: -1})
+
+
+def test_each_field_names_the_variable_it_is_read_from() -> None:
+    assert RagSettings.variable_of("rerank_threads") == "RAG_RERANK_THREADS"
+    assert RagSettings.variable_of("rerank_batch_size") == "RAG_RERANK_BATCH_SIZE"
+    assert RagSettings.variable_of("domino_api_proxy") == "DOMINO_API_PROXY"
+
+
+def test_a_field_that_does_not_exist_names_no_variable() -> None:
+    with pytest.raises(ValueError, match="'rerank_thread'"):
+        RagSettings.variable_of("rerank_thread")

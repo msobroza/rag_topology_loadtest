@@ -13,10 +13,17 @@ from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.reranker.fake.fake_reranker import FakeReranker
 from ..adapters.reranker.none.no_reranker import NoReranker
 from ..config.rag_settings import RagSettings
+from ..domain.calibration import halvings
 from ..infrastructure.local_models.openvino_export import export_reranker
 from ..infrastructure.local_models.stage_calibration import calibrate
 from .base_port_factory import BasePortFactory
-from .calibrated_stages import RerankStage, calibration_limits, candidates
+from .calibrated_stages import (
+    ComponentCalibration,
+    RerankStage,
+    calibration_limits,
+    candidates,
+    component_calibration,
+)
 from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
 from .resource_scope import Opener, ResourceScope
@@ -87,24 +94,50 @@ class RerankerFactory(BasePortFactory[BaseReranker]):
             return self._supplied
         return await self._local()
 
+    async def calibration(self) -> ComponentCalibration:
+        """Calibrate the in-process reranker here, searching both its parameters.
+
+        A pinned ``RAG_RERANK_THREADS`` or ``RAG_RERANK_BATCH_SIZE`` is searched
+        too: revisiting it is the point. The model is dropped once timed.
+
+        Returns:
+            The report, the CPUs and runtime it ran on, and the pinning settings.
+
+        Example:
+            >>> (await reranker_factory.calibration()).report.chosen
+            StageTuning(threads=2, batch_size=2)
+        """
+        settings = self._settings
+        machine = await self._local_models.unpinned_budget()
+        return await component_calibration(
+            await self._stage(),
+            threads=halvings(machine.budget.reranker_threads),
+            batch_sizes=halvings(settings.top_k_retrieve),
+            settings=settings,
+            cpus=machine.cpus,
+        )
+
     async def _local(self) -> BaseReranker:
         return await self._scope.once("local_reranker", "local", self._load)
 
-    async def _load(self) -> BaseReranker:
+    async def _stage(self) -> RerankStage:
         settings, local_models = self._settings, self._local_models
-        budget, pool = (
-            await local_models.thread_budget(),
-            await local_models.model_pool(),
-        )
+        pool = await local_models.model_pool()
         model = await local_models.local_model(settings.rerank_model, export_reranker)
+        return RerankStage(model, pool, settings)
+
+    async def _load(self) -> BaseReranker:
+        settings = self._settings
+        budget = await self._local_models.thread_budget()
         # A batch is padded to its longest passage, so the request's size bounds
         # the batch sizes worth trying.
-        return await calibrate(
-            RerankStage(model, pool, settings),
+        calibrated = await calibrate(
+            await self._stage(),
             threads=candidates(settings.rerank_threads, budget.reranker_threads),
             batch_sizes=candidates(settings.rerank_batch_size, settings.top_k_retrieve),
             limits=calibration_limits(settings),
         )
+        return calibrated.adapter
 
     async def _api(self) -> BaseReranker:
         return open_api_reranker(

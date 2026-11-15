@@ -8,8 +8,13 @@ from collections.abc import Sequence
 import pytest
 
 from calibration_fakes import FakeCalibratedStage, FakeClock, FakeStageAdapter
-from rag_load_test.domain.calibration import StageTuning
+from rag_load_test.domain.calibration import (
+    CalibrationReport,
+    StageTuning,
+    TimedTrial,
+)
 from rag_load_test.infrastructure.local_models.stage_calibration import (
+    Calibrated,
     CalibrationLimits,
     calibrate,
 )
@@ -28,6 +33,17 @@ async def run(
     batch_sizes: Sequence[int],
     limits: CalibrationLimits = LIMITS,
 ) -> FakeStageAdapter:
+    calibrated = await search(stage, clock, threads, batch_sizes, limits)
+    return calibrated.adapter
+
+
+async def search(
+    stage: FakeCalibratedStage,
+    clock: FakeClock,
+    threads: Sequence[int],
+    batch_sizes: Sequence[int],
+    limits: CalibrationLimits = LIMITS,
+) -> Calibrated[FakeStageAdapter]:
     return await calibrate(
         stage, threads=threads, batch_sizes=batch_sizes, limits=limits, clock=clock
     )
@@ -180,3 +196,55 @@ async def test_one_log_line_names_the_stage_the_choice_and_every_trial(
             "cut_short": False,
         }
     ]
+
+
+# --- the report ----------------------------------------------------------------------
+
+
+async def test_the_report_holds_the_trials_in_order_and_the_choice() -> None:
+    clock = FakeClock()
+    seconds = {tuning(2, 20): [5.0], tuning(2, 10): [3.0], tuning(1, 10): [4.0]}
+    stage = FakeCalibratedStage(clock, seconds, load_s=1.0)
+    calibrated = await search(stage, clock, threads=(2, 1), batch_sizes=(20, 10))
+
+    assert calibrated.report == CalibrationReport(
+        stage="fake",
+        chosen=tuning(2, 10),
+        trials=(
+            TimedTrial(tuning(2, 20), 5.0),
+            TimedTrial(tuning(2, 10), 3.0),
+            TimedTrial(tuning(1, 10), 4.0),
+        ),
+        seconds=26.0,  # two loads of 1 s, and two requests (warm-up, round) per trial
+        budget_s=1000.0,
+        cut_short=False,
+    )
+    assert calibrated.report.chosen_seconds == 3.0
+    assert calibrated.adapter.tuning == calibrated.report.chosen
+
+
+async def test_the_report_says_when_the_budget_cut_the_search_short() -> None:
+    clock = FakeClock()
+    stage = FakeCalibratedStage(clock, default_s=10.0)
+    limits = CalibrationLimits(budget_s=5.0, rounds=1)
+    calibrated = await search(stage, clock, (2, 1), (20, 10, 5), limits)
+
+    report = calibrated.report
+    assert report.cut_short is True
+    assert [trial.tuning for trial in report.trials] == [tuning(2, 20)]
+    assert (report.seconds, report.budget_s) == (20.0, 5.0)
+
+
+async def test_fixed_parameters_report_the_fixed_tuning_and_no_trial() -> None:
+    clock = FakeClock()
+    calibrated = await search(FakeCalibratedStage(clock), clock, (3,), (7,))
+
+    assert calibrated.report == CalibrationReport(
+        stage="fake",
+        chosen=tuning(3, 7),
+        trials=(),
+        seconds=0.0,
+        budget_s=1000.0,
+        cut_short=False,
+    )
+    assert calibrated.report.chosen_seconds is None

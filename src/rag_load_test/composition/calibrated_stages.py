@@ -1,36 +1,65 @@
 """The CPU-bound stages calibration times: rerank and embed on an in-process model.
 
 Each stage says how its adapter loads for a thread count, takes another batch
-size and serves one request of the usual size, on the path a real request
-takes; ``infrastructure/local_models/stage_calibration.py`` times them. The
+size, serves one request of the usual size, on the path a real request takes,
+and which ``RAG_*`` settings pin a tuning;
+``infrastructure/local_models/stage_calibration.py`` times them. The
 factories pick the candidates from the settings with ``candidates``: a setting
 above 0 is the one candidate, 0 searches.
 
 Example:
-    >>> reranker = await calibrate(
+    >>> calibrated = await calibrate(
     ...     RerankStage(model, pool, settings),
     ...     threads=candidates(settings.rerank_threads, budget.reranker_threads),
     ...     batch_sizes=candidates(settings.rerank_batch_size, settings.top_k_retrieve),
     ...     limits=calibration_limits(settings),
     ... )
+    >>> reranker = calibrated.adapter
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from concurrent.futures import Executor
+from dataclasses import dataclass
+from typing import TypeVar
 
 from ..adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
 from ..adapters.reranker.local.cross_encoder_reranker import CrossEncoderReranker
 from ..config.rag_settings import RagSettings
-from ..domain.calibration import calibration_sample, halvings
+from ..domain.calibration import (
+    CalibrationReport,
+    StageTuning,
+    calibration_sample,
+    halvings,
+)
 from ..domain.passages import ScoredPassage
 from ..infrastructure.local_models.local_model import LocalModel
 from ..infrastructure.local_models.stage_calibration import (
     BaseCalibratedStage,
     CalibrationLimits,
+    calibrate,
 )
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class ComponentCalibration:
+    """One component's calibration on this machine, and the settings that pin it.
+
+    Example:
+        >>> calibration = await composition.calibration("reranker")
+        >>> calibration.pinned
+        {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+    """
+
+    report: CalibrationReport
+    cpus: float  # the CPUs the thread budget counted here
+    runtime: str  # what ran the model: openvino or torch
+    pinned: dict[str, int]  # the variables that pin the choice, by name
 
 
 def candidates(setting: int, top: int) -> tuple[int, ...]:
@@ -65,6 +94,48 @@ def calibration_limits(settings: RagSettings) -> CalibrationLimits:
     """
     return CalibrationLimits(
         budget_s=settings.calibration_budget_s, rounds=settings.calibration_rounds
+    )
+
+
+async def component_calibration(
+    stage: BaseCalibratedStage[T],
+    *,
+    threads: Sequence[int],
+    batch_sizes: Sequence[int],
+    settings: RagSettings,
+    cpus: float,
+) -> ComponentCalibration:
+    """Calibrate ``stage`` over the candidates given, for ``rag-calibrate``.
+
+    The adapter calibration returns is dropped here, so its model is released
+    before the next component loads.
+
+    Args:
+        stage: The stage to time.
+        threads: Thread counts to try, the budget's share first.
+        batch_sizes: Batch sizes to try, the whole request first.
+        settings: The calibration budget and rounds, and the runtime.
+        cpus: The CPUs the budget counted, for the report.
+
+    Returns:
+        The report and the settings that pin its choice.
+
+    Example:
+        >>> await component_calibration(stage, threads=(2, 1), batch_sizes=(20, 10),
+        ...                             settings=settings, cpus=2.0)
+    """
+    calibrated = await calibrate(
+        stage,
+        threads=threads,
+        batch_sizes=batch_sizes,
+        limits=calibration_limits(settings),
+    )
+    report = calibrated.report
+    return ComponentCalibration(
+        report,
+        cpus=cpus,
+        runtime=settings.local_model_runtime,
+        pinned=stage.pinned_settings(report.chosen),
     )
 
 
@@ -132,6 +203,24 @@ class RerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         """
         await adapter.rerank(self._question, self._passages, top_n=self._top_n)
 
+    def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
+        """Name the two settings rerank calibration searches.
+
+        Args:
+            tuning: The tuning to pin.
+
+        Returns:
+            ``RAG_RERANK_THREADS`` and ``RAG_RERANK_BATCH_SIZE``.
+
+        Example:
+            >>> stage.pinned_settings(StageTuning(threads=2, batch_size=2))
+            {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+        """
+        return {
+            RagSettings.variable_of("rerank_threads"): tuning.threads,
+            RagSettings.variable_of("rerank_batch_size"): tuning.batch_size,
+        }
+
 
 class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
     """The embed stage on the in-process sentence-transformers model.
@@ -192,3 +281,18 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
             adapter: The embedder under trial.
         """
         await adapter.embed([self._query])
+
+    def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
+        """Name the one setting embed calibration searches: its batch size is not.
+
+        Args:
+            tuning: The tuning to pin.
+
+        Returns:
+            ``RAG_EMBEDDING_THREADS``.
+
+        Example:
+            >>> stage.pinned_settings(StageTuning(threads=2, batch_size=64))
+            {'RAG_EMBEDDING_THREADS': 2}
+        """
+        return {RagSettings.variable_of("embedding_threads"): tuning.threads}

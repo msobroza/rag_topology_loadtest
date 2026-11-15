@@ -15,13 +15,15 @@ Example:
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from typing import NamedTuple
 
 from ..config.rag_settings import RagSettings
-from ..domain.thread_budget import ThreadBudget
+from ..domain.thread_budget import ThreadBudget, plan_thread_budget
 from ..infrastructure.local_models.cpu_count import (
     BaseCpuCounter,
     DominoHardwareTierCpus,
     FixedCpus,
+    first_cpu_count,
     work_out_thread_budget,
 )
 from ..infrastructure.local_models.local_model import LocalModel
@@ -33,6 +35,13 @@ from ..infrastructure.local_models.model_provisioning import (
 from ..infrastructure.local_models.native_threads import settle_torch_thread
 from .http_resources import HttpResources
 from .resource_scope import OWNED, ResourceScope
+
+
+class UnpinnedBudget(NamedTuple):
+    """The CPUs counted here, and their budget as if no thread count were pinned."""
+
+    cpus: float
+    budget: ThreadBudget
 
 
 class LocalModelResources:
@@ -74,6 +83,23 @@ class LocalModelResources:
         """
         return await self._scope.once("thread_budget", OWNED, self._work_out_budget)
 
+    async def unpinned_budget(self) -> UnpinnedBudget:
+        """Return the CPUs and the budget's shares, whatever the thread settings say.
+
+        A pinned ``RAG_*_THREADS`` replaces its share in ``thread_budget``; the
+        tops of a calibration that revisits it are the shares themselves.
+
+        Returns:
+            The CPUs counted and the budget planned from them alone.
+
+        Example:
+            >>> (await local_models.unpinned_budget()).budget.reranker_threads
+            8
+        """
+        return await self._scope.once(
+            "unpinned_budget", OWNED, self._work_out_unpinned_budget
+        )
+
     async def model_pool(self) -> ThreadPoolExecutor:
         """Return the pool the models run on, started on the first request.
 
@@ -114,7 +140,27 @@ class LocalModelResources:
         self._scope.exit_stack("model_pool").callback(pool.shutdown, wait=False)
         return pool
 
+    async def _work_out_unpinned_budget(self) -> UnpinnedBudget:
+        settings = self._settings
+        cpus, _source = await first_cpu_count(await self._cpu_counters())
+        budget = plan_thread_budget(
+            cpus,
+            max_workers=settings.model_workers,
+            runtime=settings.local_model_runtime,
+        )
+        return UnpinnedBudget(cpus, budget)
+
     async def _work_out_budget(self) -> ThreadBudget:
+        settings = self._settings
+        return await work_out_thread_budget(
+            await self._cpu_counters(),
+            max_workers=settings.model_workers,
+            runtime=settings.local_model_runtime,
+            embedder_threads=settings.embedding_threads,
+            reranker_threads=settings.rerank_threads,
+        )
+
+    async def _cpu_counters(self) -> list[BaseCpuCounter]:
         settings = self._settings
         counters: list[BaseCpuCounter] = [FixedCpus(settings.model_cpus)]
         if settings.domino_api_proxy and settings.domino_hardware_tier_id:
@@ -126,10 +172,4 @@ class LocalModelResources:
                     self._http.policy,
                 )
             )
-        return await work_out_thread_budget(
-            [*counters, self._container_cpus],
-            max_workers=settings.model_workers,
-            runtime=settings.local_model_runtime,
-            embedder_threads=settings.embedding_threads,
-            reranker_threads=settings.rerank_threads,
-        )
+        return [*counters, self._container_cpus]
