@@ -24,6 +24,10 @@ bulk
 # LangGraph: a RagState key, written and read by the nodes as a string key.
 query_embedding
 
+# LangChain: calls a callback handler's on_chain_start by name (ChainNameRecorder
+# in tests/application/test_workflow.py).
+on_chain_start
+
 # pydantic: the wire field OpenAIEmbeddingsRequest.input, sent and read as JSON
 # (the model server reads it as body.input; vulture may not tie the two).
 input

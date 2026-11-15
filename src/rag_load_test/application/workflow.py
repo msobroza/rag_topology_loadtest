@@ -57,6 +57,25 @@ class RagState(TypedDict, total=False):
     timings_ms: Annotated[dict[str, float], merge_timings]
 
 
+# A named function, not a lambda: LangGraph names a step after its function except
+# a lambda, and MLflow's LangChain autolog (Domino tracing) fails on a step with
+# no name ("'NoneType' object has no attribute 'get'", once per request).
+def route_after_rerank(state: RagState) -> str:
+    """Pick the step after rerank: ``generate`` in ``query`` mode, else the end.
+
+    Args:
+        state: The run's state; only its ``mode`` is read.
+
+    Returns:
+        ``"generate"``, or LangGraph's ``END``.
+
+    Example:
+        >>> route_after_rerank({"mode": "retrieve"}) == END
+        True
+    """
+    return "generate" if state.get("mode") == "query" else END
+
+
 # The retrieve stage's search for one retrieval mode: state in, candidates out.
 CandidateFinder = Callable[[RagState], Awaitable[list[ScoredPassage]]]
 
@@ -155,9 +174,7 @@ class RagWorkflow:
             builder.add_edge("embed", "retrieve")
         builder.add_edge("retrieve", "rerank")
         builder.add_conditional_edges(
-            "rerank",
-            lambda state: "generate" if state.get("mode") == "query" else END,
-            {"generate": "generate", END: END},
+            "rerank", route_after_rerank, {"generate": "generate", END: END}
         )
         builder.add_edge("generate", END)
         self.graph = builder.compile()

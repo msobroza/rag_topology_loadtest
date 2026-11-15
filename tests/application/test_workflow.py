@@ -5,8 +5,10 @@ from __future__ import annotations
 import dataclasses
 import re
 from collections.abc import Sequence
+from typing import Any
 
 import pytest
+from langchain_core.callbacks import AsyncCallbackHandler
 
 from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
@@ -160,6 +162,36 @@ async def test_the_reranker_gets_top_k_retrieve_candidates_and_top_k_rerank(
     await RagWorkflow(deps, sized).run(VACATION_QUESTION, mode="retrieve")
 
     assert reranker.calls == [(7, 4)]
+
+
+class ChainNameRecorder(AsyncCallbackHandler):
+    """Records the name each step of a run reports to a tracer when it starts."""
+
+    def __init__(self) -> None:
+        self.names: list[str | None] = []
+
+    async def on_chain_start(
+        self, serialized: dict[str, Any] | None, inputs: dict[str, Any], **kwargs: Any
+    ) -> None:
+        del serialized, inputs  # LangChain passes both; only the name is recorded
+        self.names.append(kwargs.get("name"))
+
+
+@pytest.mark.parametrize("mode", ["query", "retrieve"])
+async def test_every_step_of_the_graph_reaches_a_tracer_with_a_name(
+    fake_deps: RagDependencies, parameters: WorkflowParameters, mode: str
+) -> None:
+    # LangGraph passes no serialized form and names a step after its function,
+    # except a lambda; MLflow's LangChain autolog (Domino tracing) then failed
+    # on the unnamed step: "'NoneType' object has no attribute 'get'".
+    recorder = ChainNameRecorder()
+    state = {"question": VACATION_QUESTION, "mode": mode, "timings_ms": {}}
+
+    graph = RagWorkflow(fake_deps, parameters).graph
+    await graph.ainvoke(state, {"callbacks": [recorder]})
+
+    assert None not in recorder.names, recorder.names
+    assert "route_after_rerank" in recorder.names
 
 
 # --- prompt helpers ----------------------------------------------------------------
