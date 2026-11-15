@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from rag_components import FAKE_BACKENDS
 from rag_load_test.adapters.reranker.base_reranker import BaseReranker
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
@@ -19,7 +20,7 @@ from rag_load_test.domain.passages import ScoredPassage
 from rag_load_test.entrypoints import rag_serve as api
 from rag_load_test.entrypoints.rag_serve import create_app, main, traced
 
-TOPOLOGY = "split-all"  # with every backend fake: the label, not the transport
+TOPOLOGY_ALIAS = "split-all"  # a label: every backend stays fake
 RUN_LABEL = "split-all-test-tier"
 QUESTION = "How many paid vacation days do employees accrue each year?"
 RERANK_URL = "http://ovms:8001/v3/rerank"
@@ -70,9 +71,9 @@ def client_for(
 
     Use the client as a context manager so the lifespan opens the ports.
     """
-    # Built, not model_copy'd: only construction validates topology and run label.
+    # Built, not model_copy'd: only construction validates the labels.
     settings = settings_factory(
-        topology=TOPOLOGY,
+        topology_alias=TOPOLOGY_ALIAS,
         run_label=RUN_LABEL,
         components__embedder__backend="fake",
         components__reranker__backend="fake",
@@ -105,7 +106,7 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == RESPONSE_FIELDS
-    assert body["topology"] == TOPOLOGY
+    assert body["topology"] == TOPOLOGY_ALIAS
     assert body["run_label"] == RUN_LABEL
     assert body["question"] == QUESTION
     assert body["mode"] == "query"
@@ -113,21 +114,50 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
     assert body["passages"]
     assert all(p["rerank_score"] is not None for p in body["passages"])
     assert body["timings_ms"]["total"] > 0
-    assert response.headers["X-RAG-Topology"] == TOPOLOGY
+    assert response.headers["X-RAG-Topology"] == TOPOLOGY_ALIAS
     assert response.headers["X-RAG-Run-Label"] == RUN_LABEL
     assert response.headers["X-Request-ID"] == body["request_id"]
 
 
-def test_unset_run_label_reports_the_default_run_label(
+def test_unset_run_label_reports_each_component_with_its_backend(
     fake_settings: RagSettings,
 ) -> None:
     with TestClient(create_app(CompositionRoot(fake_settings))) as test_client:
         response = test_client.post("/retrieve", json={"question": QUESTION})
 
-    default = "monolith+embedding=fake+rerank=fake+store=fake+generation=fake"
+    default = "embedder=fake+reranker=fake+llm=fake+vector_store=fake"
     assert response.json()["run_label"] == default
     assert response.headers["X-RAG-Run-Label"] == default
-    assert response.headers["X-RAG-Topology"] == "monolith"
+
+
+@pytest.mark.parametrize("path", ["/query", "/retrieve"])
+def test_with_no_topology_alias_no_topology_is_reported(
+    fake_settings: RagSettings, path: str
+) -> None:
+    with TestClient(create_app(CompositionRoot(fake_settings))) as test_client:
+        response = test_client.post(path, json={"question": QUESTION})
+        readyz = test_client.get("/readyz")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["topology"] is None
+    for answered in (response, readyz):
+        assert "X-RAG-Topology" not in answered.headers
+        assert answered.headers["X-RAG-Run-Label"] == fake_settings.run_label
+
+
+def test_any_topology_alias_is_reported_as_it_is_given(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    # The deploy settings define the aliases: a fourth one names itself.
+    settings = settings_factory(topology_alias="split-embedder", **FAKE_BACKENDS)
+
+    with TestClient(create_app(CompositionRoot(settings))) as test_client:
+        response = test_client.post("/query", json={"question": QUESTION})
+
+    assert response.status_code == 200, response.text
+    assert response.headers["X-RAG-Topology"] == "split-embedder"
+    assert response.json()["topology"] == "split-embedder"
+    assert response.json()["answer"].startswith("[fake-llm]")  # nothing moved
 
 
 def test_supplied_request_id_is_echoed(client: TestClient) -> None:
@@ -229,7 +259,7 @@ def test_dependency_error_maps_to_status(
     assert body["error"] == error
     assert body["target"] == RERANK_URL
     assert "boom" in body["detail"]
-    assert response.headers["X-RAG-Topology"] == TOPOLOGY
+    assert response.headers["X-RAG-Topology"] == TOPOLOGY_ALIAS
     assert response.headers["X-RAG-Run-Label"] == RUN_LABEL
     assert response.headers["X-Request-ID"]
 
@@ -320,7 +350,7 @@ def _capture_served_ports(monkeypatch: pytest.MonkeyPatch) -> list[CompositionRo
 def test_main_domino_refuses_a_model_server_component_without_its_url(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "served")
     monkeypatch.delenv("RAG_COMPONENTS__RERANKER__SERVED__URL", raising=False)
     served = _capture_served_ports(monkeypatch)
 
@@ -335,8 +365,8 @@ def test_main_domino_refuses_a_model_server_component_without_its_url(
 def test_main_ends_on_invalid_settings_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # split-all moves the embedder to the served backend, and no URL is set.
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
+    # The embedder on the served backend, and no URL is set.
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__BACKEND", "served")
     monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__SERVED__URL", raising=False)
     served = _capture_served_ports(monkeypatch)
 

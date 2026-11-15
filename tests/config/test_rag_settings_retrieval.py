@@ -1,4 +1,4 @@
-"""``RagSettings``: default models, temperature, runtime, store, the retrieval label."""
+"""``RagSettings``: default models, temperature, runtime, store, retrieval."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from rag_graphs import rag_graph
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.graph_description import GraphDescription
 
 SettingsFactory = Callable[..., RagSettings]
 TWO_MODELS = ("embedder", "reranker")
@@ -104,29 +103,13 @@ def test_a_text_ranking_mode_on_chroma_is_left_to_the_retrieve_stage(
     assert s.graph.stages["retrieve"].stage_settings["retrieval_mode"] == mode
 
 
-def test_the_retrieval_mode_and_the_store_name_the_run(
-    settings_factory: SettingsFactory,
+@pytest.mark.parametrize("mode", ["dense", "lexical", "hybrid"])
+def test_the_default_run_label_names_the_components_not_the_retrieval_mode(
+    settings_factory: SettingsFactory, mode: str
 ) -> None:
+    # Each component with its backend; a retrieval variant sets its own label.
     s = settings_factory(
-        components__vector_store__backend="fake", graph=rag_graph("lexical")
+        components__vector_store__backend="fake", graph=rag_graph(mode)
     )
 
-    assert s.run_label == "monolith+store=fake+retrieval=lexical"
-
-
-def test_the_run_label_reads_the_retrieval_mode_from_the_graph(
-    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE", "hybrid")
-
-    assert settings_factory().run_label == "monolith+retrieval=hybrid"
-
-
-def test_a_graph_without_a_retrieve_stage_names_no_retrieval_mode(
-    settings_factory: SettingsFactory,
-) -> None:
-    graph = GraphDescription.model_validate(
-        {"stages": {"rerank": {"call": "reranker", "top_k": 1}}}
-    )
-
-    assert settings_factory(graph=graph).run_label == "monolith"
+    assert s.run_label == "embedder=local+reranker=local+llm=api+vector_store=fake"

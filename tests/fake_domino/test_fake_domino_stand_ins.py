@@ -28,7 +28,7 @@ def test_forbidden_leaves_the_stand_ins_alone() -> None:
 
 RUN_SCRIPT = (
     "export RAG_ROLE=workflow\n"
-    "export RAG_TOPOLOGY=split-all\n"
+    "export RAG_TOPOLOGY_ALIAS=split-all\n"
     "export RAG_RUN_LABEL='split all 8 cores'\n"
     "exec bash domino/app.sh"
 )
@@ -64,7 +64,7 @@ def test_readyz_of_an_unknown_instance_is_404() -> None:
 def test_readyz_answers_for_the_version_the_instance_belongs_to() -> None:
     http = http_to(FakeDominoApps())
     app_id = create(http, "rag-workflow")
-    script = "export RAG_TOPOLOGY=monolith"
+    script = "export RAG_TOPOLOGY_ALIAS=monolith"
     http.post(f"{APPS_PATH}/{app_id}/versions", json={"entryScript": script})
     first = http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz")
     second = http.get(f"{INSTANCE_PATH}/app-1-v2-i/readyz")
@@ -74,7 +74,7 @@ def test_readyz_answers_for_the_version_the_instance_belongs_to() -> None:
 
 def test_readyz_stand_in_takes_the_last_export_of_a_name_as_a_shell_would() -> None:
     http = http_to(FakeDominoApps())
-    script = "export RAG_TOPOLOGY=monolith\nexport RAG_TOPOLOGY=split-all"
+    script = "export RAG_TOPOLOGY_ALIAS=monolith\nexport RAG_TOPOLOGY_ALIAS=split-all"
     create(http, "rag-workflow", version={"entryScript": script})
     response = http.get(f"{INSTANCE_PATH}/app-1-v1-i/readyz")
     assert response.headers["X-RAG-Topology"] == "split-all"

@@ -1,7 +1,7 @@
 """The app's one log format: a JSON object per line, with named fields.
 
 Example:
-    >>> log_json(event="rag_startup", topology="monolith")
+    >>> log_json(event="rag_startup", topology_alias="monolith")
     >>> log_json(logging.WARNING, event="hardware_tier_cpus_unavailable", status=403)
 """
 

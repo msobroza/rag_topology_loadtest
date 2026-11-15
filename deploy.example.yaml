@@ -28,9 +28,10 @@ topology: split-all
 # can serve (an LLM, today) is refused before anything is published. A new alias
 # is one more row: rag-deploy publishes one App per served component, then the
 # workflow App, and writes each named component's backend and served URL into
-# the workflow App's launch script, and the run label: the alias, then
-# +<component>=<server> for each served one, each with its own App's kind
-# (split-all+embedder=fastapi+reranker=fastapi).
+# the workflow App's launch script (the workflow app has no topology rule of its
+# own), the alias (RAG_TOPOLOGY_ALIAS, which it reports as X-RAG-Topology) and
+# the run label: the alias, then +<component>=<server> for each served one, each
+# with its own App's kind (split-all+embedder=fastapi+reranker=fastapi).
 topology_alias:
   monolith: {embedder: local, reranker: local}
   split-reranker: {embedder: local, reranker: served}
@@ -81,7 +82,7 @@ defaults:
   server: fastapi
   # Environment variables for the App, exported by its launch script. rag-deploy
   # itself sets RAG_ROLE (workflow or model-server), RAG_MODEL_SERVER_COMPONENT
-  # and RAG_MODEL_SERVER_KIND, RAG_TOPOLOGY, RAG_COMPONENTS__<COMPONENT>__BACKEND of each
+  # and RAG_MODEL_SERVER_KIND, RAG_TOPOLOGY_ALIAS, RAG_COMPONENTS__<COMPONENT>__BACKEND of each
   # component the topology alias names and RAG_COMPONENTS__<COMPONENT>__SERVED__URL
   # of each served one, RAG_OVMS_BUNDLE and RAG_BOOTSTRAP (those win), and
   # RAG_RUN_LABEL unless set here. A value of the workflow file is set by the

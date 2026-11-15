@@ -91,7 +91,7 @@ def test_the_workflow_is_created_as_an_agent() -> None:
     assert apps.creates[0].configurationType == "AISYSTEM"
     assert app.configuration_type == "AISYSTEM"  # echoed back by the fake
     assert apps.creates[0].version.entryScript == (
-        "export RAG_ROLE=workflow\nexport RAG_TOPOLOGY=monolith\n"
+        "export RAG_ROLE=workflow\nexport RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 

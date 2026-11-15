@@ -34,8 +34,10 @@ from .model_server_kinds.base_model_server_kind import MODEL_SERVER_KINDS
 
 AppKind = Literal["app", "agent"]
 # Where a topology alias puts a component it names: in the workflow App's
-# process, or behind a model server App of its own.
+# process, or behind a model server App of its own. Each is also the backend
+# the workflow App is told for the component.
 Placement = Literal["local", "served"]
+SERVED: Placement = "served"
 DEPLOY_FILE = (
     "deploy.yaml"  # in the working directory, unless RAG_DEPLOY_FILE names one
 )

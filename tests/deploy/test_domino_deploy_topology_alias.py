@@ -76,14 +76,14 @@ TODAYS_APPS = {
 WORKFLOW_EXPORTS = {
     "monolith": (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=monolith\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=local\n"
         "export RAG_RUN_LABEL=monolith\n"
     ),
     "split-reranker": (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=split-reranker\n"
+        "export RAG_TOPOLOGY_ALIAS=split-reranker\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
         f"export RAG_COMPONENTS__RERANKER__SERVED__URL={served_url(1, RERANK)}\n"
@@ -91,7 +91,7 @@ WORKFLOW_EXPORTS = {
     ),
     "split-all": (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=split-all\n"
+        "export RAG_TOPOLOGY_ALIAS=split-all\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
@@ -155,11 +155,11 @@ def test_a_fourth_alias_in_the_table_deploys_with_no_change_in_code() -> None:
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, with_alias("split-embedder", SPLIT_EMBEDDER))
     assert created(apps) == ["rag-embedder", "rag-workflow"]
-    # The workflow app's own rule knows three names only: it is told monolith,
-    # whose rule moves nothing, and every backend is written.
+    # The workflow app holds no topology rule: it is told the alias as it is,
+    # a label for its header, and every backend is written.
     assert workflow_script(apps) == (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=split-embedder\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served_url(1, EMBEDDINGS)}\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=local\n"
@@ -168,16 +168,17 @@ def test_a_fourth_alias_in_the_table_deploys_with_no_change_in_code() -> None:
 
 
 @pytest.mark.parametrize(
-    ("alias", "row", "told", "names"),
+    ("alias", "row", "names"),
     [
         # The workflow file's local embedder stays local under split-reranker.
-        ("split-reranker", {"reranker": "served"}, "split-reranker", ["rag-reranker"]),
-        # split-all's rule would move the file's local reranker: monolith instead.
-        ("split-all", {"embedder": "served"}, "monolith", ["rag-embedder"]),
+        ("split-reranker", {"reranker": "served"}, ["rag-reranker"]),
+        # And its local reranker under an alias named split-all that serves only
+        # the embedder: the name is a label, the row places the components.
+        ("split-all", {"embedder": "served"}, ["rag-embedder"]),
     ],
 )
 def test_a_component_the_alias_does_not_name_keeps_the_workflow_files_backend(
-    alias: str, row: dict[str, str], told: str, names: list[str]
+    alias: str, row: dict[str, str], names: list[str]
 ) -> None:
     apps = FakeDominoApps(["Running"])
     run_deploy(apps, with_alias(alias, row))
@@ -185,7 +186,20 @@ def test_a_component_the_alias_does_not_name_keeps_the_workflow_files_backend(
     script = workflow_script(apps)
     named = set(re.findall(r"RAG_COMPONENTS__(\w+?)__BACKEND", script))
     assert named == {name.upper() for name in row}
-    assert f"export RAG_TOPOLOGY={told}\n" in script
+    assert f"export RAG_TOPOLOGY_ALIAS={alias}\n" in script
+
+
+@pytest.mark.parametrize("alias", [*TOPOLOGY_ALIASES, "split-embedder"])
+def test_the_workflow_app_is_told_the_alias_and_no_topology_to_apply(
+    alias: str,
+) -> None:
+    table = {**TOPOLOGY_ALIASES, "split-embedder": SPLIT_EMBEDDER}
+    apps = FakeDominoApps(["Running"])
+    run_deploy(apps, make_settings(topology=alias, topology_alias=table))
+    exported = re.findall(
+        r"^export (RAG_TOPOLOGY\w*)=(.*)$", workflow_script(apps), re.M
+    )
+    assert exported == [("RAG_TOPOLOGY_ALIAS", alias)]
 
 
 def test_the_workflow_file_the_workflow_app_names_is_the_one_read(
@@ -284,7 +298,7 @@ def test_a_served_component_of_any_name_gets_a_model_server_app_of_its_own(
     url = served_url(1, RERANK)
     assert workflow_script(apps) == (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=split-fr\n"
         "export RAG_COMPONENTS__RERANKER_FR__BACKEND=served\n"
         f"export RAG_COMPONENTS__RERANKER_FR__SERVED__URL={url}\n"
         f"export RAG_RUN_LABEL=split-fr+reranker_fr={server}\n"
@@ -333,6 +347,23 @@ def test_status_lists_the_apps_of_the_alias(run_main: RunMain) -> None:
     assert (code, out) == (
         0,
         "rag-embedder   not deployed\nrag-workflow   not deployed\n",
+    )
+
+
+def test_a_fourth_alias_deployed_is_reported_under_its_own_name(
+    run_main: RunMain,
+) -> None:
+    # Until the workflow app dropped its topology rule, it reported monolith.
+    table = "topology_alias: {split-embedder: {embedder: served, reranker: local}}\n"
+    Path("deploy.yaml").write_text(ENV_1 + table + "topology: split-embedder\n")
+    fake = create_fake_domino(FakeDominoApps.from_behaviour("starts"))
+    assert run_main(["deploy", "all"], fake)[0] == 0
+    code, out, _ = run_main(["status"], fake)
+    assert code == 0
+    assert out.endswith(
+        "readyz: HTTP 200, X-RAG-Topology: split-embedder, "
+        "X-RAG-Run-Label: split-embedder+embedder=fastapi\n"
+        "  fake_domino: ok answered by the fake\n"
     )
 
 

@@ -5,7 +5,9 @@ row of ``topology_alias``: ``local`` or ``served`` for the components it names
 (ADR 0003). Resolving the chosen one says which Apps to publish (one model
 server App per served component, then the workflow App), which model-server
 kind serves each served component, what to write into the workflow App's
-launch script, and refuses, before anything is published, an alias the table
+launch script (each backend the row gives, each served URL, the alias as a
+label and the run label: the workflow app holds no topology rule of its own),
+and refuses, before anything is published, an alias the table
 lacks, a row naming a component the workflow file does not declare, a served
 component its model-server kind cannot serve, and an alias that makes no valid
 run label.
@@ -25,9 +27,8 @@ from pathlib import Path
 
 from ..domain.roles import WORKFLOW_APP
 from ..domain.run_label import RUN_LABEL_PATTERN, RUN_LABEL_SHAPE
-from ..domain.topology import SERVED, Topology, topology_that_moves_nothing
 from .apps_client import DominoDeployError
-from .deploy_settings import DeploySettings, Placement, deploy_file
+from .deploy_settings import SERVED, DeploySettings, Placement, deploy_file
 from .model_server_kinds.base_model_server_kind import (
     MODEL_SERVER_KINDS,
     model_server_kind,
@@ -73,22 +74,6 @@ class ResolvedTopology:
         """
         return [*self.served, WORKFLOW_APP]
 
-    def backends(self) -> dict[str, str]:
-        """Give the backend each component of the workflow file runs on.
-
-        Returns:
-            The alias's cell for a component it names, else the backend the
-            workflow file states.
-
-        Example:
-            >>> topology.backends()
-            {'embedder': 'local', 'reranker': 'served', 'llm': 'api'}
-        """
-        return {
-            name: self.placements.get(name, component.backend)
-            for name, component in self.components.items()
-        }
-
     def run_label(self) -> str:
         """Name the run: the alias, then each served component and its server kind.
 
@@ -120,20 +105,6 @@ class ResolvedTopology:
         """
         kind = model_server_kind(self.kinds[name])
         return kind.route_of(self.components[name].type)
-
-    def topology_variable(self) -> Topology:
-        """Name the topology the workflow App is told, as ``RAG_TOPOLOGY``.
-
-        Returns:
-            The alias when the workflow app knows it and its rule moves no
-            backend this topology gives, else ``monolith`` (whose rule moves
-            none): the deploy tool writes every backend itself.
-
-        Example:
-            >>> topology.topology_variable()
-            'split-reranker'
-        """
-        return topology_that_moves_nothing(self.alias, self.backends())
 
 
 def resolve_topology(settings: DeploySettings) -> ResolvedTopology:

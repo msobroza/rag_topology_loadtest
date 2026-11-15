@@ -86,7 +86,7 @@ def test_split_all_workflow_script_quotes_urls_and_names_the_run() -> None:
     assert script("workflow", settings, urls) == (
         "export RAG_ES_URL=https://es.test:9200\n"
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=split-all\n"
+        "export RAG_TOPOLOGY_ALIAS=split-all\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         "export RAG_COMPONENTS__EMBEDDER__SERVED__URL=https://domino.test/apps/e1/v3/embeddings\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
@@ -101,7 +101,7 @@ def test_split_reranker_workflow_script_has_only_the_reranker_url() -> None:
     urls = {"reranker": "https://domino.test/apps/r1"}
     assert script("workflow", settings, urls) == (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=split-reranker\n"
+        "export RAG_TOPOLOGY_ALIAS=split-reranker\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
         "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
@@ -114,7 +114,7 @@ def test_monolith_workflow_script_has_local_backends_and_no_url() -> None:
     settings = make_settings(topology="monolith")
     assert script("workflow", settings, {}) == (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}"
         f"{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
@@ -124,7 +124,7 @@ def test_a_workflow_published_as_a_plain_app_has_no_agent_exports() -> None:
     settings = make_settings(topology="monolith", apps={"workflow": {"kind": "app"}})
     assert script("workflow", settings, {}) == (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -136,19 +136,19 @@ def test_an_agent_keeps_the_tracing_and_extras_its_settings_set() -> None:
         "export RAG_BOOTSTRAP_EXTRAS=domino,dev\n"
         "export RAG_DOMINO__TRACING=0\n"
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
 
 def test_app_settings_come_first_so_computed_exports_win() -> None:
-    values = {"RAG_ES_URL": "https://es.test/?a&b", "RAG_TOPOLOGY": "split-all"}
+    values = {"RAG_ES_URL": "https://es.test/?a&b", "RAG_TOPOLOGY_ALIAS": "split-all"}
     settings = with_settings("workflow", values, topology="monolith")
     assert script("workflow", settings, {}) == (
         "export RAG_ES_URL='https://es.test/?a&b'\n"
-        "export RAG_TOPOLOGY=split-all\n"
+        "export RAG_TOPOLOGY_ALIAS=split-all\n"
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=monolith\n"
+        "export RAG_TOPOLOGY_ALIAS=monolith\n"
         f"{MONOLITH_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
     )
 
@@ -160,7 +160,7 @@ def test_a_run_label_in_the_settings_replaces_the_computed_one() -> None:
     assert script("workflow", settings, urls) == (
         "export RAG_RUN_LABEL=split-reranker-8cores\n"
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=split-reranker\n"
+        "export RAG_TOPOLOGY_ALIAS=split-reranker\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=local\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"
         "export RAG_COMPONENTS__RERANKER__SERVED__URL=https://domino.test/apps/r1/v3/rerank\n"
@@ -199,7 +199,7 @@ def test_deploy_all_for_split_all_creates_three_apps_in_order() -> None:
     ]
     assert apps.creates[2].version.entryScript == (
         "export RAG_ROLE=workflow\n"
-        "export RAG_TOPOLOGY=split-all\n"
+        "export RAG_TOPOLOGY_ALIAS=split-all\n"
         "export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         f"export RAG_COMPONENTS__EMBEDDER__SERVED__URL={INSTANCES_URL}/app-1-v1-i/v3/embeddings\n"
         "export RAG_COMPONENTS__RERANKER__BACKEND=served\n"

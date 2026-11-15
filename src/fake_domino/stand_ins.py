@@ -123,7 +123,8 @@ def readyz_stand_in(version: FakeVersion) -> JSONResponse:
     """Answer ``/readyz`` as the App would, run headers from its entry script.
 
     The ``X-RAG-Topology`` and ``X-RAG-Run-Label`` headers carry the values the
-    version exports as ``RAG_TOPOLOGY`` and ``RAG_RUN_LABEL``.
+    version exports as ``RAG_TOPOLOGY_ALIAS`` and ``RAG_RUN_LABEL``; a header
+    whose variable is not exported is left out, as the workflow app does.
 
     Args:
         version: The App version whose instance answers.
@@ -140,7 +141,7 @@ def readyz_stand_in(version: FakeVersion) -> JSONResponse:
 
 
 _RUN_HEADERS = [
-    ("X-RAG-Topology", "RAG_TOPOLOGY"),
+    ("X-RAG-Topology", "RAG_TOPOLOGY_ALIAS"),
     ("X-RAG-Run-Label", "RAG_RUN_LABEL"),
 ]
 _FAKE_CHECK = {"name": "fake_domino", "ok": True, "detail": "answered by the fake"}

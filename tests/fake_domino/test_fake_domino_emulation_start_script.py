@@ -35,8 +35,11 @@ def test_the_script_exports_in_order_then_runs_the_entry_script_unchanged() -> N
 
 def test_values_are_shell_quoted_and_the_entry_scripts_exports_win() -> None:
     awkward = 'it\'s $HOME `x` "q" ; rm -rf /'
-    project_env = {"SECRET": awkward, "RAG_TOPOLOGY": "monolith"}
-    entry = 'export RAG_TOPOLOGY=split-all\nprintf "%s\\n%s" "$SECRET" "$RAG_TOPOLOGY"'
+    project_env = {"SECRET": awkward, "RAG_TOPOLOGY_ALIAS": "monolith"}
+    entry = (
+        "export RAG_TOPOLOGY_ALIAS=split-all\n"
+        'printf "%s\\n%s" "$SECRET" "$RAG_TOPOLOGY_ALIAS"'
+    )
     script = compose_start_script(RUN, "http://localhost:8899", project_env, entry)
     ran = subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, check=True

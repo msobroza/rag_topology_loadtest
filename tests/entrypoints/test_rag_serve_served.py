@@ -226,6 +226,31 @@ def test_off_domino_a_served_component_is_called_with_no_key(
     assert (body["model"], auth) == (RERANKER_ALIAS, None)
 
 
+def test_a_split_run_on_a_laptop_moves_one_component_by_its_backend_and_url(
+    monkeypatch: pytest.MonkeyPatch,
+    rag_serve_apps: list[FastAPI],
+    endpoints: FakeModelEndpoints,
+) -> None:
+    # The README's laptop split: the reranker behind a model server started by
+    # hand, by its backend and URL alone. No topology variable is involved.
+    set_environment(monkeypatch, SERVED_RERANKER)
+
+    assert rag_serve.main([]) == 0
+    with TestClient(rag_serve_apps[0]) as client:
+        response = client.post("/query", json={"question": QUESTION})
+
+    assert response.status_code == 200, response.text
+    [(body, _)] = endpoints.sent_to(RERANK_URL)
+    assert body["query"] == QUESTION
+    assert {url for url, _, _ in endpoints.calls} == {RERANK_URL}
+    # No topology alias was given: none is reported, and the run label names
+    # where each component ran.
+    assert "X-RAG-Topology" not in response.headers
+    assert response.json()["topology"] is None
+    label = "embedder=fake+reranker=served+llm=fake+vector_store=fake"
+    assert response.headers["X-RAG-Run-Label"] == label
+
+
 @pytest.mark.parametrize(
     ("key", "authorization"),
     [("", None), ("co-key", "Bearer co-key")],

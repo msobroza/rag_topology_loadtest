@@ -11,7 +11,7 @@ values.
 
 It calibrates the component ``--only`` names, else every embedder and reranker
 of the workflow file. Each model loads as an App would load it (``RAG_*``
-overrides honoured), whatever the topology or Backend says, and every parameter
+overrides honoured), whatever its Backend says, and every parameter
 is searched, pinned or not.
 The logs, ``stage_calibrated`` included, go to standard error, so standard
 output can be appended to ``.env`` as it is.

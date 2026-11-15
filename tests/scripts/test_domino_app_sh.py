@@ -67,15 +67,16 @@ def test_the_workflow_role_is_the_default_and_sets_nothing_of_its_own(
     assert rag_serve_env(tmp_path) == []
 
 
-@pytest.mark.parametrize("topology", ["monolith", "split-all", "split-embedder"])
-def test_the_workflow_role_passes_any_topology_through_untouched(
-    tmp_path: Path, bin_dir: Path, topology: str
+@pytest.mark.parametrize("alias", ["monolith", "split-all", "split-embedder"])
+def test_the_workflow_role_passes_any_topology_alias_through_untouched(
+    tmp_path: Path, bin_dir: Path, alias: str
 ) -> None:
-    result = run_app(tmp_path, bin_dir, RAG_ROLE="workflow", RAG_TOPOLOGY=topology)
+    result = run_app(tmp_path, bin_dir, RAG_ROLE="workflow", RAG_TOPOLOGY_ALIAS=alias)
 
     assert result.returncode == 0, result.stderr
     assert log(tmp_path, "rag-serve").strip() == "--host 0.0.0.0 --port 8888 --domino"
-    assert rag_serve_env(tmp_path) == ["RAG_ROLE=workflow", f"RAG_TOPOLOGY={topology}"]
+    expected = ["RAG_ROLE=workflow", f"RAG_TOPOLOGY_ALIAS={alias}"]
+    assert rag_serve_env(tmp_path) == expected
 
 
 def test_workflow_role_passes_backends_and_auth_through_untouched(

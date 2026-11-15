@@ -1,7 +1,7 @@
 """rag_load_test: one RAG workflow, three Domino topologies, one Locust suite.
 
 Three applications over one shared ``domain`` (value objects, errors, prompts,
-the topology rule, the corpus; no I/O). The RAG system is split by layer:
+the run label, the corpus; no I/O). The RAG system is split by layer:
 ``application`` (the LangGraph workflow, ingest), ``config`` (settings, Domino
 rules), ``adapters`` (the ports and their implementations, one package per
 component), ``infrastructure`` (technical code that implements no port),

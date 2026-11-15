@@ -22,15 +22,17 @@ components:
   # (local, served, api): served is a model server of ours, api an endpoint we
   # do not run. How patiently a served or api component is called is its http
   # block: timeout_s, retries and backoff_s, each left out being the default
-  # every component shares (the top-level http block).
+  # every component shares (the top-level http block). Nothing else decides a
+  # backend: a component is moved behind a model server by setting its backend
+  # and its URL, such as RAG_COMPONENTS__RERANKER__BACKEND=served and
+  # RAG_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank, which
+  # rag-deploy writes for each component its topology alias serves.
   embedder:
-    # local | served | api | fake; RAG_TOPOLOGY=split-all moves it to served
-    backend: local
+    backend: local # local | served | api | fake
     source_id: Snowflake/snowflake-arctic-embed-l-v2.0
     query_prefix: "query: " # in front of every query, never of a passage
   reranker:
-    # local | served | api | fake | none; a split RAG_TOPOLOGY moves it to served
-    backend: local
+    backend: local # local | served | api | fake | none
     source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR
   llm:
     backend: api # served | api | fake

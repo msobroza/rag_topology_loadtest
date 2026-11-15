@@ -1,7 +1,7 @@
 """The join: every entry script rag-deploy writes, run through the real domino/app.sh.
 
 The deploy tool and the launch script agree on variable names (``RAG_ROLE``,
-``RAG_MODEL_SERVER_COMPONENT``, ``RAG_MODEL_SERVER_KIND``, ``RAG_TOPOLOGY``,
+``RAG_MODEL_SERVER_COMPONENT``, ``RAG_MODEL_SERVER_KIND``, ``RAG_TOPOLOGY_ALIAS``,
 ``RAG_OVMS_BUNDLE``, ``RAG_BOOTSTRAP``, each component's backend and served URL)
 without sharing code. For each combination the deploy tool can produce (a
 topology alias, one of its Apps, the model-server kinds of the Apps) the script
@@ -9,9 +9,9 @@ it writes is run by bash with the launch script's stand-in binaries, and the tes
 asserts what app.sh starts. What is expected is worked out from the combination
 alone, never from a Role string, so a Role or a kind that app.sh does not handle
 or maps to another server fails here rather than at App start on Domino. The
-aliases are the three of deploy.example.yaml and a fourth that the workflow
-app's own topology rule does not know; the kinds are every registered one for
-every model server App, and FastAPI beside OVMS.
+aliases are the three of deploy.example.yaml and a fourth added to the table;
+the kinds are every registered one for every model server App, and FastAPI
+beside OVMS.
 """
 
 from __future__ import annotations
@@ -50,14 +50,6 @@ ROUTES = {"embedder": "/v3/embeddings", "reranker": "/v3/rerank"}
 ALIASES = {
     **TOPOLOGY_ALIASES,
     "split-embedder": {"embedder": "served", "reranker": "local"},
-}
-# What the workflow app is told as RAG_TOPOLOGY: the alias when its own rule
-# knows the name and agrees, else monolith, whose rule moves nothing.
-TOLD = {
-    "monolith": "monolith",
-    "split-reranker": "split-reranker",
-    "split-all": "split-all",
-    "split-embedder": "monolith",
 }
 # The model-server kind of each model server App: one kind for all, each
 # registered kind in turn, and the embedder by FastAPI beside the reranker by OVMS.
@@ -150,7 +142,7 @@ def test_each_entry_script_starts_its_app_through_app_sh(
     server, argv = expected_start(part, kinds, models)
     assert log(tmp_path, server).strip() == argv
     if part == "workflow":
-        assert f"RAG_TOPOLOGY={TOLD[alias]}" in started_env(tmp_path, server)
+        assert f"RAG_TOPOLOGY_ALIAS={alias}" in started_env(tmp_path, server)
 
 
 @pytest.mark.parametrize(
@@ -185,7 +177,8 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
         for name, cell in ALIASES[alias].items()
     }
     assert placed == expected
-    assert (settings.topology, settings.run_label) == (
-        TOLD[alias],
+    # Any alias, a fourth one too, is reported under its own name.
+    assert (settings.topology_alias, settings.run_label) == (
+        alias,
         expected_label(alias, kinds),
     )

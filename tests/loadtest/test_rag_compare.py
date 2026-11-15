@@ -152,9 +152,26 @@ def test_compare_main_writes_out_file(
     assert "+15.0 ms (+50.0%)" in text
 
 
-def _target_json(prefix: Path, target: str, *seen: tuple[str, str, int]) -> None:
+def _target_json(prefix: Path, target: str, *seen: tuple[str | None, str, int]) -> None:
     """Write ``<prefix>_target.json``; a sighting is (topology, run label, responses)."""
     write_target_record(str(prefix), target, Counter({(t, r): n for t, r, n in seen}))
+
+
+def test_compare_names_no_topology_for_a_run_that_reported_none(
+    tmp_path: Path,
+) -> None:
+    local = _stats_csv(tmp_path / "laptop", *MONOLITH)
+    _target_json(local, "rag", (None, "embedder=local+reranker=served", 50))
+    markdown = render_markdown(
+        {"laptop": load_stats(local)},
+        {"laptop": read_target_record(Path(f"{local}_target.json"))},
+    )
+    intro = (
+        "Runs: laptop (run label `embedder=local+reranker=served`). "
+        "Δp95 is relative to `laptop`."
+    )
+    assert intro in markdown.splitlines()
+    assert "topology" not in markdown.split("###")[0]
 
 
 def test_compare_names_topology_and_run_label_from_target_records(

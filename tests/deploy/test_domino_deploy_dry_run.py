@@ -50,7 +50,7 @@ def dry_run_report(
         f"{environment}  hardwareTierId: {tier}\n"
         "  autoscaling: minReplicas 1, maxReplicas 4, targetCpuAvgUtilizationPct 70\n"
         "  entryScript:\n"
-        "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY=split-all\n"
+        "    export RAG_ROLE=workflow\n    export RAG_TOPOLOGY_ALIAS=split-all\n"
         "    export RAG_COMPONENTS__EMBEDDER__BACKEND=served\n"
         f"    export RAG_COMPONENTS__EMBEDDER__SERVED__URL={served.format(1, 'embeddings')}\n"
         "    export RAG_COMPONENTS__RERANKER__BACKEND=served\n"

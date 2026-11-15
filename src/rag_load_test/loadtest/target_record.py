@@ -1,9 +1,12 @@
 """The target record: what a run's target said about itself, beside its statistics.
 
 A run writes ``<csv prefix>_target.json`` as it stops: its target, and each
-topology and run label the target reported in its headers, with how many
-responses carried each. ``rag-compare`` reads it back through the same class, so
-a record that is not of this shape fails with a message naming the file.
+topology alias and run label the target reported in its headers, with how many
+responses carried each. A workflow app given no topology alias sends no
+``X-RAG-Topology`` header, and its topology is recorded as ``null``, never as a
+name nobody chose. ``rag-compare`` reads the record back through the same
+class, so a record that is not of this shape fails with a message naming the
+file.
 
 Example:
     >>> write_target_record("results/monolith", "rag", Counter({("monolith", "m"): 3}))
@@ -24,16 +27,22 @@ from .loadtest_settings import LoadTarget
 RECORD_SUFFIX = "_target.json"  # after Locust's --csv prefix
 RECORD_SHAPE = (
     '{"target": "rag" | "rerank" | "embeddings", '
-    '"seen": [{"topology": str, "run_label": str, "responses": int >= 0}]}'
+    '"seen": [{"topology": str | null, "run_label": str, "responses": int >= 0}]}'
 )
+# What one response reported: its topology alias (None without the header) and
+# its run label.
+TargetPair = tuple[str | None, str]
 
 
 class TargetSighting(BaseModel):
-    """One topology and run label the target reported, and how many responses did."""
+    """One topology alias and run label the target reported, and how many did.
+
+    ``topology`` is None for responses that carried no ``X-RAG-Topology``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    topology: str
+    topology: str | None
     run_label: str
     responses: int = Field(ge=0)
 
@@ -47,33 +56,35 @@ class TargetRecord(BaseModel):
     seen: list[TargetSighting]
 
 
-def target_pair(headers: Mapping[str, str] | None) -> tuple[str, str] | None:
-    """Return the ``(topology, run label)`` a response reported in its headers.
+def target_pair(headers: Mapping[str, str] | None) -> TargetPair | None:
+    """Return the ``(topology alias, run label)`` a response reported in its headers.
 
     A response that reported neither is ``None``: a proxy's error page or a
     connection error is not the target speaking, and counting it would make one
-    configuration look like two.
+    configuration look like two. A workflow app given no topology alias sends
+    the run label alone.
 
     Args:
         headers: The response headers (``X-RAG-Topology``, ``X-RAG-Run-Label``);
             ``None`` when there were none.
 
     Returns:
-        The pair, ``""`` for the one header missing, or ``None`` when both are.
+        The pair, the topology alias None without its header and the run label
+        ``""`` without its own, or ``None`` when both are missing.
 
     Example:
-        >>> target_pair({"X-RAG-Topology": "monolith"})
-        ('monolith', '')
+        >>> target_pair({"X-RAG-Run-Label": "embedder=local+reranker=local"})
+        (None, 'embedder=local+reranker=local')
     """
     headers = headers or {}
     topology, run_label = headers.get("X-RAG-Topology"), headers.get("X-RAG-Run-Label")
     if topology is None and run_label is None:
         return None
-    return topology or "", run_label or ""
+    return topology, run_label or ""
 
 
 def write_target_record(
-    csv_prefix: str | None, target: LoadTarget, counts: Mapping[tuple[str, str], int]
+    csv_prefix: str | None, target: LoadTarget, counts: Mapping[TargetPair, int]
 ) -> None:
     """Write ``<csv_prefix>_target.json``, most responses first.
 
@@ -83,15 +94,15 @@ def write_target_record(
     Args:
         csv_prefix: Locust's ``--csv`` prefix; ``None`` or ``""`` writes nothing.
         target: The run's ``RAG_LOADTEST_TARGET``.
-        counts: Responses per ``(topology, run label)``; ties are ordered by the
-            pair.
+        counts: Responses per ``(topology alias, run label)``; ties are ordered
+            by the pair, no topology alias first.
 
     Example:
         >>> write_target_record("results/monolith", "rag", Counter({("m", "m"): 3}))
     """
     if not csv_prefix:
         return
-    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ordered = sorted(counts.items(), key=_most_responses_first)
     seen = [
         TargetSighting(topology=topology, run_label=label, responses=n)
         for (topology, label), n in ordered
@@ -100,6 +111,12 @@ def write_target_record(
     record = TargetRecord(target=target, seen=seen)
     path = Path(f"{csv_prefix}{RECORD_SUFFIX}")
     path.write_text(json.dumps(record.model_dump(), indent=2))
+
+
+def _most_responses_first(item: tuple[TargetPair, int]) -> tuple[int, str, str]:
+    # None cannot be compared with a name, so no topology alias sorts as "".
+    (topology, run_label), responses = item
+    return -responses, topology or "", run_label
 
 
 def read_target_record(path: Path) -> TargetRecord | None:

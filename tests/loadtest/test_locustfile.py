@@ -95,9 +95,10 @@ def test_a_split_topology_without_endpoint_urls_imports(
 ) -> None:
     # The RAG system would refuse this configuration; the load generator never
     # builds it, so Locust can still drive whatever answers at --host.
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
-    monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__API__URL", raising=False)
-    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__API__URL", raising=False)
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__BACKEND", "served")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "served")
+    monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__SERVED__URL", raising=False)
+    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__SERVED__URL", raising=False)
 
     module = _import_locustfile("locustfile_split_topology")
 
@@ -179,6 +180,18 @@ def test_send_records_a_success_its_stage_rows_and_the_target_pair(
     fired = [(e["request_type"], e["name"], e["response_time"]) for e in user.fired]
     assert fired == [("STAGE", "/retrieve:embed", 2.5)]
     assert locustfile.RESPONSES_SEEN == {("monolith", "mono"): 1}
+
+
+def test_send_counts_a_response_that_reported_no_topology_under_none(
+    locustfile: ModuleType,
+) -> None:
+    # A workflow app given no topology alias sends its run label alone.
+    headers = {"X-RAG-Run-Label": "embedder=local+reranker=local"}
+    response = FakeCaughtResponse(200, '{"timings_ms": {"total": 9}}', headers)
+
+    locustfile.send(FakeLocustUser(response), RequestPlan("/query", {}, "/query"))
+
+    assert locustfile.RESPONSES_SEEN == {(None, "embedder=local+reranker=local"): 1}
 
 
 def test_send_marks_a_non_json_200_as_a_failure_and_fires_nothing(

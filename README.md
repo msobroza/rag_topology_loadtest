@@ -13,8 +13,9 @@ topologies on Domino Data Lab 6.2 and compares them:
 
 The workflow code is identical everywhere; only the transport behind the
 `BaseEmbedder` and `BaseReranker` changes (in-process model vs. HTTP call to a
-model server), selected by `RAG_TOPOLOGY` alone, and every topology reads the
-same Elasticsearch index.
+model server), selected by each component's backend alone, which `rag-deploy`
+writes from the topology alias it deploys, and every topology reads the same
+Elasticsearch index.
 
 Around that comparison every stage has alternatives, each one setting away: the
 vector store (Elasticsearch or Chroma), how it is searched (dense, lexical or
@@ -104,7 +105,7 @@ The tree is three applications over one shared domain. The domain
 3. **One name, one module.** No two modules share a file name. A settings module
    is named after its settings class (`rag_settings.py`, `deploy_settings.py`);
    a domain module that holds a glossary term of [CONTEXT.md](CONTEXT.md) is
-   named after it (`topology.py`, `backends.py`, `run_label.py`,
+   named after it (`backends.py`, `run_label.py`, `roles.py`,
    `api_endpoint.py`).
 4. **Adapters.** `adapters/` holds the ports and their implementations, nothing
    else: one package per component, `embedder/`, `reranker/`, `llm/`
@@ -185,9 +186,8 @@ src/rag_load_test/
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
-    backends.py     the Runtime names, and the default Backends the run label is measured against
-    topology.py     the workflow app's topology rule: backends per topology (local or served), placed_backend; topology_that_moves_nothing, what the deploy tool tells it
-    run_label.py    the run label: its default for a configuration, what a valid one is
+    backends.py     the Runtime names (what runs an in-process model), and what a Backend is
+    run_label.py    the run label: its default (each component with its backend), what a valid one is
     roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
@@ -208,7 +208,7 @@ src/rag_load_test/
       is_query_mode.py  is_query_mode: whether the request goes on to generate
     ingest.py       embed passages in batches and upsert them
   config/           the settings; imports domain only
-    rag_settings.py RagSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology, the run label, Domino's own run variables (pydantic-settings, .env and workflow file aware)
+    rag_settings.py RagSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
     component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
     shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
     workflow.yaml   the workflow file that ships with the code: the RAG's components and graph, used when no other is found
@@ -310,9 +310,9 @@ src/rag_load_test/
     rag_ingest.py   rag-ingest: JSONL loader, chunk, embed and upsert a corpus
     rag_fetch_corpus.py  rag-fetch-corpus: download a public corpus for rag-ingest and Locust
   deploy/           the deploy tool: rag-deploy on Domino 6.2
-    deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App), RAG_DEPLOY_* overrides
+    deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App), RAG_DEPLOY_* overrides; Placement (local or served)
     workflow_components.py  the components of the workflow file the workflow App reads: name, type, backend; the variable of a component's value
-    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, backends and run label, or a refusal
+    topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal
     model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
       base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
       fastapi_kind.py  fastapi: rag-model-server, an embedder or a reranker on the /v3 routes
@@ -377,8 +377,8 @@ curl -s -X POST localhost:8888/retrieve -H 'Content-Type: application/json' \
 curl -s localhost:8888/readyz
 ```
 
-`make ingest` embeds with the workflow file's embedder, on the backend the
-topology gives it (`rag-ingest --embedder NAME` picks one when the file
+`make ingest` embeds with the workflow file's embedder, on the backend its
+settings give it (`rag-ingest --embedder NAME` picks one when the file
 declares several), and upserts by passage id (idempotent); `rag-ingest --corpus docs.jsonl` loads a real corpus, one
 `{"id","title","text","metadata"}` object per line. `make infra-down` stops the containers.
 
@@ -392,6 +392,9 @@ serves the same routes from an in-memory store seeded with the 200 synthetic
 documents at start-up (nothing to ingest: `rag-ingest` refuses the fake store).
 
 ## Split topologies on a laptop
+
+A component is moved behind a model server by setting two variables: its
+backend, `served`, and its served URL. Nothing else moves it.
 
 ```bash
 make ovms-export              # once, after make install: export both models (int8) into ovms/models, needs HF Hub access
@@ -416,11 +419,15 @@ which OVMS and `rag-model-server` speak), under its alias, the name a model
 server serves it under, and with no key: only a workflow app started for
 Domino (`rag-serve --domino`) sends the run token. `rag-serve` refuses to start
 when a served component has no URL, naming the variable to set.
-`RAG_TOPOLOGY=split-reranker` or `split-all` still moves the components named
-`reranker` and `embedder` from `local` to `served`, so the backend variables
-above can be left out, but the URLs cannot.
-`RAG_COMPONENTS__RERANKER__BACKEND=none` skips reranking in any topology
-(`rerank ≈ 0 ms`): a backend other than `local` is kept whatever the topology.
+The workflow app holds no topology rule (ADR 0003): each component runs on the
+backend its settings give, and no topology variable moves one, so both
+variables are needed. `RAG_TOPOLOGY_ALIAS` is only a label, which `rag-deploy`
+sets on Domino and the app sends back as `X-RAG-Topology`; left unset, as here,
+no topology is reported. With no `RAG_RUN_LABEL`, the run label lists each
+component with its backend, in the workflow file's order:
+`embedder=local+reranker=served+llm=api+vector_store=elasticsearch` for the
+first split above.
+`RAG_COMPONENTS__RERANKER__BACKEND=none` skips reranking (`rerank ≈ 0 ms`).
 
 ## Load test and comparison
 
@@ -476,6 +483,10 @@ pair the app reported, most responses first:
 {"target": "rag", "seen": [{"topology": "monolith", "run_label": "monolith", "responses": 2400}]}
 ```
 
+A workflow app given no topology alias (a laptop run, unless `RAG_TOPOLOGY_ALIAS`
+is set) sends no `X-RAG-Topology`, and its responses are counted with
+`"topology": null`, never under a topology nobody chose.
+
 A run straight at a model server (`make loadtest-models`) writes
 `{"target": "rerank", "seen": []}` (or `embeddings`), since model servers send
 no such headers.
@@ -487,8 +498,8 @@ p99 and Δp95 versus the first run. Runs of graphs with different stages
 compare: a run that lacks a stage reads `n/a` in that stage's table, not 0.
 Pick another baseline by calling it directly:
 `rag-compare results/split-all results/monolith --out results/comparison.md`.
-When a run has a target record, the intro line names the topology and run label
-it saw beside the run name, and a warning line
+When a run has a target record, the intro line names the topology alias (when
+the app reported one) and run label it saw beside the run name, and a warning line
 flags any run that saw more than one pair, because its numbers mix
 configurations (for example an app redeployed mid-run). A run without the file
 is listed by its run name alone, as before.
@@ -547,14 +558,15 @@ declares, `/v3/rerank` / `/v3/embeddings` for both.
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}`; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
+| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}`; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `reranker`); `503` when a check fails |
 
-`X-RAG-Topology` (the topology), `X-RAG-Run-Label` (the run label) and
-`X-Request-ID` are set on every response (an incoming `X-Request-ID` is
-propagated). Errors: dependency failure → `503`
+`X-RAG-Run-Label` (the run label) and `X-Request-ID` are set on every response
+(an incoming `X-Request-ID` is propagated), and `X-RAG-Topology` (the topology
+alias, `RAG_TOPOLOGY_ALIAS`) on every response when one was given: `rag-deploy`
+gives the alias it deploys, and without one the header is absent. Errors: dependency failure → `503`
 `{"error":"<component>_unavailable","detail","target"}`, upstream timeout →
 `504` `{"error":"<component>_timeout",...}`, validation → `422`. `root_path`
 follows `DOMINO_RUN_HOST_PATH`, so the app answers with or without Domino's
@@ -619,7 +631,7 @@ block, and `rag-ingest` fills the one the file declares.
 
 | Component type | Key | In the packaged file | Meaning |
 | --- | --- | --- | --- |
-| every type | `backend` | `local`, `local`, `api`, `elasticsearch` | how it runs, one of the openers registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. `RAG_TOPOLOGY` moves the components named `embedder` and `reranker` from `local` to `served` |
+| every type | `backend` | `local`, `local`, `api`, `elasticsearch` | how it runs, one of the openers registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. Nothing else decides it: `rag-deploy` sets it for each component the topology alias names, and on a laptop you set it |
 | every type | `type` | not written: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` |
 | every model | `source_id` | the two models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
 | every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
@@ -789,8 +801,8 @@ before the app serves, with one line in the server's log.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RAG_TOPOLOGY` | `monolith` | `monolith` \| `split-reranker` \| `split-all`; decides the backends of the components named `embedder` and `reranker` while the file gives them `local` (`local`/`local`, `local`/`served`, `served`/`served`); echoed as `topology` and `X-RAG-Topology` |
-| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: the topology plus `+embedding=`, `+rerank=`, `+store=`, `+generation=` and `+retrieval=` for each choice off its default, in that order (e.g. `monolith+rerank=none`, `split-all+generation=fake`, `monolith+retrieval=hybrid`); letters, digits and `._+=:-`, 1 to 128 characters |
+| `RAG_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `rag-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
+| `RAG_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+reranker=local+llm=api+vector_store=elasticsearch` for the packaged file); `rag-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own; letters, digits and `._+=:-`, 1 to 128 characters |
 | `RAG_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory and the packaged one (environment only, not `.env`) |
 | `RAG_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `RAG_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_COMPONENTS__LLM__API__API_KEY` or `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `RAG_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `RAG_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
@@ -807,11 +819,13 @@ before the app serves, with one line in the server's log.
 
 Every tunable is a setting of a component, a setting the components share,
 or a setting of a stage of the graph, each read from the workflow file and its
-environment path; only the topology and the run label are flat. They are the
-fields of `RagSettings` in `config/rag_settings.py`; adapters get the values as
-constructor arguments from the `composition/` package. Sources win in
-the order the workflow file's section gives. An invalid topology, runtime or
-component type, a bad run label, a temperature outside 0 to 2, a component on
+environment path; only the topology alias and the run label, two labels, are
+flat. They are the fields of `RagSettings` in `config/rag_settings.py`; adapters
+get the values as constructor arguments from the `composition/` package. Sources
+win in the order the workflow file's section gives. An invalid runtime or
+component type, a run label or topology alias no header can carry (a default
+run label too long or with a component name outside those characters included:
+set `RAG_RUN_LABEL` then), a temperature outside 0 to 2, a component on
 the `served` or `api` backend whose URL (`served.url` or `api.url`, the block
 of its backend) does not start with `http://` or `https://`, a `served`
 component without an alias, a missing workflow file or an unknown key in it
@@ -842,6 +856,8 @@ any more by the workflow app:
 
 | Old | New |
 | --- | --- |
+| `RAG_TOPOLOGY` (`monolith` \| `split-reranker` \| `split-all`, which moved the components named `embedder` and `reranker` from `local` to `served`) | each component's own backend and served URL (`RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL`), which `rag-deploy` writes; `RAG_TOPOLOGY_ALIAS` for the `X-RAG-Topology` header, a label that moves nothing |
+| the default run label `<topology>+<choice>=<value>` for each choice off its default (`monolith+rerank=none`, `monolith+retrieval=hybrid`) | each component with its backend (`embedder=local+reranker=none+llm=api+vector_store=elasticsearch`); a retrieval mode is named by setting `RAG_RUN_LABEL` |
 | `RAG_RETRIEVAL_MODE` | the retrieve stage's `retrieval_mode` in the workflow file (`RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE`); a lexical workflow file has no embed stage |
 | `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | the retrieve and rerank stages' `top_k` (`RAG_GRAPH__STAGES__RETRIEVE__TOP_K`, `RAG_GRAPH__STAGES__RERANK__TOP_K`); Locust still reads the old names for a `rerank` target |
 | `RAG_HYBRID_RRF_K` | the retrieve stage's `rrf_k` |
@@ -923,7 +939,7 @@ hardware tier that holds the models. It calibrates the component `--only`
 names, else every embedder and reranker of the workflow file, and loads each
 in-process model as an App would (the component's `source_id`,
 `RAG_LOCAL_MODELS__RUNTIME`, `RAG_LOCAL_MODELS__OPENVINO_DIR`, the thread budget),
-whatever its backend or the topology says. It
+whatever its backend says. It
 searches every parameter, even one already pinned: revisiting it is the point.
 `RAG_CALIBRATION__BUDGET_S` and `RAG_CALIBRATION__ROUNDS` apply as set. Standard
 output holds only `.env` lines: one comment per component, then the
@@ -1061,9 +1077,10 @@ RAG_COMPONENTS__RERANKER__BACKEND=api RAG_COMPONENTS__RERANKER__API__URL=https:/
   RAG_COMPONENTS__RERANKER__API__API_KEY=<Cohere key> RAG_COMPONENTS__RERANKER__API__MODEL=rerank-v3.5 make serve
 ```
 
-The `served` and `api` backends are allowed in any topology, like `fake` and
-`none`, and a component off its topology's default names itself in the default
-run label (`monolith+rerank=api`, `split-all+embedding=api`). An embedding endpoint serving another
+Any component may be on any of its backends, `api` like `fake` and `none`, and
+the default run label names each component with its own
+(`embedder=local+reranker=api+llm=api+vector_store=elasticsearch` for the
+command above). An embedding endpoint serving another
 model returns vectors of its own size, so it needs its own index: ingest with
 the embedder you will serve with. In a split topology `rag-deploy` still
 publishes the model server Apps the topology names, even when an endpoint
@@ -1262,13 +1279,13 @@ The table shows the three aliases of `deploy.example.yaml`.
 | | **B** workflow + embedder | `workflow` | `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 | `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi`) | as above | `ovms` / `rag` |
 | | **C** model server: embedder | `model-server` (`ovms` / `fastapi`) | as above, `RAG_MODEL_SERVER_COMPONENT=embedder` (FastAPI: weights from `RAG_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow | `workflow` | `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
+| | **B** workflow | `workflow` | `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 
-The workflow role runs `rag-serve --domino` and passes `RAG_TOPOLOGY` through
-untouched, whatever its value. Python then resolves the
-backends from the topology, moving the embedder and the reranker from `local` to
-`served` when it says so (`rag-deploy` writes each backend itself, and tells the
-app a topology that moves nothing: see "Topology aliases"), requires
+`rag-deploy` also gives the workflow App `RAG_TOPOLOGY_ALIAS`, the alias it
+deploys, which the app only reports as `X-RAG-Topology`. The workflow role runs
+`rag-serve --domino` and passes every variable through untouched. Python then
+runs each component on the backend its variables give (the workflow app holds
+no topology rule: `rag-deploy` writes each backend), requires
 `RAG_COMPONENTS__RERANKER__SERVED__URL` /
 `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for each served component (as
 everywhere), and calls each served component with the run token: `--domino`
@@ -1449,7 +1466,7 @@ Hugging Face id) and `RAG_OVMS_MODELS_DIR` (for example
 `/domino/datasets/local/<dataset>/ovms-models`). `rag-deploy` sets `RAG_ROLE`,
 a model server's `RAG_MODEL_SERVER_COMPONENT` and `RAG_MODEL_SERVER_KIND`, what
 its kind's script reads (`RAG_OVMS_BUNDLE` for `ovms`), the workflow App's
-`RAG_TOPOLOGY`, `RAG_COMPONENTS__<COMPONENT>__BACKEND` of each component the
+`RAG_TOPOLOGY_ALIAS`, `RAG_COMPONENTS__<COMPONENT>__BACKEND` of each component the
 topology alias names and `RAG_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
 one (the model server App's URL plus the route its kind declares for its type,
 `/v3/rerank` or `/v3/embeddings`), and `RAG_BOOTSTRAP` itself (they win), and
@@ -1492,13 +1509,15 @@ is in its App's block. A served component may have any name: its App is
 alias, then each served component and the model-server kind of its own App:
 `split-all+embedder=fastapi+reranker=ovms`, or `monolith`.
 
-Until the workflow app drops its own topology rule, `RAG_TOPOLOGY` keeps the
-`X-RAG-Topology` header: it is the alias when the app knows the name
-(`monolith`, `split-reranker`, `split-all`) and its rule would move none of the
-backends written, and `monolith` (whose rule moves nothing) otherwise, so a
-fourth alias deploys with the `monolith` header and its own run label. The
-workflow App has one Role whatever the topology, and `app.sh` passes
-`RAG_TOPOLOGY` through without checking it.
+The workflow app holds no topology rule: the backends written are the only
+thing that places a component. The launch script also gets
+`RAG_TOPOLOGY_ALIAS`, the alias deployed, whatever it is, which the app reports
+as its `X-RAG-Topology` header, so a fourth alias deploys with its own name in
+the header and its own run label. The workflow App has one Role whatever the
+topology, and `app.sh` passes `RAG_TOPOLOGY_ALIAS` through without checking it.
+The old `RAG_TOPOLOGY` is not read: a workflow App published before this change
+keeps the backends its launch script writes, but reports no topology until it
+is redeployed.
 
 Before anything is published, `rag-deploy` refuses a `topology` that is not a
 key of the table, a row naming a component the workflow file does not declare, a
@@ -1693,12 +1712,12 @@ set, in Project → Settings → Environment variables:
 
 | Project | `RAG_ROLE` | Environment | Other variables |
 | --- | --- | --- | --- |
-| `rag-monolith` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY` |
+| `rag-monolith` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_TOPOLOGY_ALIAS=monolith` to report the topology |
 | `rag-ovms-reranker` | `model-server` | `ovms` | `RAG_MODEL_SERVER_COMPONENT=reranker`, `RAG_MODEL_SERVER_KIND=ovms`, `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `RAG_MODEL_SERVER_COMPONENT=embedder`, `RAG_MODEL_SERVER_KIND=ovms`, `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `RAG_MODEL_SERVER_COMPONENT=reranker`, `RAG_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `RAG_MODEL_SERVER_COMPONENT=embedder`, `RAG_MODEL_SERVER_KIND=fastapi` |
-| `rag-workflow` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_TOPOLOGY=split-reranker`, `RAG_COMPONENTS__RERANKER__SERVED__URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `RAG_RUN_LABEL` for a variant |
+| `rag-workflow` | `workflow` | `rag` | `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `RAG_COMPONENTS__LLM__API__API_KEY`, `RAG_COMPONENTS__RERANKER__BACKEND=served`, `RAG_COMPONENTS__RERANKER__SERVED__URL` (+ `RAG_COMPONENTS__EMBEDDER__BACKEND=served`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `RAG_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `RAG_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `RAG_DOMINO__TRACING` identical across projects
 (unset, or `true` everywhere).
@@ -1732,9 +1751,11 @@ Order matters for the split topologies:
 1. model apps first: `rag-ovms-reranker`, `rag-ovms-embedder` (and/or the two
    FastAPI projects); wait for "Running" and copy each App URL from the Apps view;
 2. put those URLs, followed by `/v3/rerank` / `/v3/embeddings`, into
-   `rag-workflow`'s `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL`, set `RAG_TOPOLOGY`
-   (`split-reranker` or `split-all`) and, for a variant, `RAG_RUN_LABEL`
-   (`split-reranker-fastapi`, ...), then publish it;
+   `rag-workflow`'s `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL`,
+   set the backend of each of those components to `served`
+   (`RAG_COMPONENTS__RERANKER__BACKEND`, `RAG_COMPONENTS__EMBEDDER__BACKEND`),
+   `RAG_TOPOLOGY_ALIAS` (`split-reranker` or `split-all`, a label only) and,
+   for a variant, `RAG_RUN_LABEL` (`split-reranker-fastapi`, ...), then publish it;
 3. publish `rag-monolith`.
 
 Share every model app with the owner of `rag-workflow` (its run token is the
@@ -1762,7 +1783,7 @@ expires after about 5 minutes, so export it right before each run:
 ```bash
 export RAG_LOADTEST_BEARER_TOKEN=$(curl -s http://localhost:8899/access-token)
 make loadtest RUN_NAME=monolith        HOST=<URL of the monolith app>
-make loadtest RUN_NAME=split-reranker  HOST=<URL of the workflow app>      # RAG_TOPOLOGY=split-reranker
+make loadtest RUN_NAME=split-reranker  HOST=<URL of the workflow app>      # the reranker on served
 make loadtest RUN_NAME=split-all       HOST=<URL of the workflow app>      # after switching it to split-all
 make compare                                                               # results/comparison.md
 ```
@@ -1782,7 +1803,7 @@ them into a Dataset before stopping it.
 
 | Experiment | Change |
 | --- | --- |
-| monolith vs split-reranker vs split-all | which app `HOST` points at; the workflow project's `RAG_TOPOLOGY`, `RAG_COMPONENTS__RERANKER__SERVED__URL`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL` |
+| monolith vs split-reranker vs split-all | which app `HOST` points at; the workflow project's backend and served URL of each served component (`RAG_COMPONENTS__RERANKER__BACKEND`, `RAG_COMPONENTS__RERANKER__SERVED__URL`, `RAG_COMPONENTS__EMBEDDER__BACKEND`, `RAG_COMPONENTS__EMBEDDER__SERVED__URL`) and `RAG_TOPOLOGY_ALIAS` |
 | FastAPI vs OVMS behind the workflow | the workflow project's `RAG_COMPONENTS__RERANKER__SERVED__URL` / `RAG_COMPONENTS__EMBEDDER__SERVED__URL` (and a distinct `RAG_RUN_LABEL`) |
 | FastAPI vs OVMS directly | `HOST` and `RUN_NAME` of `make loadtest-models` |
 | cost of reranking | `RAG_COMPONENTS__RERANKER__BACKEND=none` on the monolith or workflow project |

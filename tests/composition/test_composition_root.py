@@ -119,7 +119,9 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
         return httpx.Response(200, json={"results": [result]})
 
     settings = settings_factory(
-        topology="split-all",  # both ports served by a model server of ours
+        # both ports served by a model server of ours
+        components__embedder__backend="served",
+        components__reranker__backend="served",
         components__llm__backend="fake",
         domino__token_url=TOKEN_URL,
         http__timeout_s=7.5,
@@ -270,7 +272,8 @@ async def test_local_models_ignore_the_configured_backend(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = settings_factory(  # both backends served
-        topology="split-all",
+        components__embedder__backend="served",
+        components__reranker__backend="served",
         components__embedder__served__url=EMBED_URL,
         components__reranker__served__url=RERANK_URL,
         **PINNED_THREADS,
@@ -332,7 +335,7 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
 ) -> None:
     transport = ClosingRecorderTransport()
     settings = settings_factory(
-        topology="split-reranker",
+        components__reranker__backend="served",
         components__reranker__served__url=RERANK_URL,
         components__llm__backend="fake",
     )

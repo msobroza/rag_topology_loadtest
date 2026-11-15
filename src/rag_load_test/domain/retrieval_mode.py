@@ -5,8 +5,9 @@ and ``hybrid`` does both and fuses the two rankings by reciprocal rank. It is a
 setting of the retrieve stage.
 
 Example:
-    >>> DEFAULT_RETRIEVAL_MODE
-    'dense'
+    >>> from typing import get_args
+    >>> get_args(RetrievalMode)
+    ('dense', 'lexical', 'hybrid')
 """
 
 from __future__ import annotations
@@ -14,4 +15,3 @@ from __future__ import annotations
 from typing import Literal
 
 RetrievalMode = Literal["dense", "lexical", "hybrid"]
-DEFAULT_RETRIEVAL_MODE: RetrievalMode = "dense"

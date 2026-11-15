@@ -1,69 +1,51 @@
 """The Run label: the name the workflow app reports for the measured configuration.
 
-It defaults to the topology plus every choice that differs from its default, and
-is sent as a header, so it must be header-safe.
+With none given, it lists each component with its backend, in the workflow
+file's order, the parts joined by ``+`` as in the label the deploy tool sets
+(``split-all+embedder=fastapi+reranker=ovms``). It is sent as a header, so it
+must be header-safe.
 
 Example:
-    >>> default_run_label("monolith", embedding="local", rerank="none",
-    ...                   store="elasticsearch", generation="api")
-    'monolith+rerank=none'
+    >>> default_run_label({"embedder": "local", "reranker": "none"})
+    'embedder=local+reranker=none'
 """
 
 from __future__ import annotations
 
 import re
-
-from .backends import DEFAULT_GENERATION_BACKEND, DEFAULT_VECTOR_STORE_BACKEND
-from .retrieval_mode import DEFAULT_RETRIEVAL_MODE
-from .topology import TOPOLOGY_BACKENDS, Topology
+from collections.abc import Mapping
 
 # Sent as the X-RAG-Run-Label header, so only header-safe characters.
 RUN_LABEL_PATTERN = re.compile(r"[A-Za-z0-9._+=:-]{1,128}")
 RUN_LABEL_SHAPE = "letters, digits and ._+=:- only, 1 to 128 characters"
 
 
-def default_run_label(
-    topology: Topology,
-    *,
-    embedding: str,
-    rerank: str,
-    store: str,
-    generation: str,
-    retrieval: str = DEFAULT_RETRIEVAL_MODE,
-) -> str:
-    """Name a configuration after its topology and the choices off their default.
-
-    Choices are listed in a fixed order (embedding, rerank, store, generation,
-    retrieval) so the same configuration always gets the same label.
+def default_run_label(backends: Mapping[str, str]) -> str:
+    """Name a configuration after each component and the backend it runs on.
 
     Args:
-        topology: The topology; it sets the default embedding and rerank backends.
-        embedding: The embedding backend in use.
-        rerank: The rerank backend in use.
-        store: The vector store backend in use.
-        generation: The generation backend in use.
-        retrieval: The retrieval mode in use.
+        backends: Each component's backend, by name, in the workflow file's order.
 
     Returns:
-        The topology plus ``+<choice>=<value>`` for each choice off its default.
+        ``<component>=<backend>`` for each component, joined by ``+``.
+
+    Raises:
+        ValueError: If that label is not header-safe (a component name outside
+            letters, digits and ``._+=:-``, or more than 128 characters); the
+            message names the label and says to set ``RAG_RUN_LABEL``.
 
     Example:
-        >>> default_run_label("split-all", embedding="served", rerank="served",
-        ...                   store="elasticsearch", generation="fake")
-        'split-all+generation=fake'
+        >>> default_run_label({"embedder": "fake", "llm": "api"})
+        'embedder=fake+llm=api'
     """
-    implied = TOPOLOGY_BACKENDS[topology]
-    choices = (
-        ("embedding", embedding, implied.embedding),
-        ("rerank", rerank, implied.rerank),
-        ("store", store, DEFAULT_VECTOR_STORE_BACKEND),
-        ("generation", generation, DEFAULT_GENERATION_BACKEND),
-        ("retrieval", retrieval, DEFAULT_RETRIEVAL_MODE),
+    label = "+".join(f"{name}={backend}" for name, backend in backends.items())
+    if RUN_LABEL_PATTERN.fullmatch(label):
+        return label
+    raise ValueError(
+        f"the default run label {label!r}, each component with its backend, is "
+        f"not a run label ({RUN_LABEL_SHAPE}): set RAG_RUN_LABEL to name this "
+        "configuration"
     )
-    variants = [
-        f"+{name}={actual}" for name, actual, default in choices if actual != default
-    ]
-    return topology + "".join(variants)
 
 
 def validate_run_label(label: str) -> str:

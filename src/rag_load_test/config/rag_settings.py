@@ -12,12 +12,15 @@ what they are about, ``local_models``, ``calibration``, ``http`` and
 ``domino`` (``shared_settings.py``). An API key is read from the environment,
 by its path, such as ``RAG_COMPONENTS__LLM__API__API_KEY``.
 
-``RAG_TOPOLOGY`` places the components named ``embedder`` and ``reranker``:
-one on ``local`` is moved behind a model server of ours (``served``) when the
-topology says so (the rule lives in ``domain/topology.py``). A component on
-``served`` or ``api`` without a URL, or a bad ``RAG_RUN_LABEL``, fails
-construction, so at start-up. Domino's own run variables are read under the
-names Domino gives them.
+Each component runs on the backend its settings give, and nothing else decides
+it: the deploy tool writes the backend and URL of each component a topology
+alias places into the workflow App's launch script (ADR 0003), and on a laptop
+a component is moved by setting its backend and its URL. ``RAG_TOPOLOGY_ALIAS``
+is only a label, the topology alias the deploy tool deployed, echoed as the
+``X-RAG-Topology`` header. A component on ``served`` or ``api`` without a URL,
+or a run label or topology alias no header can carry, fails construction, so at
+start-up. Domino's own run variables are read under the names Domino gives
+them.
 
 Example:
     >>> settings = RagSettings()  # from the env and the workflow file
@@ -31,8 +34,6 @@ receive the values from the ``composition`` package and never read this module.
 
 from __future__ import annotations
 
-from typing import TypeVar
-
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
@@ -40,19 +41,15 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from ..domain.backends import DEFAULT_GENERATION_BACKEND, DEFAULT_VECTOR_STORE_BACKEND
 from ..domain.graph_description import GraphDescription
-from ..domain.retrieval_mode import DEFAULT_RETRIEVAL_MODE
-from ..domain.run_label import default_run_label, validate_run_label
-from ..domain.topology import (
-    TOPOLOGY_BACKENDS,
-    PlacedComponent,
-    Topology,
-    placed_backend,
+from ..domain.run_label import (
+    RUN_LABEL_PATTERN,
+    RUN_LABEL_SHAPE,
+    default_run_label,
+    validate_run_label,
 )
 from .component_settings import (
     Component,
-    ComponentSettings,
     EmbedderSettings,
     LlmSettings,
     ModelComponent,
@@ -68,8 +65,6 @@ from .shared_settings import (
 )
 from .workflow_file import workflow_file, workflow_file_source
 
-C = TypeVar("C", bound=ComponentSettings)
-
 # Shown in the error for a backend called over HTTP without a URL: one route
 # per backend and type, a model server of ours or an endpoint we do not run.
 _URL_EXAMPLES = {
@@ -84,24 +79,20 @@ _URL_EXAMPLES = {
         "llm": "https://api.openai.com/v1/chat/completions",
     },
 }
-# The components a topology places, by name, and the field of TopologyBackends
-# that holds their backend; the deploy tool's App parts have the same names.
-_PLACED: dict[str, PlacedComponent] = {"embedder": "embedding", "reranker": "rerank"}
 
 
 class RagSettings(BaseSettings):
     """The whole runtime configuration, one field per top-level ``RAG_*`` variable.
 
-    Construction places the components the topology places, fills the default
-    run label and checks the endpoints, so a bad configuration fails at
-    start-up. The settings of a stage are checked by its stage type, when the
-    graph is built at start-up.
+    Construction fills the default run label and checks the endpoints and the
+    labels, so a bad configuration fails at start-up. The settings of a stage
+    are checked by its stage type, when the graph is built at start-up.
 
     Example:
-        >>> RagSettings(topology="split-reranker", components={"reranker": {
+        >>> RagSettings(components={"reranker": {"backend": "served",
         ...     "served": {"url": "http://host:8001/v3/rerank"}}}
-        ... ).components["reranker"].backend
-        'served'
+        ... ).run_label
+        'embedder=local+reranker=served+llm=api+vector_store=elasticsearch'
     """
 
     model_config = SettingsConfigDict(
@@ -123,9 +114,11 @@ class RagSettings(BaseSettings):
     # name, its backend, its settings and one block per backend.
     components: dict[str, Component]
 
-    # --- topology and run label ----------------------------------------------------
-    topology: Topology = "monolith"
-    # "" = the default run label (topology plus every choice off its default)
+    # --- the topology alias and the run label: labels, they decide no backend -------
+    # The topology alias the deploy tool deployed, sent as X-RAG-Topology; unset,
+    # no topology is reported.
+    topology_alias: str | None = None
+    # "" = the default run label (each component with its backend)
     run_label: str = ""
 
     # --- what the components share: top-level blocks of the workflow file ------------
@@ -191,26 +184,50 @@ class RagSettings(BaseSettings):
         """
         return typed_by_name(components)
 
-    @model_validator(mode="after")
-    def resolve_topology(self) -> RagSettings:
-        """Place the components the topology places, and fill the run label.
+    @field_validator("topology_alias")
+    @classmethod
+    def header_safe_topology_alias(cls, alias: str | None) -> str | None:
+        """Check that the topology alias can be sent as a header; empty is unset.
+
+        Args:
+            alias: The topology alias, None when unset.
 
         Returns:
-            The settings, the ``embedder`` and ``reranker`` components on the
-            backend the topology gives them, and ``run_label`` resolved.
+            ``alias``, or None when it is unset or empty.
+
+        Raises:
+            ValueError: If ``alias`` is not header-safe; the message names its
+                variable, the value and the shape expected.
         """
-        self.components = {
-            name: self._placed(name, component)
-            for name, component in self.components.items()
-        }
-        self.run_label = validate_run_label(self.run_label or self._default_label())
+        if not alias:
+            return None
+        if RUN_LABEL_PATTERN.fullmatch(alias):
+            return alias
+        variable = cls.variable_of("topology_alias")
+        raise ValueError(
+            f"{variable}={alias!r} cannot be sent as the X-RAG-Topology header: "
+            f"a topology alias is {RUN_LABEL_SHAPE}"
+        )
+
+    @model_validator(mode="after")
+    def fill_run_label(self) -> RagSettings:
+        """Check the run label given, or fill the default one.
+
+        Returns:
+            The settings, ``run_label`` the one given, else each component with
+            its backend.
+        """
+        if self.run_label:
+            self.run_label = validate_run_label(self.run_label)
+            return self
+        backends = {name: c.backend for name, c in self.components.items()}
+        self.run_label = default_run_label(backends)
         return self
 
     @model_validator(mode="after")
     def check_endpoint_urls(self) -> RagSettings:
         """Fail at start-up when a component on ``served`` or ``api`` has no URL.
 
-        Runs after ``resolve_topology``, so a backend the topology implies counts.
         The URL is the one of the block named after the backend; the URL of a
         component on another backend is not checked.
 
@@ -368,13 +385,6 @@ class RagSettings(BaseSettings):
             )
         return name or embedders[0]
 
-    def _placed(self, name: str, component: C) -> C:
-        placed = _PLACED.get(name)
-        if placed is None:
-            return component
-        backend = placed_backend(self.topology, placed, component.backend)
-        return component.model_copy(update={"backend": backend})
-
     def _missing_url_message(
         self, name: str, component: ModelComponent, url: str
     ) -> str:
@@ -387,27 +397,6 @@ class RagSettings(BaseSettings):
             f"{backend_variable}={backend!r} needs {url_variable}, the full route "
             f"of the endpoint (for example {example}); got {url!r}"
         )
-
-    def _default_label(self) -> str:
-        implied = TOPOLOGY_BACKENDS[self.topology]
-        backends = {name: c.backend for name, c in self.components.items()}
-        return default_run_label(
-            self.topology,
-            embedding=backends.get("embedder", implied.embedding),
-            rerank=backends.get("reranker", implied.rerank),
-            store=backends.get("vector_store", DEFAULT_VECTOR_STORE_BACKEND),
-            generation=backends.get("llm", DEFAULT_GENERATION_BACKEND),
-            retrieval=self._retrieval_mode(),
-        )
-
-    def _retrieval_mode(self) -> str:
-        # The label still names the retrieval mode off its default, as it did when
-        # the mode was a variable: it is read from the graph's retrieve stage.
-        for name, stage in self.graph.stages.items():
-            if stage.type_name(name) == "retrieve":
-                mode = stage.stage_settings.get("retrieval_mode")
-                return str(mode or DEFAULT_RETRIEVAL_MODE)
-        return DEFAULT_RETRIEVAL_MODE
 
 
 def _endpoint_url(component: ModelComponent) -> str | None:

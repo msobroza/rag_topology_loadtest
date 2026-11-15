@@ -176,7 +176,7 @@ def test_an_api_format_is_passed_on_for_its_registry_to_check(
             "http://localhost:8002/v3/embeddings",
         ),
         (
-            {"topology": "split-reranker"},
+            {"components__reranker__backend": "served"},
             "RERANKER",
             "served",
             "http://localhost:8001/v3/rerank",
@@ -293,7 +293,7 @@ def test_a_served_url_is_accepted(settings_factory: SettingsFactory) -> None:
             "components__embedder__backend": "fake",
         },
         {
-            "topology": "split-all",
+            "topology_alias": "split-all",  # a label: it serves nothing
             "components__embedder__backend": "fake",
             "components__reranker__backend": "none",
         },

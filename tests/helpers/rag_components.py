@@ -10,7 +10,7 @@ the workflow file, key by key, so a test names only what it changes.
 
 Example::
 
-    settings_factory(components__reranker__backend="none", topology="split-all")
+    settings_factory(components__reranker__backend="none", run_label="no-rerank")
 """
 
 from __future__ import annotations

@@ -1,12 +1,13 @@
 """FastAPI service exposing the workflow, plus the ``rag-serve`` command.
 
 Routes: ``POST /query`` (full RAG), ``POST /retrieve`` (no LLM call),
-``GET /healthz``, ``GET /readyz``. Every response carries ``X-Request-ID``,
-``X-RAG-Topology`` and ``X-RAG-Run-Label`` so Locust can tag runs; dependency
-failures map to 503
-(unavailable) or 504 (timeout). ``root_path`` follows ``DOMINO_RUN_HOST_PATH``, the
-prefix Domino serves the app under, so the app answers with or without the
-prefix on the wire and needs no proxy in front (unlike OVMS).
+``GET /healthz``, ``GET /readyz``. Every response carries ``X-Request-ID`` and
+``X-RAG-Run-Label``, and ``X-RAG-Topology`` when a topology alias was given
+(``RAG_TOPOLOGY_ALIAS``, which the deploy tool sets), so Locust can tag runs;
+dependency failures map to 503 (unavailable) or 504 (timeout). ``root_path``
+follows ``DOMINO_RUN_HOST_PATH``, the prefix Domino serves the app under, so the
+app answers with or without the prefix on the wire and needs no proxy in front
+(unlike OVMS).
 
 Example:
     >>> app = create_app(CompositionRoot(RagSettings()))
@@ -54,7 +55,8 @@ class QueryResponse(BaseModel):
     """The workflow's answer, the passages it used and the time each stage took."""
 
     request_id: str
-    topology: str
+    # The topology alias, as X-RAG-Topology; None when none was given.
+    topology: str | None
     run_label: str
     question: str
     mode: RagMode
@@ -146,7 +148,8 @@ def create_app(composition: CompositionRoot) -> FastAPI:
 
     Args:
         composition: Builds the ports the app serves with; its settings also name
-            the topology and run label stamped on every response.
+            the run label stamped on every response, and the topology alias
+            when one was given.
 
     Returns:
         The app, its routes answering under ``DOMINO_RUN_HOST_PATH`` and at the root.
@@ -234,7 +237,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.run = traced(workflow.run, enabled=settings.domino.tracing)
         log_json(
             event="rag_startup",
-            topology=settings.topology,
+            topology_alias=settings.topology_alias,
             run_label=settings.run_label,
             models=deps.model_names(),
         )
@@ -250,7 +253,9 @@ async def _stamp_headers(request: Request, call_next: Callable[..., Any]) -> Any
     response = await call_next(request)
     settings = _settings(request)
     response.headers["X-Request-ID"] = request.state.request_id
-    response.headers["X-RAG-Topology"] = settings.topology
+    # No alias given, no topology reported: the header is left out, not empty.
+    if settings.topology_alias is not None:
+        response.headers["X-RAG-Topology"] = settings.topology_alias
     response.headers["X-RAG-Run-Label"] = settings.run_label
     return response
 
@@ -278,7 +283,7 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
     log_json(
         event="rag_request",
         request_id=request.state.request_id,
-        topology=settings.topology,
+        topology_alias=settings.topology_alias,
         run_label=settings.run_label,
         mode=mode,
         timings_ms=result.timings_ms,
@@ -286,7 +291,7 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
     )
     return QueryResponse(
         request_id=request.state.request_id,
-        topology=settings.topology,
+        topology=settings.topology_alias,
         run_label=settings.run_label,
         **result.model_dump(),
     )

@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .response_checks import STAGE_REQUEST_TYPE
-from .target_record import RECORD_SUFFIX, TargetRecord, read_target_record
+from .target_record import (
+    RECORD_SUFFIX,
+    TargetRecord,
+    TargetSighting,
+    read_target_record,
+)
 
 # --- rag-compare: locust *_stats.csv files -> one markdown table per row ------
 
@@ -118,9 +123,7 @@ def _intro_lines(
     titles, warnings = [], []
     for label in labels:
         seen = targets[label].seen if label in targets else []
-        pairs = "; ".join(
-            f"topology `{s.topology}`, run label `{s.run_label}`" for s in seen
-        )
+        pairs = "; ".join(map(_described, seen))
         titles.append(f"{label} ({pairs})" if pairs else label)
         if len(seen) > 1:
             warnings += [
@@ -130,6 +133,12 @@ def _intro_lines(
             ]
     intro = f"Runs: {', '.join(titles)}. Δp95 is relative to `{labels[0]}`."
     return [intro, "", *warnings]
+
+
+def _described(sighting: TargetSighting) -> str:
+    # A target given no topology alias reported none, and none is shown.
+    label = f"run label `{sighting.run_label}`"
+    return f"topology `{sighting.topology}`, {label}" if sighting.topology else label
 
 
 def _row_order(key: str) -> tuple[int, str]:

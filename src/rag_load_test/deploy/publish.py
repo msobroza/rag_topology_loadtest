@@ -18,7 +18,6 @@ from collections.abc import Callable, Mapping
 from typing import Literal, NoReturn
 
 from ..domain.roles import MODEL_SERVER_ROLE, WORKFLOW_APP, WORKFLOW_ROLE, AppPart
-from ..domain.topology import SERVED
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -26,6 +25,7 @@ from .apps_client import (
     wait_until_running,
 )
 from .deploy_settings import (
+    SERVED,
     AppKind,
     AppSettings,
     Autoscaling,
@@ -133,10 +133,12 @@ def _workflow_exports(
     urls: Mapping[AppPart, str],
     app_settings: Mapping[str, str],
 ) -> dict[str, str]:
-    # The workflow app still applies its own topology rule (ADR 0003's first
-    # step): it is told a topology whose rule moves none of the backends below.
-    told = topology.topology_variable()
-    exports: dict[str, str] = {"RAG_ROLE": WORKFLOW_ROLE, "RAG_TOPOLOGY": told}
+    # The backends below place each component (ADR 0003); the alias is only the
+    # label the workflow app reports as its X-RAG-Topology header.
+    exports: dict[str, str] = {
+        "RAG_ROLE": WORKFLOW_ROLE,
+        "RAG_TOPOLOGY_ALIAS": topology.alias,
+    }
     for name, placement in topology.placements.items():
         exports[component_variable(name, "backend")] = placement
         if placement == SERVED:

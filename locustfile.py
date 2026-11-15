@@ -37,7 +37,11 @@ from rag_load_test.loadtest.request_plans import (
     plan_rerank_request,
 )
 from rag_load_test.loadtest.response_checks import STAGE_REQUEST_TYPE, judge_response
-from rag_load_test.loadtest.target_record import target_pair, write_target_record
+from rag_load_test.loadtest.target_record import (
+    TargetPair,
+    target_pair,
+    write_target_record,
+)
 
 SETTINGS = LoadTestSettings()
 POOL = build_request_pool(
@@ -48,8 +52,9 @@ POOL = build_request_pool(
 )
 WAIT_TIME = between(SETTINGS.wait_min_s, SETTINGS.wait_max_s)
 RNG = random.Random()
-# Responses per (topology, run label) for the target record; one process, one run.
-RESPONSES_SEEN: Counter[tuple[str, str]] = Counter()
+# Responses per (topology alias, run label) for the target record; one process,
+# one run.
+RESPONSES_SEEN: Counter[TargetPair] = Counter()
 
 
 def send(user: FastHttpUser, plan: RequestPlan) -> None:

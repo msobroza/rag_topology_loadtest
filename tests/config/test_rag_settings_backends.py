@@ -1,4 +1,8 @@
-"""``RagSettings``: defaults, the environment, backends from the topology, the pinned field set."""
+"""``RagSettings``: defaults, the environment, backends, labels, the pinned field set.
+
+Each component runs on the backend its own settings give, and nothing else
+decides it: the topology alias and the run label are labels only.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,7 @@ from rag_load_test.config.rag_settings import RagSettings
 
 EMBED_URL = "http://embedder/v3/embeddings"
 RERANK_URL = "http://reranker/v3/rerank"
+PACKAGED_LABEL = "embedder=local+reranker=local+llm=api+vector_store=elasticsearch"
 
 
 def backends(settings: RagSettings) -> tuple[str, str]:
@@ -24,9 +29,9 @@ def backends(settings: RagSettings) -> tuple[str, str]:
 def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None:
     s = settings_factory()
 
-    assert s.topology == "monolith"
+    assert s.topology_alias is None
     assert backends(s) == ("local", "local")
-    assert s.run_label == "monolith"
+    assert s.run_label == PACKAGED_LABEL
     store = s.components["vector_store"]
     assert (store.backend, store.elasticsearch.url) == (
         "elasticsearch",
@@ -39,94 +44,167 @@ def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None
 def test_settings_read_rag_prefixed_env(
     settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
+    monkeypatch.setenv("RAG_TOPOLOGY_ALIAS", "split-reranker")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "served")
     monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SERVED__URL", RERANK_URL)
     monkeypatch.setenv("RAG_RUN_LABEL", "split-reranker-fastapi")
     monkeypatch.setenv("RAG_DOMINO__TRACING", "true")
 
     s = settings_factory()
+    assert s.topology_alias == "split-reranker"
     assert s.components["reranker"].backend == "served"
     assert s.components["reranker"].served.url == RERANK_URL
     assert s.run_label == "split-reranker-fastapi"
     assert s.domino.tracing is True
 
 
-@pytest.mark.parametrize(
-    ("topology", "embedding", "rerank"),
-    [
-        ("monolith", "local", "local"),
-        ("split-reranker", "local", "served"),
-        ("split-all", "served", "served"),
-    ],
-)
-def test_the_topology_moves_a_local_component_behind_a_model_server(
+# --- nothing but a component's own backend places it ------------------------------
+
+
+@pytest.mark.parametrize("alias", ["monolith", "split-reranker", "split-all"])
+def test_a_topology_alias_moves_no_component(
     settings_factory: Callable[..., RagSettings],
     monkeypatch: pytest.MonkeyPatch,
-    topology: str,
-    embedding: str,
-    rerank: str,
+    alias: str,
 ) -> None:
-    # The workflow file says local for both; the topology variable wins over it.
-    monkeypatch.setenv("RAG_TOPOLOGY", topology)
-    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__SERVED__URL", EMBED_URL)
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SERVED__URL", RERANK_URL)
+    # The workflow file says local for both, and local they stay: no served URL
+    # is needed, and the default run label names what really runs.
+    monkeypatch.setenv("RAG_TOPOLOGY_ALIAS", alias)
 
     s = settings_factory()
-    assert backends(s) == (embedding, rerank)
-    assert s.run_label == topology
+
+    assert backends(s) == ("local", "local")
+    assert (s.topology_alias, s.run_label) == (alias, PACKAGED_LABEL)
 
 
-def test_the_topology_places_only_the_embedder_and_the_reranker(
+def test_the_old_topology_variable_is_not_read(
+    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
+
+    s = settings_factory()
+
+    assert backends(s) == ("local", "local")
+    assert s.topology_alias is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        (
+            {
+                "components__embedder__backend": "served",
+                "components__embedder__served__url": EMBED_URL,
+            },
+            ("served", "local"),
+        ),
+        (
+            {
+                "components__reranker__backend": "served",
+                "components__reranker__served__url": RERANK_URL,
+            },
+            ("local", "served"),
+        ),
+        (
+            {
+                "components__embedder__backend": "api",
+                "components__embedder__api__url": EMBED_URL,
+                "components__reranker__backend": "none",
+            },
+            ("api", "none"),
+        ),
+    ],
+    ids=["served-embedder", "served-reranker", "api-and-none"],
+)
+def test_each_component_runs_on_the_backend_its_settings_give(
+    settings_factory: Callable[..., RagSettings],
+    overrides: dict[str, str],
+    expected: tuple[str, str],
+) -> None:
+    s = settings_factory(topology_alias="split-all", **overrides)
+
+    assert backends(s) == expected
+
+
+def test_a_component_of_any_name_keeps_its_own_backend(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     other = {"type": "reranker", "backend": "local", "source_id": "org/other"}
 
-    s = settings_factory(
-        topology="split-all",
-        components__embedder__served__url=EMBED_URL,
-        components__reranker__served__url=RERANK_URL,
-        components={"other": other},
-    )
+    s = settings_factory(topology_alias="split-all", components={"other": other})
 
     assert s.components["other"].backend == "local"
 
 
-def test_a_backend_off_local_is_kept_whatever_the_topology(
-    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+# --- the topology alias ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("unset", [{}, {"topology_alias": ""}], ids=["unset", "empty"])
+def test_no_topology_alias_is_none(
+    settings_factory: Callable[..., RagSettings], unset: dict[str, str]
 ) -> None:
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
-    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__BACKEND", "fake")
-    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "none")
-
-    assert backends(settings_factory()) == ("fake", "none")
+    assert settings_factory(**unset).topology_alias is None
 
 
-def test_an_endpoint_we_do_not_run_is_kept_whatever_the_topology(
+def test_any_topology_alias_is_a_label(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
-    # A topology serves the components of ours; an api endpoint stays where it is.
-    s = settings_factory(
-        topology="split-all",
-        components__embedder__backend="api",
-        components__embedder__api__url=EMBED_URL,
-        components__reranker__served__url=RERANK_URL,
+    # Not only the three of the example: the deploy settings define the aliases.
+    assert settings_factory(topology_alias="split-embedder").topology_alias == (
+        "split-embedder"
     )
 
-    assert backends(s) == ("api", "served")
-    assert s.run_label == "split-all+embedding=api"
+
+@pytest.mark.parametrize("alias", ["split all", "x" * 129, "new\nline"])
+def test_a_topology_alias_no_header_can_carry_is_refused(
+    settings_factory: Callable[..., RagSettings], alias: str
+) -> None:
+    with pytest.raises(ValidationError) as caught:
+        settings_factory(topology_alias=alias)
+
+    message = str(caught.value)
+    assert f"RAG_TOPOLOGY_ALIAS={alias!r} cannot be sent as the X-RAG-Topology" in (
+        message
+    )
+    assert "letters, digits and ._+=:- only, 1 to 128 characters" in message
 
 
-def test_settings_default_run_label_names_the_variant_backends(
+# --- the run label -----------------------------------------------------------------
+
+
+def test_the_default_run_label_lists_each_component_with_its_backend(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     s = settings_factory(
-        topology="split-all",
+        topology_alias="split-all",
+        components__embedder__backend="served",
         components__embedder__served__url=EMBED_URL,
         components__reranker__backend="none",
         components__llm__backend="fake",
     )
 
-    assert s.run_label == "split-all+rerank=none+generation=fake"
+    assert s.run_label == (
+        "embedder=served+reranker=none+llm=fake+vector_store=elasticsearch"
+    )
+
+
+def test_the_default_run_label_follows_the_workflow_files_order(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    other = {"type": "reranker", "backend": "fake", "source_id": "org/fr"}
+
+    s = settings_factory(components={"reranker_fr": other})
+
+    assert s.run_label == PACKAGED_LABEL + "+reranker_fr=fake"
+
+
+def test_a_default_run_label_no_header_can_carry_says_to_set_one(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    other = {"type": "reranker", "backend": "fake", "source_id": "org/fr"}
+
+    with pytest.raises(ValidationError, match="set RAG_RUN_LABEL"):
+        settings_factory(components={"re ranker": other})
 
 
 def test_settings_reject_a_bad_run_label(
@@ -136,20 +214,14 @@ def test_settings_reject_a_bad_run_label(
         settings_factory(run_label="two words")
 
 
-def test_settings_reject_unknown_topology(
-    settings_factory: Callable[..., RagSettings],
-) -> None:
-    with pytest.raises(ValidationError, match="split-reranker-fastapi"):
-        settings_factory(topology="split-reranker-fastapi")
-
-
 def test_settings_field_set_is_pinned() -> None:
     # Experiments should vary the topology, not grow knobs: adding a field is a
     # decision. Every component, the vector store too, is the workflow file's
     # components block, each with its blocks of settings; the retrieval mode,
     # the sizes and the prompts are settings of the stages of its graph; what
     # the components share is four blocks named after what they are about. Only
-    # the topology, the run label and Domino's own run variables stay flat.
+    # the topology alias and the run label, two labels, and Domino's own run
+    # variables stay flat.
     assert sorted(RagSettings.model_fields) == [
         "calibration",
         "components",
@@ -160,7 +232,7 @@ def test_settings_field_set_is_pinned() -> None:
         "http",
         "local_models",
         "run_label",
-        "topology",
+        "topology_alias",
     ]
 
 

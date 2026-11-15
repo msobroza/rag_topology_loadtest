@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from rag_load_test.loadtest.target_record import (
+    TargetPair,
     TargetRecord,
     TargetSighting,
     read_target_record,
@@ -27,7 +28,8 @@ TOPOLOGY, RUN_LABEL = "X-RAG-Topology", "X-RAG-Run-Label"
     [
         ({TOPOLOGY: "monolith", RUN_LABEL: "mono-a"}, ("monolith", "mono-a")),
         ({TOPOLOGY: "monolith"}, ("monolith", "")),
-        ({RUN_LABEL: "mono-a"}, ("", "mono-a")),
+        # A workflow app given no topology alias reports none: None, not a name.
+        ({RUN_LABEL: "mono-a"}, (None, "mono-a")),
         # Neither header: not the workflow app answering (a proxy's error page, a
         # model server, a connection error), so there is nothing to count.
         ({"Content-Type": "text/html"}, None),
@@ -36,7 +38,7 @@ TOPOLOGY, RUN_LABEL = "X-RAG-Topology", "X-RAG-Run-Label"
     ],
 )
 def test_target_pair(
-    headers: dict[str, str] | None, expected: tuple[str, str] | None
+    headers: dict[str, str] | None, expected: TargetPair | None
 ) -> None:
     assert target_pair(headers) == expected
 
@@ -58,6 +60,23 @@ def test_write_target_record_puts_most_responses_first(tmp_path: Path) -> None:
             {"topology": "monolith", "run_label": "b", "responses": 5},
         ],
     }
+
+
+def test_a_target_that_reported_no_topology_is_recorded_with_none(
+    tmp_path: Path,
+) -> None:
+    # A local run (no alias) beside a deployed one, the tie ordered no alias first.
+    counts = Counter({("monolith", "m"): 4, (None, "embedder=local"): 4})
+    write_target_record(str(tmp_path / "mixed"), "rag", counts)
+
+    path = tmp_path / "mixed_target.json"
+    assert _read_json(path)["seen"] == [
+        {"topology": None, "run_label": "embedder=local", "responses": 4},
+        {"topology": "monolith", "run_label": "m", "responses": 4},
+    ]
+    record = read_target_record(path)
+    assert record is not None
+    assert [s.topology for s in record.seen] == [None, "monolith"]
 
 
 @pytest.mark.parametrize("target", ["rerank", "embeddings"])

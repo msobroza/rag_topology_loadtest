@@ -17,10 +17,11 @@
 # installed: the prebuilt `rag` / `ovms` images already have it all.
 #
 # The workflow app reads everything else from its own variables: each component's
-# backend and served URL (rag-deploy sets them, and RAG_TOPOLOGY, passed through
-# untouched) and, on Domino, calls each served component with the run token. The
-# in-process models export themselves into RAG_LOCAL_MODELS__OPENVINO_DIR on their first
-# start (RAG_LOCAL_MODELS__RUNTIME=openvino).
+# backend and served URL, and RAG_TOPOLOGY_ALIAS, only a label (rag-deploy sets
+# them all; passed through untouched), and, on Domino, calls each served
+# component with the run token. The in-process models export themselves into
+# RAG_LOCAL_MODELS__OPENVINO_DIR on their first start
+# (RAG_LOCAL_MODELS__RUNTIME=openvino).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
