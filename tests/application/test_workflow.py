@@ -1,65 +1,73 @@
-"""Workflow tests: the graph over fake ports and the prompt helpers."""
+"""The RAG graph, built from the settings' description over fake ports, and the prompts."""
 
 from __future__ import annotations
 
 import dataclasses
 import re
-from collections.abc import Sequence
+from collections.abc import Callable
 from typing import Any
 
 import pytest
-from langchain_core.callbacks import AsyncCallbackHandler
 
-from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
-from rag_load_test.adapters.reranker.base_reranker import BaseReranker
 from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
-from rag_load_test.adapters.vector_store.base_vector_store import (
-    BaseLexicalSearch,
-    BaseVectorStore,
-)
 from rag_load_test.application.rag_dependencies import RagDependencies
-from rag_load_test.application.workflow import (
-    RagWorkflow,
-    merge_timings,
-    required_lexical_search,
-)
+from rag_load_test.application.workflow import CompiledWorkflow
+from rag_load_test.application.workflow_builder import build_workflow
+from rag_load_test.application.workflow_state import initial_state
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
-from rag_load_test.domain.passages import STAGES, Passage, ScoredPassage
+from rag_load_test.domain.passages import STAGES
 from rag_load_test.domain.prompts import RagPrompts
-from rag_load_test.domain.workflow_parameters import WorkflowParameters
+from workflow_fakes import (
+    ChainNameRecorder,
+    DenseOnlyStore,
+    RecordingEmbedder,
+    RecordingReranker,
+    ScriptedStore,
+    scored,
+)
 
 VACATION_QUESTION = synthetic_questions(1)[0]
 TIMING_KEYS = {*STAGES, "total"}
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
-
-
-def workflow_parameters(**overrides: object) -> WorkflowParameters:
-    """Dense retrieval of 20, 10 kept; ``overrides`` win."""
-    values: dict[str, object] = {
-        "top_k_retrieve": 20,
-        "top_k_rerank": 10,
-        "prompts": RagPrompts(system="s", user="{question} {context}"),
-        "retrieval_mode": "dense",
-        "rrf_k": 60,
-    }
-    return WorkflowParameters(**{**values, **overrides})  # type: ignore[arg-type]
+FAKE_BACKENDS = {
+    "embedding_backend": "fake",
+    "rerank_backend": "fake",
+    "generation_backend": "fake",
+    "vector_store_backend": "fake",
+}
+WorkflowFor = Callable[..., CompiledWorkflow]
 
 
 @pytest.fixture
-def parameters(fake_settings: RagSettings) -> WorkflowParameters:
-    """The default sizes and the packaged prompts."""
-    return fake_settings.workflow_parameters()
+def workflow_for(
+    settings_factory: Callable[..., RagSettings],
+) -> WorkflowFor:
+    """The RAG graph of all-fake settings with ``overrides``, over ``deps``."""
+
+    def make(deps: RagDependencies, **overrides: object) -> CompiledWorkflow:
+        graph = settings_factory(**FAKE_BACKENDS, **overrides).workflow_graph()
+        return build_workflow(graph, deps.components())
+
+    return make
+
+
+def scripted_deps(
+    fake_deps: RagDependencies, store: ScriptedStore, embedder: RecordingEmbedder
+) -> RagDependencies:
+    return dataclasses.replace(
+        fake_deps, vector_store=store, embedder=embedder, reranker=NoReranker()
+    )
 
 
 # --- the graph ----------------------------------------------------------------
 
 
 async def test_query_mode_answers_from_reranked_passages(
-    fake_deps: RagDependencies, parameters: WorkflowParameters
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    result = await RagWorkflow(fake_deps, parameters).run(VACATION_QUESTION)
+    result = await workflow_for(fake_deps).run(VACATION_QUESTION)
 
     assert result.question == VACATION_QUESTION
     assert result.mode == "query"
@@ -72,9 +80,9 @@ async def test_query_mode_answers_from_reranked_passages(
 
 
 async def test_query_mode_times_every_stage(
-    fake_deps: RagDependencies, parameters: WorkflowParameters
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    result = await RagWorkflow(fake_deps, parameters).run(VACATION_QUESTION)
+    result = await workflow_for(fake_deps).run(VACATION_QUESTION)
 
     assert set(result.timings_ms) == TIMING_KEYS
     assert result.timings_ms["total"] > 0
@@ -82,9 +90,9 @@ async def test_query_mode_times_every_stage(
 
 
 async def test_vacation_question_retrieves_vacation_policy(
-    fake_deps: RagDependencies, parameters: WorkflowParameters
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    result = await RagWorkflow(fake_deps, parameters).run(VACATION_QUESTION)
+    result = await workflow_for(fake_deps).run(VACATION_QUESTION)
 
     topics = [p.metadata["topic"] for p in result.passages]
     # One seeded document in ten is a vacation policy; they outrank every other topic.
@@ -92,10 +100,9 @@ async def test_vacation_question_retrieves_vacation_policy(
 
 
 async def test_retrieve_mode_skips_generation(
-    fake_deps: RagDependencies, parameters: WorkflowParameters
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    workflow = RagWorkflow(fake_deps, parameters)
-    result = await workflow.run(VACATION_QUESTION, mode="retrieve")
+    result = await workflow_for(fake_deps).run(VACATION_QUESTION, mode="retrieve")
 
     assert isinstance(fake_deps.llm, FakeLLM)
     assert fake_deps.llm.calls == 0
@@ -107,11 +114,10 @@ async def test_retrieve_mode_skips_generation(
 
 
 async def test_no_reranker_keeps_retrieval_order(
-    fake_deps: RagDependencies, parameters: WorkflowParameters
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     deps = dataclasses.replace(fake_deps, reranker=NoReranker())
-    workflow = RagWorkflow(deps, parameters)
-    result = await workflow.run(VACATION_QUESTION, mode="retrieve")
+    result = await workflow_for(deps).run(VACATION_QUESTION, mode="retrieve")
 
     vector = await deps.embedder.embed_query(VACATION_QUESTION)
     expected = await deps.vector_store.query(vector, DEFAULT_TOP_K_RETRIEVE)
@@ -120,14 +126,19 @@ async def test_no_reranker_keeps_retrieval_order(
     assert all(p.rerank_score is None for p in result.passages)
 
 
-async def test_non_default_parameters_size_retrieval_rerank_and_prompt(
-    fake_deps: RagDependencies,
+async def test_non_default_settings_size_retrieval_rerank_and_prompt(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     deps = dataclasses.replace(fake_deps, reranker=NoReranker())
-    prompts = RagPrompts(system="s", user="ASK {question} USING {context}")
-    parameters = workflow_parameters(top_k_retrieve=3, top_k_rerank=2, prompts=prompts)
+    workflow = workflow_for(
+        deps,
+        top_k_retrieve=3,
+        top_k_rerank=2,
+        system_prompt="s",
+        user_prompt="ASK {question} USING {context}",
+    )
 
-    result = await RagWorkflow(deps, parameters).run("vacation days")
+    result = await workflow.run("vacation days")
 
     assert len(result.passages) == 2
     assert result.answer is not None
@@ -135,140 +146,56 @@ async def test_non_default_parameters_size_retrieval_rerank_and_prompt(
     assert result.answer.startswith("[fake-llm] ASK vacation days USING [1] ")
 
 
-class RecordingReranker(BaseReranker):
-    """Keeps retrieval order and records ``(candidates, top_n)`` per call."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[int, int]] = []
-
-    async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
-        self.calls.append((len(passages), top_n))
-        return list(passages[:top_n])
-
-    async def ready(self) -> tuple[bool, str]:
-        return True, "recording"
-
-
-async def test_the_reranker_gets_top_k_retrieve_candidates_and_top_k_rerank(
-    fake_deps: RagDependencies, parameters: WorkflowParameters
+async def test_the_reranker_gets_the_question_the_retrieve_size_and_its_own(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     reranker = RecordingReranker()
     deps = dataclasses.replace(fake_deps, reranker=reranker)
-    sized = dataclasses.replace(parameters, top_k_retrieve=7, top_k_rerank=4)
+    workflow = workflow_for(deps, top_k_retrieve=7, top_k_rerank=4)
 
-    await RagWorkflow(deps, sized).run(VACATION_QUESTION, mode="retrieve")
+    await workflow.run(VACATION_QUESTION, mode="retrieve")
 
-    assert reranker.calls == [(7, 4)]
+    assert reranker.calls == [(VACATION_QUESTION, 7, 4)]
 
 
-class ChainNameRecorder(AsyncCallbackHandler):
-    """Records the name each step of a run reports to a tracer when it starts."""
-
-    def __init__(self) -> None:
-        self.names: list[str | None] = []
-
-    async def on_chain_start(
-        self, serialized: dict[str, Any] | None, inputs: dict[str, Any], **kwargs: Any
-    ) -> None:
-        del serialized, inputs  # LangChain passes both; only the name is recorded
-        self.names.append(kwargs.get("name"))
+def test_the_components_are_the_four_ports_by_their_fixed_names(
+    fake_deps: RagDependencies,
+) -> None:
+    assert fake_deps.components() == {
+        "embedder": fake_deps.embedder,
+        "reranker": fake_deps.reranker,
+        "llm": fake_deps.llm,
+        "vector_store": fake_deps.vector_store,
+    }
 
 
 @pytest.mark.parametrize("mode", ["query", "retrieve"])
 async def test_every_step_of_the_graph_reaches_a_tracer_with_a_name(
-    fake_deps: RagDependencies, parameters: WorkflowParameters, mode: str
+    fake_deps: RagDependencies, workflow_for: WorkflowFor, mode: Any
 ) -> None:
     # LangGraph passes no serialized form and names a step after its function,
     # except a lambda; MLflow's LangChain autolog (Domino tracing) then failed
     # on the unnamed step: "'NoneType' object has no attribute 'get'".
     recorder = ChainNameRecorder()
-    state = {"question": VACATION_QUESTION, "mode": mode, "timings_ms": {}}
 
-    graph = RagWorkflow(fake_deps, parameters).graph
-    await graph.ainvoke(state, {"callbacks": [recorder]})
+    graph = workflow_for(fake_deps).graph
+    await graph.ainvoke(
+        initial_state(VACATION_QUESTION, mode), {"callbacks": [recorder]}
+    )
 
     assert None not in recorder.names, recorder.names
-    assert "route_after_rerank" in recorder.names
-
-
-# --- prompt helpers ----------------------------------------------------------------
+    assert "is_query_mode" in recorder.names  # the edge condition keeps its name
 
 
 # --- retrieval modes -------------------------------------------------------------
 
 
-class RecordingEmbedder(BaseEmbedder):
-    """Answers a fixed vector and records every query and passage it embedded."""
-
-    model_name = "recording-embedder"
-
-    def __init__(self) -> None:
-        self.queries: list[str] = []
-        self.passages: list[str] = []
-
-    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        self.passages.extend(texts)
-        return [[1.0, 0.0] for _ in texts]
-
-    async def embed_query(self, text: str) -> list[float]:
-        self.queries.append(text)
-        return [1.0, 0.0]
-
-    async def ready(self) -> tuple[bool, str]:
-        return True, self.model_name
-
-
-class ScriptedStore(BaseVectorStore, BaseLexicalSearch):
-    """Answers one fixed ranking per kind of query and records the calls."""
-
-    def __init__(self, dense: Sequence[str], lexical: Sequence[str]) -> None:
-        self.dense, self.lexical = list(dense), list(lexical)
-        self.calls: list[tuple[str, object, int]] = []
-
-    async def upsert(
-        self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
-    ) -> None:
-        raise AssertionError("the workflow never writes to the store")
-
-    async def query(
-        self, embedding: Sequence[float], top_k: int
-    ) -> list[ScoredPassage]:
-        self.calls.append(("dense", list(embedding), top_k))
-        return [_passage(pid, pid) for pid in self.dense[:top_k]]
-
-    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
-        self.calls.append(("lexical", text, top_k))
-        return [_passage(pid, pid) for pid in self.lexical[:top_k]]
-
-    async def count(self) -> int:
-        return len({*self.dense, *self.lexical})
-
-    async def ready(self) -> tuple[bool, str]:
-        return True, "scripted"
-
-
-def scripted_deps(
-    fake_deps: RagDependencies, store: ScriptedStore, embedder: RecordingEmbedder
-) -> RagDependencies:
-    return dataclasses.replace(
-        fake_deps,
-        vector_store=store,
-        lexical_search=store,
-        embedder=embedder,
-        reranker=NoReranker(),
-    )
-
-
 async def test_dense_mode_asks_the_store_by_vector_only(
-    fake_deps: RagDependencies,
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     store, embedder = ScriptedStore(["a", "b"], ["z"]), RecordingEmbedder()
-    workflow = RagWorkflow(
-        scripted_deps(fake_deps, store, embedder),
-        workflow_parameters(top_k_retrieve=2, top_k_rerank=2),
-    )
+    deps = scripted_deps(fake_deps, store, embedder)
+    workflow = workflow_for(deps, top_k_retrieve=2, top_k_rerank=2)
 
     result = await workflow.run("vacation days", mode="retrieve")
 
@@ -277,12 +204,12 @@ async def test_dense_mode_asks_the_store_by_vector_only(
 
 
 async def test_lexical_mode_skips_the_embed_stage_and_asks_by_words(
-    fake_deps: RagDependencies,
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     store, embedder = ScriptedStore(["a"], ["z", "y"]), RecordingEmbedder()
-    workflow = RagWorkflow(
-        scripted_deps(fake_deps, store, embedder),
-        workflow_parameters(retrieval_mode="lexical", top_k_retrieve=2, top_k_rerank=2),
+    deps = scripted_deps(fake_deps, store, embedder)
+    workflow = workflow_for(
+        deps, retrieval_mode="lexical", top_k_retrieve=2, top_k_rerank=2
     )
 
     result = await workflow.run("vacation days", mode="retrieve")
@@ -295,12 +222,12 @@ async def test_lexical_mode_skips_the_embed_stage_and_asks_by_words(
 
 
 async def test_hybrid_mode_asks_both_ways_and_fuses_by_rank(
-    fake_deps: RagDependencies,
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     store, embedder = ScriptedStore(["a", "b", "c"], ["b", "d"]), RecordingEmbedder()
-    workflow = RagWorkflow(
-        scripted_deps(fake_deps, store, embedder),
-        workflow_parameters(retrieval_mode="hybrid", top_k_retrieve=3, top_k_rerank=3),
+    deps = scripted_deps(fake_deps, store, embedder)
+    workflow = workflow_for(
+        deps, retrieval_mode="hybrid", top_k_retrieve=3, top_k_rerank=3
     )
 
     result = await workflow.run("vacation days", mode="retrieve")
@@ -314,12 +241,11 @@ async def test_hybrid_mode_asks_both_ways_and_fuses_by_rank(
 
 
 async def test_the_embed_stage_embeds_the_question_as_a_query(
-    fake_deps: RagDependencies,
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     store, embedder = ScriptedStore(["a"], ["a"]), RecordingEmbedder()
-    workflow = RagWorkflow(
-        scripted_deps(fake_deps, store, embedder),
-        workflow_parameters(retrieval_mode="hybrid"),
+    workflow = workflow_for(
+        scripted_deps(fake_deps, store, embedder), retrieval_mode="hybrid"
     )
 
     result = await workflow.run("vacation days", mode="retrieve")
@@ -333,9 +259,9 @@ async def test_the_embed_stage_embeds_the_question_as_a_query(
 
 @pytest.mark.parametrize("mode", ["dense", "lexical", "hybrid"])
 async def test_every_retrieval_mode_answers_over_the_fake_store(
-    fake_deps: RagDependencies, mode: str
+    fake_deps: RagDependencies, workflow_for: WorkflowFor, mode: str
 ) -> None:
-    workflow = RagWorkflow(fake_deps, workflow_parameters(retrieval_mode=mode))
+    workflow = workflow_for(fake_deps, retrieval_mode=mode)
 
     result = await workflow.run("How many vacation days do employees accrue?")
 
@@ -344,13 +270,30 @@ async def test_every_retrieval_mode_answers_over_the_fake_store(
     assert result.answer is not None
 
 
-def _passage(passage_id: str, text: str) -> ScoredPassage:
-    return ScoredPassage(id=passage_id, text=text, retrieval_score=1.0)
+@pytest.mark.parametrize("mode", ["lexical", "hybrid"])
+def test_a_text_ranking_mode_over_a_store_that_ranks_no_text_is_refused_when_built(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor, mode: str
+) -> None:
+    deps = dataclasses.replace(fake_deps, vector_store=DenseOnlyStore())
+
+    with pytest.raises(ValueError, match=f"retrieval_mode='{mode}'.*ranks no text"):
+        workflow_for(deps, retrieval_mode=mode)
+
+
+def test_dense_mode_needs_no_store_that_ranks_text(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
+) -> None:
+    deps = dataclasses.replace(fake_deps, vector_store=DenseOnlyStore())
+
+    workflow_for(deps, retrieval_mode="dense")  # no error
+
+
+# --- prompt helpers ----------------------------------------------------------------
 
 
 def test_rag_prompts_number_the_passages_into_the_user_template() -> None:
     prompts = RagPrompts(system="Be brief.", user="C:\n{context}\nQ: {question}")
-    passages = [_passage("a", "Alpha text."), _passage("b", "Beta text.")]
+    passages = [scored("a", "Alpha text."), scored("b", "Beta text.")]
 
     messages = prompts.messages("What is alpha?", passages)
 
@@ -397,39 +340,6 @@ def test_rag_prompts_reject_a_brace_they_cannot_fill_when_built(user: str) -> No
 def test_rag_prompts_keep_braces_of_the_question_and_passages_as_they_are() -> None:
     prompts = RagPrompts(system="s", user='{context}|{question}|{{"k": 1}}')
 
-    messages = prompts.messages("what is {x}?", [_passage("a", "set {y} to 1")])
+    messages = prompts.messages("what is {x}?", [scored("a", "set {y} to 1")])
 
     assert messages[1]["content"] == '[1] set {y} to 1|what is {x}?|{"k": 1}'
-
-
-def test_merge_timings_merges_dicts_right_wins() -> None:
-    assert merge_timings({"embed": 1.0}, {"retrieve": 2.0}) == {
-        "embed": 1.0,
-        "retrieve": 2.0,
-    }
-    assert merge_timings({"embed": 1.0}, {"embed": 3.0}) == {"embed": 3.0}
-    assert merge_timings({}, {}) == {}
-
-
-@pytest.mark.parametrize("mode", ["lexical", "hybrid"])
-def test_a_text_ranking_mode_without_a_lexical_search_is_refused_at_construction(
-    fake_deps: RagDependencies, mode: str
-) -> None:
-    deps = dataclasses.replace(fake_deps, lexical_search=None)
-
-    with pytest.raises(ValueError, match=f"retrieval_mode='{mode}'.*ranks no text"):
-        RagWorkflow(deps, workflow_parameters(retrieval_mode=mode))
-
-
-def test_dense_mode_needs_no_lexical_search(fake_deps: RagDependencies) -> None:
-    deps = dataclasses.replace(fake_deps, lexical_search=None)
-
-    RagWorkflow(deps, workflow_parameters(retrieval_mode="dense"))  # no error
-
-
-def test_required_lexical_search_hands_back_the_search_it_is_given() -> None:
-    store = ScriptedStore([], [])
-
-    assert required_lexical_search(store, "hybrid") is store
-    with pytest.raises(ValueError, match="RAG_VECTOR_STORE_BACKEND=elasticsearch"):
-        required_lexical_search(None, "lexical")

@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ..application.rag_dependencies import RagDependencies
-from ..application.workflow import RagWorkflow
+from ..application.workflow_builder import build_workflow
 from ..composition.composition_root import CompositionRoot
 from ..config.domino_rules import apply_domino_rules
 from ..config.rag_settings import RagSettings
@@ -177,10 +177,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with composition:
         deps = await composition.workflow_dependencies()
         app.state.deps = deps
-        app.state.run = traced(
-            RagWorkflow(deps, settings.workflow_parameters()).run,
-            enabled=settings.domino_tracing,
-        )
+        workflow = build_workflow(settings.workflow_graph(), deps.components())
+        app.state.run = traced(workflow.run, enabled=settings.domino_tracing)
         log_json(
             event="rag_startup",
             topology=settings.topology,

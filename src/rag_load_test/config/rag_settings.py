@@ -42,17 +42,14 @@ from ..domain.backends import (
     RerankBackend,
     VectorStoreBackend,
 )
+from ..domain.graph_description import END, START, GraphDescription
 from ..domain.prompts import RagPrompts
+from ..domain.retrieval_mode import DEFAULT_RETRIEVAL_MODE, RetrievalMode
 from ..domain.run_label import default_run_label, validate_run_label
 from ..domain.topology import (
     Topology,
     resolve_embedding_backend,
     resolve_rerank_backend,
-)
-from ..domain.workflow_parameters import (
-    DEFAULT_RETRIEVAL_MODE,
-    RetrievalMode,
-    WorkflowParameters,
 )
 from .prompts_source import prompts_path, prompts_source
 
@@ -274,7 +271,7 @@ class RagSettings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def check_workflow_parameters(self) -> RagSettings:
+    def check_stage_sizes_and_prompts(self) -> RagSettings:
         """Fail at start-up, not on the first query, on bad sizes or prompts.
 
         ``RagPrompts`` checks the user template and raises its own ``ValueError``.
@@ -292,7 +289,8 @@ class RagSettings(BaseSettings):
                 f"RAG_TOP_K_RETRIEVE={self.top_k_retrieve}: the reranker can keep "
                 "at most the candidates retrieval returns"
             )
-        self.workflow_parameters()  # RagPrompts checks the user template
+        # Built for its check of the user template, as the generate stage builds it.
+        RagPrompts(system=self.system_prompt, user=self.user_prompt)
         return self
 
     @model_validator(mode="after")
@@ -346,23 +344,57 @@ class RagSettings(BaseSettings):
             return str(alias.choices[0])
         return str(cls.model_config.get("env_prefix", "")) + field.upper()
 
-    def workflow_parameters(self) -> WorkflowParameters:
-        """Build what ``RagWorkflow`` runs with: retrieval mode, sizes and prompts.
+    def workflow_graph(self) -> GraphDescription:
+        """Describe the RAG graph these settings run: its stages and their edges.
+
+        embed, retrieve, rerank and generate, each calling one of the four
+        components, then generate or the end after rerank, by the request's
+        mode. A lexical retrieval computes no vector, so its graph has no embed
+        stage and starts at retrieve.
 
         Returns:
-            The workflow parameters from the retrieval settings and the two
-            prompts.
+            The graph description, the retrieval settings, sizes and prompts on
+            the stages that use them.
 
         Example:
-            >>> RagWorkflow(deps, RagSettings().workflow_parameters())
+            >>> build_workflow(RagSettings().workflow_graph(), deps.components())
         """
-        return WorkflowParameters(
-            top_k_retrieve=self.top_k_retrieve,
-            top_k_rerank=self.top_k_rerank,
-            prompts=RagPrompts(system=self.system_prompt, user=self.user_prompt),
-            retrieval_mode=self.retrieval_mode,
-            rrf_k=self.hybrid_rrf_k,
+        stages = self._rag_stages()
+        searched = ["embed", "retrieve", "rerank"]
+        if self.retrieval_mode == "lexical":  # no vector to compute
+            del stages["embed"]
+            searched.remove("embed")
+        return GraphDescription.model_validate(
+            {
+                "stages": stages,
+                "edges": [[START, *searched], ["generate", END]],
+                "conditional_edges": [
+                    {
+                        "source": "rerank",
+                        "path": "is_query_mode",
+                        "path_map": {True: "generate", False: END},
+                    }
+                ],
+            }
         )
+
+    def _rag_stages(self) -> dict[str, dict[str, object]]:
+        # Each stage of the RAG: the component it calls and its own settings.
+        return {
+            "embed": {"call": "embedder"},
+            "retrieve": {
+                "call": "vector_store",
+                "retrieval_mode": self.retrieval_mode,
+                "top_k": self.top_k_retrieve,
+                "rrf_k": self.hybrid_rrf_k,
+            },
+            "rerank": {"call": "reranker", "top_k": self.top_k_rerank},
+            "generate": {
+                "call": "llm",
+                "system_prompt": self.system_prompt,
+                "user_prompt": self.user_prompt,
+            },
+        }
 
     def embedding_api(self) -> ApiEndpoint:
         """Return the embedding endpoint, from the four ``embedding_api_*`` fields.

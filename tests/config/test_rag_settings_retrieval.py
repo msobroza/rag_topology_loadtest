@@ -119,14 +119,25 @@ def test_the_temperature_may_be_anything_the_generation_api_accepts(
 # --- retrieval -------------------------------------------------------------------
 
 
-def test_workflow_parameters_carry_the_retrieval_mode_and_the_fusion_constant(
+def test_the_retrieve_stage_carries_the_retrieval_mode_and_the_fusion_constant(
     settings_factory: SettingsFactory,
 ) -> None:
-    parameters = settings_factory(
-        retrieval_mode="hybrid", hybrid_rrf_k=10
-    ).workflow_parameters()
+    graph = settings_factory(retrieval_mode="hybrid", hybrid_rrf_k=10).workflow_graph()
 
-    assert (parameters.retrieval_mode, parameters.rrf_k) == ("hybrid", 10)
+    retrieve = graph.stages["retrieve"].stage_settings
+    assert (retrieve["retrieval_mode"], retrieve["rrf_k"]) == ("hybrid", 10)
+    assert "embed" in graph.stages
+
+
+def test_the_lexical_graph_has_no_embed_stage_and_starts_at_retrieve(
+    settings_factory: SettingsFactory,
+) -> None:
+    graph = settings_factory(
+        retrieval_mode="lexical", vector_store_backend="fake"
+    ).workflow_graph()
+
+    assert list(graph.stages) == ["retrieve", "rerank", "generate"]
+    assert graph.edges[0] == ["START", "retrieve", "rerank"]
 
 
 def test_the_retrieval_mode_and_the_store_name_the_run(

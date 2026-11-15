@@ -38,17 +38,31 @@ flowchart LR
     G --> Z
 ```
 
-Each node is timed; responses carry `timings_ms{embed,retrieve,rerank,generate,total}`
-and Locust turns those into per-stage statistics. `RagWorkflow(deps, parameters)`
-takes the four ports and one `WorkflowParameters` (retrieval mode, both top-k
-sizes and the prompts), built by `RagSettings.workflow_parameters()`. The embed
-stage embeds the question with `BaseEmbedder.embed_query`, and the embedder puts
-its model's query prefix in front; passages are embedded with
-`embed_documents`, as they are. The prompts live in
-`src/rag_load_test/config/prompts.yaml`. With `RAG_RETRIEVAL_MODE=lexical` the
-graph starts at retrieve: no vector is computed and `embed` is 0 ms. Lexical and
-hybrid retrieval also take a `BaseLexicalSearch`, which only a store that ranks
-text provides.
+Each stage is timed; responses carry `timings_ms{embed,retrieve,rerank,generate,total}`
+and Locust turns those into per-stage statistics. The graph is not wired by
+hand: `build_workflow(graph, components)` builds it from a description of its
+stages, its edges and its conditional edges (`domain/graph_description.py`,
+shaped as the workflow file's `graph` block of ADR 0004). Each stage is an
+instance of a registered stage type (`embed`, `retrieve`, `rerank`, `generate`)
+and names the component it calls (`embedder`, `vector_store`, `reranker`,
+`llm`); plain edges are chains between the reserved `START` and `END`; the
+branch after rerank is a conditional edge asking the registered edge condition
+`is_query_mode`. Until the workflow file lands, `RagSettings.workflow_graph()`
+writes that description from the `RAG_*` variables, so nothing changes for a
+user.
+
+The request's question becomes both the conversational query and the
+standalone query of the workflow state, and the history is empty. The stages
+that search (embed, retrieve, rerank) read the standalone query; generate
+answers the conversational one, what the user asked. The embed stage embeds it
+with `BaseEmbedder.embed_query`, and the embedder puts its model's query prefix
+in front; passages are embedded with `embed_documents`, as they are. The prompts
+live in `src/rag_load_test/config/prompts.yaml` and are settings of the generate
+stage. With `RAG_RETRIEVAL_MODE=lexical` the graph has no embed stage and starts
+at retrieve: no vector is computed and `embed` is 0 ms. Lexical and hybrid
+retrieval also need the store's `BaseLexicalSearch`, which only a store that
+ranks text provides; the retrieve stage refuses any other when the graph is
+built, at start-up.
 
 ## Code layout
 
@@ -112,10 +126,16 @@ The tree is three applications over one shared domain. The domain
    the package that holds the entries imports all of its modules from its
    `__init__.py` (`import_package_modules`), so a new entry is one new module
    and no table is edited. The registry is in `domain/` because every package
-   that registers something may import the domain. The one kind of entry today
-   is an API format: each component's `api/` directory holds its formats, one
-   module each, and its registry sits beside the formats' base class
-   (`RERANK_API_FORMATS` in `base_rerank_api_format.py`).
+   that registers something may import the domain. Three kinds of entry today:
+   an API format (each component's `api/` directory holds its formats, one
+   module each, and its registry sits beside the formats' base class:
+   `RERANK_API_FORMATS` in `base_rerank_api_format.py`), a stage type
+   (`application/stages/`, one module each, `STAGE_TYPES` in `base_stage.py`)
+   and an edge condition (`application/edge_conditions/`, one module each,
+   `EDGE_CONDITIONS` in `edge_condition.py`). A stage type and an edge
+   condition call only ports, so they are in the application; the description
+   of a graph is in the domain, which both the settings that write it and the
+   application that builds it may import.
 7. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
 
@@ -138,7 +158,8 @@ src/rag_load_test/
     errors.py       RagDependencyError, describe_error
     registry.py     Registry: named things of one sort, filled by a decorator (rule 6); import_package_modules
     prompts.py      RagPrompts: system prompt + user template -> chat messages
-    workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes and prompts for one workflow
+    graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
+    retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
@@ -148,8 +169,19 @@ src/rag_load_test/
     roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
-    rag_dependencies.py  RagDependencies: one open port of each kind, what a workflow run needs
-    workflow.py     RagWorkflow (LangGraph graph with timed nodes)
+    rag_dependencies.py  RagDependencies: one open port of each kind, and the components by the names a stage calls them
+    workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings
+    workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
+    workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out
+    stages/         the stage types (rule 6); importing it imports every module, so each registers itself
+      base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, STAGE_TYPES
+      embed_stage.py  EmbedStage: the standalone query's vector, from the embedder
+      retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
+      rerank_stage.py  RerankStage: the candidates the reranker scores best
+      generate_stage.py  GenerateStage: the answer to the conversational query, from the LLM
+    edge_conditions/  the edge conditions (rule 6); importing it imports every module
+      edge_condition.py  EdgeCondition: a function of the workflow state that returns a bool; EDGE_CONDITIONS
+      is_query_mode.py  is_query_mode: whether the request goes on to generate
     ingest.py       embed passages in batches and upsert them
   config/           the settings; imports domain only
     rag_settings.py RagSettings: every RAG_* variable and tunable (pydantic-settings, .env and YAML aware)

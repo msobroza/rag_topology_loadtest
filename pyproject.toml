@@ -186,6 +186,7 @@ ignore_decorators = [
     "@model_validator", "@field_validator",  # pydantic
     "@pytest.fixture",  # pytest, by parameter name
     "@task", "@events.*",  # Locust
+    "@*EDGE_CONDITIONS.register",  # LangGraph calls an edge condition by its registry
 ]
 ignore_names = [
     "model_config",  # pydantic reads it off every model class

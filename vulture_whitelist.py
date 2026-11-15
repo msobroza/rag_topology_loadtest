@@ -21,11 +21,15 @@ handle_request
 # in tests/adapters/test_elasticsearch_store.py).
 bulk
 
-# LangGraph: a RagState key, written and read by the nodes as a string key.
+# LangGraph: WorkflowState keys, written and read by the stages as string keys
+# (history is written by every request and read by none yet).
+conversational_query
+standalone_query
+history
 query_embedding
 
 # LangChain: calls a callback handler's on_chain_start by name (ChainNameRecorder
-# in tests/application/test_workflow.py).
+# in tests/helpers/workflow_fakes.py).
 on_chain_start
 
 # pydantic: the wire field OpenAIEmbeddingsRequest.input, sent and read as JSON

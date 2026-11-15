@@ -14,8 +14,8 @@ from __future__ import annotations
 import re
 
 from .backends import DEFAULT_GENERATION_BACKEND, DEFAULT_VECTOR_STORE_BACKEND
+from .retrieval_mode import DEFAULT_RETRIEVAL_MODE
 from .topology import TOPOLOGY_BACKENDS, Topology
-from .workflow_parameters import DEFAULT_RETRIEVAL_MODE
 
 # Sent as the X-RAG-Run-Label header, so only header-safe characters.
 RUN_LABEL_PATTERN = re.compile(r"[A-Za-z0-9._+=:-]{1,128}")

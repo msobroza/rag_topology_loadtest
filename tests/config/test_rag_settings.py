@@ -9,8 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.prompts import RagPrompts
-from rag_load_test.domain.workflow_parameters import WorkflowParameters
 
 SettingsFactory = Callable[..., RagSettings]
 SYSTEM_PROMPT = (
@@ -92,20 +90,40 @@ def test_counts_below_one_are_rejected(
         settings_factory(**{field: 0})
 
 
-def test_workflow_parameters_carry_the_sizes_and_the_prompts(
+def test_the_workflow_graph_carries_the_sizes_and_the_prompts_on_their_stages(
     settings_factory: SettingsFactory,
 ) -> None:
-    parameters = settings_factory(
-        top_k_retrieve=8, top_k_rerank=2
-    ).workflow_parameters()
+    graph = settings_factory(top_k_retrieve=8, top_k_rerank=2).workflow_graph()
 
-    assert parameters == WorkflowParameters(
-        top_k_retrieve=8,
-        top_k_rerank=2,
-        prompts=RagPrompts(system=SYSTEM_PROMPT, user=USER_PROMPT),
-        retrieval_mode="dense",
-        rrf_k=60,
-    )
+    settings = {name: stage.stage_settings for name, stage in graph.stages.items()}
+    assert settings == {
+        "embed": {},
+        "retrieve": {"retrieval_mode": "dense", "top_k": 8, "rrf_k": 60},
+        "rerank": {"top_k": 2},
+        "generate": {"system_prompt": SYSTEM_PROMPT, "user_prompt": USER_PROMPT},
+    }
+    calls = {name: stage.call for name, stage in graph.stages.items()}
+    assert calls == {
+        "embed": "embedder",
+        "retrieve": "vector_store",
+        "rerank": "reranker",
+        "generate": "llm",
+    }
+
+
+def test_the_workflow_graph_is_todays_graph(settings_factory: SettingsFactory) -> None:
+    graph = settings_factory().workflow_graph()
+
+    assert graph.edge_pairs() == [
+        ("START", "embed"),
+        ("embed", "retrieve"),
+        ("retrieve", "rerank"),
+        ("generate", "END"),
+    ]
+    (branch,) = graph.conditional_edges
+    assert (branch.source, branch.path) == ("rerank", "is_query_mode")
+    assert branch.path_map == {True: "generate", False: "END"}
+    assert all(stage.type is None for stage in graph.stages.values())
 
 
 # --- prompts --------------------------------------------------------------------
