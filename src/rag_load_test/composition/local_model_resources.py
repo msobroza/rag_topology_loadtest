@@ -83,8 +83,11 @@ class LocalModelResources:
     async def thread_budget(self) -> ThreadBudget:
         """Return how the virtual CPUs are split, worked out on the first request.
 
+        A component's ``local`` block may pin its own thread count, which then
+        replaces its share: its opener applies it.
+
         Returns:
-            The workers and the threads of each model.
+            The workers and each model's share of threads.
 
         Example:
             >>> budget = await local_models.thread_budget()  # openvino, 8 CPUs
@@ -96,8 +99,8 @@ class LocalModelResources:
     async def unpinned_budget(self) -> UnpinnedBudget:
         """Return the CPUs and the budget's shares, whatever the thread settings say.
 
-        A pinned ``RAG_*_THREADS`` replaces its share in ``thread_budget``; the
-        tops of a calibration that revisits it are the shares themselves.
+        The tops of a calibration that revisits a pinned thread count are the
+        shares themselves.
 
         Returns:
             The CPUs counted and the budget planned from them alone.
@@ -166,8 +169,6 @@ class LocalModelResources:
             await self._cpu_counters(),
             max_workers=settings.model_workers,
             runtime=settings.local_model_runtime,
-            embedder_threads=settings.embedding_threads,
-            reranker_threads=settings.rerank_threads,
         )
 
     async def _cpu_counters(self) -> list[BaseCpuCounter]:

@@ -135,10 +135,10 @@ def _workflow_exports(
     # The settings take the full route; an App URL may end with a "/".
     if "reranker" in servers:
         reranker = _route(urls["reranker"], MODEL_SERVER_RERANK_PATH)
-        exports["RAG_RERANK_API_URL"] = reranker
+        exports["RAG_COMPONENTS__RERANKER__API__URL"] = reranker
     if "embedder" in servers:
         embeddings = _route(urls["embedder"], MODEL_SERVER_EMBEDDINGS_PATH)
-        exports["RAG_EMBEDDING_API_URL"] = embeddings
+        exports["RAG_COMPONENTS__EMBEDDER__API__URL"] = embeddings
     if "RAG_RUN_LABEL" not in app_settings:
         exports["RAG_RUN_LABEL"] = f"{topology}-{settings.model_server}"
     return exports

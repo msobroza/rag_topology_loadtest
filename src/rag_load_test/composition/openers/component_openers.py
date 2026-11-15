@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from ...adapters.embedder.base_embedder import BaseEmbedder
 from ...adapters.llm.base_llm import BaseLLM
@@ -52,7 +52,9 @@ class SharedResources:
     scope: ResourceScope  # closes what an opener registers on its exit stack
     http: HttpResources  # the shared HTTP client, policy and run tokens
     local_models: LocalModelResources  # the budget, pool, files and calibration
-    open_embedder: Opener[BaseEmbedder]  # the process's embedder, which seeds a store
+    # The embedder that fills the store (RagSettings.ingestion_embedder), which
+    # seeds a fake one.
+    open_embedder: Opener[BaseEmbedder]
 
 
 # Opens one component on one backend.
@@ -86,3 +88,13 @@ LLM_OPENERS: ComponentOpeners[LlmSettings, BaseLLM] = ComponentOpeners("llm")
 VECTOR_STORE_OPENERS: ComponentOpeners[VectorStoreSettings, BaseVectorStore] = (
     ComponentOpeners("vector_store")
 )
+# The openers of each component type, by the type a component's settings name.
+OPENERS_BY_TYPE: dict[str, ComponentOpeners[Any, Any]] = {
+    openers.component_type: openers
+    for openers in (
+        EMBEDDER_OPENERS,
+        RERANKER_OPENERS,
+        LLM_OPENERS,
+        VECTOR_STORE_OPENERS,
+    )
+}

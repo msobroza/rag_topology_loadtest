@@ -2,14 +2,16 @@
 
 ``locustfile.py`` builds one ``LoadTestSettings()`` at import, from the
 environment and ``.env``, as the RAG system's and the deploy tool's settings are
-read. Most variables are ``RAG_LOADTEST_*``. Two are the RAG system's own
-(``RAG_RERANK_API_MODEL``, ``RAG_EMBEDDING_API_MODEL``), and two were
+read. Most variables are ``RAG_LOADTEST_*``. Two are the RAG system's own, the
+aliases of its ``reranker`` and ``embedder`` components
+(``RAG_COMPONENTS__RERANKER__ALIAS``, ``RAG_COMPONENTS__EMBEDDER__ALIAS``),
+which default to the aliases the workflow file gives them, and two were
 (``RAG_TOP_K_RETRIEVE``, ``RAG_TOP_K_RERANK``, now the sizes of the workflow
 file's stages): a request sent to a model server directly carries what the
 workflow app would send, with the same defaults. ``DOMINO_API_KEY`` is Domino's.
 This is the one module of the load-test client that imports the config package,
-and only for the defaults of the two model names: it never builds the RAG
-system's settings.
+and only for the defaults of the two aliases: it reads them from the workflow
+file and never builds the RAG system's settings.
 
 Example:
     >>> LoadTestSettings().target  # "rag" unless RAG_LOADTEST_TARGET says otherwise
@@ -22,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     AliasChoices,
@@ -33,27 +35,11 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from ..config.rag_settings import RagSettings
+from ..config.workflow_file import declared_alias
 
 LoadTarget = Literal["rag", "rerank", "embeddings"]
 LOAD_TARGETS: tuple[LoadTarget, ...] = ("rag", "rerank", "embeddings")
 ENV_PREFIX = "RAG_LOADTEST_"
-
-
-def rag_default(field: str) -> Any:
-    """Return the RAG system's default for one of its settings, without building them.
-
-    Args:
-        field: The name of a ``RagSettings`` field.
-
-    Returns:
-        The default that field declares.
-
-    Example:
-        >>> rag_default("rerank_api_model")
-        'crossencoder-camembert-base-mmarcoFR'
-    """
-    return RagSettings.model_fields[field].default
 
 
 def _variable(name: str, field: str) -> AliasChoices:
@@ -106,13 +92,15 @@ class LoadTestSettings(BaseSettings):
         ge=1,
         validation_alias=_variable("RAG_TOP_K_RERANK", "top_k_rerank"),
     )
-    rerank_api_model: str = Field(
-        default=rag_default("rerank_api_model"),
-        validation_alias=_variable("RAG_RERANK_API_MODEL", "rerank_api_model"),
+    # The names a model server serves its model under, read from the workflow
+    # file when the settings are built.
+    reranker_alias: str = Field(
+        default_factory=lambda: declared_alias("reranker"),
+        validation_alias=_variable("RAG_COMPONENTS__RERANKER__ALIAS", "reranker_alias"),
     )
-    embedding_api_model: str = Field(
-        default=rag_default("embedding_api_model"),
-        validation_alias=_variable("RAG_EMBEDDING_API_MODEL", "embedding_api_model"),
+    embedder_alias: str = Field(
+        default_factory=lambda: declared_alias("embedder"),
+        validation_alias=_variable("RAG_COMPONENTS__EMBEDDER__ALIAS", "embedder_alias"),
     )
     # --- Domino auth: a bearer token wins over an API key ----------------------------
     bearer_token: str = ""

@@ -89,7 +89,7 @@ class BaseCalibratedStage(ABC, Generic[T]):
 
     @abstractmethod
     def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
-        """Return the environment variables that pin ``tuning`` for this stage.
+        """Return the settings of the component's ``local`` block that pin ``tuning``.
 
         Only the parameters calibration searches for this stage are named, so
         an App started with them calibrates nothing.
@@ -98,7 +98,8 @@ class BaseCalibratedStage(ABC, Generic[T]):
             tuning: The tuning to pin, usually a calibration's choice.
 
         Returns:
-            Variable name to value, as ``.env`` or ``deploy.yaml`` takes them.
+            Setting name in the ``local`` block to value, such as
+            ``{"threads": 2}``.
         """
 
 

@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from uvicorn.lifespan.on import LifespanOn
 
+from rag_components import settings_at_paths
 from rag_graphs import packaged_graph, rag_graph, write_workflow_file
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
@@ -32,9 +33,9 @@ from workflow_fakes import DenseOnlyStore
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
 FAKE_BACKENDS = {
-    "RAG_EMBEDDING_BACKEND": "fake",
-    "RAG_RERANK_BACKEND": "fake",
-    "RAG_GENERATION_BACKEND": "fake",
+    "RAG_COMPONENTS__EMBEDDER__BACKEND": "fake",
+    "RAG_COMPONENTS__RERANKER__BACKEND": "fake",
+    "RAG_COMPONENTS__LLM__BACKEND": "fake",
     "RAG_VECTOR_STORE_BACKEND": "fake",
 }
 STAGE_TYPES = "'embed', 'generate', 'rerank', 'retrieve'"
@@ -280,8 +281,10 @@ async def test_a_store_that_ranks_no_text_ends_the_start_up_in_one_line(
 ) -> None:
     settings = RagSettings(
         _env_file=None,  # type: ignore[call-arg]
-        **{name[4:].lower(): value for name, value in FAKE_BACKENDS.items()},
-        graph=rag_graph("lexical"),
+        **settings_at_paths(
+            **{name[4:].lower(): value for name, value in FAKE_BACKENDS.items()},
+            graph=rag_graph("lexical"),
+        ),
     )
     app = create_app(CompositionRoot(settings, vector_store=DenseOnlyStore(["a"])))
 

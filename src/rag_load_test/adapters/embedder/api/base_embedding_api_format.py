@@ -57,7 +57,7 @@ class BaseEmbeddingApiFormat(ABC):
         """
 
 
-# Every embeddings format by name; RAG_EMBEDDING_API_FORMAT names one.
+# Every embeddings format by name; an embedder's api.api_format names one.
 EMBEDDING_API_FORMATS: Registry[type[BaseEmbeddingApiFormat]] = Registry(
     "embedding API format"
 )

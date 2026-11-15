@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 import pytest
 
+from rag_components import FAKE_BACKENDS
 from rag_load_test.composition.registered_names import check_registered_names
 from rag_load_test.config.rag_settings import RagSettings
 
@@ -25,36 +26,72 @@ def test_the_default_names_are_all_registered(
 
 
 @pytest.mark.parametrize(
-    ("component", "known"),
-    [("embedding", "'openai'"), ("rerank", "'cohere'"), ("generation", "'openai'")],
+    ("component", "sort", "known"),
+    [
+        ("embedder", "embedding", "'openai'"),
+        ("reranker", "rerank", "'cohere'"),
+        ("llm", "generation", "'openai'"),
+    ],
 )
 def test_an_unknown_api_format_is_refused_whatever_the_backend(
-    fake_settings: RagSettings, component: str, known: str
+    settings_factory: SettingsFactory, component: str, sort: str, known: str
 ) -> None:
     # Every backend fake: the format is refused although nothing would call it,
     # as the settings refused it before the formats moved to a registry.
-    settings = fake_settings.model_copy(update={f"{component}_api_format": "jina"})
-    message = f"unknown {component} API format 'jina' (expected one of: {known})"
+    path = f"components__{component}__api__api_format"
+    settings = settings_factory(**FAKE_BACKENDS | {path: "jina"})
+    message = (
+        f"RAG_COMPONENTS__{component.upper()}__API__API_FORMAT: "
+        f"unknown {sort} API format 'jina' (expected one of: {known})"
+    )
 
     with pytest.raises(ValueError, match=re.escape(message)):
         check_registered_names(settings)
 
 
 @pytest.mark.parametrize(
-    ("field", "component_type", "known"),
+    ("component", "known"),
     [
-        ("embedding_backend", "embedder", "'api', 'fake', 'local'"),
-        ("rerank_backend", "reranker", "'api', 'fake', 'local', 'none'"),
-        ("generation_backend", "llm", "'api', 'fake'"),
-        ("vector_store_backend", "vector_store", "'chroma', 'elasticsearch', 'fake'"),
+        ("embedder", "'api', 'fake', 'local'"),
+        ("reranker", "'api', 'fake', 'local', 'none'"),
+        ("llm", "'api', 'fake'"),
     ],
 )
-def test_a_backend_without_an_opener_is_refused(
-    fake_settings: RagSettings, field: str, component_type: str, known: str
+def test_a_backend_without_an_opener_is_refused_naming_its_path(
+    settings_factory: SettingsFactory, component: str, known: str
+) -> None:
+    # The settings take any name: the registered openers are the backends.
+    path = f"components__{component}__backend"
+    settings = settings_factory(**FAKE_BACKENDS | {path: "gpu"})
+    message = (
+        f"RAG_COMPONENTS__{component.upper()}__BACKEND: "
+        f"unknown {component} backend 'gpu' (expected one of: {known})"
+    )
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        check_registered_names(settings)
+
+
+def test_a_component_of_any_name_is_checked_by_its_type(
+    settings_factory: SettingsFactory,
+) -> None:
+    coarse = {"type": "reranker", "backend": "gpu", "source_id": "org/coarse"}
+    settings = settings_factory(**FAKE_BACKENDS, components={"coarse": coarse})
+
+    with pytest.raises(ValueError, match="RAG_COMPONENTS__COARSE__BACKEND: unknown"):
+        check_registered_names(settings)
+
+
+def test_a_store_backend_without_an_opener_is_refused(
+    fake_settings: RagSettings,
 ) -> None:
     # model_copy keeps a name the flat settings would refuse themselves.
-    settings = fake_settings.model_copy(update={field: "gpu"})
-    message = f"unknown {component_type} backend 'gpu' (expected one of: {known})"
+    settings = fake_settings.model_copy(update={"vector_store_backend": "gpu"})
+    known = "'chroma', 'elasticsearch', 'fake'"
+    message = (
+        "RAG_VECTOR_STORE_BACKEND: unknown vector_store backend 'gpu' "
+        f"(expected one of: {known})"
+    )
 
     with pytest.raises(ValueError, match=re.escape(message)):
         check_registered_names(settings)

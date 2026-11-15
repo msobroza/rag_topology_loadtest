@@ -31,7 +31,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from ..application.component_types import declared_components
 from ..application.graph_check import WorkflowGraphError, check_graph
 from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
@@ -122,19 +121,14 @@ async def readiness(deps: RagDependencies) -> list[ReadyCheck]:
     ``/readyz`` never crashes.
 
     Args:
-        deps: The opened dependencies whose vector store, embedder and reranker
-            are probed.
+        deps: The opened components, whose vector stores, embedders and
+            rerankers are probed.
 
     Returns:
-        One check per dependency, in the order vector store, embedder, reranker.
+        One check per probed component, named after it, in the order opened.
     """
-    probes = (
-        ("vector_store", deps.vector_store.ready),
-        ("embedder", deps.embedder.ready),
-        ("reranker", deps.reranker.ready),
-    )
     checks = []
-    for name, probe in probes:
+    for name, probe in deps.ready_probes():
         try:
             ok, detail = await probe()
         except Exception as exc:  # /readyz reports failures, never crashes
@@ -243,8 +237,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             event="rag_startup",
             topology=settings.topology,
             run_label=settings.run_label,
-            embedder=deps.embedder.model_name,
-            llm=deps.llm.model_name,
+            models=deps.model_names(),
         )
         yield
 
@@ -358,10 +351,11 @@ async def readyz(request: Request) -> JSONResponse:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run ``rag-serve [--host H] [--port P] [--domino]``; Domino needs 0.0.0.0:8888.
 
-    ``--domino`` defaults ``RAG_EMBEDDING_API_KEY`` / ``RAG_RERANK_API_KEY`` to
-    ``domino`` for a component on the ``api`` backend; a settings mistake, an
-    unknown backend or API format and a graph that cannot run included, exits
-    as a usage error before any component opens, not a crash.
+    ``--domino`` defaults the API key of an embedder or reranker on the ``api``
+    backend (``RAG_COMPONENTS__<NAME>__API__API_KEY``) to ``domino``; a
+    settings mistake, an unknown backend or API format and a graph that cannot
+    run included, exits as a usage error before any component opens, not a
+    crash.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -385,7 +379,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.domino:
             settings = apply_domino_rules(settings)
         check_registered_names(settings)
-        check_graph(settings.graph, declared_components())
+        check_graph(settings.graph, settings.component_types())
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")

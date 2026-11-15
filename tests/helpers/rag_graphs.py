@@ -55,7 +55,18 @@ def rag_graph(retrieval_mode: str = "dense", **changes: object) -> GraphDescript
     return GraphDescription.model_validate(graph)
 
 
-def write_workflow_file(path: Path, graph: dict[str, Any]) -> Path:
-    """Write a workflow file holding ``graph`` as its ``graph`` block; return it."""
-    path.write_text(yaml.safe_dump({"graph": graph}), encoding="utf-8")
+def packaged_components() -> dict[str, Any]:
+    """The ``components`` block of the workflow file that ships with the code."""
+    return yaml.safe_load(PACKAGED_WORKFLOW.read_text(encoding="utf-8"))["components"]
+
+
+def write_workflow_file(
+    path: Path, graph: dict[str, Any], components: dict[str, Any] | None = None
+) -> Path:
+    """Write a workflow file of ``graph`` and ``components``; return it.
+
+    The components are the packaged file's unless a test gives its own.
+    """
+    blocks = {"components": components or packaged_components(), "graph": graph}
+    path.write_text(yaml.safe_dump(blocks), encoding="utf-8")
     return path

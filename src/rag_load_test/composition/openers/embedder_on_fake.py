@@ -1,7 +1,7 @@
 """The embedder on the ``fake`` backend: a hashed bag of words, no model.
 
 Example:
-    >>> embedder = await open_embedder_on_fake(components.embedder, shared)
+    >>> embedder = await open_embedder_on_fake(embedder_settings, shared)
 """
 
 from __future__ import annotations
@@ -26,6 +26,6 @@ async def open_embedder_on_fake(
         A ``FakeEmbedder``.
 
     Example:
-        >>> await open_embedder_on_fake(components.embedder, shared)
+        >>> await open_embedder_on_fake(embedder_settings, shared)
     """
     return FakeEmbedder()

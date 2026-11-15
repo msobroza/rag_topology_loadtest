@@ -1,0 +1,52 @@
+"""Settings named by their environment path, for the tests.
+
+A test changes a value of the workflow file by the keyword its variable
+spells, lower-cased and without ``RAG_``: ``components__reranker__backend``
+for ``RAG_COMPONENTS__RERANKER__BACKEND``. ``settings_at_paths`` nests such
+keywords into the shape the settings take; ``settings_factory`` (conftest)
+calls it, and the settings merge what it gives into the workflow file, key by
+key, so a test names only what it changes.
+
+Example::
+
+    settings_factory(components__reranker__backend="none", topology="split-all")
+"""
+
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+# Every model component and the vector store on its fake backend: no weights,
+# no network, no Elasticsearch.
+FAKE_BACKENDS: dict[str, str] = {
+    "components__embedder__backend": "fake",
+    "components__reranker__backend": "fake",
+    "components__llm__backend": "fake",
+    "vector_store_backend": "fake",
+}
+
+
+def settings_at_paths(**values: object) -> dict[str, Any]:
+    """Nest keywords named by path (levels joined by ``__``) into dictionaries.
+
+    A keyword without ``__`` is a top-level setting, kept as it is; a dictionary
+    given for a level is merged with the paths below it.
+    """
+    nested: dict[str, Any] = {}
+    # Dictionaries first, copied, so that a path below one adds to it.
+    for path, value in sorted(values.items(), key=lambda item: path_first(item[1])):
+        *levels, last = path.split("__")
+        node = nested
+        for level in levels:
+            node = node.setdefault(level, {})
+        if isinstance(value, dict):
+            node[last] = {**copy.deepcopy(value), **node.get(last, {})}
+        else:
+            node[last] = value
+    return nested
+
+
+def path_first(value: object) -> bool:
+    """Sort key: a dictionary (False) before a plain value (True)."""
+    return not isinstance(value, dict)

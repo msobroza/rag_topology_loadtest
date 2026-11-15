@@ -36,10 +36,10 @@ def four_cpu_settings(
         local_model_runtime="torch",
         model_cpus=4,
         model_workers=1,
-        embedding_backend="fake",
-        rerank_backend="fake",
+        components__embedder__backend="fake",
+        components__reranker__backend="fake",
         vector_store_backend="fake",
-        generation_backend="fake",
+        components__llm__backend="fake",
         **overrides,
     )
 
@@ -60,7 +60,9 @@ async def test_the_reranker_is_searched_even_when_the_settings_pin_it(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = four_cpu_settings(
-        settings_factory, rerank_threads=1, rerank_batch_size=7
+        settings_factory,
+        components__reranker__local__threads=1,
+        components__reranker__local__batch_size=7,
     )
     calibration = await calibration_of("reranker", settings)
 
@@ -69,8 +71,8 @@ async def test_the_reranker_is_searched_even_when_the_settings_pin_it(
     assert [threads for threads, _ in trials[5:]] == [2, 1]
     chosen = calibration.report.chosen
     assert calibration.pinned == {
-        "RAG_RERANK_THREADS": chosen.threads,
-        "RAG_RERANK_BATCH_SIZE": chosen.batch_size,
+        "RAG_COMPONENTS__RERANKER__LOCAL__THREADS": chosen.threads,
+        "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": chosen.batch_size,
     }
     assert (calibration.cpus, calibration.runtime) == (4.0, "torch")
 
@@ -79,14 +81,16 @@ async def test_the_embedder_searches_its_threads_at_the_configured_batch_size(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = four_cpu_settings(
-        settings_factory, embedding_threads=1, embedding_batch_size=16
+        settings_factory,
+        components__embedder__local__threads=1,
+        components__embedder__local__batch_size=16,
     )
     calibration = await calibration_of("embedder", settings)
 
     assert tried(calibration) == [(4, 16), (2, 16), (1, 16)]
     assert calibration.report.stage == "embed"
     assert calibration.pinned == {
-        "RAG_EMBEDDING_THREADS": calibration.report.chosen.threads
+        "RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS": calibration.report.chosen.threads
     }
 
 

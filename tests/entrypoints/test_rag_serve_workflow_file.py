@@ -14,9 +14,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from rag_components import FAKE_BACKENDS
 from rag_graphs import packaged_graph, write_workflow_file
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
@@ -26,14 +28,9 @@ from rag_load_test.entrypoints.rag_serve import create_app
 from workflow_fakes import RecordingEmbedder, RecordingReranker, ScriptedStore
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
-FAKE_BACKENDS = {
-    "embedding_backend": "fake",
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
-    "vector_store_backend": "fake",
-}
 TIMING_KEYS = {"embed", "retrieve", "rerank", "generate", "total"}
-# The README's lexical workflow file, its prompts written out: no embed stage.
+# The graph of the README's lexical workflow file, its prompts written out: no
+# embed stage.
 LEXICAL_WORKFLOW = """
 graph:
   stages:
@@ -271,7 +268,9 @@ def test_a_rerank_size_above_the_retrieve_size_is_no_longer_refused(
 def test_lexical_retrieval_is_a_workflow_file_with_no_embed_stage(
     settings_factory: SettingsFactory, no_named_file: Path
 ) -> None:
-    (no_named_file / "workflow.yaml").write_text(LEXICAL_WORKFLOW, encoding="utf-8")
+    # The packaged components: ingestion still embeds the passages.
+    lexical_graph = yaml.safe_load(LEXICAL_WORKFLOW)["graph"]
+    write_workflow_file(no_named_file / "workflow.yaml", lexical_graph)
     store, embedder = ScriptedStore(["a"], ["z", "y"]), RecordingEmbedder()
     ports = {"vector_store": store, "embedder": embedder}
 

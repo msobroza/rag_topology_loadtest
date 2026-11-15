@@ -1,16 +1,16 @@
 """The Topology: where the models run, and so which backends it implies.
 
 A topology is a closed set; it says where the in-process models run, so it
-decides the embedding and rerank backends. An explicit backend may only repeat
-that choice or pick a variant that loads no model of ours into this process:
-``api`` (an endpoint called over HTTP), ``fake``, or ``none`` for rerank (the
-names are in ``backends.py``; the run label that names a configuration is in
-``run_label.py``). Pure functions only: settings call them at construction; the
-Domino rule that ``rag-serve --domino`` applies lives in
-``config/domino_rules.py``.
+places the embedder and the reranker: ``local`` in this process, or ``api``
+behind a model server of ours. A component it places follows it while the
+component's backend is ``local``; any other backend (an endpoint we do not
+run, ``fake``, ``none``) loads no model of ours here and is kept. The run label
+that names a configuration is in ``run_label.py``. Pure functions only: the
+settings call them at construction; the Domino rule that ``rag-serve --domino``
+applies lives in ``config/domino_rules.py``.
 
 Example:
-    >>> resolve_rerank_backend("split-reranker", None)
+    >>> placed_backend("split-reranker", "rerank", "local")
     'api'
     >>> TOPOLOGY_BACKENDS["split-all"].embedding
     'api'
@@ -18,24 +18,19 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Literal, NamedTuple
 
-from .backends import (
-    EMBEDDING_VARIANTS,
-    RERANK_VARIANTS,
-    EmbeddingBackend,
-    RerankBackend,
-)
-
 Topology = Literal["monolith", "split-reranker", "split-all"]
+# The two components a topology places, by the field of TopologyBackends.
+PlacedComponent = Literal["embedding", "rerank"]
+LOCAL = "local"
 
 
 class TopologyBackends(NamedTuple):
     """The embedding and rerank backends one topology implies."""
 
-    embedding: EmbeddingBackend
-    rerank: RerankBackend
+    embedding: str
+    rerank: str
 
 
 TOPOLOGY_BACKENDS: dict[Topology, TopologyBackends] = {
@@ -45,103 +40,28 @@ TOPOLOGY_BACKENDS: dict[Topology, TopologyBackends] = {
 }
 
 
-def resolve_embedding_backend(
-    topology: Topology, explicit: EmbeddingBackend | None
-) -> EmbeddingBackend:
-    """Return the embedding backend for ``topology``.
+def placed_backend(topology: Topology, component: PlacedComponent, stated: str) -> str:
+    """Return the backend of a component the topology places.
+
+    The workflow file states ``local`` for a model of ours; the topology moves
+    it behind a model server. Any other stated backend loads no model of ours
+    into this process, so where ours run does not constrain it.
 
     Args:
         topology: The topology that implies the backend.
-        explicit: The backend asked for, or None for the implied one; it may only
-            be the implied backend or one of ``EMBEDDING_VARIANTS``.
+        component: Which component it places: ``embedding`` or ``rerank``.
+        stated: The backend the settings give the component.
 
     Returns:
-        ``explicit`` when set, else the backend the topology implies.
-
-    Raises:
-        ValueError: If ``explicit`` contradicts the topology (``local`` where the
-            topology implies ``api``); the message names the topologies that
-            would allow it.
+        The backend the topology implies when ``stated`` is ``local``, else
+        ``stated``.
 
     Example:
-        >>> resolve_embedding_backend("split-all", None)
+        >>> placed_backend("split-all", "embedding", "local")
         'api'
-        >>> resolve_embedding_backend("split-all", "local")
-        ValueError: RAG_EMBEDDING_BACKEND='local' contradicts ...
-    """
-    implied = TOPOLOGY_BACKENDS[topology].embedding
-    if explicit is None:
-        return implied
-    allowed = _distinct(implied, *EMBEDDING_VARIANTS)
-    _refuse_contradiction(topology, "embedding", explicit, allowed)
-    return explicit
-
-
-def resolve_rerank_backend(
-    topology: Topology, explicit: RerankBackend | None
-) -> RerankBackend:
-    """Return the rerank backend for ``topology``.
-
-    Args:
-        topology: The topology that implies the backend.
-        explicit: The backend asked for, or None for the implied one; it may only
-            be the implied backend or one of ``RERANK_VARIANTS`` (``none`` skips
-            reranking).
-
-    Returns:
-        ``explicit`` when set, else the backend the topology implies.
-
-    Raises:
-        ValueError: If ``explicit`` contradicts the topology (``local`` where the
-            topology implies ``api``); the message names the topologies that
-            would allow it.
-
-    Example:
-        >>> resolve_rerank_backend("monolith", "none")
+        >>> placed_backend("split-all", "rerank", "none")
         'none'
     """
-    implied = TOPOLOGY_BACKENDS[topology].rerank
-    if explicit is None:
-        return implied
-    allowed = _distinct(implied, *RERANK_VARIANTS)
-    _refuse_contradiction(topology, "rerank", explicit, allowed)
-    return explicit
-
-
-def _refuse_contradiction(
-    topology: Topology,
-    component: Literal["embedding", "rerank"],
-    explicit: str,
-    allowed: Sequence[str],
-) -> None:
-    if explicit in allowed:
-        return
-    variable = f"RAG_{component.upper()}_BACKEND"
-    raise ValueError(
-        f"{variable}={explicit!r} contradicts RAG_TOPOLOGY={topology!r}, which allows "
-        f"only {_either(allowed)} for {component}; "
-        f"{_contradiction_fix(component, explicit, variable)}"
-    )
-
-
-def _contradiction_fix(
-    component: Literal["embedding", "rerank"], explicit: str, variable: str
-) -> str:
-    matching = [
-        f"RAG_TOPOLOGY={name}"
-        for name, backends in TOPOLOGY_BACKENDS.items()
-        if getattr(backends, component) == explicit
-    ]
-    if not matching:
-        return f"drop {variable}"
-    return f"set {' or '.join(matching)}, or drop {variable}"
-
-
-def _distinct(*values: str) -> tuple[str, ...]:
-    # The implied backend may also be a variant (``api``): name it once.
-    return tuple(dict.fromkeys(values))
-
-
-def _either(values: Sequence[str]) -> str:
-    quoted = [repr(value) for value in values]
-    return ", ".join(quoted[:-1]) + f" or {quoted[-1]}"
+    if stated != LOCAL:
+        return stated
+    return getattr(TOPOLOGY_BACKENDS[topology], component)

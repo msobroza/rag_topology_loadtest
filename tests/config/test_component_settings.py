@@ -1,4 +1,4 @@
-"""Each component's settings in the workflow file's shape, derived from the flat ones."""
+"""The components of the workflow file: their types, backends, aliases and blocks."""
 
 from __future__ import annotations
 
@@ -12,13 +12,16 @@ from rag_load_test.config.component_settings import (
     ChromaSettings,
     ElasticsearchSettings,
     EmbedderEndpointSettings,
+    EmbedderLocalSettings,
     EndpointSettings,
     FakeStoreSettings,
-    HttpCallSettings,
-    InProcessModelSettings,
     LlmEndpointSettings,
+    LlmHttpSettings,
+    RerankerEndpointSettings,
     RerankerLocalSettings,
-    component_settings_of,
+    RerankerSettings,
+    alias_of,
+    typed_by_name,
 )
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.api_endpoint import ApiEndpoint
@@ -28,30 +31,31 @@ EMBED_URL = "http://embedder:8002/v3/embeddings"
 RERANK_URL = "http://reranker:8001/v3/rerank"
 
 
-def test_the_defaults_take_the_workflow_file_shape(
+def test_the_packaged_file_declares_the_rags_three_model_components(
     settings_factory: SettingsFactory,
 ) -> None:
-    components = component_settings_of(settings_factory())
+    components = settings_factory().components
 
-    embedder = components.embedder
-    assert (embedder.backend, embedder.query_prefix) == ("local", "query: ")
+    assert list(components) == ["embedder", "reranker", "llm"]
+    embedder = components["embedder"]
+    assert (embedder.type, embedder.backend) == ("embedder", "local")
     assert embedder.source_id == "Snowflake/snowflake-arctic-embed-l-v2.0"
-    assert embedder.local == InProcessModelSettings(batch_size=64, threads=0)
+    assert embedder.alias == "snowflake-arctic-embed-l-v2.0"
+    assert embedder.query_prefix == "query: "
+    assert embedder.local == EmbedderLocalSettings(batch_size=64, threads=0)
     assert embedder.api == EmbedderEndpointSettings(
-        url="",
-        api_format="openai",
-        api_key="",
-        model="snowflake-arctic-embed-l-v2.0",
-        batch_size=64,
+        url="", api_format="openai", api_key="", model="", batch_size=64
     )
-    reranker = components.reranker
-    assert reranker.backend == "local"
+    reranker = components["reranker"]
+    assert (reranker.type, reranker.backend) == ("reranker", "local")
+    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+    assert reranker.alias == "crossencoder-camembert-base-mmarcoFR"
     assert reranker.local == RerankerLocalSettings(
         batch_size=0, threads=0, calibration_passages=20
     )
-    assert reranker.api.api_format == "cohere"
-    llm = components.llm
-    assert llm.backend == "api"
+    assert reranker.api == RerankerEndpointSettings(api_format="cohere")
+    llm = components["llm"]
+    assert (llm.type, llm.backend) == ("llm", "api")
     assert llm.api == LlmEndpointSettings(
         url="https://api.openai.com/v1/chat/completions",
         api_format="openai",
@@ -59,28 +63,186 @@ def test_the_defaults_take_the_workflow_file_shape(
         model="gpt-4o-mini",
         temperature=0.0,
     )
-    assert llm.http == HttpCallSettings(timeout_s=120.0, retries=2, backoff_s=0.2)
-    assert components.vector_store.backend == "elasticsearch"
+    assert llm.http == LlmHttpSettings(timeout_s=120.0)
 
 
-def test_every_flat_value_reaches_its_component_block(
+def test_every_value_is_reachable_by_its_environment_path(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    variables = {
+        "RAG_COMPONENTS__EMBEDDER__BACKEND": "api",
+        "RAG_COMPONENTS__EMBEDDER__SOURCE_ID": "/models/my-embedder",
+        "RAG_COMPONENTS__EMBEDDER__QUERY_PREFIX": "",
+        "RAG_COMPONENTS__EMBEDDER__LOCAL__BATCH_SIZE": "8",
+        "RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS": "3",
+        "RAG_COMPONENTS__EMBEDDER__API__URL": EMBED_URL,
+        "RAG_COMPONENTS__EMBEDDER__API__API_KEY": "domino",
+        "RAG_COMPONENTS__EMBEDDER__API__BATCH_SIZE": "16",
+        "RAG_COMPONENTS__RERANKER__ALIAS": "rr",
+        "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": "4",
+        "RAG_COMPONENTS__RERANKER__LOCAL__THREADS": "2",
+        "RAG_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES": "12",
+        "RAG_COMPONENTS__LLM__API__MODEL": "gpt-x",
+        "RAG_COMPONENTS__LLM__API__API_KEY": "sk-key",
+        "RAG_COMPONENTS__LLM__API__TEMPERATURE": "0.5",
+        "RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S": "9",
+    }
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+
+    components = settings_factory().components
+
+    embedder, reranker, llm = (components[n] for n in ("embedder", "reranker", "llm"))
+    assert (embedder.backend, embedder.alias, embedder.query_prefix) == (
+        "api",
+        "my-embedder",
+        "",
+    )
+    assert embedder.local == EmbedderLocalSettings(batch_size=8, threads=3)
+    assert (embedder.api.url, embedder.api.api_key) == (EMBED_URL, "domino")
+    assert embedder.api.batch_size == 16
+    assert reranker.alias == "rr"
+    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+    assert reranker.local == RerankerLocalSettings(
+        batch_size=4, threads=2, calibration_passages=12
+    )
+    assert (llm.api.model, llm.api.api_key, llm.api.temperature) == (
+        "gpt-x",
+        "sk-key",
+        0.5,
+    )
+    assert llm.api.url == "https://api.openai.com/v1/chat/completions"  # kept
+    assert llm.http.timeout_s == 9.0
+
+
+@pytest.mark.parametrize(
+    ("source_id", "alias"),
+    [
+        ("Snowflake/snowflake-arctic-embed-l-v2.0", "snowflake-arctic-embed-l-v2.0"),
+        ("/domino/datasets/local/d/models/crossencoder", "crossencoder"),
+        ("models/reranker/", "reranker"),
+        ("bge-small", "bge-small"),
+    ],
+    ids=["hub-id", "folder", "folder-with-a-slash", "bare-name"],
+)
+def test_the_alias_defaults_to_the_last_part_of_the_source_id(
+    source_id: str, alias: str
+) -> None:
+    assert alias_of(source_id) == alias
+    assert RerankerSettings(backend="local", source_id=source_id).alias == alias
+
+
+def test_an_alias_given_wins_over_the_source_id() -> None:
+    reranker = RerankerSettings(backend="local", source_id="org/model", alias="rr")
+
+    assert reranker.alias == "rr"
+
+
+def test_a_backends_settings_sit_in_the_block_named_after_it(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(
-        topology="split-all",
-        embedding_api_url=EMBED_URL,
-        embedding_api_key="domino",
-        embedding_batch_size=8,
-        embedding_threads=3,
-        embedding_query_prefix="",
-        rerank_api_url=RERANK_URL,
-        rerank_batch_size=4,
-        rerank_threads=2,
-        rerank_calibration_passages=12,
-        generation_timeout_s=9.0,
-        http_retries=0,
-        http_backoff_s=0.0,
-        generation_temperature=0.5,
+        components__reranker__backend="api",
+        components__reranker__api__url=RERANK_URL,
+        components__reranker__local__threads=2,
+    )
+
+    reranker = settings.components["reranker"]
+    assert (reranker.api.url, reranker.local.threads) == (RERANK_URL, 2)
+
+
+@pytest.mark.parametrize(
+    ("component", "block"),
+    [("llm", "local"), ("embedder", "none"), ("reranker", "elasticsearch")],
+)
+def test_a_block_of_a_backend_the_type_does_not_have_is_refused(
+    settings_factory: SettingsFactory, component: str, block: str
+) -> None:
+    with pytest.raises(ValidationError) as refused:
+        settings_factory(components={component: {block: {"threads": 2}}})
+
+    message = str(refused.value)
+    assert f"the {component!r} component type has no {block!r}" in message
+    assert "a backend's settings in the block named after that backend" in message
+
+
+def test_a_key_of_a_block_it_does_not_have_is_refused() -> None:
+    with pytest.raises(ValidationError, match="thread"):
+        EmbedderLocalSettings.model_validate({"batch_size": 1, "thread": 2})
+
+
+def test_a_component_is_of_the_type_of_its_name_unless_it_says(
+    settings_factory: SettingsFactory,
+) -> None:
+    coarse = {"type": "reranker", "backend": "fake", "source_id": "org/coarse-rr"}
+
+    settings = settings_factory(components={"coarse": coarse})
+
+    assert settings.components["coarse"].type == "reranker"
+    assert settings.components["coarse"].alias == "coarse-rr"
+    assert settings.component_types() == {
+        "embedder": "embedder",
+        "reranker": "reranker",
+        "llm": "llm",
+        "coarse": "reranker",
+        "vector_store": "vector_store",
+    }
+
+
+def test_a_component_of_an_unknown_type_is_refused_naming_the_types(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError) as refused:
+        settings_factory(components={"encoder": {"backend": "fake", "source_id": "x"}})
+
+    message = str(refused.value)
+    assert "components.encoder" in message
+    assert "'encoder'" in message
+    assert "'embedder', 'reranker', 'llm'" in message
+
+
+def test_typed_by_name_leaves_a_given_type_and_what_is_no_mapping() -> None:
+    assert typed_by_name({"a": {"type": "llm"}, "b": "x"}) == {
+        "a": {"type": "llm"},
+        "b": "x",
+    }
+    assert typed_by_name(None) is None
+
+
+def test_any_backend_name_is_kept_for_the_openers_to_refuse(
+    settings_factory: SettingsFactory,
+) -> None:
+    # What refuses an unknown backend is the registry of openers, not this shape.
+    settings = settings_factory(components__embedder__backend="gpu")
+
+    assert settings.components["embedder"].backend == "gpu"
+
+
+def test_the_calibration_request_reads_no_stages_setting(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(graph=rag_graph(retrieve_top_k=7, rerank_top_k=3))
+
+    local = settings.components["reranker"].local
+    assert local.calibration_passages == 20  # the reranker's own default
+
+
+def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None:
+    block = EndpointSettings(
+        url=RERANK_URL, api_format="cohere", api_key="key", model="rerank-v3.5"
+    )
+
+    assert block.endpoint("rr") == ApiEndpoint(
+        RERANK_URL, "cohere", "key", "rerank-v3.5"
+    )
+    unnamed = block.model_copy(update={"model": ""})
+    assert unnamed.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "key", "rr")
+
+
+def test_the_vector_store_takes_a_components_shape_from_its_flat_variables(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(
         es_url="http://es:9200",
         es_index="passages_v2",
         es_api_key="es-key",
@@ -91,23 +253,8 @@ def test_every_flat_value_reaches_its_component_block(
         fake_store_seed_documents=12,
     )
 
-    components = component_settings_of(settings)
-
-    embedder, reranker = components.embedder, components.reranker
-    assert (embedder.backend, reranker.backend) == ("api", "api")
-    assert embedder.query_prefix == ""
-    assert embedder.local == InProcessModelSettings(batch_size=8, threads=3)
-    assert (embedder.api.url, embedder.api.api_key) == (EMBED_URL, "domino")
-    assert embedder.api.batch_size == 8
-    assert reranker.local == RerankerLocalSettings(
-        batch_size=4, threads=2, calibration_passages=12
-    )
-    assert reranker.api.url == RERANK_URL
-    assert components.llm.http == HttpCallSettings(
-        timeout_s=9.0, retries=0, backoff_s=0.0
-    )
-    assert components.llm.api.temperature == 0.5
-    store = components.vector_store
+    store = settings.vector_store_component()
+    assert (store.type, store.backend) == ("vector_store", "elasticsearch")
     assert store.elasticsearch == ElasticsearchSettings(
         url="http://es:9200",
         index="passages_v2",
@@ -118,36 +265,3 @@ def test_every_flat_value_reaches_its_component_block(
         url="http://chroma:8000", path="here", collection="passages"
     )
     assert store.fake == FakeStoreSettings(seed_documents=12)
-
-
-def test_the_calibration_request_reads_no_stages_setting(
-    settings_factory: SettingsFactory,
-) -> None:
-    settings = settings_factory(graph=rag_graph(retrieve_top_k=7, rerank_top_k=3))
-
-    local = component_settings_of(settings).reranker.local
-    assert local.calibration_passages == 20  # the reranker's own default
-
-
-def test_a_copy_keeps_a_backend_name_the_settings_would_refuse(
-    fake_settings: RagSettings,
-) -> None:
-    # What refuses an unknown backend is the registry of openers, not this shape.
-    settings = fake_settings.model_copy(update={"embedding_backend": "gpu"})
-
-    assert component_settings_of(settings).embedder.backend == "gpu"
-
-
-def test_an_endpoint_block_gives_its_endpoint() -> None:
-    block = EndpointSettings(
-        url=RERANK_URL, api_format="cohere", api_key="key", model="rerank-v3.5"
-    )
-
-    assert block.endpoint() == ApiEndpoint(RERANK_URL, "cohere", "key", "rerank-v3.5")
-
-
-def test_a_key_the_shape_does_not_have_is_refused() -> None:
-    with pytest.raises(ValidationError, match="thread"):
-        InProcessModelSettings.model_validate(
-            {"batch_size": 1, "threads": 0, "thread": 2}
-        )

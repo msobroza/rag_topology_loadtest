@@ -1,10 +1,10 @@
 """Every command that opens components refuses an unknown backend or API format
 first, as a usage error, before any component opens.
 
-Since the API formats are registered, the settings no longer refuse an unknown
-one, and an opener refuses it only when its component opens: possibly after
-another model has loaded. The settings still refuse an unknown backend
-themselves. Each case below would load an in-process model if it got that far.
+The API formats and the backends are registered, so the settings refuse neither
+an unknown format nor an unknown backend, and an opener would refuse it only when
+its component opens: possibly after another model has loaded. Each case below
+would load an in-process model if it got that far.
 """
 
 from __future__ import annotations
@@ -34,12 +34,14 @@ COMMANDS: dict[str, tuple[Main, list[str]]] = {
 # What the environment names, and what the refusal says of it.
 UNKNOWN_NAMES = {
     "an API format": (
-        {"RAG_GENERATION_API_FORMAT": "jina"},
+        {"RAG_COMPONENTS__LLM__API__API_FORMAT": "jina"},
+        "RAG_COMPONENTS__LLM__API__API_FORMAT: "
         "unknown generation API format 'jina' (expected one of: 'openai')",
     ),
     "a backend": (
-        {"RAG_RERANK_BACKEND": "gpu"},
-        "Input should be 'local', 'api', 'fake' or 'none'",
+        {"RAG_COMPONENTS__RERANKER__BACKEND": "gpu"},
+        "RAG_COMPONENTS__RERANKER__BACKEND: unknown reranker backend 'gpu' "
+        "(expected one of: 'api', 'fake', 'local', 'none')",
     ),
 }
 

@@ -1,8 +1,9 @@
 """``rag-served-models``: print the served models as shell assignments.
 
-The ``RagSettings`` defaults are the one pin for the served models (a source id and
-an alias each). ``ovms/export_models.sh`` evaluates this command's output instead
-of repeating the four names.
+The workflow file is the one pin for the served models: the components named
+``reranker`` and ``embedder``, a source id and an alias each, the ones the OVMS
+model-server Apps serve. ``ovms/export_models.sh`` evaluates this command's
+output instead of repeating the four names.
 
 Example:
     >>> eval "$(rag-served-models)"
@@ -23,21 +24,28 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
     The names are the variables ``ovms/export_models.sh`` passes to the exporter.
 
     Args:
-        settings: Source of the reranker and embedder source ids and served aliases.
+        settings: Whose ``reranker`` and ``embedder`` components give the source
+            ids and the aliases.
 
     Returns:
         Four lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
         ``EMBEDDER_SOURCE_MODEL``, ``EMBEDDER_MODEL_NAME``.
 
+    Raises:
+        KeyError: If the workflow file declares no ``reranker`` or no
+            ``embedder`` component.
+
     Example:
         >>> served_model_assignments(RagSettings())[0]
         'RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR'
     """
+    components = settings.components
+    reranker, embedder = components["reranker"], components["embedder"]
     values = {
-        "RERANKER_SOURCE_MODEL": settings.rerank_model,
-        "RERANKER_MODEL_NAME": settings.rerank_api_model,
-        "EMBEDDER_SOURCE_MODEL": settings.embedding_model,
-        "EMBEDDER_MODEL_NAME": settings.embedding_api_model,
+        "RERANKER_SOURCE_MODEL": reranker.source_id,
+        "RERANKER_MODEL_NAME": reranker.alias,
+        "EMBEDDER_SOURCE_MODEL": embedder.source_id,
+        "EMBEDDER_MODEL_NAME": embedder.alias,
     }
     return [f"{name}={shlex.quote(value)}" for name, value in values.items()]
 

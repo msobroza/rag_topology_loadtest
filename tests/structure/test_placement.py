@@ -19,12 +19,12 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import get_args
 
-from rag_load_test.domain.backends import (
-    EmbeddingBackend,
-    GenerationBackend,
-    RerankBackend,
-    VectorStoreBackend,
+from rag_load_test.composition.openers.component_openers import (
+    EMBEDDER_OPENERS,
+    LLM_OPENERS,
+    RERANKER_OPENERS,
 )
+from rag_load_test.domain.backends import VectorStoreBackend
 from repo_paths import REPO_ROOT
 
 PACKAGE = REPO_ROOT / "src" / "rag_load_test"
@@ -251,11 +251,12 @@ def test_no_two_modules_of_the_product_share_a_file_name() -> None:
 
 ADAPTERS = PACKAGE / "adapters"
 # Component package -> its port classes, and the Backend values that name its
-# implementation directories.
+# implementation directories: those registered for a model component's type,
+# and the vector store's closed set.
 COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
-    "embedder": ({"BaseEmbedder"}, get_args(EmbeddingBackend)),
-    "reranker": ({"BaseReranker"}, get_args(RerankBackend)),
-    "llm": ({"BaseLLM"}, get_args(GenerationBackend)),
+    "embedder": ({"BaseEmbedder"}, EMBEDDER_OPENERS.names()),
+    "reranker": ({"BaseReranker"}, RERANKER_OPENERS.names()),
+    "llm": ({"BaseLLM"}, LLM_OPENERS.names()),
     "vector_store": (
         {"BaseVectorStore", "BaseLexicalSearch"},
         get_args(VectorStoreBackend),

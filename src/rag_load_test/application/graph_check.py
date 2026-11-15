@@ -15,7 +15,7 @@ dense retrieval with no embed stage before it is refused by that rule, not by a
 rule of its own (ADR 0004).
 
 Example:
-    >>> check_graph(settings.graph, declared_components())  # today's: nothing raised
+    >>> check_graph(settings.graph, settings.component_types())  # today's passes
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def check_graph(
             reads a field that is not sure to be set when it runs.
 
     Example:
-        >>> check_graph(settings.graph, declared_components())
+        >>> check_graph(settings.graph, settings.component_types())
     """
     _check_stage_names(graph)
     fields = {

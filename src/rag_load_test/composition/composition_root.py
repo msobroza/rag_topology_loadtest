@@ -1,10 +1,12 @@
 """``CompositionRoot`` turns ``RagSettings`` into ready ports and owns what they use.
 
-One instance serves one process. The workflow app asks for all four ports,
-``rag-ingest`` for the embedder and the vector store, a model server for one
-in-process model; nothing else is built, so no unused weights load and no unused
-client is created. This package is the only one that reads ``RagSettings`` to
-build an adapter; the adapters take their values as constructor arguments.
+One instance serves one process. A command opens what it needs, by component
+name: the workflow app the components its graph's stages call, ``rag-ingest``
+an embedder and the vector store, a model server and ``rag-calibrate`` the one
+component they are named; nothing else is built, so no unused weights load and
+no unused client is created. This package is the only one that reads
+``RagSettings`` to build an adapter; the adapters take their values as
+constructor arguments.
 
 Each job has its own module, and this class only wires them together:
 
@@ -15,8 +17,8 @@ Each job has its own module, and this class only wires them together:
   its type and backend, one module each in ``openers/``: a new backend is one
   new module there, and no factory is edited.
 
-The openers take each component's settings in the workflow file's shape,
-derived here from the flat settings (``config/component_settings.py``).
+The openers take each component's settings in the workflow file's shape
+(``config/component_settings.py``).
 
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently.
@@ -32,18 +34,22 @@ Example:
 from __future__ import annotations
 
 from types import TracebackType
-from typing import NamedTuple, TypedDict, Unpack
+from typing import NamedTuple, TypeVar
 
 import httpx
 
 from ..adapters.embedder.base_embedder import BaseEmbedder
-from ..adapters.llm.base_llm import BaseLLM
 from ..adapters.reranker.base_reranker import BaseReranker
-from ..adapters.vector_store.base_vector_store import BaseLexicalSearch, BaseVectorStore
+from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.rag_dependencies import RagDependencies
-from ..config.component_settings import component_settings_of
+from ..config.component_settings import (
+    VECTOR_STORE,
+    ComponentSettings,
+    EmbedderSettings,
+    RerankerSettings,
+    VectorStoreSettings,
+)
 from ..config.rag_settings import RagSettings
-from ..domain.roles import ModelServerPart
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
 from .component_factory import ComponentFactory
@@ -51,7 +57,7 @@ from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
 from .openers.component_openers import (
     EMBEDDER_OPENERS,
-    LLM_OPENERS,
+    OPENERS_BY_TYPE,
     RERANKER_OPENERS,
     VECTOR_STORE_OPENERS,
     SharedResources,
@@ -59,6 +65,8 @@ from .openers.component_openers import (
 from .openers.embedder_on_local import calibrate_embedder_on_local
 from .openers.reranker_on_local import calibrate_reranker_on_local
 from .resource_scope import ResourceScope
+
+C = TypeVar("C", bound=ComponentSettings)
 
 
 class IngestPorts(NamedTuple):
@@ -68,26 +76,17 @@ class IngestPorts(NamedTuple):
     vector_store: BaseVectorStore
 
 
-class SuppliedPorts(TypedDict, total=False):
-    """Ports handed in ready-made (test doubles, mostly), used as given."""
-
-    embedder: BaseEmbedder | None
-    vector_store: BaseVectorStore | None
-    reranker: BaseReranker | None
-    llm: BaseLLM | None
-
-
 class CompositionRoot:
     """Ready ports for ``settings``; see the module docstring for the rules.
 
     Args:
-        settings: The backends, URLs and sizes the ports are built from.
+        settings: The components, backends and sizes the ports are built from.
         transport: The HTTP transport of the shared client; None for the real
             network (tests pass an ``httpx.MockTransport``).
         container_cpus: Counts the container's CPUs when nothing earlier in the
             chain answers; None for ``ContainerCpus()``.
-        **supplied: Ready-made ports by name (``embedder``, ``vector_store``,
-            ``reranker``, ``llm``), used as given and never closed here.
+        **supplied: Ready-made ports by component name (``embedder``,
+            ``vector_store``, ...), used as given and never closed here.
 
     Example:
         >>> composition = CompositionRoot(settings, reranker=FailingReranker("x"))
@@ -101,16 +100,16 @@ class CompositionRoot:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         container_cpus: BaseCpuCounter | None = None,
-        **supplied: Unpack[SuppliedPorts],
+        **supplied: object,
     ) -> None:
         self.settings = settings
-        self._components = component_settings_of(settings)
+        self._components = settings.all_components()
         self._scope = scope = ResourceScope("CompositionRoot")
         http = HttpResources(settings, scope, transport)
         self._local_models = local_models = LocalModelResources(
             settings, scope, http, container_cpus or ContainerCpus()
         )
-        shared = SharedResources(scope, http, local_models, self._embedder)
+        shared = SharedResources(scope, http, local_models, self._store_embedder)
         self._factory = ComponentFactory(shared, supplied)
 
     async def __aenter__(self) -> CompositionRoot:
@@ -126,72 +125,94 @@ class CompositionRoot:
         await self._scope.__aexit__(exc_type, exc, traceback)
 
     async def workflow_dependencies(self) -> RagDependencies:
-        """Open all four ports, for the workflow app.
+        """Open the components the graph's stages call, for the workflow app.
 
-        The LLM opens first: it is cheap, so a bad generation setting fails
-        before any weights load. If a port cannot open, the error propagates and
-        nothing is returned.
+        An LLM opens first: it is cheap, so a bad generation setting fails
+        before any weights load. The others open in the order the stages call
+        them. If a component cannot open, the error propagates and nothing is
+        returned.
 
         Returns:
-            The embedder, vector store, reranker and LLM, and the store as
-            lexical search when it ranks text (None otherwise).
+            Each component a stage calls, open, by name.
+
+        Raises:
+            ValueError: If a stage calls a component that is not declared.
 
         Example:
             >>> deps = await composition.workflow_dependencies()
         """
-        components, factory = self._components, self._factory
-        llm = await factory.open(LLM_OPENERS, components.llm)
-        embedder = await self._embedder()
-        store = await self._vector_store()
-        reranker = await factory.open(RERANKER_OPENERS, components.reranker)
-        lexical = store if isinstance(store, BaseLexicalSearch) else None
-        return RagDependencies(embedder, store, reranker, llm, lexical_search=lexical)
+        called = dict.fromkeys(s.call for s in self.settings.graph.stages.values())
+        llms_first = sorted(
+            called, key=lambda name: self._component(name).type != "llm"
+        )
+        return RagDependencies({name: await self._open(name) for name in llms_first})
 
-    async def ingest_ports(self) -> IngestPorts:
-        """Open the embedder and the vector store, for ``rag-ingest``.
+    async def ingest_ports(self, embedder: str | None = None) -> IngestPorts:
+        """Open an embedder and the vector store, for ``rag-ingest``.
 
-        The reranker and the LLM stay shut.
+        Nothing else opens.
+
+        Args:
+            embedder: The embedder component to embed with; None for the only
+                one the workflow file declares.
 
         Returns:
             The embedder and the vector store.
 
+        Raises:
+            ValueError: If ``embedder`` names no embedder, or none is named and
+                the file declares several.
+
         Example:
             >>> embedder, store = await composition.ingest_ports()
         """
-        return IngestPorts(await self._embedder(), await self._vector_store())
+        name = self.settings.ingestion_embedder(embedder)
+        return IngestPorts(await self._embedder(name), await self._vector_store())
 
-    async def local_embedder(self) -> BaseEmbedder:
-        """Open the in-process embedder whatever its backend says.
+    async def local_embedder(self, name: str) -> BaseEmbedder:
+        """Open the named embedder in this process, whatever its backend says.
 
         A model server is what the ``api`` backend calls, so it always loads the
         local model.
+
+        Args:
+            name: An embedder component of the workflow file.
 
         Returns:
             The supplied embedder if one was given, else the sentence-transformers
             one.
 
-        Example:
-            >>> embedder = await composition.local_embedder()
-        """
-        embedder = self._components.embedder
-        return await self._factory.open_local(EMBEDDER_OPENERS, embedder)
+        Raises:
+            ValueError: If ``name`` is not an embedder component.
 
-    async def local_reranker(self) -> BaseReranker:
-        """Open the in-process reranker whatever its backend says.
+        Example:
+            >>> embedder = await composition.local_embedder("embedder")
+        """
+        component = self._typed(name, EmbedderSettings)
+        return await self._factory.open_local(EMBEDDER_OPENERS, name, component)
+
+    async def local_reranker(self, name: str) -> BaseReranker:
+        """Open the named reranker in this process, whatever its backend says.
 
         A model server is what the ``api`` backend calls, so it always loads the
         local model.
 
+        Args:
+            name: A reranker component of the workflow file.
+
         Returns:
             The supplied reranker if one was given, else the cross-encoder one.
 
-        Example:
-            >>> reranker = await composition.local_reranker()
-        """
-        reranker = self._components.reranker
-        return await self._factory.open_local(RERANKER_OPENERS, reranker)
+        Raises:
+            ValueError: If ``name`` is not a reranker component.
 
-    async def calibration(self, part: ModelServerPart) -> ComponentCalibration:
+        Example:
+            >>> reranker = await composition.local_reranker("reranker")
+        """
+        component = self._typed(name, RerankerSettings)
+        return await self._factory.open_local(RERANKER_OPENERS, name, component)
+
+    async def calibration(self, name: str) -> ComponentCalibration:
         """Calibrate one component's in-process model on this machine, on demand.
 
         The model loads as an App would load it, whatever the backend says, and
@@ -199,26 +220,62 @@ class CompositionRoot:
         the settings' budget and rounds. A ready-made port is not timed.
 
         Args:
-            part: ``embedder`` or ``reranker``.
+            name: An embedder or reranker component of the workflow file.
 
         Returns:
-            The report, the CPUs and runtime it ran on, and the settings that
-            pin the choice.
+            The report, the CPUs and runtime it ran on, and the environment
+            paths that pin the choice.
+
+        Raises:
+            ValueError: If ``name`` is no component, or one that runs no model
+                in-process.
 
         Example:
             >>> calibration = await composition.calibration("reranker")
             >>> calibration.pinned
-            {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+            {'RAG_COMPONENTS__RERANKER__LOCAL__THREADS': 2, ...}
         """
-        components, local_models = self._components, self._local_models
-        if part == "embedder":
-            return await calibrate_embedder_on_local(components.embedder, local_models)
-        return await calibrate_reranker_on_local(components.reranker, local_models)
+        component, local_models = self._component(name), self._local_models
+        if isinstance(component, EmbedderSettings):
+            return await calibrate_embedder_on_local(name, component, local_models)
+        if isinstance(component, RerankerSettings):
+            return await calibrate_reranker_on_local(name, component, local_models)
+        raise ValueError(
+            f"component {name!r} is of type {component.type!r}: only an embedder "
+            "or a reranker runs a model in this process"
+        )
 
-    async def _embedder(self) -> BaseEmbedder:
-        # Also what seeds a fake store, so its vectors are the ones queries get.
-        return await self._factory.open(EMBEDDER_OPENERS, self._components.embedder)
+    async def _open(self, name: str) -> object:
+        component = self._component(name)
+        return await self._factory.open(
+            OPENERS_BY_TYPE[component.type], name, component
+        )
+
+    def _component(self, name: str) -> ComponentSettings:
+        component = self._components.get(name)
+        if component is None:
+            known = ", ".join(map(repr, self._components))
+            raise ValueError(f"no component named {name!r} (the components: {known})")
+        return component
+
+    def _typed(self, name: str, kind: type[C]) -> C:
+        component = self._component(name)
+        if not isinstance(component, kind):
+            expected = kind.model_fields["type"].default
+            raise ValueError(
+                f"component {name!r} is of type {component.type!r}, "
+                f"not {expected!r}"
+            )
+        return component
+
+    async def _store_embedder(self) -> BaseEmbedder:
+        # What seeds a fake store, so its vectors are the ones queries get.
+        return await self._embedder(self.settings.ingestion_embedder())
+
+    async def _embedder(self, name: str) -> BaseEmbedder:
+        component = self._typed(name, EmbedderSettings)
+        return await self._factory.open(EMBEDDER_OPENERS, name, component)
 
     async def _vector_store(self) -> BaseVectorStore:
-        store = self._components.vector_store
-        return await self._factory.open(VECTOR_STORE_OPENERS, store)
+        store = self._typed(VECTOR_STORE, VectorStoreSettings)
+        return await self._factory.open(VECTOR_STORE_OPENERS, VECTOR_STORE, store)

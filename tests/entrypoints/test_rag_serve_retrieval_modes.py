@@ -13,6 +13,7 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 
+from rag_components import FAKE_BACKENDS
 from rag_graphs import rag_graph
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
@@ -25,12 +26,6 @@ TIMING_KEYS = {
     "dense": ["embed", "retrieve", "rerank", "generate", "total"],
     "lexical": ["retrieve", "rerank", "generate", "total"],
     "hybrid": ["embed", "retrieve", "rerank", "generate", "total"],
-}
-FAKE_BACKENDS = {
-    "embedding_backend": "fake",
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
-    "vector_store_backend": "fake",
 }
 SettingsFactory = Callable[..., RagSettings]
 

@@ -2,7 +2,7 @@
 
 Each stage says how its adapter loads for a thread count, takes another batch
 size, serves one request of the usual size, on the path a real request takes,
-and which ``RAG_*`` settings pin a tuning;
+and which settings of its component's ``local`` block pin a tuning;
 ``infrastructure/local_models/stage_calibration.py`` times them. They are
 named calibrated stages so that no class shares a name with a stage of the
 workflow. The ``local`` openers pick the candidates from a component's
@@ -55,13 +55,15 @@ class ComponentCalibration:
     Example:
         >>> calibration = await composition.calibration("reranker")
         >>> calibration.pinned
-        {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+        {'RAG_COMPONENTS__RERANKER__LOCAL__THREADS': 2,
+         'RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE': 2}
     """
 
+    component: str  # the component's name in the workflow file
     report: CalibrationReport
     cpus: float  # the CPUs the thread budget counted here
     runtime: str  # what ran the model: openvino or torch
-    pinned: dict[str, int]  # the variables that pin the choice, by name
+    pinned: dict[str, int]  # the environment paths that pin the choice
 
 
 def candidates(setting: int, top: int) -> tuple[int, ...]:
@@ -82,6 +84,7 @@ def candidates(setting: int, top: int) -> tuple[int, ...]:
 
 
 async def component_calibration(
+    component: str,
     stage: BaseCalibratedStage[T],
     *,
     threads: Sequence[int],
@@ -95,6 +98,7 @@ async def component_calibration(
     before the next component loads.
 
     Args:
+        component: The component's name, whose environment paths pin the choice.
         stage: The stage to time.
         threads: Thread counts to try, the budget's share first.
         batch_sizes: Batch sizes to try, the whole request first.
@@ -102,11 +106,11 @@ async def component_calibration(
         cpus: The CPUs the budget counted, for the report.
 
     Returns:
-        The report and the settings that pin its choice.
+        The report and the environment paths that pin its choice.
 
     Example:
-        >>> await component_calibration(stage, threads=(2, 1), batch_sizes=(20, 10),
-        ...                             local_models=local_models, cpus=2.0)
+        >>> await component_calibration("reranker", stage, threads=(2, 1),
+        ...     batch_sizes=(20, 10), local_models=local_models, cpus=2.0)
     """
     calibrated = await calibrate(
         stage,
@@ -115,11 +119,12 @@ async def component_calibration(
         limits=local_models.calibration_limits,
     )
     report = calibrated.report
+    pinned = {
+        RagSettings.variable_of("components", component, "local", setting): value
+        for setting, value in stage.pinned_settings(report.chosen).items()
+    }
     return ComponentCalibration(
-        report,
-        cpus=cpus,
-        runtime=local_models.runtime,
-        pinned=stage.pinned_settings(report.chosen),
+        component, report, cpus=cpus, runtime=local_models.runtime, pinned=pinned
     )
 
 
@@ -194,16 +199,13 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
             tuning: The tuning to pin.
 
         Returns:
-            ``RAG_RERANK_THREADS`` and ``RAG_RERANK_BATCH_SIZE``.
+            The ``local`` block's ``threads`` and ``batch_size``.
 
         Example:
             >>> stage.pinned_settings(StageTuning(threads=2, batch_size=2))
-            {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+            {'threads': 2, 'batch_size': 2}
         """
-        return {
-            RagSettings.variable_of("rerank_threads"): tuning.threads,
-            RagSettings.variable_of("rerank_batch_size"): tuning.batch_size,
-        }
+        return {"threads": tuning.threads, "batch_size": tuning.batch_size}
 
 
 class CalibratedEmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
@@ -278,10 +280,10 @@ class CalibratedEmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
             tuning: The tuning to pin.
 
         Returns:
-            ``RAG_EMBEDDING_THREADS``.
+            The ``local`` block's ``threads``.
 
         Example:
             >>> stage.pinned_settings(StageTuning(threads=2, batch_size=64))
-            {'RAG_EMBEDDING_THREADS': 2}
+            {'threads': 2}
         """
-        return {RagSettings.variable_of("embedding_threads"): tuning.threads}
+        return {"threads": tuning.threads}

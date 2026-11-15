@@ -93,7 +93,7 @@ defaults:
   hardware_tier_id: small
   settings:
     RAG_ES_URL: https://es.test:9200
-    RAG_RERANK_MODEL: /mnt/data/models/bge reranker
+    RAG_COMPONENTS__RERANKER__SOURCE_ID: /mnt/data/models/bge reranker
 
 apps:
   workflow:
@@ -103,7 +103,7 @@ apps:
     kind: app
     hardware_tier_id: cpu-8
     settings:
-      RAG_EMBEDDING_MODEL: /mnt/data/models/bge-small
+      RAG_COMPONENTS__EMBEDDER__SOURCE_ID: /mnt/data/models/bge-small
   reranker:
     kind: app
     hardware_tier_id: cpu-16

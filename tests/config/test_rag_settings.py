@@ -25,6 +25,13 @@ def stage_settings(settings: RagSettings) -> dict[str, dict[str, object]]:
     return {name: stage.stage_settings for name, stage in settings.graph.stages.items()}
 
 
+def local_threads(settings: RagSettings) -> tuple[int, int]:
+    """The embedder's and the reranker's thread counts, from their local blocks."""
+    components = settings.components
+    embedder, reranker = components["embedder"], components["reranker"]
+    return embedder.local.threads, reranker.local.threads
+
+
 # --- tunables ------------------------------------------------------------------
 
 
@@ -32,8 +39,6 @@ def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
     assert s.es_index == "rag_passages"
-    assert (s.embedding_batch_size, s.rerank_batch_size) == (64, 0)
-    assert s.rerank_calibration_passages == 20
     assert s.model_workers == 4
     assert (s.calibration_budget_s, s.calibration_rounds) == (90.0, 1)
     assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (30.0, 2, 0.2)
@@ -47,9 +52,6 @@ def test_tunables_read_rag_prefixed_env(
 ) -> None:
     env = {
         "RAG_ES_INDEX": "passages_v2",
-        "RAG_EMBEDDING_BATCH_SIZE": "16",
-        "RAG_RERANK_BATCH_SIZE": "8",
-        "RAG_RERANK_CALIBRATION_PASSAGES": "12",
         "RAG_MODEL_WORKERS": "2",
         "RAG_HTTP_TIMEOUT_S": "5.5",
         "RAG_HTTP_RETRIES": "0",
@@ -64,20 +66,20 @@ def test_tunables_read_rag_prefixed_env(
         monkeypatch.setenv(name, value)
 
     s = settings_factory()
-    assert s.es_index == "passages_v2"
-    assert (s.embedding_batch_size, s.rerank_batch_size, s.model_workers) == (16, 8, 2)
-    assert s.rerank_calibration_passages == 12
+    assert (s.es_index, s.model_workers) == ("passages_v2", 2)
     assert (s.http_timeout_s, s.http_retries, s.http_backoff_s) == (5.5, 0, 0.5)
     assert (s.domino_token_url, s.domino_token_ttl_s) == ("http://token.test/t", 60.0)
     assert s.fake_store_seed_documents == 30
     assert (s.calibration_budget_s, s.calibration_rounds) == (12.5, 3)
 
 
-@pytest.mark.parametrize("field", ["rerank_calibration_passages", "model_workers"])
+@pytest.mark.parametrize(
+    "field", ["components__reranker__local__calibration_passages", "model_workers"]
+)
 def test_counts_below_one_are_rejected(
     settings_factory: SettingsFactory, field: str
 ) -> None:
-    with pytest.raises(ValidationError, match=field):
+    with pytest.raises(ValidationError, match=field.split("__")[-1]):
         settings_factory(**{field: 0})
 
 
@@ -206,7 +208,7 @@ def test_thread_budget_inputs_default_to_find_out(
     monkeypatch.delenv("DOMINO_HARDWARE_TIER_ID", raising=False)
 
     s = settings_factory()
-    assert (s.model_cpus, s.embedding_threads, s.rerank_threads) == (0, 0, 0)
+    assert (s.model_cpus, *local_threads(s)) == (0, 0, 0)
     assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("", "")
 
 
@@ -214,13 +216,13 @@ def test_thread_budget_inputs_read_rag_env_and_domino_variables(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("RAG_MODEL_CPUS", "2.5")
-    monkeypatch.setenv("RAG_EMBEDDING_THREADS", "3")
-    monkeypatch.setenv("RAG_RERANK_THREADS", "1")
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS", "3")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__LOCAL__THREADS", "1")
     monkeypatch.setenv("DOMINO_API_PROXY", "http://localhost:8899")
     monkeypatch.setenv("DOMINO_HARDWARE_TIER_ID", "small-k8s")
 
     s = settings_factory()
-    assert (s.model_cpus, s.embedding_threads, s.rerank_threads) == (2.5, 3, 1)
+    assert (s.model_cpus, *local_threads(s)) == (2.5, 3, 1)
     assert s.domino_api_proxy == "http://localhost:8899"
     assert s.domino_hardware_tier_id == "small-k8s"
 
@@ -241,20 +243,28 @@ def test_domino_variables_can_be_passed_by_field_name(
     assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("http://p", "t")
 
 
-@pytest.mark.parametrize("field", ["model_cpus", "embedding_threads", "rerank_threads"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "model_cpus",
+        "components__embedder__local__threads",
+        "components__reranker__local__threads",
+    ],
+)
 def test_negative_thread_budget_inputs_are_rejected(
     settings_factory: SettingsFactory, field: str
 ) -> None:
-    with pytest.raises(ValidationError, match=field):
+    with pytest.raises(ValidationError, match=field.split("__")[-1]):
         settings_factory(**{field: -1})
 
 
-def test_each_field_names_the_variable_it_is_read_from() -> None:
-    assert RagSettings.variable_of("rerank_threads") == "RAG_RERANK_THREADS"
-    assert RagSettings.variable_of("rerank_batch_size") == "RAG_RERANK_BATCH_SIZE"
+def test_each_value_names_the_variable_it_is_read_from() -> None:
+    path = ("components", "reranker", "local", "threads")
+    assert RagSettings.variable_of(*path) == "RAG_COMPONENTS__RERANKER__LOCAL__THREADS"
+    assert RagSettings.variable_of("model_cpus") == "RAG_MODEL_CPUS"
     assert RagSettings.variable_of("domino_api_proxy") == "DOMINO_API_PROXY"
 
 
 def test_a_field_that_does_not_exist_names_no_variable() -> None:
-    with pytest.raises(ValueError, match="'rerank_thread'"):
-        RagSettings.variable_of("rerank_thread")
+    with pytest.raises(ValueError, match="'rerank_threads'"):
+        RagSettings.variable_of("rerank_threads")

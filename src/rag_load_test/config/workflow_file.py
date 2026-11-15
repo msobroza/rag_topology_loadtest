@@ -1,9 +1,9 @@
 """The workflow file: where it is found, and the settings source that reads it.
 
-Its top-level keys are settings of ``RagSettings``; today it holds the
-``graph`` block (ADR 0004). It is found as the deploy settings find theirs: the
-file ``RAG_WORKFLOW_FILE`` names, else ``workflow.yaml`` in the working
-directory, else the file that ships with this package, today's RAG graph.
+Its top-level keys are settings of ``RagSettings``: the ``components`` and
+the ``graph`` blocks (ADR 0004). It is found as the deploy settings find
+theirs: the file ``RAG_WORKFLOW_FILE`` names, else ``workflow.yaml`` in the
+working directory, else the file that ships with this package, the RAG's.
 ``RagSettings`` puts the file below the environment and ``.env``, so a variable
 named by a value's path, such as ``RAG_GRAPH__STAGES__RERANK__TOP_K``, wins
 over it.
@@ -15,10 +15,13 @@ Example:
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+import yaml
 from pydantic_settings import BaseSettings, YamlConfigSettingsSource
+
+from .component_settings import alias_of
 
 PACKAGED_WORKFLOW = Path(__file__).with_name("workflow.yaml")
 WORKFLOW_FILE = "workflow.yaml"  # in the working directory
@@ -84,7 +87,7 @@ def workflow_file_source(
         raise ValueError(
             f"workflow file {str(path)!r} has unknown key(s) "
             f"{', '.join(map(repr, unknown))}: each top-level key is a setting, "
-            "such as 'graph'"
+            "such as 'components' or 'graph'"
         )
     return source
 
@@ -105,3 +108,29 @@ def unknown_keys(keys: Iterable[object], settings_cls: type[BaseSettings]) -> li
     """
     fields = settings_cls.model_fields
     return sorted(str(key) for key in keys if key not in fields)
+
+
+def declared_alias(component: str, path: Path | None = None) -> str:
+    """Return a component's alias as the workflow file declares it.
+
+    It reads the file alone, so a client that builds no workflow settings (the
+    load-test client) sends the alias a model server serves the model under.
+
+    Args:
+        component: The component's name, such as ``reranker``.
+        path: The workflow file; None for the one ``workflow_file`` finds.
+
+    Returns:
+        Its ``alias``, else the last part of its ``source_id``; "" when the
+        file declares no such component.
+
+    Example:
+        >>> declared_alias("reranker")
+        'crossencoder-camembert-base-mmarcoFR'
+    """
+    text = (path or workflow_file()).read_text(encoding="utf-8")
+    components = (yaml.safe_load(text) or {}).get("components") or {}
+    entry = components.get(component)
+    if not isinstance(entry, Mapping):
+        return ""
+    return str(entry.get("alias") or alias_of(str(entry.get("source_id") or "")))

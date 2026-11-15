@@ -1,10 +1,12 @@
 """``rag-ingest``: a JSONL loader, and chunk, embed and upsert a corpus.
 
-The synthetic handbook it ingests by default lives in ``domain/corpus.py``.
+The synthetic handbook it ingests by default lives in ``domain/corpus.py``. It
+embeds with the one embedder component of the workflow file, or with the one
+``--embedder`` names when the file declares several.
 
 Example:
     $ rag-ingest --synthetic 200          # embed with the RAG_* configured backend
-    $ rag-ingest --corpus docs.jsonl
+    $ rag-ingest --corpus docs.jsonl --embedder embedder
 """
 
 from __future__ import annotations
@@ -67,20 +69,28 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-words", type=int, default=120)
     parser.add_argument("--overlap-words", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument(
+        "--embedder",
+        metavar="NAME",
+        help="the embedder component to embed with (default: the only one)",
+    )
     return parser
 
 
 async def _ingest_through(
-    composition: CompositionRoot, passages: Sequence[Passage], batch_size: int
+    composition: CompositionRoot, passages: Sequence[Passage], args: argparse.Namespace
 ) -> dict[str, object]:
+    batch_size = args.batch_size
     async with composition:
-        embedder, store = await composition.ingest_ports()
+        embedder, store = await composition.ingest_ports(args.embedder)
         count = await ingest(passages, embedder, store, batch_size=batch_size)
         _, stored = await store.ready()
     return {"passages": count, "embedder": embedder.model_name, "store": stored}
 
 
-def _configured_composition(parser: argparse.ArgumentParser) -> CompositionRoot:
+def _configured_composition(
+    parser: argparse.ArgumentParser, embedder: str | None
+) -> CompositionRoot:
     from ..composition.composition_root import CompositionRoot
     from ..composition.registered_names import check_registered_names
     from ..config.rag_settings import RagSettings
@@ -88,6 +98,7 @@ def _configured_composition(parser: argparse.ArgumentParser) -> CompositionRoot:
     try:
         settings = RagSettings()
         check_registered_names(settings)
+        settings.ingestion_embedder(embedder)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     if settings.vector_store_backend == "fake":
@@ -110,8 +121,8 @@ def main(
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
         composition: Builds the ports to ingest through; ``None`` builds one from
             the ``RAG_*`` settings, which refuses the ``fake`` vector store; a
-            settings mistake, an unknown backend or API format included, exits
-            as a usage error.
+            settings mistake, an unknown backend or API format and an
+            embedder that cannot be told included, exits as a usage error.
 
     Returns:
         The exit status, 0.
@@ -122,7 +133,7 @@ def main(
     """
     parser = _parser()
     args = parser.parse_args(argv)
-    composition = composition or _configured_composition(parser)
+    composition = composition or _configured_composition(parser, args.embedder)
     docs = (
         load_jsonl(args.corpus)
         if args.corpus
@@ -135,6 +146,6 @@ def main(
             d, chunk_words=args.chunk_words, overlap_words=args.overlap_words
         )
     ]
-    summary = asyncio.run(_ingest_through(composition, passages, args.batch_size))
+    summary = asyncio.run(_ingest_through(composition, passages, args))
     print(json.dumps({"event": "ingest_done", "documents": len(docs), **summary}))
     return 0

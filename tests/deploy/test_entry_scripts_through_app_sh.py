@@ -120,8 +120,8 @@ def test_a_split_workflow_starts_with_the_url_of_each_model_server(
     assert result.returncode == 0, result.stderr
     started = started_env(tmp_path, "venv-rag-serve")
     expected = {
-        "embedder": f"RAG_EMBEDDING_API_URL={APP_URLS['embedder']}/v3/embeddings",
-        "reranker": f"RAG_RERANK_API_URL={APP_URLS['reranker']}/v3/rerank",
+        "embedder": f"RAG_COMPONENTS__EMBEDDER__API__URL={APP_URLS['embedder']}/v3/embeddings",
+        "reranker": f"RAG_COMPONENTS__RERANKER__API__URL={APP_URLS['reranker']}/v3/rerank",
     }
     servers = model_servers_for_topology(topology)
     assert [expected[server] in started for server in servers] == [True] * len(servers)

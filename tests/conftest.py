@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
+from rag_components import FAKE_BACKENDS, settings_at_paths
 from rag_load_test.application.rag_dependencies import RagDependencies
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
@@ -35,10 +36,14 @@ def _the_packaged_workflow_file(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def settings_factory() -> Callable[..., RagSettings]:
-    """RagSettings without reading a stray ``.env``; keyword overrides allowed."""
+    """RagSettings without reading a stray ``.env``; keyword overrides allowed.
+
+    A keyword names a setting, or a value of the workflow file by its path
+    (``components__reranker__backend``); either is merged into the file.
+    """
 
     def make(**overrides: object) -> RagSettings:
-        return RagSettings(_env_file=None, **overrides)  # type: ignore[call-arg]
+        return RagSettings(_env_file=None, **settings_at_paths(**overrides))
 
     return make
 
@@ -46,12 +51,7 @@ def settings_factory() -> Callable[..., RagSettings]:
 @pytest.fixture
 def fake_settings(settings_factory: Callable[..., RagSettings]) -> RagSettings:
     """Every backend set to ``fake``: no weights, no network, no Elasticsearch."""
-    return settings_factory(
-        embedding_backend="fake",
-        rerank_backend="fake",
-        generation_backend="fake",
-        vector_store_backend="fake",
-    )
+    return settings_factory(**FAKE_BACKENDS)
 
 
 @pytest.fixture

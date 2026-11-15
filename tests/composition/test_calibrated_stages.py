@@ -63,7 +63,7 @@ def four_thread_settings(
         model_cpus=4,
         model_workers=1,
         vector_store_backend="fake",
-        generation_backend="fake",
+        components__llm__backend="fake",
         **overrides,
     )
 
@@ -84,7 +84,7 @@ async def open_reranker(
 ) -> CrossEncoderReranker:
     with caplog.at_level("INFO", logger="rag_load_test"):
         async with CompositionRoot(settings) as composition:
-            reranker = await composition.local_reranker()
+            reranker = await composition.local_reranker("reranker")
     assert isinstance(reranker, CrossEncoderReranker)
     return reranker
 
@@ -94,7 +94,7 @@ async def open_embedder(
 ) -> SentenceTransformerEmbedder:
     with caplog.at_level("INFO", logger="rag_load_test"):
         async with CompositionRoot(settings) as composition:
-            embedder = await composition.local_embedder()
+            embedder = await composition.local_embedder("embedder")
     assert isinstance(embedder, SentenceTransformerEmbedder)
     return embedder
 
@@ -139,7 +139,9 @@ async def test_rerank_settings_above_zero_pin_both_and_time_nothing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     settings = four_thread_settings(
-        settings_factory, rerank_threads=3, rerank_batch_size=7
+        settings_factory,
+        components__reranker__local__threads=3,
+        components__reranker__local__batch_size=7,
     )
     reranker = await open_reranker(settings, caplog)
 
@@ -154,7 +156,9 @@ async def test_a_pinned_rerank_batch_size_leaves_the_threads_searched(
     fake_weights: FakeSentenceTransformersModule,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = four_thread_settings(settings_factory, rerank_batch_size=7)
+    settings = four_thread_settings(
+        settings_factory, components__reranker__local__batch_size=7
+    )
     await open_reranker(settings, caplog)
 
     assert tried(calibrated_lines(caplog)["rerank"]) == [(4, 7), (2, 7), (1, 7)]
@@ -182,7 +186,9 @@ async def test_the_rerankers_calibration_passages_bound_the_batch_sizes_tried(
     fake_weights: FakeSentenceTransformersModule,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = four_thread_settings(settings_factory, rerank_calibration_passages=8)
+    settings = four_thread_settings(
+        settings_factory, components__reranker__local__calibration_passages=8
+    )
     await open_reranker(settings, caplog)
 
     trials = tried(calibrated_lines(caplog)["rerank"])
@@ -226,7 +232,9 @@ async def test_embed_at_zero_searches_threads_at_the_configured_batch_size(
     fake_weights: FakeSentenceTransformersModule,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = four_thread_settings(settings_factory, embedding_batch_size=16)
+    settings = four_thread_settings(
+        settings_factory, components__embedder__local__batch_size=16
+    )
     embedder = await open_embedder(settings, caplog)
 
     line = calibrated_lines(caplog)["embed"]
@@ -239,7 +247,9 @@ async def test_embed_threads_above_zero_time_nothing(
     fake_weights: FakeSentenceTransformersModule,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = four_thread_settings(settings_factory, embedding_threads=2)
+    settings = four_thread_settings(
+        settings_factory, components__embedder__local__threads=2
+    )
     embedder = await open_embedder(settings, caplog)
 
     assert calibrated_lines(caplog) == {}
@@ -271,7 +281,7 @@ def test_the_rerank_stage_is_pinned_by_its_threads_and_batch_size(
 
     pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
 
-    assert pinned == {"RAG_RERANK_THREADS": 2, "RAG_RERANK_BATCH_SIZE": 5}
+    assert pinned == {"threads": 2, "batch_size": 5}  # in its local block
 
 
 def test_the_embed_stage_is_pinned_by_its_threads_only(
@@ -281,7 +291,7 @@ def test_the_embed_stage_is_pinned_by_its_threads_only(
 
     pinned = stage.pinned_settings(StageTuning(threads=3, batch_size=64))
 
-    assert pinned == {"RAG_EMBEDDING_THREADS": 3}
+    assert pinned == {"threads": 3}
 
 
 def test_pinned_settings_read_back_as_the_tuning(
@@ -291,12 +301,13 @@ def test_pinned_settings_read_back_as_the_tuning(
 ) -> None:
     stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=20)
     pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
-    for name, value in pinned.items():
-        monkeypatch.setenv(name, str(value))
+    for setting, value in pinned.items():
+        path = ("components", "reranker", "local", setting)
+        monkeypatch.setenv(RagSettings.variable_of(*path), str(value))
 
-    settings = settings_factory()
+    local = settings_factory().components["reranker"].local
 
-    assert (settings.rerank_threads, settings.rerank_batch_size) == (2, 5)
+    assert (local.threads, local.batch_size) == (2, 5)
 
 
 # --- recording models ----------------------------------------------------------------

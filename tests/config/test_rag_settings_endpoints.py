@@ -1,8 +1,10 @@
-"""``RagSettings``: the three model components' endpoint settings and their check."""
+"""``RagSettings``: the model components' endpoint settings, their bounds and check."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import reduce
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -15,106 +17,64 @@ EMBED_URL = "http://embedder:8002/v3/embeddings"
 RERANK_URL = "http://reranker:8001/v3/rerank"
 
 
-# --- defaults ------------------------------------------------------------------
+def value_at(settings: RagSettings, path: str) -> Any:
+    """The value a keyword named by its path sets, read back from the settings."""
+    first, *levels = path.split("__")
+    if first == "components":
+        name, *levels = levels
+        start: Any = settings.components[name]
+    else:
+        start = getattr(settings, first)
+    return reduce(getattr, levels, start)
 
 
-def test_embedding_defaults(settings_factory: SettingsFactory) -> None:
-    s = settings_factory()
-
-    assert s.embedding_backend == "local"
-    assert s.embedding_query_prefix == "query: "
-    assert (s.embedding_api_url, s.embedding_api_format) == ("", "openai")
-    assert (s.embedding_api_key, s.embedding_api_model) == (
-        "",
-        "snowflake-arctic-embed-l-v2.0",
-    )
-    assert (s.embedding_batch_size, s.embedding_threads) == (64, 0)
-
-
-def test_rerank_defaults(settings_factory: SettingsFactory) -> None:
-    s = settings_factory()
-
-    assert s.rerank_backend == "local"
-    assert (s.rerank_api_url, s.rerank_api_format) == ("", "cohere")
-    assert (s.rerank_api_key, s.rerank_api_model) == (
-        "",
-        "crossencoder-camembert-base-mmarcoFR",
-    )
-    assert (s.rerank_batch_size, s.rerank_threads) == (0, 0)  # 0 = calibrated
-
-
-def test_generation_defaults(settings_factory: SettingsFactory) -> None:
-    s = settings_factory()
-
-    assert s.generation_backend == "api"
-    assert s.generation_api_url == "https://api.openai.com/v1/chat/completions"
-    assert (s.generation_api_format, s.generation_api_key) == ("openai", "")
-    assert s.generation_api_model == "gpt-4o-mini"
-    assert (s.generation_temperature, s.generation_timeout_s) == (0.0, 120.0)
-
-
-# --- bounds and closed sets ----------------------------------------------------
+# --- bounds ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("path", "value"),
     [
-        ("embedding_batch_size", 0),
-        ("embedding_threads", -1),
-        ("rerank_batch_size", -1),
-        ("rerank_threads", -1),
+        ("components__embedder__local__batch_size", 0),
+        ("components__embedder__local__threads", -1),
+        ("components__embedder__api__batch_size", 0),
+        ("components__reranker__local__batch_size", -1),
+        ("components__reranker__local__threads", -1),
+        ("components__reranker__local__calibration_passages", 0),
         ("calibration_budget_s", 0),
         ("calibration_rounds", 0),
-        ("generation_timeout_s", 0),
-        ("generation_temperature", 2.5),
-        ("generation_backend", "local"),
-        ("rerank_backend", "ovms"),
-        ("embedding_backend", "openai"),
+        ("components__llm__http__timeout_s", 0),
+        ("components__llm__api__temperature", 2.5),
     ],
 )
-def test_out_of_range_or_unknown_values_are_refused(
-    settings_factory: SettingsFactory, field: str, value: object
+def test_out_of_range_values_are_refused_naming_their_path(
+    settings_factory: SettingsFactory, path: str, value: object
 ) -> None:
-    with pytest.raises(ValidationError, match=field):
-        settings_factory(**{field: value})
+    with pytest.raises(ValidationError) as refused:
+        settings_factory(**{path: value})
+
+    assert path.split("__")[-1] in str(refused.value)
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("path", "value"),
     [
-        ("embedding_batch_size", 1),
-        ("embedding_threads", 0),
-        ("rerank_batch_size", 0),
-        ("rerank_batch_size", 1),
-        ("rerank_threads", 0),
+        ("components__embedder__local__batch_size", 1),
+        ("components__embedder__local__threads", 0),
+        ("components__reranker__local__batch_size", 0),
+        ("components__reranker__local__batch_size", 1),
+        ("components__reranker__local__threads", 0),
         ("calibration_budget_s", 0.001),
         ("calibration_rounds", 1),
-        ("generation_timeout_s", 0.5),
+        ("components__llm__http__timeout_s", 0.5),
     ],
 )
 def test_values_at_the_bounds_are_accepted(
-    settings_factory: SettingsFactory, field: str, value: object
+    settings_factory: SettingsFactory, path: str, value: object
 ) -> None:
-    assert getattr(settings_factory(**{field: value}), field) == value
+    assert value_at(settings_factory(**{path: value}), path) == value
 
 
 # --- the environment -------------------------------------------------------------
-
-
-def test_endpoint_settings_read_rag_prefixed_variables(
-    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RAG_RERANK_BACKEND", "api")
-    monkeypatch.setenv("RAG_RERANK_API_URL", RERANK_URL)
-    monkeypatch.setenv("RAG_RERANK_API_KEY", "domino")
-    monkeypatch.setenv("RAG_GENERATION_API_KEY", "sk-key")
-    monkeypatch.setenv("RAG_GENERATION_TIMEOUT_S", "60")
-
-    s = settings_factory()
-
-    assert (s.rerank_backend, s.rerank_api_url) == ("api", RERANK_URL)
-    assert (s.rerank_api_key, s.generation_api_key) == ("domino", "sk-key")
-    assert s.generation_timeout_s == 60.0
 
 
 @pytest.mark.parametrize(
@@ -125,104 +85,105 @@ def test_unprefixed_provider_variables_are_not_read(
 ) -> None:
     monkeypatch.setenv(name, "https://must-not-be-read")
 
-    s = settings_factory()
+    llm = settings_factory().components["llm"]
 
-    assert s.generation_api() == ApiEndpoint(
+    assert llm.api.endpoint(llm.alias) == ApiEndpoint(
         "https://api.openai.com/v1/chat/completions", "openai", "", "gpt-4o-mini"
     )
 
 
-# --- the three endpoints ---------------------------------------------------------
+# --- the endpoints ---------------------------------------------------------------
 
 
-def test_embedding_api_is_built_from_its_four_fields(
-    settings_factory: SettingsFactory,
+@pytest.mark.parametrize(
+    ("component", "url", "api_format"),
+    [
+        ("embedder", EMBED_URL, "openai"),
+        ("reranker", "https://api.cohere.com/v2/rerank", "cohere"),
+        ("llm", "https://gateway/v1/chat/completions", "openai"),
+    ],
+)
+def test_an_api_block_gives_its_endpoint(
+    settings_factory: SettingsFactory, component: str, url: str, api_format: str
 ) -> None:
     s = settings_factory(
-        embedding_backend="api",
-        embedding_api_url=EMBED_URL,
-        embedding_api_key="domino",
-        embedding_api_model="bge-small",
+        **{
+            f"components__{component}__api__url": url,
+            f"components__{component}__api__api_key": "key",
+            f"components__{component}__api__model": "served-name",
+        }
     )
 
-    assert s.embedding_api() == ApiEndpoint(EMBED_URL, "openai", "domino", "bge-small")
+    model = s.components[component]
+    assert model.api.endpoint(model.alias) == ApiEndpoint(
+        url, api_format, "key", "served-name"
+    )
 
 
-def test_rerank_api_is_built_from_its_four_fields(
+def test_an_api_block_without_a_model_sends_the_alias(
     settings_factory: SettingsFactory,
 ) -> None:
+    # Our model servers serve a model under its alias: a split topology sends it.
     s = settings_factory(
-        rerank_api_url="https://api.cohere.com/v2/rerank",
-        rerank_api_key="co-key",
-        rerank_api_model="rerank-v3.5",
+        topology="split-all",
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__api__url=RERANK_URL,
     )
 
-    assert s.rerank_api() == ApiEndpoint(
-        "https://api.cohere.com/v2/rerank", "cohere", "co-key", "rerank-v3.5"
-    )
-
-
-def test_generation_api_is_built_from_its_four_fields(
-    settings_factory: SettingsFactory,
-) -> None:
-    s = settings_factory(
-        generation_api_url="https://gateway/v1/chat/completions",
-        generation_api_key="sk-key",
-        generation_api_model="llama-3",
-    )
-
-    assert s.generation_api() == ApiEndpoint(
-        "https://gateway/v1/chat/completions", "openai", "sk-key", "llama-3"
+    embedder = s.components["embedder"]
+    assert (
+        embedder.api.endpoint(embedder.alias).model == "snowflake-arctic-embed-l-v2.0"
     )
 
 
-@pytest.mark.parametrize("component", ["embedding", "rerank", "generation"])
+@pytest.mark.parametrize("component", ["embedder", "reranker", "llm"])
 def test_an_api_format_is_passed_on_for_its_registry_to_check(
     settings_factory: SettingsFactory, component: str
 ) -> None:
-    # The registries are in the adapters, which the settings may not import: the
-    # component refuses an unknown format as it opens (test_rag_serve_api_formats).
-    s = settings_factory(**{f"{component}_api_format": "jina"})
+    # The registries are in the adapters, which the settings may not import: each
+    # command refuses an unknown format before it opens anything.
+    s = settings_factory(**{f"components__{component}__api__api_format": "jina"})
 
-    assert getattr(s, f"{component}_api")().api_format == "jina"
+    assert s.components[component].api.api_format == "jina"
 
 
 # --- check_api_endpoints ---------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("overrides", "variable", "example"),
+    ("overrides", "component", "example"),
     [
         (
-            {"embedding_backend": "api"},
-            "RAG_EMBEDDING",
+            {"components__embedder__backend": "api"},
+            "EMBEDDER",
             "http://localhost:8002/v3/embeddings",
         ),
         (
             {"topology": "split-reranker"},
-            "RAG_RERANK",
+            "RERANKER",
             "http://localhost:8001/v3/rerank",
         ),
         (
-            {"generation_api_url": ""},
-            "RAG_GENERATION",
+            {"components__llm__api__url": ""},
+            "LLM",
             "https://api.openai.com/v1/chat/completions",
         ),
     ],
-    ids=["embedding", "rerank-from-the-topology", "generation"],
+    ids=["embedder", "reranker-from-the-topology", "llm"],
 )
-def test_an_api_backend_without_a_url_is_refused(
+def test_an_api_backend_without_a_url_is_refused_naming_the_paths(
     settings_factory: SettingsFactory,
     overrides: dict[str, str],
-    variable: str,
+    component: str,
     example: str,
 ) -> None:
     with pytest.raises(ValidationError) as caught:
         settings_factory(**overrides)
 
+    variable = f"RAG_COMPONENTS__{component}"
     assert (
-        f"{variable}_BACKEND='api' needs {variable}_API_URL, the full route of the "
-        f"endpoint (for example {example}); got ''"
+        f"{variable}__BACKEND='api' needs {variable}__API__URL, the full route of "
+        f"the endpoint (for example {example}); got ''"
     ) in str(caught.value)
 
 
@@ -231,9 +192,11 @@ def test_a_url_that_is_not_http_is_refused_with_its_value(
     settings_factory: SettingsFactory, url: str
 ) -> None:
     with pytest.raises(ValidationError) as caught:
-        settings_factory(rerank_backend="api", rerank_api_url=url)
+        settings_factory(
+            components__reranker__backend="api", components__reranker__api__url=url
+        )
 
-    assert "RAG_RERANK_API_URL, the full route" in str(caught.value)
+    assert "RAG_COMPONENTS__RERANKER__API__URL, the full route" in str(caught.value)
     assert f"got {url!r}" in str(caught.value)
 
 
@@ -241,22 +204,27 @@ def test_a_url_that_is_not_http_is_refused_with_its_value(
 def test_an_http_or_https_url_is_accepted(
     settings_factory: SettingsFactory, url: str
 ) -> None:
-    assert (
-        settings_factory(rerank_backend="api", rerank_api_url=url).rerank_api_url == url
+    settings = settings_factory(
+        components__reranker__backend="api", components__reranker__api__url=url
     )
+
+    assert settings.components["reranker"].api.url == url
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
         {},  # monolith: both local
-        {"rerank_backend": "fake", "embedding_backend": "fake"},
+        {
+            "components__reranker__backend": "fake",
+            "components__embedder__backend": "fake",
+        },
         {
             "topology": "split-all",
-            "embedding_backend": "fake",
-            "rerank_backend": "none",
+            "components__embedder__backend": "fake",
+            "components__reranker__backend": "none",
         },
-        {"generation_backend": "fake", "generation_api_url": ""},
+        {"components__llm__backend": "fake", "components__llm__api__url": ""},
     ],
     ids=["local", "fake", "fake-and-none", "fake-generation"],
 )
@@ -265,4 +233,5 @@ def test_the_url_is_not_checked_for_another_backend(
 ) -> None:
     s = settings_factory(**overrides)
 
-    assert (s.embedding_api_url, s.rerank_api_url) == ("", "")
+    urls = (s.components["embedder"].api.url, s.components["reranker"].api.url)
+    assert urls == ("", "")

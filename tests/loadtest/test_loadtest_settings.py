@@ -41,9 +41,11 @@ def test_the_four_model_values_default_to_the_rag_systems(
         stages["retrieve"].stage_settings["top_k"],
         stages["rerank"].stage_settings["top_k"],
     )
-    assert (settings.rerank_api_model, settings.embedding_api_model) == (
-        rag.rerank_api_model,
-        rag.embedding_api_model,
+    # The aliases are the workflow file's, as a model server serves its model.
+    components = rag.components
+    assert (settings.reranker_alias, settings.embedder_alias) == (
+        components["reranker"].alias,
+        components["embedder"].alias,
     )
 
 
@@ -63,8 +65,8 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
             "RAG_LOADTEST_QUESTIONS_FILE": "data/q.jsonl",
             "RAG_TOP_K_RETRIEVE": "7",
             "RAG_TOP_K_RERANK": "3",
-            "RAG_RERANK_API_MODEL": "my-reranker",
-            "RAG_EMBEDDING_API_MODEL": "my-embedder",
+            "RAG_COMPONENTS__RERANKER__ALIAS": "my-reranker",
+            "RAG_COMPONENTS__EMBEDDER__ALIAS": "my-embedder",
             API_KEY: "key",
         },
     )
@@ -80,8 +82,8 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.question_count == 12
     assert settings.questions_file == Path("data/q.jsonl")
     assert (settings.top_k_retrieve, settings.top_k_rerank) == (7, 3)
-    assert settings.rerank_api_model == "my-reranker"
-    assert settings.embedding_api_model == "my-embedder"
+    assert settings.reranker_alias == "my-reranker"
+    assert settings.embedder_alias == "my-embedder"
     assert settings.auth_headers == {"X-Domino-Api-Key": "key"}
 
 

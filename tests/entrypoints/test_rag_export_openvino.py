@@ -79,6 +79,20 @@ def test_only_exports_one_model(exports: RecordingExports, role: str) -> None:
     assert [call[0] for call in exports.calls] == [role]
 
 
+def test_a_component_of_any_name_is_exported_by_its_type_from_its_source_id(
+    exports: RecordingExports, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_COMPONENTS__COARSE__TYPE", "reranker")
+    monkeypatch.setenv("RAG_COMPONENTS__COARSE__BACKEND", "local")
+    monkeypatch.setenv("RAG_COMPONENTS__COARSE__SOURCE_ID", "org/coarse-rr")
+
+    assert main(["--only", "coarse"]) == 0
+
+    assert exports.calls == [
+        ("reranker", "org/coarse-rr", Path("models/openvino/coarse-rr"))
+    ]
+
+
 def test_models_dir_option_beats_the_setting(
     exports: RecordingExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -92,8 +106,8 @@ def test_models_dir_option_beats_the_setting(
 def test_settings_overrides_pick_the_models_and_folder(
     exports: RecordingExports, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "org/embed")
-    monkeypatch.setenv("RAG_RERANK_MODEL", "org/rerank")
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__SOURCE_ID", "org/embed")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SOURCE_ID", "org/rerank")
     monkeypatch.setenv("RAG_OPENVINO_MODELS_DIR", "from-env")
 
     main([])

@@ -8,7 +8,7 @@ another model has loaded. So each command that opens components calls
 as a usage error, as it reports any other settings mistake.
 
 Example:
-    >>> check_registered_names(RagSettings())  # the defaults: nothing raised
+    >>> check_registered_names(RagSettings())  # the packaged file: nothing raised
 """
 
 from __future__ import annotations
@@ -18,43 +18,50 @@ from typing import Any
 from ..adapters.embedder.api.base_embedding_api_format import EMBEDDING_API_FORMATS
 from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
-from ..config.component_settings import component_settings_of
 from ..config.rag_settings import RagSettings
 from ..domain.registry import Registry
-from .openers.component_openers import (
-    EMBEDDER_OPENERS,
-    LLM_OPENERS,
-    RERANKER_OPENERS,
-    VECTOR_STORE_OPENERS,
-)
+from .openers.component_openers import OPENERS_BY_TYPE, VECTOR_STORE_OPENERS
+
+# The API formats of each model component type, by the type its settings name.
+_API_FORMATS_BY_TYPE: dict[str, Registry[Any]] = {
+    "embedder": EMBEDDING_API_FORMATS,
+    "reranker": RERANK_API_FORMATS,
+    "llm": GENERATION_API_FORMATS,
+}
 
 
 def check_registered_names(settings: RagSettings) -> None:
     """Refuse a backend that has no opener, or an API format nobody registered.
 
-    Every component is checked, whether the command opens it or not, as the
-    settings checked every name before the API formats moved to a registry.
+    Every component is checked, whether the command opens it or not, the
+    vector store included, and every ``api`` block, whatever the component's
+    backend.
 
     Args:
         settings: The settings a command is about to open components from.
 
     Raises:
-        ValueError: The first unknown name, with its sort and the known names:
-            ``unknown generation API format 'jina' (expected one of: 'openai')``.
+        ValueError: The first unknown name, with the variable it is read from,
+            its sort and the known names: ``RAG_COMPONENTS__LLM__API__API_FORMAT:
+            unknown generation API format 'jina' (expected one of: 'openai')``.
 
     Example:
-        >>> check_registered_names(RagSettings(generation_api_format="jina"))
-        ValueError: unknown generation API format 'jina' (expected one of: 'openai')
+        >>> check_registered_names(RagSettings(components={"llm": {"api": {
+        ...     "api_format": "jina"}}}))
+        ValueError: RAG_COMPONENTS__LLM__API__API_FORMAT: unknown generation ...
     """
-    components = component_settings_of(settings)
-    named: list[tuple[Registry[Any], str]] = [
-        (EMBEDDER_OPENERS, components.embedder.backend),
-        (RERANKER_OPENERS, components.reranker.backend),
-        (LLM_OPENERS, components.llm.backend),
-        (VECTOR_STORE_OPENERS, components.vector_store.backend),
-        (EMBEDDING_API_FORMATS, components.embedder.api.api_format),
-        (RERANK_API_FORMATS, components.reranker.api.api_format),
-        (GENERATION_API_FORMATS, components.llm.api.api_format),
-    ]
-    for registry, name in named:
-        registry.get(name)  # raises, naming the known names, when name is unknown
+    variable_of = RagSettings.variable_of
+    for name, model in settings.components.items():
+        backend = variable_of("components", name, "backend")
+        _check(OPENERS_BY_TYPE[model.type], model.backend, backend)
+        api_format = variable_of("components", name, "api", "api_format")
+        _check(_API_FORMATS_BY_TYPE[model.type], model.api.api_format, api_format)
+    store = settings.vector_store_backend
+    _check(VECTOR_STORE_OPENERS, store, variable_of("vector_store_backend"))
+
+
+def _check(registry: Registry[Any], value: str, variable: str) -> None:
+    try:
+        registry.get(value)  # raises, naming the known names, when value is unknown
+    except ValueError as exc:
+        raise ValueError(f"{variable}: {exc}") from exc

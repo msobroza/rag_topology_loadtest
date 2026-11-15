@@ -1,7 +1,7 @@
 """The vector store on the ``chroma`` backend: a Chroma server, or embedded Chroma.
 
 Example:
-    >>> store = await open_vector_store_on_chroma(components.vector_store, shared)
+    >>> store = await open_vector_store_on_chroma(vector_store, shared)
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ async def open_vector_store_on_chroma(
         The Chroma store.
 
     Example:
-        >>> store = await open_vector_store_on_chroma(components.vector_store, shared)
+        >>> store = await open_vector_store_on_chroma(vector_store, shared)
     """
     block = component.chroma
     return await ChromaVectorStore.open(

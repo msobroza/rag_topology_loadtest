@@ -36,8 +36,10 @@ from rag_load_test.entrypoints.rag_model_server import (
     rerank_response_for,
 )
 
-EMBED_ALIAS = "snowflake-arctic-embed-l-v2.0"  # RagSettings().embedding_api_model
-RERANK_ALIAS = "crossencoder-camembert-base-mmarcoFR"  # RagSettings().rerank_api_model
+EMBED_ALIAS = (
+    "snowflake-arctic-embed-l-v2.0"  # the embedder's alias in the workflow file
+)
+RERANK_ALIAS = "crossencoder-camembert-base-mmarcoFR"  # the reranker's
 
 
 def api_reranker(client: httpx.AsyncClient, alias: str) -> ApiReranker:
@@ -229,6 +231,51 @@ def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None
     )
     assert main(["--serve", "embedder", "--port", "8012"]) == 0
     assert calls == {"app": "embedder", "host": "0.0.0.0", "port": 8012}
+
+
+def test_a_component_of_any_name_is_served_under_its_alias(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    # Its weights are a folder, its alias the last part; served whatever its backend.
+    coarse = {"type": "reranker", "backend": "fake", "source_id": "/models/coarse-rr/"}
+    settings = settings_factory(components={"coarse": coarse})
+    composition = CompositionRoot(settings, coarse=FakeReranker())
+
+    with TestClient(create_model_server("coarse", composition)) as client:
+        status = client.get("/v3/models/coarse-rr")
+        other = client.get(f"/v3/models/{RERANK_ALIAS}")
+        healthz = client.get("/healthz").json()
+
+    assert status.json() == {"name": "coarse-rr", "role": "coarse"}
+    assert other.status_code == 404
+    assert healthz == {"status": "ok", "role": "coarse"}
+
+
+def test_a_component_no_model_server_serves_is_refused(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    composition = CompositionRoot(settings_factory())
+
+    with pytest.raises(ValueError, match="no component 'llm' a model server can"):
+        create_model_server("llm", composition)
+
+
+@pytest.mark.parametrize("name", ["llm", "gpu"])
+def test_main_refuses_a_name_it_cannot_serve_as_a_usage_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    monkeypatch.setattr(
+        "rag_load_test.entrypoints.rag_model_server.uvicorn.run",
+        lambda app, host, port: pytest.fail("nothing is served"),
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        main(["--serve", name])
+
+    assert exited.value.code == 2
+    assert "expected an embedder or a reranker of the workflow file: embedder, " in (
+        capsys.readouterr().err
+    )
 
 
 def test_model_server_answers_under_the_domino_prefix(

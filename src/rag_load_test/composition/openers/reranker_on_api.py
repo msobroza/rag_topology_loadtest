@@ -1,7 +1,7 @@
 """The reranker on the ``api`` backend: an endpoint in a rerank API format.
 
 Example:
-    >>> reranker = await open_reranker_on_api(components.reranker, shared)
+    >>> reranker = await open_reranker_on_api(reranker_settings, shared)
 """
 
 from __future__ import annotations
@@ -19,19 +19,19 @@ async def open_reranker_on_api(
     """Open the reranker of the endpoint the ``api`` block names.
 
     Args:
-        component: The reranker's ``api`` block.
+        component: The reranker's alias and ``api`` block.
         shared: The shared HTTP client, its policy and the run tokens.
 
     Returns:
         The endpoint's reranker; an unknown API format is refused here.
 
     Example:
-        >>> reranker = await open_reranker_on_api(components.reranker, shared)
+        >>> reranker = await open_reranker_on_api(reranker_settings, shared)
     """
     http = shared.http
     return open_api_reranker(
         await http.client(),
-        component.api.endpoint(),
+        component.api.endpoint(component.alias),
         tokens=http.run_tokens,
         policy=http.policy,
     )

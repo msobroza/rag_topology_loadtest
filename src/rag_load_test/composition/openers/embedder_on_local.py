@@ -4,7 +4,7 @@ Its thread count, left at 0, is calibrated when it opens;
 ``calibrate_embedder_on_local`` searches it on demand, for ``rag-calibrate``.
 
 Example:
-    >>> embedder = await open_embedder_on_local(components.embedder, shared)
+    >>> embedder = await open_embedder_on_local(embedder_settings, shared)
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ async def open_embedder_on_local(
         The sentence-transformers embedder, at the fastest thread count tried.
 
     Example:
-        >>> embedder = await open_embedder_on_local(components.embedder, shared)
+        >>> embedder = await open_embedder_on_local(embedder_settings, shared)
     """
     local, local_models = component.local, shared.local_models
     budget = await local_models.thread_budget()
@@ -53,7 +53,7 @@ async def open_embedder_on_local(
 
 
 async def calibrate_embedder_on_local(
-    component: EmbedderSettings, local_models: LocalModelResources
+    name: str, component: EmbedderSettings, local_models: LocalModelResources
 ) -> ComponentCalibration:
     """Calibrate the in-process embedder here, searching its threads.
 
@@ -61,19 +61,23 @@ async def calibrate_embedder_on_local(
     size stays as set: a query is one text. The model is dropped once timed.
 
     Args:
+        name: The component's name, whose environment paths pin the choice.
         component: The embedder's source id, query prefix and ``local`` block.
         local_models: The machine's thread budget, the model pool, the
             calibration limits and the runtime.
 
     Returns:
-        The report, the CPUs and runtime it ran on, and the pinning settings.
+        The report, the CPUs and runtime it ran on, and the environment paths
+        that pin the choice.
 
     Example:
-        >>> (await calibrate_embedder_on_local(embedder, local_models)).pinned
-        {'RAG_EMBEDDING_THREADS': 2}
+        >>> (await calibrate_embedder_on_local("embedder", embedder, local_models)
+        ... ).pinned
+        {'RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS': 2}
     """
     machine = await local_models.unpinned_budget()
     return await component_calibration(
+        name,
         await _calibrated_stage(component, local_models),
         threads=halvings(machine.budget.embedder_threads),
         batch_sizes=(component.local.batch_size,),

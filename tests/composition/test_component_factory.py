@@ -19,6 +19,7 @@ from typing import Any, get_args
 
 import pytest
 
+from rag_components import FAKE_BACKENDS
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
 from rag_load_test.adapters.vector_store.fake.in_memory_vector_store import (
@@ -37,24 +38,18 @@ from rag_load_test.composition.openers.component_openers import (
     SharedResources,
 )
 from rag_load_test.composition.resource_scope import ResourceScope
-from rag_load_test.config.component_settings import component_settings_of
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.backends import (
-    EmbeddingBackend,
-    GenerationBackend,
-    RerankBackend,
-    VectorStoreBackend,
-)
+from rag_load_test.domain.backends import VectorStoreBackend
 from rag_load_test.domain.errors import RagDependencyError
 from rag_load_test.infrastructure.local_models.cpu_count import ContainerCpus
 from repo_paths import REPO_ROOT
 
-# Each component type's openers, and the Backend values its settings allow.
-OPENERS: dict[str, tuple[ComponentOpeners[Any, Any], Any]] = {
-    "embedder": (EMBEDDER_OPENERS, EmbeddingBackend),
-    "reranker": (RERANKER_OPENERS, RerankBackend),
-    "llm": (LLM_OPENERS, GenerationBackend),
-    "vector_store": (VECTOR_STORE_OPENERS, VectorStoreBackend),
+# Each component type's openers, and the backends registered for it: today's.
+OPENERS: dict[str, tuple[ComponentOpeners[Any, Any], tuple[str, ...]]] = {
+    "embedder": (EMBEDDER_OPENERS, ("api", "fake", "local")),
+    "reranker": (RERANKER_OPENERS, ("api", "fake", "local", "none")),
+    "llm": (LLM_OPENERS, ("api", "fake")),
+    "vector_store": (VECTOR_STORE_OPENERS, get_args(VectorStoreBackend)),
 }
 
 
@@ -80,10 +75,11 @@ def test_each_component_type_has_one_opener_per_backend_value(
     component_type: str,
 ) -> None:
     openers, backends = OPENERS[component_type]
-    known = ", ".join(repr(backend) for backend in sorted(get_args(backends)))
+    known = ", ".join(repr(backend) for backend in sorted(backends))
 
     assert openers.component_type == component_type
-    for backend in get_args(backends):
+    assert openers.names() == tuple(sorted(backends))
+    for backend in backends:
         assert callable(openers.get(backend))
     # The known names, exactly: one opener per value, and none more.
     message = f"unknown {component_type} backend 'gpu' (expected one of: {known})"
@@ -92,11 +88,12 @@ def test_each_component_type_has_one_opener_per_backend_value(
 
 
 async def test_an_unknown_backend_fails_naming_the_known_ones(
-    fake_settings: RagSettings,
+    settings_factory: Callable[..., RagSettings],
 ) -> None:
-    # model_copy keeps a name the settings would refuse: the opener's registry
-    # is what refuses it here.
-    settings = fake_settings.model_copy(update={"rerank_backend": "gpu"})
+    # The settings take any backend name: the opener's registry refuses it.
+    settings = settings_factory(
+        **FAKE_BACKENDS | {"components__reranker__backend": "gpu"}
+    )
     known = "'api', 'fake', 'local', 'none'"
 
     async with CompositionRoot(settings) as composition:
@@ -113,13 +110,26 @@ async def test_an_unknown_backend_fails_naming_the_known_ones(
 
 
 async def test_a_component_opens_once_per_scope(fake_settings: RagSettings) -> None:
-    reranker = component_settings_of(fake_settings).reranker
+    reranker = fake_settings.components["reranker"]
     async with ResourceScope("test") as scope:
         factory = factory_for(fake_settings, scope)
-        opened = await factory.open(RERANKER_OPENERS, reranker)
+        opened = await factory.open(RERANKER_OPENERS, "reranker", reranker)
 
         assert isinstance(opened, FakeReranker)
-        assert await factory.open(RERANKER_OPENERS, reranker) is opened
+        assert await factory.open(RERANKER_OPENERS, "reranker", reranker) is opened
+
+
+async def test_two_components_of_one_type_open_apart(
+    fake_settings: RagSettings,
+) -> None:
+    reranker = fake_settings.components["reranker"]
+    async with ResourceScope("test") as scope:
+        factory = factory_for(fake_settings, scope)
+        coarse = await factory.open(RERANKER_OPENERS, "coarse", reranker)
+        fine = await factory.open(RERANKER_OPENERS, "fine", reranker)
+
+        assert coarse is not fine
+        assert await factory.open(RERANKER_OPENERS, "fine", reranker) is fine
 
 
 async def test_a_supplied_port_is_used_as_given_even_outside_a_scope(
@@ -127,10 +137,10 @@ async def test_a_supplied_port_is_used_as_given_even_outside_a_scope(
 ) -> None:
     supplied = FakeLLM()
     factory = factory_for(fake_settings, ResourceScope("test"), llm=supplied)
-    llm = component_settings_of(fake_settings).llm
+    llm = fake_settings.components["llm"]
 
-    assert await factory.open(LLM_OPENERS, llm) is supplied  # the scope never opened
-    assert await factory.open_local(LLM_OPENERS, llm) is supplied
+    assert await factory.open(LLM_OPENERS, "llm", llm) is supplied  # scope unopened
+    assert await factory.open_local(LLM_OPENERS, "llm", llm) is supplied
 
 
 class ClosingRecorderStore(InMemoryVectorStore):
@@ -149,7 +159,7 @@ async def test_a_supplied_port_is_never_closed(
 ) -> None:
     # The elasticsearch opener closes the store it opens when the scope ends.
     settings = settings_factory(
-        embedding_backend="fake", vector_store_backend="elasticsearch"
+        components__embedder__backend="fake", vector_store_backend="elasticsearch"
     )
     supplied = ClosingRecorderStore()
     async with CompositionRoot(settings, vector_store=supplied) as composition:
@@ -189,8 +199,7 @@ async def open_reranker_on_reversed(component, shared):
     return ReversedReranker()
 '''
 # Serves the workflow app of that copy, its reranker on the new backend, and
-# asks /retrieve. model_copy: the flat RAG_RERANK_BACKEND still lists today's
-# backends, until the workflow file replaces it.
+# asks /retrieve.
 DRIVER = """
 import json
 
@@ -203,12 +212,14 @@ from rag_load_test.entrypoints.rag_serve import create_app
 
 settings = RagSettings(
     _env_file=None,
-    embedding_backend="fake",
-    rerank_backend="fake",
-    generation_backend="fake",
+    components={
+        "embedder": {"backend": "fake"},
+        "reranker": {"backend": "reversed"},
+        "llm": {"backend": "fake"},
+    },
     vector_store_backend="fake",
     graph={"stages": {"retrieve": {"top_k": 5}, "rerank": {"top_k": 3}}},
-).model_copy(update={"rerank_backend": "reversed"})
+)
 with TestClient(create_app(CompositionRoot(settings))) as client:
     answer = client.post("/retrieve", json={"question": "vacation days"}).json()
 passages = answer["passages"]

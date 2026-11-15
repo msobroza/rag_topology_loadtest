@@ -9,6 +9,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 
+from rag_components import FAKE_BACKENDS
 from rag_load_test.adapters.embedder.api.api_embedder import ApiEmbedder
 from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
 from rag_load_test.adapters.llm.api.api_llm import ApiLLM
@@ -28,12 +29,6 @@ SettingsFactory = Callable[..., RagSettings]
 EMBED_URL = "http://embedder.test/v3/embeddings"
 RERANK_URL = "https://rerank.test/v2/rerank"
 CHAT_URL = "https://gateway.test/v1/chat/completions"
-EVERYTHING_FAKE = {
-    "embedding_backend": "fake",
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
-    "vector_store_backend": "fake",
-}
 
 
 class RecordingModelRoutes:
@@ -84,13 +79,15 @@ async def test_each_embedding_backend_opens_its_adapter(
     settings_factory: SettingsFactory, backend: str, adapter: type
 ) -> None:
     settings = settings_factory(
-        **(EVERYTHING_FAKE | {"embedding_backend": backend}),
-        embedding_api_url=EMBED_URL,
+        **(FAKE_BACKENDS | {"components__embedder__backend": backend}),
+        components__embedder__api__url=EMBED_URL,
     )
     async with CompositionRoot(
         settings, vector_store=InMemoryVectorStore()
     ) as composition:
-        assert isinstance((await composition.workflow_dependencies()).embedder, adapter)
+        assert isinstance(
+            (await composition.workflow_dependencies()).by_name["embedder"], adapter
+        )
 
 
 @pytest.mark.parametrize(
@@ -101,19 +98,26 @@ async def test_each_rerank_backend_opens_its_adapter(
     settings_factory: SettingsFactory, backend: str, adapter: type
 ) -> None:
     settings = settings_factory(
-        **(EVERYTHING_FAKE | {"rerank_backend": backend}), rerank_api_url=RERANK_URL
+        **(FAKE_BACKENDS | {"components__reranker__backend": backend}),
+        components__reranker__api__url=RERANK_URL,
     )
     async with CompositionRoot(settings) as composition:
-        assert isinstance((await composition.workflow_dependencies()).reranker, adapter)
+        assert isinstance(
+            (await composition.workflow_dependencies()).by_name["reranker"], adapter
+        )
 
 
 @pytest.mark.parametrize(("backend", "adapter"), [("fake", FakeLLM), ("api", ApiLLM)])
 async def test_each_generation_backend_opens_its_adapter(
     settings_factory: SettingsFactory, backend: str, adapter: type
 ) -> None:
-    settings = settings_factory(**(EVERYTHING_FAKE | {"generation_backend": backend}))
+    settings = settings_factory(
+        **(FAKE_BACKENDS | {"components__llm__backend": backend})
+    )
     async with CompositionRoot(settings) as composition:
-        assert isinstance((await composition.workflow_dependencies()).llm, adapter)
+        assert isinstance(
+            (await composition.workflow_dependencies()).by_name["llm"], adapter
+        )
 
 
 # --- the api backends on the wire --------------------------------------------------
@@ -124,11 +128,11 @@ async def test_the_api_embedder_calls_its_endpoint(
 ) -> None:
     routes = RecordingModelRoutes()
     settings = settings_factory(
-        **(EVERYTHING_FAKE | {"embedding_backend": "api"}),
-        embedding_api_url=EMBED_URL,
-        embedding_api_key="emb-key",
-        embedding_api_model="bge-small",
-        embedding_batch_size=2,
+        **(FAKE_BACKENDS | {"components__embedder__backend": "api"}),
+        components__embedder__api__url=EMBED_URL,
+        components__embedder__api__api_key="emb-key",
+        components__embedder__api__model="bge-small",
+        components__embedder__api__batch_size=2,
         http_timeout_s=4.5,
     )
     transport = httpx.MockTransport(routes)
@@ -150,16 +154,16 @@ async def test_the_api_reranker_calls_its_endpoint(
 ) -> None:
     routes = RecordingModelRoutes()
     settings = settings_factory(
-        **(EVERYTHING_FAKE | {"rerank_backend": "api"}),
-        rerank_api_url=RERANK_URL,
-        rerank_api_key="co-key",
-        rerank_api_model="rerank-v3.5",
+        **(FAKE_BACKENDS | {"components__reranker__backend": "api"}),
+        components__reranker__api__url=RERANK_URL,
+        components__reranker__api__api_key="co-key",
+        components__reranker__api__model="rerank-v3.5",
         http_timeout_s=4.5,
     )
     async with CompositionRoot(
         settings, transport=httpx.MockTransport(routes)
     ) as composition:
-        reranker = (await composition.workflow_dependencies()).reranker
+        reranker = (await composition.workflow_dependencies()).by_name["reranker"]
         [best] = await reranker.rerank("vacation", candidates(), top_n=1)
 
     assert (best.id, best.rerank_score) == ("a", 0.9)
@@ -177,18 +181,18 @@ async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
 ) -> None:
     routes = RecordingModelRoutes()
     settings = settings_factory(
-        **(EVERYTHING_FAKE | {"generation_backend": "api"}),
-        generation_api_url=CHAT_URL,
-        generation_api_key="sk-key",
-        generation_api_model="llama-3",
-        generation_temperature=0.7,
-        generation_timeout_s=90.0,
+        **(FAKE_BACKENDS | {"components__llm__backend": "api"}),
+        components__llm__api__url=CHAT_URL,
+        components__llm__api__api_key="sk-key",
+        components__llm__api__model="llama-3",
+        components__llm__api__temperature=0.7,
+        components__llm__http__timeout_s=90.0,
         http_timeout_s=4.5,
     )
     async with CompositionRoot(
         settings, transport=httpx.MockTransport(routes)
     ) as composition:
-        llm = (await composition.workflow_dependencies()).llm
+        llm = (await composition.workflow_dependencies()).by_name["llm"]
         messages = [{"role": "user", "content": "How many vacation days?"}]
         assert await llm.generate(messages) == "Twenty-five days."
 
@@ -206,14 +210,14 @@ async def test_the_generation_endpoint_keeps_the_shared_retries(
         return httpx.Response(503, text="busy")
 
     settings = settings_factory(
-        **(EVERYTHING_FAKE | {"generation_backend": "api"}),
+        **(FAKE_BACKENDS | {"components__llm__backend": "api"}),
         http_retries=1,
         http_backoff_s=0.0,
     )
     async with CompositionRoot(
         settings, transport=httpx.MockTransport(busy)
     ) as composition:
-        llm = (await composition.workflow_dependencies()).llm
+        llm = (await composition.workflow_dependencies()).by_name["llm"]
         with pytest.raises(RagDependencyError, match="HTTP 503"):
             await llm.generate([{"role": "user", "content": "q"}])
 

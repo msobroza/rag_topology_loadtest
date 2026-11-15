@@ -1,7 +1,7 @@
 """The reranker on the ``none`` backend: retrieval order kept, nothing rescored.
 
 Example:
-    >>> reranker = await open_reranker_on_none(components.reranker, shared)
+    >>> reranker = await open_reranker_on_none(reranker_settings, shared)
 """
 
 from __future__ import annotations
@@ -26,6 +26,6 @@ async def open_reranker_on_none(
         A ``NoReranker``.
 
     Example:
-        >>> await open_reranker_on_none(components.reranker, shared)
+        >>> await open_reranker_on_none(reranker_settings, shared)
     """
     return NoReranker()

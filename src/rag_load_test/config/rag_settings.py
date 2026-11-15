@@ -1,80 +1,90 @@
 """Runtime configuration: the workflow file, ``RAG_*`` variables and a ``.env`` file.
 
-Three model components, one block of settings each: embedding, rerank and
-generation. A component's backend says how it runs: ``local`` (a model loaded
-in this process), ``api`` (an endpoint called over HTTP: a URL, an API format,
-a key and a model name), ``fake``, and for rerank also ``none``.
-``RAG_TOPOLOGY`` decides the embedding and rerank backends (the rule lives in
-``domain/topology.py``); ``RAG_EMBEDDING_BACKEND`` / ``RAG_RERANK_BACKEND`` may
-only repeat that choice or pick a variant that loads no model of ours. A
-contradiction, an ``api`` backend without a URL or a bad ``RAG_RUN_LABEL`` fails
-construction, so at start-up.
-
-The workflow graph, its stages and their own settings (the retrieval mode, the
-sizes, the prompts) is the ``graph`` field, read from the workflow file
+The workflow file declares the workflow: its ``components`` and its ``graph``
 (``workflow_file.py``). Each top-level key of the file is a field here, so each
 of its values has a variable, its path's levels joined by ``__``:
-``RAG_GRAPH__STAGES__RERANK__TOP_K``.
+``RAG_COMPONENTS__RERANKER__LOCAL__THREADS``,
+``RAG_GRAPH__STAGES__RERANK__TOP_K``. A component is named, has a type that
+defaults to its name, states its backend and has one block of settings per
+backend (``component_settings.py``). An API key is read from the environment,
+by its path, such as ``RAG_COMPONENTS__LLM__API__API_KEY``.
+
+``RAG_TOPOLOGY`` places the components named ``embedder`` and ``reranker``:
+one on ``local`` is moved behind a model server (``api``) when the topology
+says so (the rule lives in ``domain/topology.py``). A component on ``api``
+without a URL or a bad ``RAG_RUN_LABEL`` fails construction, so at start-up.
+The vector store and the settings the components share are still flat
+variables.
 
 Example:
     >>> settings = RagSettings()  # from the env and the workflow file
-    >>> settings = RagSettings(_env_file=None, rerank_backend="fake")  # in tests
+    >>> settings = RagSettings(  # in tests: merged into the file's components
+    ...     _env_file=None, components={"reranker": {"backend": "fake"}})
 
-Every tunable is a field here, or a setting of a stage in the graph, so one
-``RAG_*`` variable changes it; adapters receive the values from the
-``composition`` package and never read this module.
+Every tunable is a field here, a setting of a component or a setting of a
+stage in the graph, so one ``RAG_*`` variable changes it; adapters receive the
+values from the ``composition`` package and never read this module.
 """
 
 from __future__ import annotations
 
-from typing import cast
-
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
-from ..domain.api_endpoint import ApiEndpoint
 from ..domain.backends import (
     DEFAULT_GENERATION_BACKEND,
     DEFAULT_VECTOR_STORE_BACKEND,
-    EmbeddingBackend,
-    GenerationBackend,
     LocalModelRuntime,
-    RerankBackend,
     VectorStoreBackend,
 )
 from ..domain.graph_description import GraphDescription
 from ..domain.retrieval_mode import DEFAULT_RETRIEVAL_MODE
 from ..domain.run_label import default_run_label, validate_run_label
 from ..domain.topology import (
+    TOPOLOGY_BACKENDS,
+    PlacedComponent,
     Topology,
-    resolve_embedding_backend,
-    resolve_rerank_backend,
+    placed_backend,
+)
+from .component_settings import (
+    VECTOR_STORE,
+    ChromaSettings,
+    ComponentSettings,
+    ElasticsearchSettings,
+    FakeStoreSettings,
+    ModelComponent,
+    VectorStoreSettings,
+    typed_by_name,
 )
 from .workflow_file import workflow_file, workflow_file_source
 
-# Shown in the error for an ``api`` backend without a URL: one route per component.
+# Shown in the error for an ``api`` backend without a URL: one route per type.
 _API_URL_EXAMPLES = {
-    "embedding": "http://localhost:8002/v3/embeddings",
-    "rerank": "http://localhost:8001/v3/rerank",
-    "generation": "https://api.openai.com/v1/chat/completions",
+    "embedder": "http://localhost:8002/v3/embeddings",
+    "reranker": "http://localhost:8001/v3/rerank",
+    "llm": "https://api.openai.com/v1/chat/completions",
 }
+# The components a topology places, by name, and the field of TopologyBackends
+# that holds their backend; the deploy tool's App parts have the same names.
+_PLACED: dict[str, PlacedComponent] = {"embedder": "embedding", "reranker": "rerank"}
 
 
 class RagSettings(BaseSettings):
-    """The whole runtime configuration, one field per ``RAG_*`` variable.
+    """The whole runtime configuration, one field per top-level ``RAG_*`` variable.
 
-    Construction resolves the backends from the topology, fills the default run
-    label and checks the endpoints, so a bad configuration fails at start-up.
-    The settings of a stage are checked by its stage type, when the graph is
-    built at start-up.
+    Construction places the components the topology places, fills the default
+    run label and checks the endpoints, so a bad configuration fails at
+    start-up. The settings of a stage are checked by its stage type, when the
+    graph is built at start-up.
 
     Example:
-        >>> RagSettings(topology="split-reranker",
-        ...             rerank_api_url="http://host:8001/v3/rerank").rerank_backend
+        >>> RagSettings(topology="split-reranker", components={"reranker": {
+        ...     "api": {"url": "http://host:8001/v3/rerank"}}}
+        ... ).components["reranker"].backend
         'api'
     """
 
@@ -89,71 +99,18 @@ class RagSettings(BaseSettings):
         protected_namespaces=(),
     )
 
-    # --- the workflow graph ----------------------------------------------------------
+    # --- the workflow ----------------------------------------------------------------
     # The workflow file's graph block: its stages with their own settings (the
     # retrieval mode, the sizes, the prompts), its edges and conditional edges.
     graph: GraphDescription
+    # The workflow file's components block: each model component by name, its
+    # backend, source id and alias, its settings and one block per backend.
+    components: dict[str, ModelComponent]
 
     # --- topology and run label ----------------------------------------------------
     topology: Topology = "monolith"
     # "" = the default run label (topology plus every choice off its default)
     run_label: str = ""
-
-    # --- embedding -------------------------------------------------------------------
-    # None until resolve_topology fills it from the topology; never None after, so
-    # the annotation stays non-optional for the factories. validate_default=False:
-    # pydantic-settings would reject the placeholder; the cast satisfies pydantic's
-    # typing, which wants an unvalidated default to match the annotation.
-    embedding_backend: EmbeddingBackend = Field(
-        default=cast(EmbeddingBackend, None), validate_default=False
-    )
-    # The local model (a Hugging Face id or a folder); our model servers load it too.
-    embedding_model: str = "Snowflake/snowflake-arctic-embed-l-v2.0"
-    # Put in front of every question before it is embedded (arctic-embed expects
-    # it on queries, never on passages); "" for a model that takes none. The
-    # local and api embedders take it; the fake runs no model and has none.
-    embedding_query_prefix: str = "query: "
-    embedding_api_url: str = ""  # the full route, e.g. http://host:8002/v3/embeddings
-    # A format registered in adapters/embedder/api/. The settings cannot import
-    # that registry, so each command refuses an unknown name before it opens
-    # anything (composition/registered_names.py).
-    embedding_api_format: str = "openai"
-    # "" = no Authorization header, "domino" = the run's token, else a bearer token
-    embedding_api_key: str = ""
-    # The name sent; our model servers serve embedding_model under it.
-    embedding_api_model: str = "snowflake-arctic-embed-l-v2.0"
-    embedding_batch_size: int = Field(default=64, ge=1)  # texts per call
-    # 0 = calibrated at start-up, up to the thread budget's share
-    embedding_threads: int = Field(default=0, ge=0)
-
-    # --- rerank ----------------------------------------------------------------------
-    rerank_backend: RerankBackend = Field(
-        default=cast(RerankBackend, None), validate_default=False
-    )
-    rerank_model: str = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
-    rerank_api_url: str = ""  # the full route, e.g. http://host:8001/v3/rerank
-    rerank_api_format: str = "cohere"  # in adapters/reranker/api/, as embedding's
-    rerank_api_key: str = ""  # as embedding_api_key
-    rerank_api_model: str = "crossencoder-camembert-base-mmarcoFR"
-    # Passages per local call; 0 = calibrated at start-up.
-    rerank_batch_size: int = Field(default=0, ge=0)
-    # 0 = calibrated at start-up, up to the thread budget's share
-    rerank_threads: int = Field(default=0, ge=0)
-    # Passages calibration reranks in one sample request, keeping them all; also
-    # the largest batch size it tries. The reranker's own: calibration reads no
-    # stage's setting.
-    rerank_calibration_passages: int = Field(default=20, ge=1)
-
-    # --- generation ------------------------------------------------------------------
-    generation_backend: GenerationBackend = DEFAULT_GENERATION_BACKEND
-    generation_api_url: str = "https://api.openai.com/v1/chat/completions"
-    generation_api_format: str = "openai"  # in adapters/llm/api/, as embedding's
-    generation_api_key: str = ""  # as embedding_api_key
-    generation_api_model: str = "gpt-4o-mini"
-    generation_temperature: float = Field(default=0.0, ge=0, le=2)
-    # An answer takes longer than a model-server call, so generation has its own
-    # timeout; retries and backoff are the shared http_retries / http_backoff_s.
-    generation_timeout_s: float = Field(default=120.0, gt=0)
 
     # --- vector store ----------------------------------------------------------------
     # "fake" = in-memory store seeded with the synthetic corpus when the app starts
@@ -190,6 +147,7 @@ class RagSettings(BaseSettings):
     calibration_rounds: int = Field(default=1, ge=1)
 
     # --- HTTP and Domino -------------------------------------------------------------
+    # Every call out but the LLM's, whose timeout is its own (components.llm.http).
     http_timeout_s: float = Field(default=30.0, gt=0)
     http_retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 429
     http_backoff_s: float = Field(default=0.2, ge=0)  # before the 1st retry; doubles
@@ -239,18 +197,31 @@ class RagSettings(BaseSettings):
         workflow = workflow_file_source(settings_cls, workflow_file())
         return init_settings, env_settings, dotenv_settings, workflow
 
-    @model_validator(mode="after")
-    def resolve_topology(self) -> RagSettings:
-        """Fill the embedding and rerank backends from the topology, and the run label.
+    @field_validator("components", mode="before")
+    @classmethod
+    def type_defaults_to_name(cls, components: object) -> object:
+        """Give each component without a ``type`` its own name as its type.
+
+        Args:
+            components: The ``components`` block, merged from every source.
 
         Returns:
-            The settings, with ``embedding_backend``, ``rerank_backend`` and
-            ``run_label`` resolved.
+            The block, each entry typed.
         """
-        self.embedding_backend = resolve_embedding_backend(
-            self.topology, self.embedding_backend
-        )
-        self.rerank_backend = resolve_rerank_backend(self.topology, self.rerank_backend)
+        return typed_by_name(components)
+
+    @model_validator(mode="after")
+    def resolve_topology(self) -> RagSettings:
+        """Place the components the topology places, and fill the run label.
+
+        Returns:
+            The settings, the ``embedder`` and ``reranker`` components on the
+            backend the topology gives them, and ``run_label`` resolved.
+        """
+        self.components = {
+            name: self._placed(name, component)
+            for name, component in self.components.items()
+        }
         self.run_label = validate_run_label(self.run_label or self._default_label())
         return self
 
@@ -266,105 +237,158 @@ class RagSettings(BaseSettings):
 
         Raises:
             ValueError: If an ``api`` component's URL does not start with
-                ``http://`` or ``https://``; the message names the variable, the
-                value and an example.
+                ``http://`` or ``https://``; the message names the variables,
+                the value and an example.
         """
-        components = (
-            ("embedding", self.embedding_backend, self.embedding_api_url),
-            ("rerank", self.rerank_backend, self.rerank_api_url),
-            ("generation", self.generation_backend, self.generation_api_url),
-        )
-        for component, backend, url in components:
-            if backend == "api" and not url.startswith(("http://", "https://")):
-                raise ValueError(_missing_url_message(component, url))
+        for name, component in self.components.items():
+            url = component.api.url
+            if component.backend == "api" and not url.startswith(
+                ("http://", "https://")
+            ):
+                raise ValueError(self._missing_url_message(name, component.type, url))
         return self
 
     @classmethod
-    def variable_of(cls, field: str) -> str:
-        """Return the environment variable a field is read from.
+    def variable_of(cls, field: str, *levels: str) -> str:
+        """Return the environment variable a value is read from: its path.
 
         Args:
-            field: The field name.
+            field: The field name, the path's first level.
+            *levels: The levels below it, for a value of the workflow file.
 
         Returns:
             Its alias when it has one (Domino's own variables), else the prefix
-            and the field name in capitals.
+            and the path's levels in capitals, joined by ``__``.
 
         Raises:
             ValueError: If ``field`` is not a field of these settings.
 
         Example:
-            >>> RagSettings.variable_of("rerank_threads")
-            'RAG_RERANK_THREADS'
+            >>> RagSettings.variable_of("components", "reranker", "local", "threads")
+            'RAG_COMPONENTS__RERANKER__LOCAL__THREADS'
         """
         if field not in cls.model_fields:
             raise ValueError(
                 f"RagSettings has no field {field!r}; expected one of its fields, "
-                "such as 'rerank_threads'"
+                "such as 'components'"
             )
         alias = cls.model_fields[field].validation_alias
         if isinstance(alias, AliasChoices):
             return str(alias.choices[0])
-        return str(cls.model_config.get("env_prefix", "")) + field.upper()
+        prefix = str(cls.model_config.get("env_prefix", ""))
+        return prefix + "__".join((field, *levels)).upper()
 
-    def embedding_api(self) -> ApiEndpoint:
-        """Return the embedding endpoint, from the four ``embedding_api_*`` fields.
+    def vector_store_component(self) -> VectorStoreSettings:
+        """Return the vector store's settings, in a component's shape.
 
         Returns:
-            The endpoint's URL, API format, key and model name.
+            Its backend and one block per backend, from the flat variables.
 
         Example:
-            >>> RagSettings(embedding_api_url="http://h/v3/embeddings").embedding_api()
-            ApiEndpoint(url='http://h/v3/embeddings', api_format='openai', ...)
+            >>> RagSettings().vector_store_component().elasticsearch.index
+            'rag_passages'
         """
-        return ApiEndpoint(
-            url=self.embedding_api_url,
-            api_format=self.embedding_api_format,
-            api_key=self.embedding_api_key,
-            model=self.embedding_api_model,
+        return VectorStoreSettings(
+            backend=self.vector_store_backend,
+            elasticsearch=ElasticsearchSettings(
+                url=self.es_url,
+                index=self.es_index,
+                api_key=self.es_api_key,
+                text_analyzer=self.es_text_analyzer,
+            ),
+            chroma=ChromaSettings(
+                url=self.chroma_url,
+                path=self.chroma_path,
+                collection=self.chroma_collection,
+            ),
+            fake=FakeStoreSettings(seed_documents=self.fake_store_seed_documents),
         )
 
-    def rerank_api(self) -> ApiEndpoint:
-        """Return the rerank endpoint, from the four ``rerank_api_*`` fields.
+    def all_components(self) -> dict[str, ComponentSettings]:
+        """Return every component a stage can call, by name: the vector store too.
 
         Returns:
-            The endpoint's URL, API format, key and model name.
+            The model components of the workflow file, then ``vector_store``.
 
         Example:
-            >>> RagSettings(rerank_api_url="http://h/v3/rerank").rerank_api().api_format
-            'cohere'
+            >>> list(RagSettings().all_components())
+            ['embedder', 'reranker', 'llm', 'vector_store']
         """
-        return ApiEndpoint(
-            url=self.rerank_api_url,
-            api_format=self.rerank_api_format,
-            api_key=self.rerank_api_key,
-            model=self.rerank_api_model,
-        )
+        return {**self.components, VECTOR_STORE: self.vector_store_component()}
 
-    def generation_api(self) -> ApiEndpoint:
-        """Return the generation endpoint, from the four ``generation_api_*`` fields.
+    def component_types(self) -> dict[str, str]:
+        """Return the type of every component a stage can call, by name.
 
         Returns:
-            The endpoint's URL, API format, key and model name.
+            Each component's name and type, the vector store's included.
 
         Example:
-            >>> RagSettings().generation_api().url
-            'https://api.openai.com/v1/chat/completions'
+            >>> RagSettings().component_types()["vector_store"]
+            'vector_store'
         """
-        return ApiEndpoint(
-            url=self.generation_api_url,
-            api_format=self.generation_api_format,
-            api_key=self.generation_api_key,
-            model=self.generation_api_model,
+        return {name: c.type for name, c in self.all_components().items()}
+
+    def ingestion_embedder(self, name: str | None = None) -> str:
+        """Return the embedder that fills the store: the one named, else the only one.
+
+        Ingestion embeds passages, and the fake store is seeded, with one
+        embedder of the workflow file; with several, it must be named.
+
+        Args:
+            name: The embedder asked for; None for the only one declared.
+
+        Returns:
+            The component's name.
+
+        Raises:
+            ValueError: If ``name`` is not an embedder component, or none is
+                given and the file declares no embedder or several.
+
+        Example:
+            >>> RagSettings().ingestion_embedder()
+            'embedder'
+        """
+        embedders = [n for n, c in self.components.items() if c.type == "embedder"]
+        known = ", ".join(map(repr, embedders)) or "none"
+        if name is not None and name not in embedders:
+            raise ValueError(
+                f"{name!r} is not an embedder component of the workflow file "
+                f"(its embedders: {known})"
+            )
+        if name is None and len(embedders) != 1:
+            raise ValueError(
+                "ingestion embeds with one embedder component, and the workflow "
+                f"file declares {len(embedders)} (its embedders: {known}): name "
+                "one, with rag-ingest --embedder"
+            )
+        return name or embedders[0]
+
+    def _placed(self, name: str, component: ModelComponent) -> ModelComponent:
+        placed = _PLACED.get(name)
+        if placed is None:
+            return component
+        backend = placed_backend(self.topology, placed, component.backend)
+        return component.model_copy(update={"backend": backend})
+
+    def _missing_url_message(self, name: str, component_type: str, url: str) -> str:
+        # Variables, value, example: the same shape for every component.
+        backend = self.variable_of("components", name, "backend")
+        url_variable = self.variable_of("components", name, "api", "url")
+        return (
+            f"{backend}='api' needs {url_variable}, the full route of the "
+            f"endpoint (for example {_API_URL_EXAMPLES[component_type]}); "
+            f"got {url!r}"
         )
 
     def _default_label(self) -> str:
+        implied = TOPOLOGY_BACKENDS[self.topology]
+        backends = {name: c.backend for name, c in self.components.items()}
         return default_run_label(
             self.topology,
-            embedding=self.embedding_backend,
-            rerank=self.rerank_backend,
+            embedding=backends.get("embedder", implied.embedding),
+            rerank=backends.get("reranker", implied.rerank),
             store=self.vector_store_backend,
-            generation=self.generation_backend,
+            generation=backends.get("llm", DEFAULT_GENERATION_BACKEND),
             retrieval=self._retrieval_mode(),
         )
 
@@ -376,12 +400,3 @@ class RagSettings(BaseSettings):
                 mode = stage.stage_settings.get("retrieval_mode")
                 return str(mode or DEFAULT_RETRIEVAL_MODE)
         return DEFAULT_RETRIEVAL_MODE
-
-
-def _missing_url_message(component: str, url: str) -> str:
-    # One message shape for the three components: variable, value, example.
-    prefix = f"RAG_{component.upper()}"
-    return (
-        f"{prefix}_BACKEND='api' needs {prefix}_API_URL, the full route of the "
-        f"endpoint (for example {_API_URL_EXAMPLES[component]}); got {url!r}"
-    )

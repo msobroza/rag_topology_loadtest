@@ -4,7 +4,7 @@ Its batch size and thread count, left at 0, are calibrated when it opens;
 ``calibrate_reranker_on_local`` searches both on demand, for ``rag-calibrate``.
 
 Example:
-    >>> reranker = await open_reranker_on_local(components.reranker, shared)
+    >>> reranker = await open_reranker_on_local(reranker_settings, shared)
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ async def open_reranker_on_local(
         The cross-encoder reranker, at the fastest batch size and threads tried.
 
     Example:
-        >>> reranker = await open_reranker_on_local(components.reranker, shared)
+        >>> reranker = await open_reranker_on_local(reranker_settings, shared)
     """
     local, local_models = component.local, shared.local_models
     budget = await local_models.thread_budget()
@@ -54,7 +54,7 @@ async def open_reranker_on_local(
 
 
 async def calibrate_reranker_on_local(
-    component: RerankerSettings, local_models: LocalModelResources
+    name: str, component: RerankerSettings, local_models: LocalModelResources
 ) -> ComponentCalibration:
     """Calibrate the in-process reranker here, searching both its parameters.
 
@@ -62,19 +62,23 @@ async def calibrate_reranker_on_local(
     point. The model is dropped once timed.
 
     Args:
+        name: The component's name, whose environment paths pin the choice.
         component: The reranker's source id and ``local`` block.
         local_models: The machine's thread budget, the model pool, the
             calibration limits and the runtime.
 
     Returns:
-        The report, the CPUs and runtime it ran on, and the pinning settings.
+        The report, the CPUs and runtime it ran on, and the environment paths
+        that pin the choice.
 
     Example:
-        >>> (await calibrate_reranker_on_local(reranker, local_models)).pinned
-        {'RAG_RERANK_THREADS': 2, 'RAG_RERANK_BATCH_SIZE': 2}
+        >>> (await calibrate_reranker_on_local("reranker", reranker, local_models)
+        ... ).pinned
+        {'RAG_COMPONENTS__RERANKER__LOCAL__THREADS': 2, ...}
     """
     machine = await local_models.unpinned_budget()
     return await component_calibration(
+        name,
         await _calibrated_stage(component, local_models),
         threads=halvings(machine.budget.reranker_threads),
         batch_sizes=halvings(component.local.calibration_passages),

@@ -14,34 +14,61 @@ EMBED_URL = "http://embedder-app/v3/embeddings"
 RERANK_URL = "http://reranker-app/v3/rerank"
 
 
+def key_of(settings: RagSettings, component: str) -> str:
+    return settings.components[component].api.api_key
+
+
+def keys(settings: RagSettings) -> tuple[str, str]:
+    return key_of(settings, "embedder"), key_of(settings, "reranker")
+
+
 def test_api_embedding_and_rerank_keys_default_to_the_run_token(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(
-        topology="split-all", embedding_api_url=EMBED_URL, rerank_api_url=RERANK_URL
+        topology="split-all",
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__api__url=RERANK_URL,
     )
 
     ruled = apply_domino_rules(settings)
 
-    assert (ruled.embedding_api_key, ruled.rerank_api_key) == ("domino", "domino")
-    assert (settings.embedding_api_key, settings.rerank_api_key) == ("", "")  # input
+    assert keys(ruled) == ("domino", "domino")
+    assert keys(settings) == ("", "")  # the input is left as it was
 
 
 def test_only_the_api_components_get_the_run_token(
     settings_factory: SettingsFactory,
 ) -> None:
-    settings = settings_factory(topology="split-reranker", rerank_api_url=RERANK_URL)
+    settings = settings_factory(
+        topology="split-reranker", components__reranker__api__url=RERANK_URL
+    )
 
-    ruled = apply_domino_rules(settings)
+    assert keys(apply_domino_rules(settings)) == ("", "domino")
 
-    assert (ruled.embedding_api_key, ruled.rerank_api_key) == ("", "domino")
+
+def test_every_reranker_on_api_gets_the_run_token_whatever_its_name(
+    settings_factory: SettingsFactory,
+) -> None:
+    coarse = {
+        "type": "reranker",
+        "backend": "api",
+        "source_id": "org/coarse",
+        "api": {"url": RERANK_URL},
+    }
+    settings = settings_factory(components={"coarse": coarse})
+
+    assert key_of(apply_domino_rules(settings), "coarse") == "domino"
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
         {},  # monolith: both local
-        {"embedding_backend": "fake", "rerank_backend": "none"},
+        {
+            "components__embedder__backend": "fake",
+            "components__reranker__backend": "none",
+        },
     ],
     ids=["local", "fake-and-none"],
 )
@@ -59,23 +86,23 @@ def test_an_explicit_key_is_kept(
 ) -> None:
     settings = settings_factory(
         topology="split-all",
-        embedding_api_url=EMBED_URL,
-        rerank_api_url=RERANK_URL,
-        rerank_api_key=explicit,
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__api__url=RERANK_URL,
+        components__reranker__api__api_key=explicit,
     )
 
-    ruled = apply_domino_rules(settings)
-
-    assert (ruled.embedding_api_key, ruled.rerank_api_key) == ("domino", explicit)
+    assert keys(apply_domino_rules(settings)) == ("domino", explicit)
 
 
 def test_a_key_set_in_the_environment_is_explicit(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("RAG_RERANK_API_KEY", "")
-    settings = settings_factory(topology="split-reranker", rerank_api_url=RERANK_URL)
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__API_KEY", "")
+    settings = settings_factory(
+        topology="split-reranker", components__reranker__api__url=RERANK_URL
+    )
 
-    assert apply_domino_rules(settings).rerank_api_key == ""
+    assert key_of(apply_domino_rules(settings), "reranker") == ""
 
 
 @pytest.mark.parametrize("generation_key", ["", "sk-key"])
@@ -84,8 +111,8 @@ def test_the_generation_key_is_never_touched(
 ) -> None:
     settings = settings_factory(
         topology="split-reranker",
-        rerank_api_url=RERANK_URL,
-        generation_api_key=generation_key,
+        components__reranker__api__url=RERANK_URL,
+        components__llm__api__api_key=generation_key,
     )
 
-    assert apply_domino_rules(settings).generation_api_key == generation_key
+    assert key_of(apply_domino_rules(settings), "llm") == generation_key

@@ -114,7 +114,7 @@ class RerankUser(FastHttpUser):
     @task
     def rerank(self) -> None:
         """Send one rerank request for the served reranker alias."""
-        send(self, plan_rerank_request(SETTINGS.rerank_api_model, POOL, RNG))
+        send(self, plan_rerank_request(SETTINGS.reranker_alias, POOL, RNG))
 
 
 class EmbeddingsUser(FastHttpUser):
@@ -126,7 +126,7 @@ class EmbeddingsUser(FastHttpUser):
     @task
     def embed(self) -> None:
         """Send one embeddings request for the served embedder alias."""
-        send(self, plan_embeddings_request(SETTINGS.embedding_api_model, POOL, RNG))
+        send(self, plan_embeddings_request(SETTINGS.embedder_alias, POOL, RNG))
 
 
 if SETTINGS.step_shape:

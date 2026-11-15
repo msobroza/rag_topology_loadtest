@@ -10,6 +10,7 @@ from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.config.workflow_file import (
     PACKAGED_WORKFLOW,
     WORKFLOW_FILE_VARIABLE,
+    declared_alias,
     unknown_keys,
     workflow_file,
     workflow_file_source,
@@ -80,3 +81,20 @@ def test_unknown_keys_are_those_no_field_is_named_after() -> None:
         "alpha",
         "zeta",
     ]
+
+
+def test_a_declared_alias_is_read_from_the_file_alone(tmp_path: Path) -> None:
+    path = tmp_path / "workflow.yaml"
+    path.write_text(
+        "components:\n"
+        "  reranker: {backend: local, source_id: /models/rr/}\n"
+        "  embedder: {backend: local, source_id: org/e, alias: emb}\n"
+        "  llm: {backend: fake}\n",
+        encoding="utf-8",
+    )
+
+    assert declared_alias("reranker", path) == "rr"
+    assert declared_alias("embedder", path) == "emb"
+    assert declared_alias("llm", path) == ""  # no source id
+    assert declared_alias("absent", path) == ""
+    assert declared_alias("reranker") == "crossencoder-camembert-base-mmarcoFR"

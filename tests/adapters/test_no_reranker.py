@@ -1,4 +1,4 @@
-"""The reranker of ``RAG_RERANK_BACKEND=none``: retrieval order, no model."""
+"""The reranker of ``RAG_COMPONENTS__RERANKER__BACKEND=none``: retrieval order, no model."""
 
 from __future__ import annotations
 

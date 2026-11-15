@@ -13,10 +13,7 @@ from typing import Any
 
 import pytest
 
-from rag_load_test.application.component_types import (
-    COMPONENT_TYPES,
-    declared_components,
-)
+from rag_load_test.application.component_types import COMPONENT_TYPES
 from rag_load_test.application.edge_conditions.edge_condition import EdgeCondition
 from rag_load_test.application.graph_check import (
     WorkflowGraphError,
@@ -30,6 +27,7 @@ from rag_load_test.application.stages.base_stage import (
     StageTypes,
 )
 from rag_load_test.application.workflow_state import REQUEST_FIELDS, WorkflowState
+from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.graph_description import GraphDescription
 from rag_load_test.domain.registry import Registry
 
@@ -305,9 +303,9 @@ def test_the_ends_of_the_graph_are_used_only_as_ends(
 
 
 async def test_the_declared_components_are_the_ones_a_stage_is_given_once_open(
-    fake_deps: RagDependencies,
+    fake_settings: RagSettings, fake_deps: RagDependencies
 ) -> None:
-    declared = declared_components()
+    declared = fake_settings.component_types()
     opened = fake_deps.components()
 
     assert set(declared) == set(opened)

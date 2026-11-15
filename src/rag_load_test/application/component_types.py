@@ -1,13 +1,13 @@
-"""The component types, each the port a component is used through, and the components.
+"""The component types, each the port a component is used through.
 
 A stage type declares the port of the component it calls; a component's type is
 named after that port, as the glossary names it: ``embedder``, ``reranker``,
-``llm`` and ``vector_store``. The start-up checks need both before any
-component opens: which components a stage's ``call`` may name, and the type of
-each.
+``llm`` and ``vector_store``. The start-up checks need it before any component
+opens; which components a stage's ``call`` may name, and the type of each, come
+from the settings (``RagSettings.component_types``).
 
 Example:
-    >>> COMPONENT_TYPES[declared_components()["reranker"]]
+    >>> COMPONENT_TYPES[settings.component_types()["reranker"]]
     <class 'BaseReranker'>
 """
 
@@ -27,21 +27,3 @@ COMPONENT_TYPES: dict[str, type[Any]] = {
     "llm": BaseLLM,
     "vector_store": BaseVectorStore,
 }
-
-
-def declared_components() -> dict[str, str]:
-    """Return the components a stage's ``call`` may name, each with its type.
-
-    The one place that lists them before any opens. Today they are fixed: one
-    component of each type, named after it, as ``RagDependencies.components``
-    gives them once open. When the workflow file declares its components, their
-    names and types come from it instead.
-
-    Returns:
-        Each component's type, by the component's name.
-
-    Example:
-        >>> declared_components()["vector_store"]
-        'vector_store'
-    """
-    return {component_type: component_type for component_type in COMPONENT_TYPES}

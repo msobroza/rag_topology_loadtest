@@ -1,7 +1,7 @@
 """The reranker on the ``fake`` backend: token overlap with the query, no model.
 
 Example:
-    >>> reranker = await open_reranker_on_fake(components.reranker, shared)
+    >>> reranker = await open_reranker_on_fake(reranker_settings, shared)
 """
 
 from __future__ import annotations
@@ -26,6 +26,6 @@ async def open_reranker_on_fake(
         A ``FakeReranker``.
 
     Example:
-        >>> await open_reranker_on_fake(components.reranker, shared)
+        >>> await open_reranker_on_fake(reranker_settings, shared)
     """
     return FakeReranker()

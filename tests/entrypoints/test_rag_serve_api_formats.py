@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from rag_components import FAKE_BACKENDS
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.errors import RagDependencyError
@@ -22,16 +23,10 @@ from rag_load_test.entrypoints.rag_serve import create_app
 from repo_paths import REPO_ROOT
 
 SettingsFactory = Callable[..., RagSettings]
-EVERYTHING_FAKE = {
-    "embedding_backend": "fake",
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
-    "vector_store_backend": "fake",
-}
 URLS = {
-    "embedding": "http://embedder.test/v3/embeddings",
-    "rerank": "http://reranker.test/v3/rerank",
-    "generation": "http://gateway.test/v1/chat/completions",
+    "embedder": "http://embedder.test/v3/embeddings",
+    "reranker": "http://reranker.test/v3/rerank",
+    "llm": "http://gateway.test/v1/chat/completions",
 }
 
 
@@ -39,19 +34,23 @@ URLS = {
 
 
 @pytest.mark.parametrize(
-    ("component", "known"),
-    [("embedding", "'openai'"), ("rerank", "'cohere'"), ("generation", "'openai'")],
+    ("component", "sort", "known"),
+    [
+        ("embedder", "embedding", "'openai'"),
+        ("reranker", "rerank", "'cohere'"),
+        ("llm", "generation", "'openai'"),
+    ],
 )
 def test_an_unknown_api_format_stops_the_app_at_start_up(
-    settings_factory: SettingsFactory, component: str, known: str
+    settings_factory: SettingsFactory, component: str, sort: str, known: str
 ) -> None:
     on_an_unknown_format = {
-        f"{component}_backend": "api",
-        f"{component}_api_url": URLS[component],
-        f"{component}_api_format": "jina",
+        f"components__{component}__backend": "api",
+        f"components__{component}__api__url": URLS[component],
+        f"components__{component}__api__api_format": "jina",
     }
-    settings = settings_factory(**(EVERYTHING_FAKE | on_an_unknown_format))
-    message = f"unknown {component} API format 'jina' (expected one of: {known})"
+    settings = settings_factory(**(FAKE_BACKENDS | on_an_unknown_format))
+    message = f"unknown {sort} API format 'jina' (expected one of: {known})"
 
     with (
         pytest.raises(RagDependencyError, match=re.escape(message)),
@@ -101,14 +100,18 @@ def flat_endpoint(request):
     return httpx.Response(200, json={"scores": [float(i) for i in range(len(texts))]})
 
 
+reranker = {
+    "backend": "api",
+    "api": {"url": "http://reranker.test/flat", "api_format": "flat"},
+}
 settings = RagSettings(
     _env_file=None,
-    embedding_backend="fake",
-    generation_backend="fake",
+    components={
+        "embedder": {"backend": "fake"},
+        "reranker": reranker,
+        "llm": {"backend": "fake"},
+    },
     vector_store_backend="fake",
-    rerank_backend="api",
-    rerank_api_url="http://reranker.test/flat",
-    rerank_api_format="flat",
     graph={"stages": {"retrieve": {"top_k": 5}, "rerank": {"top_k": 3}}},
 )
 composition = CompositionRoot(settings, transport=httpx.MockTransport(flat_endpoint))

@@ -23,8 +23,11 @@ from sentence_transformers_fakes import (
     fake_openvino_modules,
 )
 
-RERANK_KEYS = ["RAG_RERANK_THREADS", "RAG_RERANK_BATCH_SIZE"]
-EMBED_KEYS = ["RAG_EMBEDDING_THREADS"]
+RERANK_KEYS = [
+    "RAG_COMPONENTS__RERANKER__LOCAL__THREADS",
+    "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE",
+]
+EMBED_KEYS = ["RAG_COMPONENTS__EMBEDDER__LOCAL__THREADS"]
 
 
 @pytest.fixture
@@ -56,7 +59,10 @@ def test_both_components_by_default(
 
     lines = stdout_lines(capsys)
     comments = [line for line in lines if line.startswith("#")]
-    assert [comment.split(":")[0] for comment in comments] == ["# embed", "# rerank"]
+    assert [comment.split(":")[0] for comment in comments] == [
+        "# embedder (embed)",
+        "# reranker (rerank)",
+    ]
     assert [line.split("=")[0] for line in lines if "=" in line and line[0] != "#"] == [
         *EMBED_KEYS,
         *RERANK_KEYS,
@@ -79,6 +85,27 @@ def test_only_calibrates_one_component(
     assert {loaded.split(":")[0] for loaded in fake_weights.loaded} == {part}
 
 
+def test_a_component_of_any_name_is_pinned_by_its_environment_paths(
+    fake_weights: FakeSentenceTransformersModule,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A component declared by its environment paths alone, beside the file's.
+    monkeypatch.setenv("RAG_COMPONENTS__COARSE__TYPE", "reranker")
+    monkeypatch.setenv("RAG_COMPONENTS__COARSE__BACKEND", "local")
+    monkeypatch.setenv("RAG_COMPONENTS__COARSE__SOURCE_ID", "org/coarse")
+
+    assert main(["--only", "coarse"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("# coarse (rerank): ")
+    assert list(dotenv_values(stream=io.StringIO(out))) == [
+        "RAG_COMPONENTS__COARSE__LOCAL__THREADS",
+        "RAG_COMPONENTS__COARSE__LOCAL__BATCH_SIZE",
+    ]
+    assert set(fake_weights.loaded) == {"reranker:org/coarse"}  # once per thread count
+
+
 def test_stdout_is_comments_and_assignments_that_read_back_as_an_env_file(
     fake_weights: FakeSentenceTransformersModule,
     capsys: pytest.CaptureFixture[str],
@@ -88,7 +115,7 @@ def test_stdout_is_comments_and_assignments_that_read_back_as_an_env_file(
 
     out = capsys.readouterr().out
     lines = out.splitlines()
-    assert lines[0].startswith("# rerank: timed on 2 CPUs under torch, ")
+    assert lines[0].startswith("# reranker (rerank): timed on 2 CPUs under torch, ")
     assert " s per request; tried 6 candidates in " in lines[0]
     assert all(line.startswith("#") or _assignment(line) for line in lines)
     env_file = tmp_path / ".env"
@@ -110,7 +137,10 @@ def test_the_comment_says_when_the_budget_cut_the_search_short(
     [comment, *assignments] = stdout_lines(capsys)
     assert "; tried 1 candidate in " in comment
     assert comment.endswith(", cut short by RAG_CALIBRATION_BUDGET_S=1e-09")
-    assert assignments == ["RAG_RERANK_THREADS=2", "RAG_RERANK_BATCH_SIZE=20"]
+    assert assignments == [
+        "RAG_COMPONENTS__RERANKER__LOCAL__THREADS=2",
+        "RAG_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE=20",
+    ]
 
 
 def test_the_logs_stay_off_stdout(

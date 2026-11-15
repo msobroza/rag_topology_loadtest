@@ -96,8 +96,8 @@ def test_a_split_topology_without_endpoint_urls_imports(
     # The RAG system would refuse this configuration; the load generator never
     # builds it, so Locust can still drive whatever answers at --host.
     monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
-    monkeypatch.delenv("RAG_EMBEDDING_API_URL", raising=False)
-    monkeypatch.delenv("RAG_RERANK_API_URL", raising=False)
+    monkeypatch.delenv("RAG_COMPONENTS__EMBEDDER__API__URL", raising=False)
+    monkeypatch.delenv("RAG_COMPONENTS__RERANKER__API__URL", raising=False)
 
     module = _import_locustfile("locustfile_split_topology")
 

@@ -4,8 +4,8 @@ The ``openvino`` runtime (``RAG_LOCAL_MODEL_RUNTIME``, the default) loads the
 folder this command writes for each model under ``RAG_OPENVINO_MODELS_DIR``. An
 App whose folder is missing exports it itself on its first start, so this command
 only pre-warms: an image build, or a disk that should start without the Hub. The
-models are the settings' ``embedding_model`` and ``rerank_model``, so ``RAG_*``
-overrides apply.
+models are the source ids of the workflow file's embedders and rerankers, so
+``RAG_*`` overrides apply.
 
 Example:
     >>> rag-export-openvino --only reranker --models-dir models/openvino
@@ -17,10 +17,8 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import get_args
 
 from ..config.rag_settings import RagSettings
-from ..domain.roles import ModelServerPart
 from ..infrastructure.local_models.local_model import exported_model_dir
 from ..infrastructure.local_models.openvino_export import (
     OpenVinoUnavailableError,
@@ -29,17 +27,16 @@ from ..infrastructure.local_models.openvino_export import (
 )
 
 PROG = "rag-export-openvino"
-PARTS: tuple[ModelServerPart, ...] = get_args(ModelServerPart)  # embedder, reranker
 # Failures an operator can act on (missing package, download or disk problem, a
 # model the converter refuses); anything else is a bug and keeps its traceback.
 EXPECTED_ERRORS = (OpenVinoUnavailableError, OSError, ValueError)
 
 
-def export_part(part: ModelServerPart, model_id: str, target: Path) -> Path:
-    """Export one model with the converter it needs.
+def export_part(component_type: str, model_id: str, target: Path) -> Path:
+    """Export one model with the converter its component type needs.
 
     Args:
-        part: ``embedder`` or ``reranker``.
+        component_type: ``embedder`` or ``reranker``.
         model_id: The model's Hugging Face id or local path.
         target: The folder to write.
 
@@ -50,21 +47,36 @@ def export_part(part: ModelServerPart, model_id: str, target: Path) -> Path:
         >>> export_part("reranker", "org/rerank", Path("models/openvino/rerank"))
         PosixPath('models/openvino/rerank')
     """
-    exporters: dict[ModelServerPart, Callable[[str, Path], Path]] = {
+    exporters: dict[str, Callable[[str, Path], Path]] = {
         "embedder": export_embedder,
         "reranker": export_reranker,
     }
-    return exporters[part](model_id, target)
+    return exporters[component_type](model_id, target)
 
 
-def export_models(
-    settings: RagSettings, parts: Sequence[ModelServerPart], models_dir: str
-) -> int:
-    """Export each part's model, one line per model; stop at the first failure.
+def exported_components(settings: RagSettings) -> list[str]:
+    """Return the components with an in-process model: embedders and rerankers.
 
     Args:
-        settings: Source of the embedder and reranker model ids.
-        parts: Which models to export, in order.
+        settings: The settings whose workflow file declares the components.
+
+    Returns:
+        Their names, in the file's order.
+
+    Example:
+        >>> exported_components(RagSettings())
+        ['embedder', 'reranker']
+    """
+    types = ("embedder", "reranker")
+    return [n for n, c in settings.components.items() if c.type in types]
+
+
+def export_models(settings: RagSettings, names: Sequence[str], models_dir: str) -> int:
+    """Export each component's model, one line per model; stop at the first failure.
+
+    Args:
+        settings: Whose components give the types and the source ids.
+        names: Which components' models to export, in order.
         models_dir: The folder that holds every export.
 
     Returns:
@@ -75,22 +87,26 @@ def export_models(
         >>> export_models(RagSettings(), ["reranker"], "models/openvino")
         0
     """
-    model_ids: dict[ModelServerPart, str] = {
-        "embedder": settings.embedding_model,
-        "reranker": settings.rerank_model,
-    }
-    for part in parts:
-        target = exported_model_dir(models_dir, model_ids[part])
-        try:
-            export_part(part, model_ids[part], target)
-        except EXPECTED_ERRORS as exc:
-            print(
-                f"{PROG}: cannot export {part} {model_ids[part]} to {target}: {exc}",
-                file=sys.stderr,
-            )
+    for name in names:
+        if not _exported(settings, name, models_dir):
             return 1
-        print(f"{PROG}: {part} {model_ids[part]} -> {target}")
     return 0
+
+
+def _exported(settings: RagSettings, name: str, models_dir: str) -> bool:
+    component = settings.components[name]
+    model_id = component.source_id
+    target = exported_model_dir(models_dir, model_id)
+    try:
+        export_part(component.type, model_id, target)
+    except EXPECTED_ERRORS as exc:
+        print(
+            f"{PROG}: cannot export {name} {model_id} to {target}: {exc}",
+            file=sys.stderr,
+        )
+        return False
+    print(f"{PROG}: {name} {model_id} -> {target}")
+    return True
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -100,24 +116,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
 
     Returns:
-        The exit status: 0 when every requested model was exported, else 1.
+        The exit status: 0 when every requested model was exported, else 1; a
+        name that is no embedder or reranker exits as a usage error.
 
     Example:
         >>> main(["--only", "embedder"])  # prints where the embedder went
         0
     """
+    parser = _parser()
+    args = parser.parse_args(argv)
+    settings = RagSettings()
+    names = exported_components(settings)
+    if args.only and args.only not in names:
+        parser.error(
+            f"--only {args.only!r}: expected an embedder or a reranker of the "
+            f"workflow file: {', '.join(names)}"
+        )
+    models_dir = args.models_dir or settings.openvino_models_dir
+    return export_models(settings, [args.only] if args.only else names, models_dir)
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROG,
-        description="Convert the embedder and reranker to OpenVINO IR, one folder "
+        description="Convert the embedders and rerankers to OpenVINO IR, one folder "
         "per model, where the openvino runtime loads them from.",
     )
-    parser.add_argument("--only", choices=PARTS, help="export just this model")
+    parser.add_argument(
+        "--only", metavar="NAME", help="export just this component's model"
+    )
     parser.add_argument(
         "--models-dir", help="where the exports go (default: RAG_OPENVINO_MODELS_DIR)"
     )
-    args = parser.parse_args(argv)
-    settings = RagSettings()
-    parts = [args.only] if args.only else list(PARTS)
-    return export_models(
-        settings, parts, args.models_dir or settings.openvino_models_dir
-    )
+    return parser

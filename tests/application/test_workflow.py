@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import re
 from collections.abc import Callable
 from typing import Any
@@ -44,10 +43,15 @@ def workflow_for() -> WorkflowFor:
     return make
 
 
+def with_ports(deps: RagDependencies, **ports: object) -> RagDependencies:
+    """``deps`` with some components replaced, by name."""
+    return RagDependencies({**deps.by_name, **ports})
+
+
 def scripted_deps(
     fake_deps: RagDependencies, store: ScriptedStore, embedder: RecordingEmbedder
 ) -> RagDependencies:
-    return dataclasses.replace(
+    return with_ports(
         fake_deps, vector_store=store, embedder=embedder, reranker=NoReranker()
     )
 
@@ -95,8 +99,8 @@ async def test_retrieve_mode_skips_generation(
 ) -> None:
     result = await workflow_for(fake_deps).run(VACATION_QUESTION, mode="retrieve")
 
-    assert isinstance(fake_deps.llm, FakeLLM)
-    assert fake_deps.llm.calls == 0
+    assert isinstance(fake_deps.by_name["llm"], FakeLLM)
+    assert fake_deps.by_name["llm"].calls == 0
     assert result.mode == "retrieve"
     assert result.answer is None
     assert list(result.timings_ms) == TIMING_KEYS
@@ -108,11 +112,11 @@ async def test_retrieve_mode_skips_generation(
 async def test_no_reranker_keeps_retrieval_order(
     fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    deps = dataclasses.replace(fake_deps, reranker=NoReranker())
+    deps = with_ports(fake_deps, reranker=NoReranker())
     result = await workflow_for(deps).run(VACATION_QUESTION, mode="retrieve")
 
-    vector = await deps.embedder.embed_query(VACATION_QUESTION)
-    expected = await deps.vector_store.query(vector, DEFAULT_TOP_K_RETRIEVE)
+    vector = await deps.by_name["embedder"].embed_query(VACATION_QUESTION)
+    expected = await deps.by_name["vector_store"].query(vector, DEFAULT_TOP_K_RETRIEVE)
     first_kept = [p.id for p in expected[:DEFAULT_TOP_K_RERANK]]
     assert [p.id for p in result.passages] == first_kept
     assert all(p.rerank_score is None for p in result.passages)
@@ -121,7 +125,7 @@ async def test_no_reranker_keeps_retrieval_order(
 async def test_non_default_settings_size_retrieval_rerank_and_prompt(
     fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    deps = dataclasses.replace(fake_deps, reranker=NoReranker())
+    deps = with_ports(fake_deps, reranker=NoReranker())
     workflow = workflow_for(
         deps,
         retrieve_top_k=3,
@@ -142,7 +146,7 @@ async def test_the_reranker_gets_the_question_the_retrieve_size_and_its_own(
     fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     reranker = RecordingReranker()
-    deps = dataclasses.replace(fake_deps, reranker=reranker)
+    deps = with_ports(fake_deps, reranker=reranker)
     workflow = workflow_for(deps, retrieve_top_k=7, rerank_top_k=4)
 
     await workflow.run(VACATION_QUESTION, mode="retrieve")
@@ -150,14 +154,18 @@ async def test_the_reranker_gets_the_question_the_retrieve_size_and_its_own(
     assert reranker.calls == [(VACATION_QUESTION, 7, 4)]
 
 
-def test_the_components_are_the_four_ports_by_their_fixed_names(
+def test_the_components_are_those_the_stages_call_by_their_names(
     fake_deps: RagDependencies,
 ) -> None:
-    assert fake_deps.components() == {
-        "embedder": fake_deps.embedder,
-        "reranker": fake_deps.reranker,
-        "llm": fake_deps.llm,
-        "vector_store": fake_deps.vector_store,
+    ports = fake_deps.by_name
+    assert fake_deps.components() == dict(ports)
+    assert set(ports) == {"embedder", "reranker", "llm", "vector_store"}
+    # An LLM has no readiness probe; the embedder and the LLM name their model.
+    probed = [name for name, _ in fake_deps.ready_probes()]
+    assert sorted(probed) == ["embedder", "reranker", "vector_store"]
+    assert fake_deps.model_names() == {
+        "embedder": ports["embedder"].model_name,
+        "llm": ports["llm"].model_name,
     }
 
 
@@ -266,7 +274,7 @@ async def test_every_retrieval_mode_answers_over_the_fake_store(
 def test_a_text_ranking_mode_over_a_store_that_ranks_no_text_is_refused_when_built(
     fake_deps: RagDependencies, workflow_for: WorkflowFor, mode: str
 ) -> None:
-    deps = dataclasses.replace(fake_deps, vector_store=DenseOnlyStore())
+    deps = with_ports(fake_deps, vector_store=DenseOnlyStore())
 
     with pytest.raises(ValueError, match=f"retrieval_mode='{mode}'.*ranks no text"):
         workflow_for(deps, retrieval_mode=mode)
@@ -275,7 +283,7 @@ def test_a_text_ranking_mode_over_a_store_that_ranks_no_text_is_refused_when_bui
 def test_dense_mode_needs_no_store_that_ranks_text(
     fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    deps = dataclasses.replace(fake_deps, vector_store=DenseOnlyStore())
+    deps = with_ports(fake_deps, vector_store=DenseOnlyStore())
 
     workflow_for(deps, retrieval_mode="dense")  # no error
 

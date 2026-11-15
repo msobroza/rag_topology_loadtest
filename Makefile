@@ -63,7 +63,7 @@ ingest: ## Index the synthetic corpus into Elasticsearch (RAG_ES_URL)
 serve: ## Run the FastAPI service with the current RAG_* environment
 	$(BIN)rag-serve
 
-model-server: ## Serve one model with FastAPI (OVMS contract): make model-server SERVE=reranker PORT=8011
+model-server: ## Serve one component with FastAPI (OVMS contract): make model-server SERVE=reranker PORT=8011
 	$(BIN)rag-model-server --serve $(SERVE) --host 0.0.0.0 --port $(PORT)
 
 loadtest-models: ## Locust straight at a model server: make loadtest-models RUN_NAME=ovms-rerank HOST=http://host:8001 TARGET=rerank|embeddings
@@ -85,7 +85,7 @@ ovms-export: ## Export reranker + embedder to ovms/models (needs HF access)
 openvino-export: ## Convert the in-process reranker + embedder to OpenVINO under models/openvino (needs HF access)
 	$(BIN)rag-export-openvino
 
-calibrate: ## Calibrate the in-process embedder + reranker on this machine; prints the RAG_* lines that pin them
+calibrate: ## Calibrate the in-process embedder + reranker on this machine; prints the environment paths that pin them
 	$(BIN)rag-calibrate
 
 deploy: ## On Domino: publish (or redeploy) every App of the topology (settings in deploy.yaml)

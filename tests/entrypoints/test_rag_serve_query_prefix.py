@@ -27,15 +27,15 @@ SettingsFactory = Callable[..., RagSettings]
 QUESTION = "How many paid vacation days do employees accrue each year?"
 EMBED_URL = "http://embedder.test/v3/embeddings"
 FAKE_REST = {
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
+    "components__reranker__backend": "fake",
+    "components__llm__backend": "fake",
     "vector_store_backend": "fake",
 }
 # By id, with its threads pinned: no OpenVINO export and no calibration sample.
 IN_PROCESS = {
-    "embedding_backend": "local",
+    "components__embedder__backend": "local",
     "local_model_runtime": "torch",
-    "embedding_threads": 1,
+    "components__embedder__local__threads": 1,
 }
 
 
@@ -88,9 +88,9 @@ def test_an_endpoint_gets_the_prefixed_question_and_the_passages_as_they_are(
     endpoint = FakeEmbeddingsEndpoint()
     settings = settings_factory(
         **FAKE_REST,
-        embedding_backend="api",
-        embedding_api_url=EMBED_URL,
-        embedding_query_prefix=prefix,
+        components__embedder__backend="api",
+        components__embedder__api__url=EMBED_URL,
+        components__embedder__query_prefix=prefix,
     )
     composition = CompositionRoot(settings, transport=httpx.MockTransport(endpoint))
 
@@ -120,7 +120,9 @@ def test_a_model_server_embeds_what_it_receives_so_a_query_is_prefixed_once(
         "embedder", CompositionRoot(settings_factory(**IN_PROCESS))
     )
     settings = settings_factory(
-        **FAKE_REST, embedding_backend="api", embedding_api_url=EMBED_URL
+        **FAKE_REST,
+        components__embedder__backend="api",
+        components__embedder__api__url=EMBED_URL,
     )
     to_the_server = httpx.ASGITransport(app=model_server)
 
@@ -137,7 +139,9 @@ def test_the_fake_embedder_has_no_prefix(settings_factory: SettingsFactory) -> N
     answers = []
     for prefix in ("query: ", ""):
         settings = settings_factory(
-            **FAKE_REST, embedding_backend="fake", embedding_query_prefix=prefix
+            **FAKE_REST,
+            components__embedder__backend="fake",
+            components__embedder__query_prefix=prefix,
         )
         with TestClient(create_app(CompositionRoot(settings))) as client:
             answers.append(client.post("/retrieve", json={"question": QUESTION}))

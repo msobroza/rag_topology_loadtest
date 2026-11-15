@@ -63,5 +63,5 @@ class BaseRerankApiFormat(ABC):
         """
 
 
-# Every rerank format by name; RAG_RERANK_API_FORMAT names one.
+# Every rerank format by name; a reranker's api.api_format names one.
 RERANK_API_FORMATS: Registry[type[BaseRerankApiFormat]] = Registry("rerank API format")

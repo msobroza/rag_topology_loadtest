@@ -1,21 +1,23 @@
 """A FastAPI model server on OVMS's routes and formats (the FastAPI-vs-OVMS experiment).
 
-Like an OVMS app it serves ONE model per process: ``--serve embedder`` exposes
-``POST /v3/embeddings`` (OpenAI's embeddings format), ``--serve reranker``
-exposes ``POST /v3/rerank`` (Cohere's rerank format). Both answer
+Like an OVMS app it serves ONE model per process: ``--serve NAME`` names a
+component of the workflow file, always opened on its ``local`` backend. An
+embedder exposes ``POST /v3/embeddings`` (OpenAI's embeddings format), a
+reranker ``POST /v3/rerank`` (Cohere's rerank format). Both answer
 ``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/api_endpoint.py``
 and bodies are the standard formats' own models (``OpenAIEmbeddingsRequest``,
 ``CohereRerankRequest`` of ``domain/standard_formats.py``), the shapes the ``api``
 adapters speak, so client and server cannot drift apart; the answers are built
-by the three functions at the end of this module. Like OVMS, a request for any
-model but this server's alias is a 404. The workflow app cannot
-tell the two servers apart, so ``RAG_EMBEDDING_API_URL`` / ``RAG_RERANK_API_URL``
-can point at either and the same load test compares FastAPI with OVMS.
+by the three functions at the end of this module. It serves its model under
+the component's alias, and loads the weights its source id names; like OVMS, a
+request for any model but this server's alias is a 404. The workflow app cannot
+tell the two servers apart, so ``RAG_COMPONENTS__RERANKER__API__URL`` can point
+at either and the same load test compares FastAPI with OVMS.
 
 Example:
     $ rag-model-server --serve reranker --port 8011
     $ RAG_TOPOLOGY=split-reranker \
-    >   RAG_RERANK_API_URL=http://localhost:8011/v3/rerank rag-serve
+    >   RAG_COMPONENTS__RERANKER__API__URL=http://localhost:8011/v3/rerank rag-serve
 """
 
 from __future__ import annotations
@@ -26,7 +28,6 @@ import os
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import get_args
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, Request
@@ -41,7 +42,6 @@ from ..domain.api_endpoint import (
     MODEL_SERVER_RERANK_PATH,
 )
 from ..domain.passages import ScoredPassage
-from ..domain.roles import ModelServerPart
 from ..domain.standard_formats import (
     CohereRerankRequest,
     CohereRerankResponse,
@@ -55,57 +55,81 @@ from ..domain.standard_formats import (
 UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not found"
 
 
-# The handlers read what the factory left on ``app.state``: ``part``, ``alias``
-# and ``composition`` from the start, the served model once the lifespan has loaded it.
+# The handlers read what the factory left on ``app.state``: ``part`` (the
+# component's name), ``alias`` and ``composition`` from the start, the served
+# model once the lifespan has loaded it.
 common_routes = APIRouter()
 embedder_routes = APIRouter()
 reranker_routes = APIRouter()
+# The inference route of each component type a model server serves.
+_ROUTES_BY_TYPE = {"embedder": embedder_routes, "reranker": reranker_routes}
 
 
-def create_model_server(part: ModelServerPart, composition: CompositionRoot) -> FastAPI:
-    """Build the server for one model; it always serves the local model.
-
-    The served name is the alias the clients send (``RAG_EMBEDDING_API_MODEL`` /
-    ``RAG_RERANK_API_MODEL``); the weights come from ``RAG_EMBEDDING_MODEL`` /
-    ``RAG_RERANK_MODEL``.
+def servable_components(settings: RagSettings) -> list[str]:
+    """Return the components a model server can serve: the embedders and rerankers.
 
     Args:
-        part: The one model this process serves, and so its one inference route.
+        settings: The settings whose workflow file declares the components.
+
+    Returns:
+        Their names, in the file's order.
+
+    Example:
+        >>> servable_components(RagSettings())
+        ['embedder', 'reranker']
+    """
+    return [n for n, c in settings.components.items() if c.type in _ROUTES_BY_TYPE]
+
+
+def create_model_server(name: str, composition: CompositionRoot) -> FastAPI:
+    """Build the server for one component; it always serves its local model.
+
+    The served name is the component's alias, the name the clients send; the
+    weights are those its source id names.
+
+    Args:
+        name: The component this process serves, an embedder or a reranker; its
+            type picks the one inference route.
         composition: Builds the in-process model when the lifespan starts.
 
     Returns:
         The app, its routes answering under ``DOMINO_RUN_HOST_PATH`` and at the root.
 
+    Raises:
+        ValueError: If ``name`` is no embedder or reranker of the workflow file.
+
     Example:
         >>> composition = CompositionRoot(settings, reranker=FakeReranker())
         >>> create_model_server("reranker", composition)
     """
+    servable = servable_components(composition.settings)
+    if name not in servable:
+        raise ValueError(
+            f"no component {name!r} a model server can serve; expected an "
+            f"embedder or a reranker of the workflow file: {', '.join(servable)}"
+        )
+    component = composition.settings.components[name]
     app = FastAPI(
-        title=f"rag-model-server ({part})",
+        title=f"rag-model-server ({name})",
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),  # Domino's prefix
         lifespan=_lifespan,
     )
-    app.state.part, app.state.composition = part, composition
-    app.state.alias = _served_alias(part, composition.settings)
+    app.state.part, app.state.composition = name, composition
+    app.state.alias = component.alias
     app.include_router(common_routes)
-    app.include_router(embedder_routes if part == "embedder" else reranker_routes)
+    app.include_router(_ROUTES_BY_TYPE[component.type])
     return app
-
-
-def _served_alias(part: ModelServerPart, settings: RagSettings) -> str:
-    if part == "embedder":
-        return settings.embedding_api_model
-    return settings.rerank_api_model
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     composition: CompositionRoot = app.state.composition
+    name = app.state.part
     async with composition:
-        if app.state.part == "embedder":
-            app.state.embedder = await composition.local_embedder()
+        if composition.settings.components[name].type == "embedder":
+            app.state.embedder = await composition.local_embedder(name)
         else:
-            app.state.reranker = await composition.local_reranker()
+            app.state.reranker = await composition.local_reranker(name)
         yield
 
 
@@ -117,8 +141,8 @@ async def healthz(request: Request) -> dict[str, str]:
         request: The HTTP request, for the app's part.
 
     Returns:
-        ``{"status": "ok", "role": ...}``: ``embedder`` or ``reranker``, under
-        the key the route has always used.
+        ``{"status": "ok", "role": ...}``: the component's name, under the
+        key the route has always used.
     """
     return {"status": "ok", "role": request.app.state.part}
 
@@ -267,11 +291,12 @@ def _rerank_result(passage: ScoredPassage) -> CohereRerankResult:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run ``rag-model-server --serve embedder|reranker [--host H] [--port P]``.
+    """Run ``rag-model-server --serve NAME [--host H] [--port P]``.
 
-    Serves the one model with uvicorn, on 0.0.0.0:8888 unless told otherwise, with
-    a composition root built from the ``RAG_*`` settings. A settings mistake, an
-    unknown backend or API format included, exits as a usage error.
+    Serves the one component with uvicorn, on 0.0.0.0:8888 unless told
+    otherwise, with a composition root built from the ``RAG_*`` settings. A
+    settings mistake, an unknown backend or API format included, and a name
+    that is no embedder or reranker exit as a usage error.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -282,18 +307,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="rag-model-server", description="Serve one model."
     )
-    parser.add_argument("--serve", choices=get_args(ModelServerPart), required=True)
+    parser.add_argument(
+        "--serve",
+        required=True,
+        metavar="NAME",
+        help="the embedder or reranker component to serve, such as reranker",
+    )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args(argv)
     try:
         settings = RagSettings()
         check_registered_names(settings)
+        app = create_model_server(args.serve, CompositionRoot(settings))
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    composition = CompositionRoot(settings)
-    uvicorn.run(
-        create_model_server(args.serve, composition), host=args.host, port=args.port
-    )
+    uvicorn.run(app, host=args.host, port=args.port)
     return 0

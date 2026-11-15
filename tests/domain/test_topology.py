@@ -1,4 +1,4 @@
-"""The topology rule: which backends a topology implies, and what contradicts it."""
+"""The topology rule: which backends a topology implies, and what it moves."""
 
 from __future__ import annotations
 
@@ -7,8 +7,7 @@ import pytest
 from rag_load_test.domain.topology import (
     TOPOLOGY_BACKENDS,
     TopologyBackends,
-    resolve_embedding_backend,
-    resolve_rerank_backend,
+    placed_backend,
 )
 
 TOPOLOGIES = ["monolith", "split-reranker", "split-all"]
@@ -36,67 +35,19 @@ def test_the_topology_table() -> None:
         ("split-all", "api", "api"),
     ],
 )
-def test_unset_backends_take_the_topology_value(
+def test_a_local_component_takes_the_topology_value(
     topology: str, embedding: str, rerank: str
 ) -> None:
-    assert resolve_embedding_backend(topology, None) == embedding
-    assert resolve_rerank_backend(topology, None) == rerank
-
-
-def test_an_explicit_backend_may_repeat_the_topology_value() -> None:
-    assert resolve_embedding_backend("split-all", "api") == "api"
-    assert resolve_rerank_backend("monolith", "local") == "local"
+    assert placed_backend(topology, "embedding", "local") == embedding
+    assert placed_backend(topology, "rerank", "local") == rerank
 
 
 @pytest.mark.parametrize("topology", TOPOLOGIES)
-@pytest.mark.parametrize("backend", ["api", "fake"])
-def test_embedding_variants_are_allowed_in_every_topology(
+@pytest.mark.parametrize("backend", ["api", "fake", "none", "gpu"])
+def test_any_other_backend_is_kept_in_every_topology(
     topology: str, backend: str
 ) -> None:
-    # An endpoint or a fake loads no model of ours, so where ours run does not
-    # constrain it.
-    assert resolve_embedding_backend(topology, backend) == backend
-
-
-@pytest.mark.parametrize("topology", TOPOLOGIES)
-@pytest.mark.parametrize("backend", ["api", "fake", "none"])
-def test_rerank_variants_are_allowed_in_every_topology(
-    topology: str, backend: str
-) -> None:
-    assert resolve_rerank_backend(topology, backend) == backend
-
-
-# --- contradictions --------------------------------------------------------------
-
-
-def test_a_local_embedding_contradicts_split_all() -> None:
-    with pytest.raises(ValueError, match="RAG_EMBEDDING_BACKEND='local'") as caught:
-        resolve_embedding_backend("split-all", "local")
-
-    message = str(caught.value)
-    assert "RAG_TOPOLOGY='split-all'" in message
-    assert "only 'api' or 'fake' for embedding" in message
-    assert (
-        "set RAG_TOPOLOGY=monolith or RAG_TOPOLOGY=split-reranker, "
-        "or drop RAG_EMBEDDING_BACKEND"
-    ) in message
-
-
-@pytest.mark.parametrize("topology", ["split-reranker", "split-all"])
-def test_a_local_rerank_contradicts_a_split_topology(topology: str) -> None:
-    with pytest.raises(ValueError, match="RAG_RERANK_BACKEND='local'") as caught:
-        resolve_rerank_backend(topology, "local")
-
-    message = str(caught.value)
-    assert f"RAG_TOPOLOGY={topology!r}" in message
-    assert "only 'api', 'fake' or 'none' for rerank" in message
-    assert "set RAG_TOPOLOGY=monolith, or drop RAG_RERANK_BACKEND" in message
-
-
-def test_none_is_not_an_embedding_backend() -> None:
-    with pytest.raises(ValueError, match="RAG_EMBEDDING_BACKEND='none'") as caught:
-        resolve_embedding_backend("monolith", "none")
-
-    message = str(caught.value)
-    assert "'local', 'api' or 'fake'" in message
-    assert message.endswith("drop RAG_EMBEDDING_BACKEND")
+    # An endpoint, a fake or no rerank loads no model of ours, so where ours run
+    # does not constrain it; an unknown name is refused by the openers.
+    assert placed_backend(topology, "embedding", backend) == backend
+    assert placed_backend(topology, "rerank", backend) == backend

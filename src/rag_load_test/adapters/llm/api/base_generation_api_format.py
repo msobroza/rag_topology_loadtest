@@ -56,7 +56,7 @@ class BaseGenerationApiFormat(ABC):
         """
 
 
-# Every generation format by name; RAG_GENERATION_API_FORMAT names one.
+# Every generation format by name; an LLM's api.api_format names one.
 GENERATION_API_FORMATS: Registry[type[BaseGenerationApiFormat]] = Registry(
     "generation API format"
 )

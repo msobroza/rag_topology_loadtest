@@ -273,8 +273,8 @@ def refuse_secrets(settings: DeploySettings) -> None:
 
     Raises:
         DominoDeployError: If a setting whose name ends with ``_API_KEY``
-            (``RAG_ES_API_KEY``, ``RAG_EMBEDDING_API_KEY``, ...) holds a value
-            other than "" or ``domino``.
+            (``RAG_ES_API_KEY``, ``RAG_COMPONENTS__LLM__API__API_KEY``, ...)
+            holds a value other than "" or ``domino``.
 
     Example:
         >>> refuse_secrets(DeploySettings())

@@ -2,7 +2,34 @@
 # other workflow file. RAG_WORKFLOW_FILE names another; else a workflow.yaml in
 # the working directory is used before this one. Each top-level key is a
 # setting, and each value is overridden by the variable its path names, its
-# levels joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5.
+# levels joined by __, such as RAG_GRAPH__STAGES__RERANK__TOP_K=5 or
+# RAG_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
+# set it by its path, such as RAG_COMPONENTS__LLM__API__API_KEY.
+#
+# The vector store is not declared here yet: a stage calls it as vector_store,
+# and RAG_VECTOR_STORE_BACKEND and the RAG_ES_* / RAG_CHROMA_* variables set it.
+components:
+  # Each component is of the type of its name (embedder, reranker or llm)
+  # unless `type` names it, and states its backend. A model's source_id is its
+  # Hugging Face id or a folder; its alias, the name a model server serves it
+  # under, is the last part of the source_id unless `alias` says otherwise.
+  # The settings of one backend sit in a block named after it (local, api).
+  embedder:
+    # local | api | fake; RAG_TOPOLOGY=split-all moves it behind a model server
+    backend: local
+    source_id: Snowflake/snowflake-arctic-embed-l-v2.0
+    query_prefix: "query: " # in front of every query, never of a passage
+  reranker:
+    # local | api | fake | none; a split RAG_TOPOLOGY moves it behind a model server
+    backend: local
+    source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR
+  llm:
+    backend: api # api | fake
+    api:
+      url: https://api.openai.com/v1/chat/completions
+      api_format: openai
+      model: gpt-4o-mini
+
 graph:
   # Each stage is an instance of the stage type of its name, unless `type`
   # names another, and calls the component that `call` names. Every other key

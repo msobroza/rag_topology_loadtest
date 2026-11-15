@@ -12,6 +12,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from rag_components import FAKE_BACKENDS, settings_at_paths
 from rag_graphs import rag_graph
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.config.rag_settings import RagSettings
@@ -20,12 +21,6 @@ from rag_load_test.entrypoints.rag_serve import create_app
 from rag_load_test.loadtest.response_checks import judge_response
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
-FAKE_BACKENDS = {
-    "embedding_backend": "fake",
-    "rerank_backend": "fake",
-    "generation_backend": "fake",
-    "vector_store_backend": "fake",
-}
 # Today's response: the four stages in the graph's order, then the total.
 TODAY = ["embed", "retrieve", "rerank", "generate", "total"]
 
@@ -51,7 +46,7 @@ def _answer(settings: RagSettings, path: str) -> httpx.Response:
 def _settings(graph: GraphDescription | None = None) -> RagSettings:
     # A graph handed in whole replaces the workflow file's; none keeps today's.
     graphs = {} if graph is None else {"graph": graph}
-    return RagSettings(_env_file=None, **FAKE_BACKENDS, **graphs)  # type: ignore[arg-type]
+    return RagSettings(_env_file=None, **settings_at_paths(**FAKE_BACKENDS, **graphs))
 
 
 @pytest.mark.parametrize(

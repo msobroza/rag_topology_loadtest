@@ -49,17 +49,17 @@ def test_each_app_takes_its_own_value_else_the_default(deploy_file: Path) -> Non
         hardware_tier_id="small",
         autoscaling=Autoscaling(min_replicas=1, max_replicas=4),
         settings={
+            "RAG_COMPONENTS__RERANKER__SOURCE_ID": "/mnt/data/models/bge reranker",
             "RAG_ES_URL": "https://es.test:9200",
-            "RAG_RERANK_MODEL": "/mnt/data/models/bge reranker",
         },
     )
     embedder = settings.for_app("embedder")
     assert (embedder.kind, embedder.hardware_tier_id) == ("app", "cpu-8")
     assert embedder.autoscaling is None
     assert list(embedder.settings) == [  # merged, sorted by name
-        "RAG_EMBEDDING_MODEL",
+        "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
+        "RAG_COMPONENTS__RERANKER__SOURCE_ID",
         "RAG_ES_URL",
-        "RAG_RERANK_MODEL",
     ]
 
 
@@ -266,8 +266,8 @@ def placeholder_message(key: str, block: str, value: str, path: Path) -> str:
             "https://<es host>:9200",
         ),
         (
-            "apps: {embedder: {settings: {RAG_EMBEDDING_MODEL: /d/<dataset>/m}}}",
-            "RAG_EMBEDDING_MODEL",
+            "apps: {embedder: {settings: {RAG_COMPONENTS__EMBEDDER__SOURCE_ID: /d/<dataset>/m}}}",
+            "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
             "apps.embedder.settings",
             "/d/<dataset>/m",
         ),
@@ -338,18 +338,18 @@ def secret_message(name: str, path: Path, block: str) -> str:
     [
         ("defaults: {settings: {RAG_ES_API_KEY: s}}", "RAG_ES_API_KEY", "defaults"),
         (
-            "apps: {workflow: {settings: {RAG_GENERATION_API_KEY: sk-1}}}",
-            "RAG_GENERATION_API_KEY",
+            "apps: {workflow: {settings: {RAG_COMPONENTS__LLM__API__API_KEY: sk-1}}}",
+            "RAG_COMPONENTS__LLM__API__API_KEY",
             "apps.workflow",
         ),
         (
-            "apps: {workflow: {settings: {RAG_RERANK_API_KEY: co-1}}}",
-            "RAG_RERANK_API_KEY",
+            "apps: {workflow: {settings: {RAG_COMPONENTS__RERANKER__API__API_KEY: co-1}}}",
+            "RAG_COMPONENTS__RERANKER__API__API_KEY",
             "apps.workflow",
         ),
         (
-            "apps: {embedder: {settings: {RAG_EMBEDDING_API_KEY: dom_pat_abc123}}}",
-            "RAG_EMBEDDING_API_KEY",
+            "apps: {embedder: {settings: {RAG_COMPONENTS__EMBEDDER__API__API_KEY: dom_pat_abc123}}}",
+            "RAG_COMPONENTS__EMBEDDER__API__API_KEY",
             "apps.embedder",
         ),
         (
@@ -376,9 +376,9 @@ def test_a_secret_in_any_settings_block_is_refused(
 @pytest.mark.parametrize(
     "name",
     [
-        "RAG_EMBEDDING_API_KEY",
-        "RAG_RERANK_API_KEY",
-        "RAG_GENERATION_API_KEY",
+        "RAG_COMPONENTS__EMBEDDER__API__API_KEY",
+        "RAG_COMPONENTS__RERANKER__API__API_KEY",
+        "RAG_COMPONENTS__LLM__API__API_KEY",
         "RAG_ES_API_KEY",
     ],
 )
@@ -393,7 +393,7 @@ def test_an_empty_or_domino_api_key_passes_through(
 
 
 def test_only_a_name_ending_with_api_key_is_a_secret(deploy_file: Path) -> None:
-    values = "{RAG_API_KEY_FILE: /run/key, RAG_EMBEDDING_API_URL: 'http://e/v3'}"
+    values = "{RAG_API_KEY_FILE: /run/key, RAG_COMPONENTS__EMBEDDER__API__URL: 'http://e/v3'}"
     deploy_file.write_text(f"defaults: {{settings: {values}}}\n")
     refuse_secrets(DeploySettings())  # neither name ends with _API_KEY
 
@@ -432,9 +432,11 @@ def test_the_example_file_lists_the_model_paths_once_for_every_app(
     deploy_file.write_text(EXAMPLE_YAML.read_text())
     settings = DeploySettings()
     for part in ("embedder", "reranker", "workflow"):
-        assert {"RAG_ES_URL", "RAG_EMBEDDING_MODEL", "RAG_RERANK_MODEL"} <= set(
-            settings.for_app(part).settings
-        )
+        assert {
+            "RAG_ES_URL",
+            "RAG_COMPONENTS__EMBEDDER__SOURCE_ID",
+            "RAG_COMPONENTS__RERANKER__SOURCE_ID",
+        } <= set(settings.for_app(part).settings)
     assert settings.for_app("workflow").kind == "agent"
 
 

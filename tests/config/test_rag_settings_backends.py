@@ -8,11 +8,14 @@ import pytest
 from pydantic import ValidationError
 
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.domain.passages import ScoredPassage
+
+EMBED_URL = "http://embedder/v3/embeddings"
+RERANK_URL = "http://reranker/v3/rerank"
 
 
-def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:
-    return ScoredPassage(id=pid, text=text or pid, retrieval_score=retrieval_score)
+def backends(settings: RagSettings) -> tuple[str, str]:
+    components = settings.components
+    return components["embedder"].backend, components["reranker"].backend
 
 
 # --- settings ----------------------------------------------------------------
@@ -22,24 +25,23 @@ def test_settings_defaults(settings_factory: Callable[..., RagSettings]) -> None
     s = settings_factory()
 
     assert s.topology == "monolith"
-    assert (s.embedding_backend, s.rerank_backend) == ("local", "local")
+    assert backends(s) == ("local", "local")
     assert s.run_label == "monolith"
-    assert (s.rerank_api_url, s.embedding_api_url) == ("", "")
     assert s.es_url == "http://localhost:9200"
-    assert (s.rerank_api_key, s.embedding_api_key, s.generation_api_key) == ("",) * 3
+    keys = [component.api.api_key for component in s.components.values()]
+    assert keys == ["", "", ""]  # never in the file
 
 
 def test_settings_read_rag_prefixed_env(
     settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("RAG_TOPOLOGY", "split-reranker")
-    monkeypatch.setenv("RAG_RERANK_BACKEND", "api")
-    monkeypatch.setenv("RAG_RERANK_API_URL", "http://reranker:8011/v3/rerank")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", RERANK_URL)
     monkeypatch.setenv("RAG_RUN_LABEL", "split-reranker-fastapi")
     monkeypatch.setenv("RAG_DOMINO_TRACING", "true")
 
     s = settings_factory()
-    assert s.rerank_backend == "api"
+    assert s.components["reranker"].backend == "api"
     assert s.run_label == "split-reranker-fastapi"
     assert s.domino_tracing is True
 
@@ -52,20 +54,46 @@ def test_settings_read_rag_prefixed_env(
         ("split-all", "api", "api"),
     ],
 )
-def test_settings_resolve_backends_from_the_topology(
+def test_the_topology_moves_a_local_component_behind_a_model_server(
     settings_factory: Callable[..., RagSettings],
     monkeypatch: pytest.MonkeyPatch,
     topology: str,
     embedding: str,
     rerank: str,
 ) -> None:
+    # The workflow file says local for both; the topology variable wins over it.
     monkeypatch.setenv("RAG_TOPOLOGY", topology)
-    monkeypatch.setenv("RAG_EMBEDDING_API_URL", "http://embedder/v3/embeddings")
-    monkeypatch.setenv("RAG_RERANK_API_URL", "http://reranker/v3/rerank")
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__API__URL", EMBED_URL)
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__API__URL", RERANK_URL)
 
     s = settings_factory()
-    assert (s.embedding_backend, s.rerank_backend) == (embedding, rerank)
+    assert backends(s) == (embedding, rerank)
     assert s.run_label == topology
+
+
+def test_the_topology_places_only_the_embedder_and_the_reranker(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    other = {"type": "reranker", "backend": "local", "source_id": "org/other"}
+
+    s = settings_factory(
+        topology="split-all",
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__api__url=RERANK_URL,
+        components={"other": other},
+    )
+
+    assert s.components["other"].backend == "local"
+
+
+def test_a_backend_off_local_is_kept_whatever_the_topology(
+    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__BACKEND", "fake")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__BACKEND", "none")
+
+    assert backends(settings_factory()) == ("fake", "none")
 
 
 def test_settings_default_run_label_names_the_variant_backends(
@@ -73,29 +101,12 @@ def test_settings_default_run_label_names_the_variant_backends(
 ) -> None:
     s = settings_factory(
         topology="split-all",
-        embedding_api_url="http://embedder/v3/embeddings",
-        rerank_backend="none",
-        generation_backend="fake",
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__backend="none",
+        components__llm__backend="fake",
     )
 
     assert s.run_label == "split-all+rerank=none+generation=fake"
-
-
-def test_settings_reject_a_backend_that_contradicts_the_topology(
-    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RAG_TOPOLOGY", "split-all")
-    monkeypatch.setenv("RAG_EMBEDDING_BACKEND", "local")
-
-    with pytest.raises(
-        ValidationError, match="RAG_EMBEDDING_BACKEND='local'"
-    ) as caught:
-        settings_factory()
-
-    assert (
-        "set RAG_TOPOLOGY=monolith or RAG_TOPOLOGY=split-reranker, "
-        "or drop RAG_EMBEDDING_BACKEND"
-    ) in str(caught.value)
 
 
 def test_settings_reject_a_bad_run_label(
@@ -103,13 +114,6 @@ def test_settings_reject_a_bad_run_label(
 ) -> None:
     with pytest.raises(ValidationError, match="RAG_RUN_LABEL='two words'"):
         settings_factory(run_label="two words")
-
-
-def test_settings_reject_unknown_backend(
-    settings_factory: Callable[..., RagSettings],
-) -> None:
-    with pytest.raises(ValidationError, match="tpu"):
-        settings_factory(embedding_backend="tpu")
 
 
 def test_settings_reject_unknown_topology(
@@ -124,43 +128,27 @@ def test_settings_field_set_is_pinned() -> None:
     # decision. The tunables (top-k, index, batch sizes, workers, HTTP, Domino token,
     # seed size, HTTP backoff), the prompts and the thread-budget inputs were
     # moved or added here on purpose; so were Chroma, the retrieval mode and the
-    # in-process model runtime, and the two limits of calibration. Each model component (embedding, rerank,
-    # generation) has one block of settings, its endpoint in four *_api_* fields.
-    # The retrieval mode, the sizes and the prompts moved onto the stages of the
-    # graph, read from the workflow file; the reranker has the size of its own
-    # calibration request.
+    # in-process model runtime, and the two limits of calibration. The model
+    # components (the embedder, the reranker, the LLM) are the workflow file's
+    # components block, each with its blocks of settings; the retrieval mode,
+    # the sizes and the prompts are settings of the stages of its graph.
     assert sorted(RagSettings.model_fields) == [
         "calibration_budget_s",
         "calibration_rounds",
         "chroma_collection",
         "chroma_path",
         "chroma_url",
+        "components",
         "domino_api_proxy",
         "domino_hardware_tier_id",
         "domino_token_ttl_s",
         "domino_token_url",
         "domino_tracing",
-        "embedding_api_format",
-        "embedding_api_key",
-        "embedding_api_model",
-        "embedding_api_url",
-        "embedding_backend",
-        "embedding_batch_size",
-        "embedding_model",
-        "embedding_query_prefix",
-        "embedding_threads",
         "es_api_key",
         "es_index",
         "es_text_analyzer",
         "es_url",
         "fake_store_seed_documents",
-        "generation_api_format",
-        "generation_api_key",
-        "generation_api_model",
-        "generation_api_url",
-        "generation_backend",
-        "generation_temperature",
-        "generation_timeout_s",
         "graph",
         "http_backoff_s",
         "http_retries",
@@ -169,16 +157,29 @@ def test_settings_field_set_is_pinned() -> None:
         "model_cpus",
         "model_workers",
         "openvino_models_dir",
-        "rerank_api_format",
-        "rerank_api_key",
-        "rerank_api_model",
-        "rerank_api_url",
-        "rerank_backend",
-        "rerank_batch_size",
-        "rerank_calibration_passages",
-        "rerank_model",
-        "rerank_threads",
         "run_label",
         "topology",
         "vector_store_backend",
     ]
+
+
+def test_no_flat_variable_of_a_model_component_is_read(
+    settings_factory: Callable[..., RagSettings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name, value in {
+        "RAG_EMBEDDING_BACKEND": "fake",
+        "RAG_RERANK_BACKEND": "none",
+        "RAG_GENERATION_BACKEND": "fake",
+        "RAG_RERANK_MODEL": "org/other",
+        "RAG_EMBEDDING_API_MODEL": "other",
+        "RAG_GENERATION_TIMEOUT_S": "1",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    s = settings_factory()
+
+    assert [c.backend for c in s.components.values()] == ["local", "local", "api"]
+    reranker = s.components["reranker"]
+    assert reranker.source_id == "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+    assert s.components["embedder"].alias == "snowflake-arctic-embed-l-v2.0"
+    assert s.components["llm"].http.timeout_s == 120.0

@@ -67,6 +67,18 @@ class Registry(Generic[_Entry]):
 
         return add
 
+    def names(self) -> tuple[str, ...]:
+        """Return every registered name, sorted.
+
+        Returns:
+            The names, as an unknown one's error lists them.
+
+        Example:
+            >>> RERANKER_OPENERS.names()
+            ('api', 'fake', 'local', 'none')
+        """
+        return tuple(sorted(self._entries))
+
     def get(self, name: str) -> _Entry:
         """Return the entry registered under ``name``.
 
@@ -85,7 +97,7 @@ class Registry(Generic[_Entry]):
             ValueError: unknown rerank API format 'jina' (expected one of: 'cohere')
         """
         if name not in self._entries:
-            known = ", ".join(repr(known_name) for known_name in sorted(self._entries))
+            known = ", ".join(repr(known_name) for known_name in self.names())
             raise ValueError(
                 f"unknown {self._sort} {name!r} (expected one of: {known})"
             )

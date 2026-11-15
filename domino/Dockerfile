@@ -38,7 +38,7 @@ ENV PATH=/opt/rag-venv/bin:$PATH
 
 # Download the two HF models and convert them to OpenVINO, so app start-up needs
 # no network and no conversion. rag-export-openvino takes the source ids from the
-# installed package's settings defaults (the one served-model pin), so this step
+# installed package's workflow file (the one served-model pin), so this step
 # cannot drift from what the apps load. The download stays in HF_HOME, so
 # RAG_LOCAL_MODEL_RUNTIME=torch also starts offline. Both folders are
 # world-readable because the build runs as root but Domino runs apps as ubuntu.

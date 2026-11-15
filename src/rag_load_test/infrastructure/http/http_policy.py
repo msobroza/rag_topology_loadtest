@@ -2,7 +2,8 @@
 
 ``HttpResources`` builds it once from ``RAG_HTTP_TIMEOUT_S``, ``RAG_HTTP_RETRIES`` and
 ``RAG_HTTP_BACKOFF_S``; every adapter that calls out receives the same object,
-except the generation endpoint, whose policy has ``RAG_GENERATION_TIMEOUT_S``.
+except the LLM's, whose policy has its component's own timeout
+(``RAG_COMPONENTS__LLM__HTTP__TIMEOUT_S``).
 
 Example:
     >>> policy = HttpPolicy(timeout_s=30.0, retries=2, backoff_s=0.2)

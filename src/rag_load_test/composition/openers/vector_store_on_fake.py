@@ -1,7 +1,7 @@
 """The vector store on the ``fake`` backend: in memory, seeded through the embedder.
 
 Example:
-    >>> store = await open_vector_store_on_fake(components.vector_store, shared)
+    >>> store = await open_vector_store_on_fake(vector_store, shared)
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ async def open_vector_store_on_fake(
         The seeded in-memory store.
 
     Example:
-        >>> store = await open_vector_store_on_fake(components.vector_store, shared)
+        >>> store = await open_vector_store_on_fake(vector_store, shared)
     """
     store = InMemoryVectorStore()
     documents = synthetic_corpus(component.fake.seed_documents)

@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from cpu_fakes import FakeCpuCounter
+from rag_components import FAKE_BACKENDS
 from rag_load_test.adapters.embedder.fake.fake_embedder import FakeEmbedder
 from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
@@ -19,7 +20,6 @@ from rag_load_test.adapters.reranker.fake.fake_reranker import FakeReranker
 from rag_load_test.adapters.reranker.local.cross_encoder_reranker import (
     CrossEncoderReranker,
 )
-from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
 from rag_load_test.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
@@ -36,7 +36,10 @@ SettingsFactory = Callable[..., RagSettings]
 EMBEDDER_WEIGHTS = "embedder:Snowflake/snowflake-arctic-embed-l-v2.0"
 UNREACHABLE_ES = "http://127.0.0.1:9"  # discard port: any connection would be refused
 TOKEN_URL = "http://token.test/access-token"
-PINNED_THREADS = {"embedding_threads": 1, "rerank_threads": 1}  # no calibration
+PINNED_THREADS = {  # no calibration
+    "components__embedder__local__threads": 1,
+    "components__reranker__local__threads": 1,
+}
 # Too small for a second trial: calibration keeps the thread budget's share.
 FIRST_CANDIDATES = {"calibration_budget_s": 1e-9}
 EMBED_URL = "http://embedder/v3/embeddings"
@@ -74,36 +77,26 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
     async with CompositionRoot(fake_settings) as composition:
         deps = await composition.workflow_dependencies()
 
-        assert isinstance(deps.embedder, FakeEmbedder)
-        assert isinstance(deps.vector_store, InMemoryVectorStore)
-        assert isinstance(deps.reranker, FakeReranker)
-        assert isinstance(deps.llm, FakeLLM)
-        assert deps.lexical_search is deps.vector_store  # the fake store ranks text
+        assert isinstance(deps.by_name["embedder"], FakeEmbedder)
+        assert isinstance(deps.by_name["vector_store"], InMemoryVectorStore)
+        assert isinstance(deps.by_name["reranker"], FakeReranker)
+        assert isinstance(deps.by_name["llm"], FakeLLM)
         # Every synthetic document fits one chunk, so passages == documents.
-        assert await deps.vector_store.ready() == (True, "200 passages in memory")
+        store = deps.by_name["vector_store"]
+        assert await store.ready() == (True, "200 passages in memory")
 
 
 async def test_ports_open_once_and_are_reused(fake_settings: RagSettings) -> None:
     async with CompositionRoot(fake_settings) as composition:
         first = await composition.workflow_dependencies()
         second = await composition.workflow_dependencies()
+        store = (await composition.ingest_ports()).vector_store
 
-        assert second.embedder is first.embedder
-        assert second.vector_store is first.vector_store
-        assert (await composition.ingest_ports()).vector_store is first.vector_store
+    assert second.by_name["embedder"] is first.by_name["embedder"]
+    assert second.by_name["vector_store"] is first.by_name["vector_store"] is store
 
 
 # --- backends -------------------------------------------------------------------------
-
-
-async def test_none_rerank_backend_keeps_retrieval_order(
-    settings_factory: SettingsFactory, fake_settings: RagSettings
-) -> None:
-    settings = fake_settings.model_copy(update={"rerank_backend": "none"})
-    async with CompositionRoot(settings) as composition:
-        assert isinstance(
-            (await composition.workflow_dependencies()).reranker, NoReranker
-        )
 
 
 async def test_each_model_server_endpoint_fetches_its_own_domino_token(
@@ -126,13 +119,13 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
 
     settings = settings_factory(
         topology="split-all",  # both ports on a model server
-        generation_backend="fake",
-        embedding_api_key="domino",
-        rerank_api_key="domino",
+        components__llm__backend="fake",
+        components__embedder__api__api_key="domino",
+        components__reranker__api__api_key="domino",
         domino_token_url=TOKEN_URL,
         http_timeout_s=7.5,
-        embedding_api_url=EMBED_URL,
-        rerank_api_url=RERANK_URL,
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__api__url=RERANK_URL,
     )
     composition = CompositionRoot(
         settings,
@@ -141,9 +134,9 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
     )
     async with composition:
         deps = await composition.workflow_dependencies()
-        assert await deps.embedder.embed_documents(["q"]) == [[1.0, 0.0]]
+        assert await deps.by_name["embedder"].embed_documents(["q"]) == [[1.0, 0.0]]
         candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
-        [ranked] = await deps.reranker.rerank("q", [candidate], 1)
+        [ranked] = await deps.by_name["reranker"].rerank("q", [candidate], 1)
         assert ranked.rerank_score == 0.9
 
     # One BearerToken per endpoint: each has its own key, so its own cache.
@@ -165,10 +158,10 @@ async def test_api_embedder_batches_and_retries_as_configured(
         return httpx.Response(200, json={"data": rows})
 
     settings = settings_factory(
-        embedding_backend="api",
-        embedding_batch_size=2,
+        components__embedder__backend="api",
+        components__embedder__api__batch_size=2,
         http_retries=0,
-        embedding_api_url=EMBED_URL,
+        components__embedder__api__url=EMBED_URL,
     )
     composition = CompositionRoot(
         settings,
@@ -187,21 +180,26 @@ async def test_api_embedder_batches_and_retries_as_configured(
 async def test_local_models_use_the_configured_batch_sizes(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    batch_sizes = {"embedding_batch_size": 16, "rerank_batch_size": 8}
+    batch_sizes = {
+        "components__embedder__local__batch_size": 16,
+        "components__reranker__local__batch_size": 8,
+    }
     settings = settings_factory(**batch_sizes, **PINNED_THREADS)
     candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
     async with CompositionRoot(settings) as composition:
-        await (await composition.local_embedder()).embed_documents(["hello"])
-        await (await composition.local_reranker()).rerank("q", [candidate], 1)
+        await (await composition.local_embedder("embedder")).embed_documents(["hello"])
+        await (await composition.local_reranker("reranker")).rerank("q", [candidate], 1)
 
     assert fake_weights.batch_sizes == [("encode", 16), ("predict", 8)]
 
 
-async def test_elasticsearch_store_uses_the_configured_index(
+async def test_elasticsearch_store_opens_on_its_index_without_the_network(
     settings_factory: SettingsFactory,
 ) -> None:
     settings = settings_factory(
-        embedding_backend="fake", es_url=UNREACHABLE_ES, es_index="passages_v2"
+        components__embedder__backend="fake",
+        es_url=UNREACHABLE_ES,
+        es_index="passages_v2",
     )
     async with CompositionRoot(settings) as composition:
         store = (await composition.ingest_ports()).vector_store
@@ -218,28 +216,19 @@ async def test_fake_store_is_seeded_with_the_configured_document_count(
         assert await store.count() == 12
 
 
-async def test_elasticsearch_store_opens_without_the_network(
-    settings_factory: SettingsFactory,
-) -> None:
-    settings = settings_factory(embedding_backend="fake", es_url=UNREACHABLE_ES)
-    async with CompositionRoot(settings) as composition:
-        store = (await composition.ingest_ports()).vector_store
-        assert isinstance(store, ElasticsearchVectorStore)
-
-
-def with_an_unknown_generation_format(settings: RagSettings) -> RagSettings:
-    # No module registers this format: the one way to make the api LLM fail to open.
-    update = {"generation_backend": "api", "generation_api_format": "nope"}
-    return settings.model_copy(update=update)
+# No module registers this format: the one way to make the api LLM fail to open.
+UNKNOWN_GENERATION_FORMAT = {
+    "components__llm__backend": "api",
+    "components__llm__api__api_format": "nope",
+}
 
 
 async def test_the_llm_opens_before_any_weights_load(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(es_url=UNREACHABLE_ES)  # local models, api generation
-    async with CompositionRoot(
-        with_an_unknown_generation_format(settings)
-    ) as composition:
+    # local models, api generation
+    settings = settings_factory(es_url=UNREACHABLE_ES, **UNKNOWN_GENERATION_FORMAT)
+    async with CompositionRoot(settings) as composition:
         with pytest.raises(RagDependencyError, match="llm unavailable"):
             await composition.workflow_dependencies()
 
@@ -252,9 +241,9 @@ async def test_the_llm_opens_before_any_weights_load(
 
 
 async def test_ingest_ports_leave_the_llm_shut(
-    fake_settings: RagSettings,
+    settings_factory: SettingsFactory,
 ) -> None:
-    settings = with_an_unknown_generation_format(fake_settings)
+    settings = settings_factory(**{**FAKE_BACKENDS, **UNKNOWN_GENERATION_FORMAT})
     async with CompositionRoot(settings) as composition:
         _, store = await composition.ingest_ports()  # the LLM is never opened
         assert await store.count() == 200  # the default seed size
@@ -280,17 +269,18 @@ async def test_local_models_ignore_the_configured_backend(
 ) -> None:
     settings = settings_factory(  # both backends api
         topology="split-all",
-        embedding_api_url=EMBED_URL,
-        rerank_api_url=RERANK_URL,
+        components__embedder__api__url=EMBED_URL,
+        components__reranker__api__url=RERANK_URL,
         **PINNED_THREADS,
     )
     async with CompositionRoot(settings) as composition:
-        embedder = await composition.local_embedder()
+        embedder = await composition.local_embedder("embedder")
 
         assert isinstance(embedder, SentenceTransformerEmbedder)
         assert await embedder.embed_documents(["hello"]) == [[1.0, 0.0]]
         assert fake_weights.loaded == [EMBEDDER_WEIGHTS]
-        assert isinstance(await composition.local_reranker(), CrossEncoderReranker)
+        reranker = await composition.local_reranker("reranker")
+        assert isinstance(reranker, CrossEncoderReranker)
 
 
 # --- ports handed in ------------------------------------------------------------------------
@@ -304,10 +294,10 @@ async def test_a_supplied_port_is_used_as_given(fake_settings: RagSettings) -> N
     async with composition:
         deps = await composition.workflow_dependencies()
 
-        assert deps.embedder is embedder
-        assert deps.vector_store is empty_store
+        assert deps.by_name["embedder"] is embedder
+        assert deps.by_name["vector_store"] is empty_store
         assert await empty_store.count() == 0  # a supplied store is never seeded
-        assert await composition.local_embedder() is embedder
+        assert await composition.local_embedder("embedder") is embedder
 
 
 async def test_fake_store_is_seeded_with_the_supplied_embedder(
@@ -340,7 +330,9 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
 ) -> None:
     transport = ClosingRecorderTransport()
     settings = settings_factory(
-        topology="split-reranker", rerank_api_url=RERANK_URL, generation_backend="fake"
+        topology="split-reranker",
+        components__reranker__api__url=RERANK_URL,
+        components__llm__backend="fake",
     )
     composition = CompositionRoot(
         settings, vector_store=InMemoryVectorStore(), transport=transport
@@ -351,7 +343,7 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
 
     assert transport.closed
     with pytest.raises(RuntimeError, match="after shutdown"):
-        await deps.embedder.embed_documents(["the model pool is gone"])
+        await deps.by_name["embedder"].embed_documents(["the model pool is gone"])
 
 
 # --- thread budget ----------------------------------------------------------------------
@@ -371,8 +363,8 @@ async def open_local_models(
 ) -> tuple[SentenceTransformerEmbedder, CrossEncoderReranker]:
     async with composition:
         embedder, reranker = (
-            await composition.local_embedder(),
-            await composition.local_reranker(),
+            await composition.local_embedder("embedder"),
+            await composition.local_reranker("reranker"),
         )
     assert isinstance(embedder, SentenceTransformerEmbedder)
     assert isinstance(reranker, CrossEncoderReranker)
@@ -405,7 +397,9 @@ async def test_local_model_scopes_carry_the_thread_budget(
 async def test_a_thread_override_replaces_one_share(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
-    settings = settings_factory(embedding_threads=1, **FIRST_CANDIDATES)
+    settings = settings_factory(
+        components__embedder__local__threads=1, **FIRST_CANDIDATES
+    )
     composition = CompositionRoot(
         settings, container_cpus=FakeCpuCounter(8, "container")
     )

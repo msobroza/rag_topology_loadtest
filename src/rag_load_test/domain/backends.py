@@ -1,31 +1,25 @@
-"""The Backend and Runtime names: how a component or the vector store runs.
+"""The vector store's Backend names, the Runtime names, and two defaults.
 
-A Backend is how a component (embedding, rerank, generation) or the vector store
-runs: ``local`` (a model loaded in the workflow app's process), ``api`` (an
-endpoint called over HTTP), ``fake``, ``none`` (rerank only), and for the store
-``elasticsearch``, ``chroma`` or ``fake``. The variants load no model of ours into
-the process, so every Topology allows them; which backend a Topology implies is
-in ``topology.py``. A Runtime is what runs an in-process model.
+A Backend is how a component or the vector store runs. A model component's
+backends are whatever openers are registered for its type
+(``composition/openers/``): ``local``, ``api``, ``fake``, and ``none`` for a
+reranker. The vector store's are still a closed set here: ``elasticsearch``,
+``chroma`` or ``fake``. Which backend a Topology implies is in
+``topology.py``. A Runtime is what runs an in-process model.
 
 Example:
-    >>> "none" in RERANK_VARIANTS
-    True
+    >>> DEFAULT_VECTOR_STORE_BACKEND
+    'elasticsearch'
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-EmbeddingBackend = Literal["local", "api", "fake"]
-RerankBackend = Literal["local", "api", "fake", "none"]
-GenerationBackend = Literal["api", "fake"]
 VectorStoreBackend = Literal["elasticsearch", "chroma", "fake"]
 # What runs an in-process model: OpenVINO on its exported files, or PyTorch.
 LocalModelRuntime = Literal["openvino", "torch"]
 
-# Allowed in every topology: they load no model of ours into this process.
-EMBEDDING_VARIANTS: tuple[EmbeddingBackend, ...] = ("api", "fake")
-RERANK_VARIANTS: tuple[RerankBackend, ...] = ("api", "fake", "none")
-
 DEFAULT_VECTOR_STORE_BACKEND: VectorStoreBackend = "elasticsearch"
-DEFAULT_GENERATION_BACKEND: GenerationBackend = "api"
+# The run label names an LLM off this backend (run_label.py).
+DEFAULT_GENERATION_BACKEND = "api"

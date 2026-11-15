@@ -1,7 +1,7 @@
 """The LLM on the ``fake`` backend: an echo, no call out.
 
 Example:
-    >>> llm = await open_llm_on_fake(components.llm, shared)
+    >>> llm = await open_llm_on_fake(llm_settings, shared)
 """
 
 from __future__ import annotations
@@ -26,6 +26,6 @@ async def open_llm_on_fake(
         A ``FakeLLM``.
 
     Example:
-        >>> await open_llm_on_fake(components.llm, shared)
+        >>> await open_llm_on_fake(llm_settings, shared)
     """
     return FakeLLM()

@@ -1,4 +1,4 @@
-"""The settings defaults are the one pin for the served models; the rest asks them."""
+"""The workflow file is the one pin for the served models; the rest asks it."""
 
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ def test_assignments_pair_each_source_id_with_its_alias(
     settings_factory: Callable[..., RagSettings],
 ) -> None:
     settings = settings_factory(
-        embedding_model="org/embed",
-        embedding_api_model="embed",
-        rerank_model="org/rerank",
-        rerank_api_model="rerank",
+        components__embedder__source_id="org/embed",
+        components__embedder__alias="embed",
+        components__reranker__source_id="org/rerank",
+        components__reranker__alias="rerank",
     )
 
     assert served_model_assignments(settings) == [
@@ -43,7 +43,7 @@ def clean_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("clean_env")
-def test_rag_served_models_prints_the_settings_defaults(
+def test_rag_served_models_prints_the_workflow_files_components(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main([]) == 0
@@ -60,10 +60,10 @@ def test_rag_served_models_prints_the_settings_defaults(
 def test_rag_served_models_honours_overrides_and_quotes_for_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("RAG_RERANK_MODEL", "org/rerank")
-    monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; rm -rf $HOME")
-    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "org/embed v2")
-    monkeypatch.setenv("RAG_EMBEDDING_API_MODEL", "embed")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__SOURCE_ID", "org/rerank")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__ALIAS", "it's; rm -rf $HOME")
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__SOURCE_ID", "org/embed v2")
+    monkeypatch.setenv("RAG_COMPONENTS__EMBEDDER__ALIAS", "embed")
 
     assert main([]) == 0
 
@@ -79,7 +79,7 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
 def test_rag_served_models_output_round_trips_through_bash_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; echo pwned")
+    monkeypatch.setenv("RAG_COMPONENTS__RERANKER__ALIAS", "it's; echo pwned")
     main([])
     script = 'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
 

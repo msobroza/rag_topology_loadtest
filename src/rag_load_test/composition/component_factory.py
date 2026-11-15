@@ -2,13 +2,15 @@
 
 The factory knows no component type and no backend: the registry of a type's
 openers (``openers/component_openers.py``) gives the opener its backend names,
-and an unknown backend fails naming the known ones. A port handed in ready-made
-(a test double, mostly) is used as given and never closed here: the factory
-registers nothing on the scope for it.
+and an unknown backend fails naming the known ones. A component is opened
+under its name, so two components of one type are two resources. A port
+handed in ready-made (a test double, mostly) under a component's name is used
+as given and never closed here: the factory registers nothing on the scope
+for it.
 
 Example:
     >>> factory = ComponentFactory(shared, {"reranker": None})
-    >>> reranker = await factory.open(RERANKER_OPENERS, components.reranker)
+    >>> reranker = await factory.open(RERANKER_OPENERS, "reranker", reranker_settings)
 """
 
 from __future__ import annotations
@@ -33,27 +35,26 @@ class ComponentFactory:
     Args:
         shared: What every opener is given; its scope opens each component once
             and closes what the openers registered.
-        supplied: Ready-made ports by component type (``embedder``,
-            ``reranker``, ``llm``, ``vector_store``); None builds one.
+        supplied: Ready-made ports by component name (``embedder``,
+            ``reranker``, ...); None builds one.
 
     Example:
         >>> factory = ComponentFactory(shared, {"llm": FakeLLM()})
-        >>> await factory.open(LLM_OPENERS, components.llm)  # the FakeLLM given
+        >>> await factory.open(LLM_OPENERS, "llm", llm_settings)  # the FakeLLM given
     """
 
     def __init__(self, shared: SharedResources, supplied: Mapping[str, object]) -> None:
         self._shared = shared
         self._supplied = {
-            component_type: port
-            for component_type, port in supplied.items()
-            if port is not None
+            name: port for name, port in supplied.items() if port is not None
         }
 
-    async def open(self, openers: ComponentOpeners[S, P], component: S) -> P:
+    async def open(self, openers: ComponentOpeners[S, P], name: str, component: S) -> P:
         """Open the component: the supplied port, else the one its backend names.
 
         Args:
             openers: The openers of the component's type.
+            name: The component's name, which it is opened and supplied under.
             component: The component's settings; ``backend`` picks the opener.
 
         Returns:
@@ -64,20 +65,22 @@ class ComponentFactory:
                 ones, or if the opener fails.
 
         Example:
-            >>> reranker = await factory.open(RERANKER_OPENERS, components.reranker)
+            >>> reranker = await factory.open(RERANKER_OPENERS, "reranker", settings)
         """
-        supplied = self._supplied.get(openers.component_type)
+        supplied = self._supplied.get(name)
         if supplied is not None:
-            # CompositionRoot's SuppliedPorts types each port by its component type.
+            # The caller asks for the port of the component's type.
             return cast(P, supplied)
         backend = component.backend
         return await self._shared.scope.once(
-            _resource_name(openers.component_type, backend),
+            _resource_name(name, backend),
             backend,
             lambda: self._open_backend(openers, component),
         )
 
-    async def open_local(self, openers: ComponentOpeners[S, P], component: S) -> P:
+    async def open_local(
+        self, openers: ComponentOpeners[S, P], name: str, component: S
+    ) -> P:
         """Open the component on the ``local`` backend, whatever its settings say.
 
         A model server is what the other backends call, so it always loads the
@@ -85,22 +88,24 @@ class ComponentFactory:
 
         Args:
             openers: The openers of the component's type.
+            name: The component's name.
             component: The component's settings; its backend is not read.
 
         Returns:
             The supplied port if one was given, else the in-process one.
 
         Example:
-            >>> embedder = await factory.open_local(EMBEDDER_OPENERS, embedder)
+            >>> embedder = await factory.open_local(EMBEDDER_OPENERS, "embedder", e)
         """
-        return await self.open(openers, component.model_copy(update={"backend": LOCAL}))
+        local = component.model_copy(update={"backend": LOCAL})
+        return await self.open(openers, name, local)
 
     async def _open_backend(self, openers: ComponentOpeners[S, P], component: S) -> P:
         return await openers.get(component.backend)(component, self._shared)
 
 
-def _resource_name(component_type: str, backend: str) -> str:
+def _resource_name(name: str, backend: str) -> str:
     # An in-process model is loaded once per process, whether the workflow app
     # opens it by its backend or a model server whatever its backend says; its
-    # errors have always named it local_<type>.
-    return f"local_{component_type}" if backend == LOCAL else component_type
+    # errors have always named it local_<name>.
+    return f"local_{name}" if backend == LOCAL else name
