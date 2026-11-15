@@ -125,8 +125,12 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         return True, self.model_name
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
-        # Unit-norm vectors, so cosine similarity is a plain dot product.
+        # Unit-norm vectors, so cosine similarity is a plain dot product. No
+        # progress bar: at the Apps' INFO level one is drawn on stderr per call.
         matrix = self._model.encode(
-            texts, batch_size=self._batch_size, normalize_embeddings=True
+            texts,
+            batch_size=self._batch_size,
+            normalize_embeddings=True,
+            show_progress_bar=False,
         )
         return matrix.tolist()

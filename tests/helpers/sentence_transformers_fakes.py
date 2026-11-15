@@ -3,6 +3,7 @@
 It also stands in for what an OpenVINO export does with the package: the export
 loads the model, then ``save_pretrained`` writes a folder (here, one marker file).
 ``fake_openvino_modules`` are the modules the export checks for before it starts.
+``encode`` and ``predict`` require ``show_progress_bar``, which the adapters pass.
 """
 
 from __future__ import annotations
@@ -67,13 +68,22 @@ class FakeSentenceTransformersModule(ModuleType):
                 fake._save(self.name, path)
 
             def encode(
-                self, texts: list[str], *, batch_size: int, normalize_embeddings: bool
+                self,
+                texts: list[str],
+                *,
+                batch_size: int,
+                normalize_embeddings: bool,
+                show_progress_bar: bool,
             ) -> np.ndarray:
                 fake.batch_sizes.append(("encode", batch_size))
                 return np.array([[1.0, 0.0] for _ in texts])
 
             def predict(
-                self, pairs: list[tuple[str, str]], batch_size: int
+                self,
+                pairs: list[tuple[str, str]],
+                batch_size: int,
+                *,
+                show_progress_bar: bool,
             ) -> list[float]:
                 fake.batch_sizes.append(("predict", batch_size))
                 return [0.5 for _ in pairs]

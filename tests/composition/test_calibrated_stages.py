@@ -282,7 +282,9 @@ class RecordingCrossEncoder:
     def __init__(self) -> None:
         self.pairs: list[list[tuple[str, str]]] = []
 
-    def predict(self, pairs: list[tuple[str, str]], *, batch_size: int) -> list[float]:
+    def predict(
+        self, pairs: list[tuple[str, str]], *, batch_size: int, show_progress_bar: bool
+    ) -> list[float]:
         self.pairs.append(list(pairs))
         return [0.5 for _ in pairs]
 
@@ -292,7 +294,12 @@ class RecordingSentenceTransformer:
         self.texts: list[list[str]] = []
 
     def encode(
-        self, texts: list[str], *, batch_size: int, normalize_embeddings: bool
+        self,
+        texts: list[str],
+        *,
+        batch_size: int,
+        normalize_embeddings: bool,
+        show_progress_bar: bool,
     ) -> np.ndarray:
         self.texts.append(list(texts))
         return np.array([[1.0, 0.0] for _ in texts])

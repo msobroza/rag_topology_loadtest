@@ -2,7 +2,8 @@
 
 A fake ``curl`` answers the metadata server's token URL, treats a folder as the
 cache bucket (Cloud Storage's XML API: GET gives the file or a 404, ``-T`` stores
-it; the JSON API lists it) and plays a small Elasticsearch whose snapshots are
+it; the JSON API lists it), serves the files of ``downloads/`` at
+``https://downloads.test/`` and plays a small Elasticsearch whose snapshots are
 files in another folder. It records every call's argv, and the Elasticsearch calls
 as ``METHOD path body`` lines. ``chown`` and ``rag-served-models`` are stand-ins
 too, so nothing needs root, the ``ubuntu`` user or the project installed. Lives
@@ -43,6 +44,7 @@ from urllib.parse import parse_qs, urlsplit
 VALUED = {"-H", "-o", "-w", "-T", "-X", "--data", "--connect-timeout", "--max-time", "--retry"}
 STORAGE = "https://storage.googleapis.com/"
 SNAPSHOTS = "/_snapshot/rag-emulation-cache"
+DOWNLOADS = "https://downloads.test/"
 
 
 def parse(argv):
@@ -106,6 +108,9 @@ def answer(url, options):
         return 200, json.dumps({"access_token": os.environ["FAKE_TOKEN"], "expires_in": 3599})
     if url.startswith(STORAGE):
         return storage(url, options, state / "bucket")
+    if url.startswith(DOWNLOADS):
+        target = state / "downloads" / url[len(DOWNLOADS):]
+        return (200, target.read_bytes()) if target.is_file() else (404, "not found")
     if url.startswith(os.environ["FAKE_ES_URL"]):
         method = options.get("-X", ["GET"])[0]
         return elasticsearch(method, url[len(os.environ["FAKE_ES_URL"]):], options.get("--data", [""])[0], state)
@@ -219,24 +224,29 @@ def run_machine_script(
     )
 
 
-def restore_from_common_sh(
-    machine: FakeMachine, prefix: str
+def run_common_sh_function(
+    machine: FakeMachine, function: str, *args: str
 ) -> subprocess.CompletedProcess[str]:
-    """``restore_cached_models`` from ``common.sh``, as a startup script calls it."""
-    command = '. "$1" && restore_cached_models "$2" "$3" "$4"'
+    """One function of ``common.sh``, sourced as a machine script sources it.
+
+    Example::
+
+        run_common_sh_function(machine, "fetch_ovms_bundle", str(repo), str(bundle))
+    """
+    command = '. "$1" && shift && "$@"'
     return subprocess.run(
-        [
-            "bash",
-            "-c",
-            command,
-            "_",
-            str(COMMON_SH),
-            BUCKET,
-            prefix,
-            str(machine.dataset),
-        ],
+        ["bash", "-c", command, "_", str(COMMON_SH), function, *args],
         env=machine_env(machine, RAG_EMULATION_SOURCED="1"),
         capture_output=True,
         text=True,
         timeout=60,
+    )
+
+
+def restore_from_common_sh(
+    machine: FakeMachine, prefix: str
+) -> subprocess.CompletedProcess[str]:
+    """``restore_cached_models`` from ``common.sh``, as a startup script calls it."""
+    return run_common_sh_function(
+        machine, "restore_cached_models", BUCKET, prefix, str(machine.dataset)
     )

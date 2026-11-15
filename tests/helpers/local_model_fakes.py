@@ -79,7 +79,8 @@ class FakeOneRequestModel:
 
     A call entered while another call on the same model is still running raises
     what OpenVINO raises; each call holds the request for ``CALL_SECONDS`` so
-    calls that run at once do overlap.
+    calls that run at once do overlap. ``encode`` and ``predict`` require
+    ``show_progress_bar``, which the adapters pass.
     """
 
     CALL_SECONDS = 0.03
@@ -89,12 +90,19 @@ class FakeOneRequestModel:
         self._request = threading.Lock()
 
     def encode(
-        self, texts: list[str], *, batch_size: int, normalize_embeddings: bool
+        self,
+        texts: list[str],
+        *,
+        batch_size: int,
+        normalize_embeddings: bool,
+        show_progress_bar: bool,
     ) -> np.ndarray:
         self._infer()
         return np.array([[1.0, 0.0] for _ in texts])
 
-    def predict(self, pairs: list[tuple[str, str]], batch_size: int) -> list[float]:
+    def predict(
+        self, pairs: list[tuple[str, str]], batch_size: int, *, show_progress_bar: bool
+    ) -> list[float]:
         self._infer()
         return [0.5 for _ in pairs]
 

@@ -147,6 +147,23 @@ write_secret() (
   rm -rf "$work"
 )
 
+# fetch_ovms_bundle <repo path> <bundle file>: the OVMS binary tarball the cloned ref
+# pins (<repo path>/ovms/versions.env), fetched again only when that pin changes.
+# deploy.yaml's ovms_bundle names it. Every pool machine and the Workspace machine
+# fetch it: on Domino they mount the same Dataset, and rag-deploy checks the bundle
+# exists on the machine it runs on (the Workspace lacked it in the sitting of
+# 15 November 2026).
+fetch_ovms_bundle() {
+  local repo=$1 bundle=$2 url
+  url=$(sed -n 's/^OVMS_BINARY_URL=//p' "$repo/ovms/versions.env")
+  [ -n "$url" ] || die "no OVMS_BINARY_URL in $repo/ovms/versions.env"
+  if [ -s "$bundle" ] && [ "$(cat "$bundle.url" 2>/dev/null)" = "$url" ]; then return 0; fi
+  install -d -m 755 "$(dirname "$bundle")"
+  download "$url" "$bundle"
+  chmod 644 "$bundle"
+  printf '%s\n' "$url" >"$bundle.url"
+}
+
 # wait_for_http <url> <attempts>: 5 s apart.
 wait_for_http() {
   retry "$2" 5 curl -fsS --connect-timeout 3 --max-time 10 -o /dev/null "$1"

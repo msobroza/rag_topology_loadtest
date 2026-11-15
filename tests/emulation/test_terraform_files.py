@@ -147,6 +147,19 @@ def test_the_workspace_shell_sets_only_variables_the_project_reads() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "template", ["scripts/pool.sh.tftpl", "scripts/workspace.sh.tftpl"]
+)
+def test_pool_and_workspace_machines_fetch_the_ovms_bundle(template: str) -> None:
+    # rag-deploy checks deploy.yaml's ovms_bundle on the Workspace machine: in the
+    # sitting of 15 November 2026 only the pool machines held it.
+    script = (TF_DIR / template).read_text(encoding="utf-8")
+    assert "OVMS_BUNDLE='${ovms_bundle_path}'" in script
+    assert 'fetch_ovms_bundle "$REPO_PATH" "$OVMS_BUNDLE"' in script.splitlines()
+    assert "fetch_ovms_bundle()" not in script, "defined once, in common.sh"
+    assert "ovms_bundle_path" in template_calls()[template]
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck absent")
 @pytest.mark.parametrize("template", sorted(template_calls()))
 def test_each_rendered_startup_script_passes_shellcheck(template: str) -> None:

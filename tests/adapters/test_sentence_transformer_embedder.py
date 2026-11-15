@@ -26,19 +26,28 @@ pytest_plugins = ["local_model_fixtures"]
 
 
 class FakeSentenceTransformer:
-    """``encode`` double: vector = [len(text), 1.0]; records every call."""
+    """``encode`` double: vector = [len(text), 1.0]; records every call.
+
+    ``show_progress_bar`` has no default, so an ``encode`` call without it fails.
+    """
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
     def encode(
-        self, texts: list[str], *, batch_size: int, normalize_embeddings: bool = False
+        self,
+        texts: list[str],
+        *,
+        batch_size: int,
+        show_progress_bar: bool,
+        normalize_embeddings: bool = False,
     ) -> np.ndarray:
         self.calls.append(
             {
                 "texts": list(texts),
                 "batch_size": batch_size,
                 "normalize_embeddings": normalize_embeddings,
+                "show_progress_bar": show_progress_bar,
             }
         )
         return np.array([[float(len(t)), 1.0] for t in texts], dtype=np.float32)
@@ -84,7 +93,13 @@ async def test_st_embedder_returns_plain_lists_and_normalizes(
     assert all(type(v) is list for v in vectors)
     assert all(type(x) is float for v in vectors for x in v)
     assert st_model.calls == [
-        {"texts": ["ab", "abcd"], "batch_size": 8, "normalize_embeddings": True}
+        {
+            "texts": ["ab", "abcd"],
+            "batch_size": 8,
+            "normalize_embeddings": True,
+            # No tqdm bar on stderr per call (the Apps log at INFO).
+            "show_progress_bar": False,
+        }
     ]
 
 
