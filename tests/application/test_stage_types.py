@@ -97,6 +97,20 @@ def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
 
     assert stage.reads == reads
     assert stage.writes == {"candidates"}
+    # What the start-up checks ask, with no store and no stage built.
+    assert RetrieveStage.fields_read(settings) == reads
+    assert RetrieveStage.fields_written(settings) == {"candidates"}
+
+
+@pytest.mark.parametrize("name", ["embed", "rerank", "generate"])
+def test_a_stage_type_whose_settings_change_nothing_declares_its_class_fields(
+    name: str,
+) -> None:
+    stage_type, _ = RAG_STAGE_TYPES[name]
+    settings: Any = object()  # not read: these stage types read no setting for it
+
+    assert stage_type.fields_read(settings) == stage_type.reads
+    assert stage_type.fields_written(settings) == stage_type.writes
 
 
 def test_the_fusion_constant_is_a_default_and_the_use_cases_choices_are_not() -> None:
@@ -147,11 +161,10 @@ async def test_the_generate_stage_answers_what_the_user_asked() -> None:
     assert update["answer"] == "[fake-llm] and in May?|[1] May has 2 days off."
 
 
-def test_the_generate_stage_refuses_a_template_it_cannot_fill_when_built() -> None:
-    settings = GenerateSettings(system_prompt="s", user_prompt="Q: {question}")
-
-    with pytest.raises(ValueError, match=r"lacks the \{context\} placeholder"):
-        GenerateStage(FakeLLM(), settings)
+def test_the_generate_stages_settings_refuse_a_template_it_cannot_fill() -> None:
+    # In the settings, so the start-up checks refuse it before any component opens.
+    with pytest.raises(ValidationError, match=r"lacks the \{context\} placeholder"):
+        GenerateSettings(system_prompt="s", user_prompt="Q: {question}")
 
 
 def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:

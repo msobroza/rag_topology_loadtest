@@ -29,7 +29,10 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ..application.component_types import declared_components
+from ..application.graph_check import WorkflowGraphError, check_graph
 from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
 from ..composition.composition_root import CompositionRoot
@@ -166,9 +169,65 @@ def create_app(composition: CompositionRoot) -> FastAPI:
     )
     app.state.composition = composition
     app.middleware("http")(_stamp_headers)
+    app.add_middleware(GraphRefusalInOneLine)
     app.exception_handler(RagDependencyError)(_dependency_error)
     app.include_router(routes)
     return app
+
+
+class GraphRefusalInOneLine:
+    """ASGI middleware: a graph refused at start-up reaches the server as one line.
+
+    Starlette hands the server a failed start-up as the whole traceback, which
+    the server logs. A graph refused once its components are open (a store that
+    ranks no text under a lexical retrieval) is a mistake in the settings, not
+    a crash, so the server gets its message alone. Any other failure keeps its
+    traceback.
+
+    Args:
+        app: The app whose start-up this watches.
+
+    Example:
+        >>> app.add_middleware(GraphRefusalInOneLine)
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Pass a request on; hold a failed start-up until its cause is known.
+
+        Args:
+            scope: The ASGI scope; only a ``lifespan`` one is watched.
+            receive: The server's receive channel.
+            send: The server's send channel.
+
+        Raises:
+            WorkflowGraphError: The graph was refused at start-up; re-raised
+                once the server has its one-line message.
+        """
+        if scope["type"] != "lifespan":
+            await self.app(scope, receive, send)
+            return
+        # Held until the error that caused it is known, then sent once.
+        failed: list[Message] = []
+
+        async def hold_failure(message: Message) -> None:
+            if message["type"] == "lifespan.startup.failed":
+                failed.append(message)
+            else:
+                await send(message)
+
+        try:
+            await self.app(scope, receive, hold_failure)
+        except WorkflowGraphError as exc:
+            if failed:
+                one_line = f"rag-serve: cannot start: {exc}".replace("\n", " ")
+                failed[:] = [{**failed[0], "message": one_line}]
+            raise
+        finally:
+            for message in failed:
+                await send(message)
 
 
 @asynccontextmanager
@@ -301,7 +360,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     ``--domino`` defaults ``RAG_EMBEDDING_API_KEY`` / ``RAG_RERANK_API_KEY`` to
     ``domino`` for a component on the ``api`` backend; a settings mistake, an
-    unknown backend or API format included, exits as a usage error, not a crash.
+    unknown backend or API format and a graph that cannot run included, exits
+    as a usage error before any component opens, not a crash.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -325,6 +385,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.domino:
             settings = apply_domino_rules(settings)
         check_registered_names(settings)
+        check_graph(settings.graph, declared_components())
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")

@@ -101,8 +101,25 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
 
     def __init__(self, component: BaseVectorStore, settings: RetrieveSettings) -> None:
         super().__init__(component, settings)
-        self.reads = READS_BY_RETRIEVAL_MODE[settings.retrieval_mode]
+        self.reads = self.fields_read(settings)
         self._find_candidates = self._candidate_finder()
+
+    @classmethod
+    def fields_read(cls, settings: RetrieveSettings) -> frozenset[str]:
+        """Return what a retrieve stage reads: what its retrieval mode needs.
+
+        Args:
+            settings: The stage's settings; only the retrieval mode is read.
+
+        Returns:
+            The query's vector, its words, or both.
+
+        Example:
+            >>> RetrieveStage.fields_read(RetrieveSettings(retrieval_mode="dense",
+            ...                                            top_k=20))
+            frozenset({'query_embedding'})
+        """
+        return READS_BY_RETRIEVAL_MODE[settings.retrieval_mode]
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         """Search the store.

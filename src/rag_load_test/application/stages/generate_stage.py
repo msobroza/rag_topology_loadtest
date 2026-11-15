@@ -9,6 +9,8 @@ Example:
 
 from __future__ import annotations
 
+from pydantic import model_validator
+
 from ...adapters.llm.base_llm import BaseLLM
 from ...domain.prompts import RagPrompts
 from ..workflow_state import WorkflowState
@@ -24,6 +26,23 @@ class GenerateSettings(StageSettings):
     system_prompt: str
     user_prompt: str
 
+    @model_validator(mode="after")
+    def check_user_prompt(self) -> GenerateSettings:
+        """Refuse a user template that ``RagPrompts`` cannot fill.
+
+        Checked with the settings, so the start-up checks refuse it before any
+        component opens, not only when the stage is built.
+
+        Returns:
+            The settings, unchanged.
+
+        Raises:
+            ValueError: The template lacks a placeholder or holds a brace it
+                cannot fill; ``RagPrompts`` names it.
+        """
+        RagPrompts(system=self.system_prompt, user=self.user_prompt)
+        return self
+
 
 @STAGE_TYPES.register("generate")
 class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
@@ -31,11 +50,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
 
     Args:
         component: The LLM.
-        settings: The two prompts.
-
-    Raises:
-        ValueError: The user template lacks a placeholder or holds a brace it
-            cannot fill; ``RagPrompts`` names it.
+        settings: The two prompts, a user template its settings already
+            checked.
     """
 
     component_type = BaseLLM
@@ -45,8 +61,6 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
 
     def __init__(self, component: BaseLLM, settings: GenerateSettings) -> None:
         super().__init__(component, settings)
-        # Built here, so a template RagPrompts refuses fails when the graph is
-        # built, at start-up, not on the first query.
         self._prompts = RagPrompts(
             system=settings.system_prompt, user=settings.user_prompt
         )

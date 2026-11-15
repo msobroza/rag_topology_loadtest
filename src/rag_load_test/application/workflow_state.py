@@ -77,3 +77,8 @@ def initial_state(question: str, mode: RagMode) -> WorkflowState:
         "mode": mode,
         "timings_ms": {},
     }
+
+
+# The fields every request provides before the first stage runs: a stage may
+# read them wherever it is. Read off initial_state, so the two never disagree.
+REQUEST_FIELDS: frozenset[str] = frozenset(initial_state("", "query"))

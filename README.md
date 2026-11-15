@@ -66,7 +66,9 @@ the prompts are settings of the generate stage. A lexical workflow file has no
 embed stage and starts at retrieve: no vector is computed and `timings_ms` has
 no `embed` key. Lexical and hybrid retrieval also need the store's
 `BaseLexicalSearch`, which only a store that ranks text provides; the retrieve
-stage refuses any other when the graph is built, at start-up.
+stage refuses any other when the graph is built, at start-up. Before that,
+before any component opens, `rag-serve` refuses a graph that cannot run (see
+[What start-up refuses in a graph](#what-start-up-refuses-in-a-graph)).
 
 ## Code layout
 
@@ -181,7 +183,9 @@ src/rag_load_test/
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
     rag_dependencies.py  RagDependencies: one open port of each kind, and the components by the names a stage calls them
-    workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings
+    workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
+    component_types.py  COMPONENT_TYPES: each component type's port; declared_components: what a stage may call, before any opens
+    graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares; WorkflowGraphError
     workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
     workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
     stages/         the stage types (rule 6); importing it imports every module, so each registers itself
@@ -286,7 +290,7 @@ src/rag_load_test/
       vector_store_on_chroma.py  Chroma, a server or embedded
       vector_store_on_fake.py  the in-memory store, seeded through the embedder
   entrypoints/      the RAG system's commands: FastAPI apps and CLIs
-    rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs
+    rag_serve.py    rag-serve: the FastAPI app (/query /retrieve /healthz /readyz), Domino tracing, JSON logs, a refused graph as one line
     rag_model_server.py  rag-model-server: the FastAPI model server on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
     rag_served_models.py  rag-served-models: the served models from the settings defaults, as shell assignments
     rag_export_openvino.py  rag-export-openvino: convert the in-process models to OpenVINO files
@@ -527,10 +531,13 @@ prefix on the wire and `/docs` works behind the proxy.
 flags, not settings); `rag-serve --domino` (what `domino/app.sh` runs) also
 sets `RAG_EMBEDDING_API_KEY` / `RAG_RERANK_API_KEY` to `domino` for a component
 on the `api` backend whose key was not set. A settings mistake ends `rag-serve`
-with a one-line usage error, not a traceback. A stage setting its stage type
-refuses, such as a user prompt without `{context}`, is found as the graph is
-built, once the components are open: the app then fails to start before it
-serves, and the server logs the refusal.
+with a one-line usage error, not a traceback, before any component opens; so
+does a graph that cannot run, a stage setting its stage type refuses (such as a
+user prompt without `{context}`) included. Only what needs an open component,
+a store that ranks no text under a lexical or hybrid retrieve stage, is found
+as the graph is built: the app then fails to start before it serves, and the
+server logs the refusal as one line, `rag-serve: cannot start: stage
+'retrieve': retrieval_mode='lexical' needs a store that ranks text, …`.
 
 ## Configuration (the workflow file, `RAG_*` environment variables or `.env`)
 
@@ -602,6 +609,42 @@ graph:
 
 `RAG_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the packaged file
 is accepted too, but its embed stage then embeds every question for nothing.
+
+### What start-up refuses in a graph
+
+`rag-serve` checks the graph as it reads its settings, before any component
+opens, and refuses one that cannot run with a usage error naming what is wrong
+and what was expected (`application/graph_check.py`). The checks know no
+particular stage: they read what each stage type declares, which is the type of
+component it calls, its own settings, and the workflow state fields it reads
+and writes (the retrieve stage reads what its retrieval mode needs). They
+refuse:
+
+- a stage of an unknown stage type, naming the known ones;
+- a stage whose settings its stage type refuses, naming the settings it has;
+- a stage whose `call` names no component, naming the components, or a
+  component of another type than its stage type calls, naming that type;
+- a stage named `START`, `END` or `total`: `total` is the key of the whole
+  run's time in `timings_ms`, where the stage's timing would collide with it;
+- an edge from or to a name that is no stage (`START` only starts an edge,
+  `END` only ends one), and a graph with no edge from `START`;
+- a conditional edge whose `path` is no registered edge condition, whose
+  `path_map` lacks its `true` or its `false` target, or whose edge condition
+  is already used on the same source;
+- a stage that reads a field of the workflow state that is not sure to be set
+  when it runs. A field is sure to be set when the request provides it (the
+  conversational and standalone queries, the history, the mode, the timings),
+  or when a stage writes it on every path from `START` to the stage. A dense
+  or hybrid retrieve stage with no embed stage before it on every path is
+  refused by this rule:
+
+```
+rag-serve: error: stage 'retrieve' reads the workflow state field 'query_embedding', which the request does not provide and is written by no stage of the graph (expected a field the request provides, one of: 'conversational_query', 'history', 'mode', 'standalone_query', 'timings_ms', or one a stage writes on every path from START to 'retrieve')
+```
+
+Only whether the vector store ranks text needs the store open, so a lexical
+or hybrid retrieve stage over `chroma` is refused as the graph is built, still
+before the app serves, with one line in the server's log.
 
 ### Variables
 
@@ -678,11 +721,12 @@ file's section gives. An invalid backend, topology or runtime name, a backend
 that contradicts the topology, a bad run label, a temperature outside 0 to 2, a
 component on the `api` backend whose `RAG_*_API_URL` does not start with
 `http://` or `https://`, a missing workflow file or an unknown key in it fails
-as the settings are read. An unknown stage type or edge condition, a stage
-setting its stage type refuses (an unknown key, a retrieval mode, a size below
-1, a user prompt missing a placeholder), and lexical or hybrid retrieval on a
-store that ranks no text fail as the graph is built. Both are at start-up, with
-the offending value. For example:
+as the settings are read. A graph that cannot run, a stage setting its stage
+type refuses included (an unknown key, a retrieval mode, a size below 1, a user
+prompt missing a placeholder), is refused as `rag-serve` reads its settings
+(see [What start-up refuses in a graph](#what-start-up-refuses-in-a-graph)),
+and lexical or hybrid retrieval on a store that ranks no text fails as the
+graph is built. All are at start-up, with the offending value. For example:
 
 ```
 RAG_RERANK_BACKEND='api' needs RAG_RERANK_API_URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''

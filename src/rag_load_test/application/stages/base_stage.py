@@ -38,8 +38,10 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
     """A stage type: what one stage does with the component it calls.
 
     A stage type sets ``component_type`` and ``settings_type`` on its class, and
-    ``reads`` and ``writes`` there too, unless its settings change them: then on
-    the instance (the retrieve stage reads what its retrieval mode needs).
+    ``reads`` and ``writes`` there too, unless its settings change them: then it
+    overrides ``fields_read`` or ``fields_written`` (the retrieve stage reads
+    what its retrieval mode needs). The start-up checks ask those two of the
+    class and the settings, so they need no component and build no stage.
 
     Args:
         component: The component the stage calls, an instance of
@@ -55,6 +57,40 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
     def __init__(self, component: ComponentT, settings: SettingsT) -> None:
         self.component, self.settings = component, settings
 
+    @classmethod
+    def fields_read(cls, settings: SettingsT) -> frozenset[str]:
+        """Return the workflow state fields a stage of this type reads.
+
+        Args:
+            settings: The stage's own settings, which may change what it reads.
+
+        Returns:
+            ``reads``, unless the stage type overrides this.
+
+        Example:
+            >>> RerankStage.fields_read(RerankSettings(top_k=10))
+            frozenset({'standalone_query', 'candidates'})
+        """
+        del settings  # what most stage types read does not depend on them
+        return cls.reads
+
+    @classmethod
+    def fields_written(cls, settings: SettingsT) -> frozenset[str]:
+        """Return the workflow state fields a stage of this type writes.
+
+        Args:
+            settings: The stage's own settings, which may change what it writes.
+
+        Returns:
+            ``writes``, unless the stage type overrides this.
+
+        Example:
+            >>> EmbedStage.fields_written(EmbedSettings())
+            frozenset({'query_embedding'})
+        """
+        del settings  # what most stage types write does not depend on them
+        return cls.writes
+
     @abc.abstractmethod
     async def run(self, state: WorkflowState) -> WorkflowState:
         """Run the stage once.
@@ -68,4 +104,6 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
         """
 
 
-STAGE_TYPES: Registry[type[BaseStage[Any, Any]]] = Registry("stage type")
+StageTypes = Registry[type[BaseStage[Any, Any]]]
+
+STAGE_TYPES: StageTypes = Registry("stage type")

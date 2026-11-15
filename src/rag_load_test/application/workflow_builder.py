@@ -33,11 +33,10 @@ from ..domain.graph_description import (
 )
 from ..domain.registry import Registry
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
-from .stages.base_stage import STAGE_TYPES, BaseStage
+from .graph_check import WorkflowGraphError
+from .stages.base_stage import STAGE_TYPES, BaseStage, StageTypes
 from .workflow import CompiledWorkflow
 from .workflow_state import WorkflowState
-
-StageTypes = Registry[type[BaseStage[Any, Any]]]
 
 # The description's reserved names, as LangGraph spells them.
 _LANGGRAPH_NAMES = {START: LANGGRAPH_START, END: LANGGRAPH_END}
@@ -84,8 +83,11 @@ def build_workflow(
 
     Raises:
         ValueError: A stage type or an edge condition is not registered (the
-            registry names the known ones), a stage's settings do not fit its
-            stage type, or a stage type refuses its component.
+            registry names the known ones); ``check_graph`` refuses that first,
+            before any component opens.
+        WorkflowGraphError: A stage's settings do not fit its stage type, or a
+            stage type refuses its opened component, such as a store that ranks
+            no text under a lexical retrieval.
 
     Example:
         >>> build_workflow(settings.graph, deps.components())
@@ -122,14 +124,22 @@ def open_stage(
     Returns:
         The stage.
 
+    Raises:
+        WorkflowGraphError: The stage's settings do not fit its stage type, or
+            its stage type refuses the component; the message names the stage.
+
     Example:
         >>> open_stage("rerank", StageDescription.model_validate(
         ...     {"call": "reranker", "top_k": 10}), components, STAGE_TYPES)
         <RerankStage ...>
     """
     stage_type = stage_types.get(description.type_name(name))
-    settings = stage_type.settings_type.model_validate(description.stage_settings)
-    return stage_type(components[description.call], settings)
+    try:
+        settings = stage_type.settings_type.model_validate(description.stage_settings)
+        return stage_type(components[description.call], settings)
+    except ValueError as exc:
+        # A refusal, so rag-serve reports it as one line, not as a crash.
+        raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
 
 
 def timed(name: str, stage: BaseStage[Any, Any]) -> LangGraphNode:
