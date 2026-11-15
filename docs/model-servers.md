@@ -177,7 +177,45 @@ runs, requests a second:
 - OVMS does not return the model cards' reference scores. For the cards' own example
   the FastAPI path returns 0.0427, 0.9992, 0.4064 and 0.9718, as the cards print; OVMS,
   on the same model file, returns 0.0655, 0.9956, 0.4441 and 0.9497. The order is the
-  same. Why was not established.
+  same. The likely cause, not tested: OVMS's source puts its own start, end and
+  separator tokens around the query and the passage, which the cards' code does not.
+
+## What OVMS's own material says matters for a reranker
+
+OVMS has no tuning guide for rerankers. Its rerank demo, its general tuning guide, its
+export helper and its maintainers' answers in issues name the settings below, set here
+in the order of their effect in the sittings above. The seconds are those of 4 requests
+in flight on 8 vCPUs.
+
+| | Setting | What the material says | Measured here |
+|---|---|---|---|
+| 1 | The tokens of a request: its passages times their length | The demo's own benchmark, 20 passages a request: 3.6 requests a second on passages of 500 tokens, 12.7 on passages of 75. A passage longer than the model's context is cut into chunks, each one more row of the batch. `top_n` shortens the response, not the work | The batch is padded to its longest passage: "On passages of mixed length the batch size decides" |
+| 2 | The weight format | Every example exports with `--weight-format int8`, which is also the export helper's default | About 1.5 times the requests a second, on both servers |
+| 3 | `NUM_STREAMS` | The one speed option the export helper has for rerank, 1 by default. The guide: 1 for a single client, more under concurrency, fewer than the requests in flight, never more than the cores. A maintainer: about 2 streams for 4 clients, and more streams raise the throughput of most models at the cost of latency | Calibration kept 1 or 2 streams for 4 requests in flight. Gain: 2% at most, 13% at most on Qwen3; a lone request then takes twice as long |
+| 4 | `INFERENCE_NUM_THREADS` against the container's CPUs | The guide: give a container whole cores (Kubernetes' CPU manager, or `--cpuset-cpus`), not a share of CPU time. OVMS reads the CPUs of its container and adjusts threads, streams and pinning. One issue traces slow inference under a Kubernetes CPU limit to more threads than the limit allows | Not measurable on the emulation, where an App has its machine to itself. The App pins the thread count in OVMS's configuration to the CPUs it counts for itself |
+| 5 | `ENABLE_CPU_PINNING`, `ENABLE_CPU_RESERVATION` | Pinning is on by default, and is turned off only where several workloads share the machine. Several models in one server: one stream each, with cores reserved and pinned for each | Pinning off: 7.9 s against 7.6 s on 2 streams |
+| 6 | `PERFORMANCE_HINT` | In place of `NUM_STREAMS`, never with it | The throughput hint alone: 7.7 s against 7.6 s |
+| 7 | `rest_workers`, `nireq` | The defaults are enough in most cases. `nireq` is the size of a queue, not parallelism, and is at least the stream count | 4 REST workers on 4 streams: no gain |
+
+What follows for this project:
+
+- The two settings the material treats as tunable on a CPU, streams and threads, are
+  the two that OVMS's calibration searches. Its stream candidates go up to the CPU
+  count, above the cores, which the guide advises against.
+- The largest effects lie outside the server: how many passages a request carries, how
+  long they are, and the weight format.
+- The rerank endpoint has no batch size. OVMS's source builds one batch from every
+  passage of a request and scores it in one inference, so a smaller batch is a request
+  with fewer passages. Splitting a request on the client side was not tried.
+- Not done: reading OVMS's metrics, where the time waiting for an inference request
+  (`ovms_wait_for_infer_req_time_us`) set against the inference time
+  (`ovms_inference_time_us`) would tell queueing from computing in "OVMS does not
+  serve in arrival order"; and the guide's method of settling the plugin configuration
+  with OpenVINO's benchmark tool first.
+
+Outside OVMS, Sentence Transformers' page on speeding up cross-encoders compares
+backends and `int8` on ranking quality as well as speed, and advises testing each
+backend on one's own model and data.
 
 ## Which to use
 
@@ -210,8 +248,14 @@ Every run behind these figures, with its settings and its statistics, is registe
 
 - OVMS 2026.3.1: `README.md`, `docs/features.md`, `docs/performance_tuning.md`,
   `docs/mediapipe.md`, `docs/dynamic_input.md`, `docs/starting_server.md`,
-  `docs/metrics.md`, `docs/model_server_rest_api_rerank.md`, `demos/rerank/README.md`
-  of `github.com/openvinotoolkit/model_server` at tag `v2026.3.1`.
+  `docs/metrics.md`, `docs/model_server_rest_api_rerank.md`, `demos/rerank/README.md`,
+  `demos/embeddings/README.md`, `demos/common/export_models/export_model.py`,
+  `src/rerank/rerank_calculator_ov.proto`, `src/rerank/rerank_calculator_ov.cc` and
+  `src/rerank/rerank_utils.cpp` of `github.com/openvinotoolkit/model_server` at tag
+  `v2026.3.1`.
+- Issues 2721, 3136, 3248 and 3310 of the same repository, as they stood on
+  15 November 2026.
+- Sentence Transformers, "Speeding up Inference" for cross-encoders, on `sbert.net`.
 - The model cards of `tomaarsen/Qwen3-Reranker-0.6B-seq-cls` and
   `OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov` on Hugging Face, for the prompt format
   and the OVMS command.
