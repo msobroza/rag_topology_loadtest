@@ -10,21 +10,28 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from emulation_machine_fakes import (
     BUCKET,
     CACHE_BUCKET_SH,
+    EMBEDDER,
     ES_URL,
     INDEX_SNAPSHOT_SH,
     PASSAGES,
+    RERANKER,
+    SERVED_MODEL_LINES,
     TOKEN,
     FakeMachine,
     make_machine,
     restore_from_common_sh,
     run_machine_script,
 )
+
+from rag_load_test.config.rag_settings import RagSettings
+from rag_load_test.entrypoints.rag_served_models import served_model_lines
 
 MACHINE_SCRIPTS = (CACHE_BUCKET_SH, INDEX_SNAPSHOT_SH)
 SNAPSHOT = "quebec-insurance-french-snowflake-snowflake-arctic-embed-l-v2.0"
@@ -60,6 +67,22 @@ def models_save(machine: FakeMachine, **env: str) -> str:
 def snapshot(machine: FakeMachine, *args: str) -> subprocess.CompletedProcess[str]:
     env = {"RAG_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL": ES_URL}
     return run_machine_script(machine, INDEX_SNAPSHOT_SH, *args, **env)
+
+
+def test_the_stand_in_prints_what_rag_served_models_prints(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    # Regression: the stand-in kept an older output (EMBEDDER_SOURCE_MODEL=...)
+    # after the command changed, so index_snapshot.sh passed here and could name
+    # no snapshot on a real machine.
+    settings = settings_factory(
+        components={
+            "embedder": {"source_id": EMBEDDER},
+            "reranker": {"source_id": RERANKER},
+        }
+    )
+
+    assert sorted(served_model_lines(settings)) == sorted(SERVED_MODEL_LINES)
 
 
 @pytest.mark.parametrize("script", MACHINE_SCRIPTS, ids=lambda p: p.name)

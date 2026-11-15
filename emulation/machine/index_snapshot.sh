@@ -77,12 +77,15 @@ register_repository() {
 # snapshot_name <prefix>: <prefix>-<embedder source model>, lowercased, every
 # character outside [a-z0-9._-] made "-". An index is only valid for the embedder
 # and the analyzer it was built with: a changed embedder must miss the cache, not
-# restore a stale index. rag-served-models' line is read with sed, never evaluated.
+# restore a stale index. rag-served-models prints one line per served model, its
+# words shell-quoted: name, type, source id, alias. The first embedder's line is
+# read with awk and its quotes dropped, never evaluated. awk reads every line
+# (no early exit), so the command never writes into a closed pipe.
 snapshot_name() {
   local embedder
-  embedder=$(rag-served-models | sed -n 's/^EMBEDDER_SOURCE_MODEL=//p' | tr -d "'")
+  embedder=$(rag-served-models | awk '$2 == "embedder" && !seen { print $3; seen = 1 }' | tr -d "'")
   [ -n "$embedder" ] \
-    || die "rag-served-models printed no EMBEDDER_SOURCE_MODEL=<model> line; expected the project's virtualenv on PATH, as in the Workspace's shell"
+    || die "rag-served-models printed no embedder line (<name> embedder <source id> <alias>); expected the project's virtualenv on PATH, as in the Workspace's shell, and the use case's directory as the working directory"
   printf '%s-%s\n' "$1" "$embedder" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g'
 }
 

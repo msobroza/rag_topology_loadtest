@@ -33,6 +33,15 @@ BUCKET = "test-cache"
 ES_URL = "http://es.test:9200"
 TOKEN = "fake-token"
 EMBEDDER = "Snowflake/snowflake-arctic-embed-l-v2.0"
+RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
+# What rag-served-models prints for those two: one line per served model, its
+# name, type, source id and alias. The reranker comes first here, so that a
+# script must pick the embedder by its type, not by its place. A test holds
+# these lines to the real command's.
+SERVED_MODEL_LINES = (
+    f"reranker reranker {RERANKER} crossencoder-camembert-base-mmarcoFR",
+    f"embedder embedder {EMBEDDER} snowflake-arctic-embed-l-v2.0",
+)
 PASSAGES = 1592
 
 FAKE_CURL = r"""
@@ -178,9 +187,9 @@ def make_machine(tmp_path: Path) -> FakeMachine:
     )
     write_stand_in(
         bin_dir / "rag-served-models",
-        "#!/usr/bin/env bash\n"
-        "echo RERANKER_SOURCE_MODEL=antoinelouis/crossencoder-camembert-base-mmarcoFR\n"
-        f"echo \"EMBEDDER_SOURCE_MODEL='{EMBEDDER}'\"\n",
+        "#!/usr/bin/env bash\ncat <<'LINES'\n"
+        + "\n".join(SERVED_MODEL_LINES)
+        + "\nLINES\n",
     )
     (tmp_path / "bucket" / BUCKET).mkdir(parents=True)
     dataset = tmp_path / "dataset"
