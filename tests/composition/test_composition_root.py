@@ -228,7 +228,7 @@ async def test_elasticsearch_store_opens_without_the_network(
 
 
 def with_an_unknown_generation_format(settings: RagSettings) -> RagSettings:
-    # model_copy skips validation: the one way to make the api LLM fail to open.
+    # No module registers this format: the one way to make the api LLM fail to open.
     update = {"generation_backend": "api", "generation_api_format": "nope"}
     return settings.model_copy(update=update)
 

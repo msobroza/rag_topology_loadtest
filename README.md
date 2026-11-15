@@ -104,14 +104,24 @@ The tree is three applications over one shared domain. The domain
    each Backend value to what opens it, so a new Backend is one method and one
    entry in one factory; `composition_root.py` wires them and gives each
    command what it asks for.
-6. **The tree below** lists every package and module of `src/rag_load_test/`; a
+6. **Registries.** A registry (`domain/registry.py`) holds named things of one
+   sort and names the known ones when asked for an unknown one. Each entry
+   registers itself with the registry's decorator, in a module of its own, and
+   the package that holds the entries imports all of its modules from its
+   `__init__.py` (`import_package_modules`), so a new entry is one new module
+   and no table is edited. The registry is in `domain/` because every package
+   that registers something may import the domain. The one kind of entry today
+   is an API format: each component's `api/` directory holds its formats, one
+   module each, and its registry sits beside the formats' base class
+   (`RERANK_API_FORMATS` in `base_rerank_api_format.py`).
+7. **The tree below** lists every package and module of `src/rag_load_test/`; a
    new module gets a line.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, and that
 `locustfile.py` imports only the `loadtest` package;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
 rule 4 (only component packages in `adapters/`, their layout, and no port
-implemented anywhere else) and rule 6. The fake Domino (`src/fake_domino/`) is a
+implemented anywhere else) and rule 7. The fake Domino (`src/fake_domino/`) is a
 test double, not part of the product, and the rule does not apply to it.
 
 ### The tree
@@ -121,9 +131,10 @@ src/rag_load_test/
   __init__.py       package docstring, __version__
   domain/           no I/O, no framework; imports no other package
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
-    api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
+    api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
     errors.py       RagDependencyError, describe_error
+    registry.py     Registry: named things of one sort, filled by a decorator (rule 6); import_package_modules
     prompts.py      RagPrompts: system prompt + user template -> chat messages
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
@@ -149,33 +160,30 @@ src/rag_load_test/
       base_embedder.py  BaseEmbedder, the port
       local/        RAG_EMBEDDING_BACKEND=local
         sentence_transformer_embedder.py  SentenceTransformerEmbedder: a sentence-transformers model in this process
-      api/          RAG_EMBEDDING_BACKEND=api
+      api/          RAG_EMBEDDING_BACKEND=api; importing it imports every module, so each format registers itself
         api_embedder.py  ApiEmbedder, and open_api_embedder: the embedder of one endpoint
-        base_embedding_api_format.py  BaseEmbeddingApiFormat: a request body builder and an answer reader, no HTTP
+        base_embedding_api_format.py  BaseEmbeddingApiFormat (a request body builder and an answer reader, no HTTP), EMBEDDING_API_FORMATS: the formats by name
         openai_embeddings_format.py  the openai embeddings format ({model, input} in, data[].embedding out)
-        embedding_api_formats.py  the embeddings formats by name
       fake/         RAG_EMBEDDING_BACKEND=fake
         fake_embedder.py  FakeEmbedder: a hashed bag of words
     reranker/       the reranker
       base_reranker.py  BaseReranker, the port
       local/        RAG_RERANK_BACKEND=local
         cross_encoder_reranker.py  CrossEncoderReranker: a cross-encoder model in this process
-      api/          RAG_RERANK_BACKEND=api
+      api/          RAG_RERANK_BACKEND=api; importing it imports every module, so each format registers itself
         api_reranker.py  ApiReranker, and open_api_reranker: the reranker of one endpoint
-        base_rerank_api_format.py  BaseRerankApiFormat
+        base_rerank_api_format.py  BaseRerankApiFormat, RERANK_API_FORMATS: the formats by name
         cohere_rerank_format.py  the cohere rerank format ({model, query, documents, top_n} in, results[] out)
-        rerank_api_formats.py  the rerank formats by name
       fake/         RAG_RERANK_BACKEND=fake
         fake_reranker.py  FakeReranker: token overlap with the query
       none/         RAG_RERANK_BACKEND=none
         no_reranker.py  NoReranker: retrieval order kept
     llm/            the LLM of the generation component
       base_llm.py   BaseLLM, the port
-      api/          RAG_GENERATION_BACKEND=api
+      api/          RAG_GENERATION_BACKEND=api; importing it imports every module, so each format registers itself
         api_llm.py  ApiLLM, and open_api_llm: the LLM of one endpoint
-        base_generation_api_format.py  BaseGenerationApiFormat
+        base_generation_api_format.py  BaseGenerationApiFormat, GENERATION_API_FORMATS: the formats by name
         openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
-        generation_api_formats.py  the generation formats by name
       fake/         RAG_GENERATION_BACKEND=fake
         fake_llm.py  FakeLLM: an echo
     vector_store/   the vector store
@@ -191,7 +199,6 @@ src/rag_load_test/
       api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
       bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
       open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
-      api_format_lookup.py  lookup_api_format: an API format by name, for each component's registry
     local_models/   what the local implementations share
       local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
       model_pool.py  model_executor, run_blocking: the one bounded thread pool the models run on
@@ -538,12 +545,21 @@ then the prompts YAML. An invalid backend, topology, retrieval mode or runtime
 name, a backend that contradicts the topology, a bad run label, a temperature
 outside 0 to 2, `RAG_TOP_K_RERANK` above `RAG_TOP_K_RETRIEVE`, a component on
 the `api` backend whose `RAG_*_API_URL` does not start with `http://` or
-`https://`, an unknown API format, lexical or hybrid retrieval on a store that
-ranks no text, a user prompt missing a placeholder, or a missing prompts file
-fails at start-up with the offending value. For example:
+`https://`, lexical or hybrid retrieval on a store that ranks no text, a user
+prompt missing a placeholder, or a missing prompts file fails at start-up with
+the offending value. For example:
 
 ```
 RAG_RERANK_BACKEND='api' needs RAG_RERANK_API_URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''
+```
+
+An unknown API format stops the app at start-up too, when the component on the
+`api` backend opens (the workflow app opens every component before it serves):
+the settings cannot see the formats, which are registered in the adapters, so
+the format's registry refuses the name and lists the known ones:
+
+```
+reranker unavailable: could not open backend 'api': ValueError: unknown rerank API format 'jina' (expected one of: 'cohere')
 ```
 
 Earlier versions named the model settings differently; none of the old names is
@@ -695,7 +711,10 @@ same whether the endpoint is OVMS, the FastAPI model server or a gateway. An API
 that speaks another shape is reached through an adapter class that implements
 `BaseEmbedder` or `BaseReranker`, either in the workflow process or behind the
 model server's route. The shapes of the standards are pydantic classes in
-`src/rag_load_test/domain/standard_formats.py`.
+`src/rag_load_test/domain/standard_formats.py`. A new API format is one new
+module in the component's `api/` directory, its class decorated with the
+registry beside the base class, such as `@RERANK_API_FORMATS.register("cohere")`;
+no table or list is edited.
 
 The key is the same for every component: empty sends no `Authorization` header,
 `domino` sends the Domino run's token, anything else is sent as a bearer token.

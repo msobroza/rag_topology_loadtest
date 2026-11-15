@@ -69,6 +69,20 @@ def module_name(path: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
+def importer_name(path: Path) -> str:
+    """The name the relative imports of the file at ``path`` resolve against.
+
+    An ``__init__.py`` resolves them from its own package, so its name keeps
+    ``__init__`` as the last part, the one ``imported_product_modules`` drops.
+
+    Example::
+
+        importer_name(PACKAGE / "adapters" / "llm" / "api" / "__init__.py")
+        # "rag_load_test.adapters.llm.api.__init__"
+    """
+    return ".".join(path.relative_to(PACKAGE.parent).with_suffix("").parts)
+
+
 def imported_product_modules(module: str, source: str) -> list[tuple[int, str]]:
     """``(line, module)`` for every import of a module of ``rag_load_test``.
 
@@ -152,6 +166,14 @@ def test_the_import_reader_on_literal_sources() -> None:
         (1, "deploy")
     ]
     assert imported_packages(nested, "import httpx\nfrom http import HTTPStatus") == []
+    package_init = importer_name(PACKAGE / "adapters" / "llm" / "api" / "__init__.py")
+    assert package_init == "rag_load_test.adapters.llm.api.__init__"
+    assert imported_packages(package_init, "from ....domain.registry import x") == [
+        (1, "domain")
+    ]
+    assert forbidden_imports(package_init, "from ....config import rag_settings") == [
+        f"{package_init}:1 imports rag_load_test.config"
+    ]
 
 
 def test_the_import_table_on_literal_sources() -> None:
@@ -194,7 +216,7 @@ def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
         offence
         for path in sorted((PACKAGE / package).rglob("*.py"))
         for offence in forbidden_imports(
-            module_name(path), path.read_text(encoding="utf-8")
+            importer_name(path), path.read_text(encoding="utf-8")
         )
     ]
     allowed = ", ".join(sorted(MAY_IMPORT[package]))

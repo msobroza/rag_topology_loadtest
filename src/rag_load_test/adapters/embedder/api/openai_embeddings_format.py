@@ -17,9 +17,10 @@ from ....domain.standard_formats import (
     OpenAIEmbeddingsRequest,
     OpenAIEmbeddingsResponse,
 )
-from .base_embedding_api_format import BaseEmbeddingApiFormat
+from .base_embedding_api_format import EMBEDDING_API_FORMATS, BaseEmbeddingApiFormat
 
 
+@EMBEDDING_API_FORMATS.register("openai")
 class OpenAIEmbeddingsFormat(BaseEmbeddingApiFormat):
     """The embeddings shape of OpenAI's ``POST /v1/embeddings``.
 

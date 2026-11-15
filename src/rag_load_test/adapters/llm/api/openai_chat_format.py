@@ -11,9 +11,10 @@ Example:
 from __future__ import annotations
 
 from ....domain.standard_formats import OpenAIChatRequest, OpenAIChatResponse
-from .base_generation_api_format import BaseGenerationApiFormat
+from .base_generation_api_format import GENERATION_API_FORMATS, BaseGenerationApiFormat
 
 
+@GENERATION_API_FORMATS.register("openai")
 class OpenAIChatFormat(BaseGenerationApiFormat):
     """The chat shape of OpenAI's ``POST /v1/chat/completions``.
 

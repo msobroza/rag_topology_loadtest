@@ -1,7 +1,7 @@
 """BaseEmbedder over an HTTP endpoint that speaks an embeddings API format.
 
 Example:
-    >>> embedder = ApiEmbedder(endpoint_client, embedding_api_format("openai"),
+    >>> embedder = ApiEmbedder(endpoint_client, EMBEDDING_API_FORMATS.get("openai")(),
     ...                        batch_size=64)
     >>> vectors = await embedder.embed(["vacation policy", "expense report"])
 """
@@ -22,8 +22,7 @@ from ....infrastructure.endpoint.open_endpoint_client import (
 )
 from ....infrastructure.http.http_policy import HttpPolicy
 from ..base_embedder import BaseEmbedder
-from .base_embedding_api_format import BaseEmbeddingApiFormat
-from .embedding_api_formats import embedding_api_format
+from .base_embedding_api_format import EMBEDDING_API_FORMATS, BaseEmbeddingApiFormat
 
 _Send = Callable[[dict[str, object]], Awaitable[object]]
 # What the readiness request embeds: one short text, the cheapest real call.
@@ -138,7 +137,7 @@ def open_api_embedder(
         >>> open_api_embedder(client, endpoint, tokens=tokens, policy=policy,
         ...                   batch_size=64)
     """
-    api_format = embedding_api_format(endpoint.api_format)
+    api_format = EMBEDDING_API_FORMATS.get(endpoint.api_format)()
     endpoint_client = open_endpoint_client(
         client, endpoint, component="embedder", tokens=tokens, policy=policy
     )

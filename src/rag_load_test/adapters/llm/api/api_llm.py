@@ -1,8 +1,8 @@
 """BaseLLM over an HTTP endpoint that speaks a generation API format.
 
 Example:
-    >>> llm = ApiLLM(endpoint_client, generation_api_format("openai"),
-    ...                           temperature=0.0)
+    >>> llm = ApiLLM(endpoint_client, GENERATION_API_FORMATS.get("openai")(),
+    ...              temperature=0.0)
     >>> answer = await llm.generate(messages)
 """
 
@@ -19,8 +19,7 @@ from ....infrastructure.endpoint.open_endpoint_client import (
 )
 from ....infrastructure.http.http_policy import HttpPolicy
 from ..base_llm import BaseLLM
-from .base_generation_api_format import BaseGenerationApiFormat
-from .generation_api_formats import generation_api_format
+from .base_generation_api_format import GENERATION_API_FORMATS, BaseGenerationApiFormat
 
 
 class ApiLLM(BaseLLM):
@@ -100,7 +99,7 @@ def open_api_llm(
         >>> open_api_llm(client, endpoint, tokens=tokens, policy=policy,
         ...              temperature=0.0)
     """
-    api_format = generation_api_format(endpoint.api_format)
+    api_format = GENERATION_API_FORMATS.get(endpoint.api_format)()
     endpoint_client = open_endpoint_client(
         client, endpoint, component="llm", tokens=tokens, policy=policy
     )

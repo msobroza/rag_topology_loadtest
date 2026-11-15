@@ -1,9 +1,10 @@
-"""A model endpoint reached over HTTP, and the API formats it may speak.
+"""A model endpoint reached over HTTP, and the routes our model servers answer on.
 
 An API format is a wire shape, not a vendor: any server answering OpenAI's
 embeddings shape is spoken to as ``"openai"``, whoever runs it (OVMS, vLLM, a
-gateway, OpenAI itself). Adding a format means adding its name to the matching
-``Literal`` here and its module and registry entry in ``adapters/model_api``.
+gateway, OpenAI itself). The formats are registered by name, one module each,
+in the ``api`` package of each component under ``adapters/``; an endpoint
+names one, and an unknown name is refused when the component opens.
 
 Example:
     >>> endpoint = ApiEndpoint(url="http://host:8000/v3/embeddings",
@@ -12,11 +13,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import Literal, NamedTuple
-
-EmbeddingApiFormat = Literal["openai"]
-RerankApiFormat = Literal["cohere"]
-GenerationApiFormat = Literal["openai"]
+from typing import NamedTuple
 
 # The ``api_key`` that means "send the Domino run's token", fetched per run.
 DOMINO_RUN_TOKEN = "domino"

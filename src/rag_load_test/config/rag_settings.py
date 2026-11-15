@@ -31,12 +31,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from ..domain.api_endpoint import (
-    ApiEndpoint,
-    EmbeddingApiFormat,
-    GenerationApiFormat,
-    RerankApiFormat,
-)
+from ..domain.api_endpoint import ApiEndpoint
 from ..domain.backends import (
     DEFAULT_GENERATION_BACKEND,
     DEFAULT_VECTOR_STORE_BACKEND,
@@ -109,7 +104,10 @@ class RagSettings(BaseSettings):
     # fake backend gets none: see workflow_parameters.
     embedding_query_prefix: str = "query: "
     embedding_api_url: str = ""  # the full route, e.g. http://host:8002/v3/embeddings
-    embedding_api_format: EmbeddingApiFormat = "openai"
+    # A format registered in adapters/embedder/api/. The settings cannot import
+    # that registry, so an unknown name is refused when the embedder opens on the
+    # api backend: at start-up, since the workflow app opens every port first.
+    embedding_api_format: str = "openai"
     # "" = no Authorization header, "domino" = the run's token, else a bearer token
     embedding_api_key: str = ""
     # The name sent; our model servers serve embedding_model under it.
@@ -124,7 +122,7 @@ class RagSettings(BaseSettings):
     )
     rerank_model: str = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
     rerank_api_url: str = ""  # the full route, e.g. http://host:8001/v3/rerank
-    rerank_api_format: RerankApiFormat = "cohere"
+    rerank_api_format: str = "cohere"  # in adapters/reranker/api/, as embedding's
     rerank_api_key: str = ""  # as embedding_api_key
     rerank_api_model: str = "crossencoder-camembert-base-mmarcoFR"
     # Passages per local call; 0 = calibrated at start-up.
@@ -135,7 +133,7 @@ class RagSettings(BaseSettings):
     # --- generation ------------------------------------------------------------------
     generation_backend: GenerationBackend = DEFAULT_GENERATION_BACKEND
     generation_api_url: str = "https://api.openai.com/v1/chat/completions"
-    generation_api_format: GenerationApiFormat = "openai"
+    generation_api_format: str = "openai"  # in adapters/llm/api/, as embedding's
     generation_api_key: str = ""  # as embedding_api_key
     generation_api_model: str = "gpt-4o-mini"
     generation_temperature: float = Field(default=0.0, ge=0, le=2)

@@ -67,9 +67,6 @@ def test_generation_defaults(settings_factory: SettingsFactory) -> None:
         ("calibration_rounds", 0),
         ("generation_timeout_s", 0),
         ("generation_temperature", 2.5),
-        ("embedding_api_format", "cohere"),
-        ("rerank_api_format", "openai"),
-        ("generation_api_format", "anthropic"),
         ("generation_backend", "local"),
         ("rerank_backend", "ovms"),
         ("embedding_backend", "openai"),
@@ -177,6 +174,17 @@ def test_generation_api_is_built_from_its_four_fields(
     assert s.generation_api() == ApiEndpoint(
         "https://gateway/v1/chat/completions", "openai", "sk-key", "llama-3"
     )
+
+
+@pytest.mark.parametrize("component", ["embedding", "rerank", "generation"])
+def test_an_api_format_is_passed_on_for_its_registry_to_check(
+    settings_factory: SettingsFactory, component: str
+) -> None:
+    # The registries are in the adapters, which the settings may not import: the
+    # component refuses an unknown format as it opens (test_rag_serve_api_formats).
+    s = settings_factory(**{f"{component}_api_format": "jina"})
+
+    assert getattr(s, f"{component}_api")().api_format == "jina"
 
 
 # --- check_api_endpoints ---------------------------------------------------------

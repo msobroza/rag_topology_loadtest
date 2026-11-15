@@ -13,9 +13,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ....domain.standard_formats import CohereRerankRequest, CohereRerankResponse
-from .base_rerank_api_format import BaseRerankApiFormat
+from .base_rerank_api_format import RERANK_API_FORMATS, BaseRerankApiFormat
 
 
+@RERANK_API_FORMATS.register("cohere")
 class CohereRerankFormat(BaseRerankApiFormat):
     """The rerank shape of Cohere's ``POST /v2/rerank``.
 

@@ -1,7 +1,7 @@
 """BaseReranker over an HTTP endpoint that speaks a rerank API format.
 
 Example:
-    >>> reranker = ApiReranker(endpoint_client, rerank_api_format("cohere"))
+    >>> reranker = ApiReranker(endpoint_client, RERANK_API_FORMATS.get("cohere")())
     >>> best = await reranker.rerank("vacation policy", candidates, top_n=5)
 """
 
@@ -22,8 +22,7 @@ from ....infrastructure.endpoint.open_endpoint_client import (
 )
 from ....infrastructure.http.http_policy import HttpPolicy
 from ..base_reranker import BaseReranker
-from .base_rerank_api_format import BaseRerankApiFormat
-from .rerank_api_formats import rerank_api_format
+from .base_rerank_api_format import RERANK_API_FORMATS, BaseRerankApiFormat
 
 _Send = Callable[[dict[str, object]], Awaitable[object]]
 # What the readiness request scores: one query and one document.
@@ -139,7 +138,7 @@ def open_api_reranker(
     Example:
         >>> open_api_reranker(client, endpoint, tokens=tokens, policy=policy)
     """
-    api_format = rerank_api_format(endpoint.api_format)
+    api_format = RERANK_API_FORMATS.get(endpoint.api_format)()
     endpoint_client = open_endpoint_client(
         client, endpoint, component="reranker", tokens=tokens, policy=policy
     )
