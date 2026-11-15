@@ -17,8 +17,10 @@ import pytest
 from dotenv import dotenv_values
 
 from ovms_stand_ins import ovms_starts, write_ovms_export, write_ovms_stand_in
+from rag_load_test.composition.calibrated_stages import ComponentCalibration
 from rag_load_test.config.rag_settings import RagSettings
-from rag_load_test.entrypoints.rag_calibrate import main
+from rag_load_test.domain.calibration import CalibrationReport, StageTuning
+from rag_load_test.entrypoints.rag_calibrate import env_lines, main
 from rag_load_test.infrastructure.local_models.local_model import exported_model_dir
 from repo_paths import REPO_ROOT
 from sentence_transformers_fakes import (
@@ -115,6 +117,28 @@ def test_the_comment_says_when_the_budget_cut_the_search_short(
     assert "; tried 1 candidate in " in comment
     assert comment.endswith(", cut short by RAG_CALIBRATION_BUDGET_S=1e-09")
     assert assignments == ["RAG_RERANK_THREADS=2", "RAG_RERANK_BATCH_SIZE=20"]
+
+
+def test_the_comment_says_when_the_first_candidate_was_kept_untimed() -> None:
+    # A served stage whose first trial outlived the budget (GCP sitting of
+    # 2026-11-15, 16 requests on one OVMS stream): no trial, cut short.
+    report = CalibrationReport(
+        stage="rerank",
+        chosen=StageTuning(8, 20, streams=1),
+        trials=(),
+        seconds=95.2,
+        budget_s=90.0,
+        cut_short=True,
+        requests=16,
+    )
+    pinned = {"RAG_OVMS_NUM_STREAMS": 1, "RAG_OVMS_THREADS": 8}
+
+    [comment, *_] = env_lines(ComponentCalibration(report, 8.0, "ovms", pinned))
+
+    assert comment == (
+        "# rerank: timed on 8 CPUs under ovms, the first candidate, not timed; "
+        "tried 0 candidates in 95.2 s, cut short by RAG_CALIBRATION_BUDGET_S=90"
+    )
 
 
 def test_the_logs_stay_off_stdout(

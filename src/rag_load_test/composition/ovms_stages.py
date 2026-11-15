@@ -52,6 +52,29 @@ OVMS_CONFIG_FILES: dict[ModelServerPart, str] = {
 }
 
 
+def calibration_http_policy(settings: RagSettings) -> HttpPolicy:
+    """Return how patiently the calibration adapters wait for OVMS's answers.
+
+    The timeout is the calibration budget, not ``RAG_HTTP_TIMEOUT_S``: a request
+    legitimately waits behind the others in flight (GCP sitting of 2026-11-15,
+    16 requests on one stream at about 2 s each: the last waited 32 s, past the
+    30 s HTTP timeout, and failed the App). The budget is what bounds a trial
+    (``calibrate_served``). No retry: a retried request would be timed as one
+    slow request.
+
+    Args:
+        settings: ``calibration_budget_s``.
+
+    Returns:
+        The policy of the sample's requests.
+
+    Example:
+        >>> calibration_http_policy(RagSettings()).timeout_s
+        90.0
+    """
+    return HttpPolicy(settings.calibration_budget_s, retries=0, backoff_s=0.0)
+
+
 class _AnswersReady(Protocol):
     async def ready(self) -> tuple[bool, str]: ...
 
@@ -63,8 +86,9 @@ class BaseOvmsStage(BaseServedStage, Generic[A]):
     """A stage OVMS serves; ``A`` is the ``api`` adapter that calls it.
 
     Args:
-        settings: The alias, API format, HTTP timeout, OVMS start timeout and
-            ``calibration_users``; what the sample is built from.
+        settings: The alias, API format, HTTP timeout (of the readiness
+            request), calibration budget (of the sample's requests), OVMS start
+            timeout and ``calibration_users``; what the sample is built from.
         client: The HTTP client the adapters share.
         export: Where OVMS's exporter wrote the model, read only.
         serving_dir: The App's own folder each candidate is served from.
@@ -85,8 +109,12 @@ class BaseOvmsStage(BaseServedStage, Generic[A]):
     ) -> None:
         self._settings, self._client = settings, client
         self._export, self.serving_dir, self._binary = export, serving_dir, binary
-        # No retry: a retried request would be timed as one slow request.
-        self._policy = HttpPolicy(settings.http_timeout_s, retries=0, backoff_s=0.0)
+        # The readiness request while OVMS starts is one, alone: the HTTP
+        # timeout bounds it. The sample's requests wait up to the budget.
+        self._ready_policy = HttpPolicy(
+            settings.http_timeout_s, retries=0, backoff_s=0.0
+        )
+        self._sample_policy = calibration_http_policy(settings)
         self._tokens = RunTokenSource(
             settings.domino_token_url, settings.domino_token_ttl_s
         )
@@ -161,13 +189,14 @@ class BaseOvmsStage(BaseServedStage, Generic[A]):
         }
 
     async def _answers(self, port: int) -> bool:
-        # The adapter of this start: readiness is one real minimal request.
-        self._adapter = self._adapter_at(f"http://127.0.0.1:{port}")
-        answered, _ = await self._adapter.ready()
+        # The adapters of this start: readiness is one real minimal request.
+        origin = f"http://127.0.0.1:{port}"
+        self._adapter = self._adapter_at(origin, self._sample_policy)
+        answered, _ = await self._adapter_at(origin, self._ready_policy).ready()
         return answered
 
     @abstractmethod
-    def _adapter_at(self, origin: str) -> A: ...
+    def _adapter_at(self, origin: str, policy: HttpPolicy) -> A: ...
 
     @abstractmethod
     async def _serve_one(self, adapter: A) -> None: ...
@@ -182,7 +211,7 @@ class OvmsRerankStage(BaseOvmsStage[ApiReranker]):
 
     stage = "rerank"
 
-    def _adapter_at(self, origin: str) -> ApiReranker:
+    def _adapter_at(self, origin: str, policy: HttpPolicy) -> ApiReranker:
         settings = self._settings
         endpoint = ApiEndpoint(
             url=origin + MODEL_SERVER_RERANK_PATH,
@@ -191,7 +220,7 @@ class OvmsRerankStage(BaseOvmsStage[ApiReranker]):
             model=settings.rerank_api_model,
         )
         return open_api_reranker(
-            self._client, endpoint, tokens=self._tokens, policy=self._policy
+            self._client, endpoint, tokens=self._tokens, policy=policy
         )
 
     @cached_property
@@ -214,7 +243,7 @@ class OvmsEmbedStage(BaseOvmsStage[ApiEmbedder]):
 
     stage = "embed"
 
-    def _adapter_at(self, origin: str) -> ApiEmbedder:
+    def _adapter_at(self, origin: str, policy: HttpPolicy) -> ApiEmbedder:
         settings = self._settings
         endpoint = ApiEndpoint(
             url=origin + MODEL_SERVER_EMBEDDINGS_PATH,
@@ -226,7 +255,7 @@ class OvmsEmbedStage(BaseOvmsStage[ApiEmbedder]):
             self._client,
             endpoint,
             tokens=self._tokens,
-            policy=self._policy,
+            policy=policy,
             batch_size=1,
         )
 

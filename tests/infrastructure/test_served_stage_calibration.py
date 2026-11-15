@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import Sequence
 
 import pytest
@@ -14,6 +16,7 @@ from rag_load_test.infrastructure.calibration.served_stage_calibration import (
 from rag_load_test.infrastructure.calibration.timed_trials import CalibrationLimits
 
 LIMITS = CalibrationLimits(budget_s=1000.0, rounds=1)
+BOUND_S = 1.0  # a hung trial is abandoned well before this, in real seconds
 
 
 def tuning(threads: int, streams: int) -> StageTuning:
@@ -105,3 +108,44 @@ async def test_the_server_is_stopped_when_a_sample_fails() -> None:
         await search(stage, clock, streams=(1, 2), threads=(2,))
 
     assert stage.stopped == [tuning(2, 1)]
+
+
+# --- a trial the budget abandons --------------------------------------------------
+# GCP sitting of 2026-11-15, real OVMS on 8 vCPUs: 16 requests on one stream took
+# about 2 s each, one after the other, and the slow candidate failed the App. A
+# trial still running when the budget is spent is abandoned instead. The fake
+# clock spends the scripted seconds; a hung sample waits the rest in real seconds.
+
+
+async def test_a_trial_still_running_when_the_budget_is_spent_is_abandoned() -> None:
+    clock = FakeClock()
+    seconds = {tuning(4, 1): [0.03], tuning(4, 2): [0.01]}
+    stage = FakeServedStage(clock, seconds, hangs={tuning(4, 4)})
+    limits = CalibrationLimits(budget_s=0.2, rounds=1)
+    async with asyncio.timeout(BOUND_S):
+        report = await search(stage, clock, (1, 2, 4), (4, 2, 1), limits)
+
+    assert stage.started == [tuning(4, 1), tuning(4, 2), tuning(4, 4)]
+    assert stage.stopped == stage.started  # the abandoned one's server too
+    assert [trial.tuning for trial in report.trials] == stage.started[:2]
+    assert (report.chosen, report.cut_short) == (tuning(4, 2), True)
+
+
+async def test_a_too_slow_first_candidate_is_kept_untimed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    clock = FakeClock()
+    stage = FakeServedStage(clock, hangs={tuning(4, 1)})
+    limits = CalibrationLimits(budget_s=0.05, rounds=1)
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        async with asyncio.timeout(BOUND_S):
+            report = await search(stage, clock, (1, 2, 4), (4, 2, 1), limits)
+
+    assert stage.started == stage.stopped == [tuning(4, 1)]
+    assert (report.chosen, report.trials, report.cut_short) == (tuning(4, 1), (), True)
+    [line] = [json.loads(record.message) for record in caplog.records]
+    assert (line["event"], line["trials"], line["cut_short"]) == (
+        "stage_calibrated",
+        [],
+        True,
+    )

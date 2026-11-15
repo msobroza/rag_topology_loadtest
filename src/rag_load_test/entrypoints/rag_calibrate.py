@@ -77,6 +77,8 @@ def env_lines(calibration: ComponentCalibration) -> list[str]:
 
 def _choice(report: CalibrationReport) -> str:
     seconds = report.chosen_seconds
+    if seconds is None and report.cut_short:  # the first trial was abandoned
+        return "the first candidate, not timed"
     if seconds is None:  # one candidate per parameter: nothing to compare
         return "the only candidate, not timed"
     if report.requests > 1:

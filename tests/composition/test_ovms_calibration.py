@@ -20,8 +20,10 @@ import pytest
 from ovms_stand_ins import ovms_starts, write_ovms_export, write_ovms_stand_in
 from rag_load_test.composition.composition_root import CompositionRoot
 from rag_load_test.composition.ovms_calibration import ovms_candidates
+from rag_load_test.composition.ovms_stages import calibration_http_policy
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.roles import ModelServerPart
+from rag_load_test.infrastructure.http.http_policy import HttpPolicy
 
 SettingsFactory = Callable[..., RagSettings]
 BOUND_S = 60.0  # no test here may take longer
@@ -194,3 +196,42 @@ async def test_on_demand_searches_both_even_when_pinned_and_cleans_up(
     assert chosen.batch_size == settings.top_k_retrieve
     served_from = Path(str(starts[0]["argv"][-1]))  # type: ignore[index]
     assert not served_from.exists()  # the temporary serving folder is gone
+
+
+# --- a slow candidate --------------------------------------------------------------
+
+
+def test_the_calibration_requests_wait_up_to_the_budget_with_no_retry(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(http_timeout_s=30.0, calibration_budget_s=600.0)
+
+    policy = calibration_http_policy(settings)
+
+    assert policy == HttpPolicy(timeout_s=600.0, retries=0, backoff_s=0.0)
+
+
+async def test_a_candidate_slower_than_the_budget_is_kept_untimed_not_a_failure(
+    settings_factory: SettingsFactory,
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # GCP sitting of 2026-11-15: 16 requests on one stream, about 2 s each, so
+    # the last waited 32 s and RAG_HTTP_TIMEOUT_S=30 failed the App. Here 4
+    # requests of 0.5 s on one stream take 2 s: past the HTTP timeout and the
+    # budget, while the readiness request (one, 0.5 s) is within both.
+    record = tmp_path / "ovms.jsonl"
+    bin_dir = write_ovms_stand_in(tmp_path / "bin", record, request_s=0.5)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    settings = two_cpus(settings_factory, http_timeout_s=1.0, calibration_budget_s=1.5)
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        config = await serving_config(settings, "reranker", models, tmp_path / "s")
+
+    assert len(ovms_starts(record)) == 1  # the search ended with the first
+    assert graph_plugin_config(config) == ALL_ON_2_CPUS[0]
+    [calibrated] = logged(caplog, "stage_calibrated")
+    assert (calibrated["trials"], calibrated["cut_short"]) == ([], True)
+    [line] = logged(caplog, "ovms_serving_config")
+    assert (line["streams"], line["threads"], line["calibrated"]) == (1, 2, False)

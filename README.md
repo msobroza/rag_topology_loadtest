@@ -538,7 +538,7 @@ with a one-line usage error, not a traceback.
 | `RAG_PROMPTS_FILE` | the packaged `config/prompts.yaml` | another YAML file with `system_prompt` and `user_prompt` (environment only, not `.env`) |
 | `RAG_MODEL_WORKERS` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time |
 | `RAG_MODEL_CPUS` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
-| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them (> 0) |
+| `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them, and an OVMS trial still running then is abandoned (> 0) |
 | `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `RAG_CALIBRATION_USERS` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
 | `RAG_OVMS_NUM_STREAMS` | `0` | an OVMS App: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
@@ -649,11 +649,17 @@ default. A trial is the time until all of them are answered. OVMS takes its
 settings only when it starts, so each candidate is one start of `ovms`. Every
 stream count (1, 2, 4, ... up to the CPUs, 1 first) is timed on all the CPUs;
 then each smaller thread count, as long as it is at least the best stream
-count, with that stream count. A spent budget keeps one stream, which is what
-the export runs. The warm-up, rounds and budget are the in-process ones. The
-requests go through the workflow app's own `api` adapters, with no retry: a
-retried request would be timed as one slow request. The result is one
-`stage_calibrated` line, which also names the streams and the requests, then one
+count, with that stream count. The warm-up and rounds are the in-process ones.
+The budget also bounds a trial: one still running when it is spent is
+abandoned, its `ovms` stopped, and the search ends there. The fastest completed
+trial wins; if none completed, the first candidate is kept untimed: one stream,
+which is what the export runs. So calibration lasts about the budget plus one
+start, and a slow candidate never fails the App. The requests go through the
+workflow app's own `api` adapters, with no retry: a retried request would be
+timed as one slow request. Each waits up to `RAG_CALIBRATION_BUDGET_S`, not
+`RAG_HTTP_TIMEOUT_S`, since it may wait behind the others in flight. The
+result is one `stage_calibrated` line, which also names the streams and the
+requests, then one
 `ovms_serving_config` line. This was built against stand-ins of `ovms` and has
 not run on a real OVMS yet: it is to be verified at the next sitting.
 

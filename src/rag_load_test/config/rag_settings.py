@@ -190,7 +190,8 @@ class RagSettings(BaseSettings):
     # out; > 0 wins over every other count.
     model_cpus: float = Field(default=0, ge=0)
     # Calibration of a local model (stage_calibration.py), per stage: no new
-    # candidate is started once this many seconds have passed.
+    # candidate is started once this many seconds have passed; a model server's
+    # trial still running then is abandoned (served_stage_calibration.py).
     calibration_budget_s: float = Field(default=90.0, gt=0)
     # Timed requests per candidate, after one warm-up.
     calibration_rounds: int = Field(default=1, ge=1)

@@ -87,6 +87,43 @@ async def test_the_report_carries_streams_and_requests_into_its_log_line(
     }
 
 
+def test_the_seconds_left_count_down_from_the_budget_to_zero() -> None:
+    clock = FakeClock()
+    trials = TimedTrials("rerank", CalibrationLimits(budget_s=10.0, rounds=1), clock)
+
+    clock.advance(4.0)
+    assert trials.seconds_left() == 6.0
+    clock.advance(7.0)
+    assert trials.seconds_left() == 0.0
+
+
+def test_with_no_trial_completed_the_report_keeps_the_tuning_given(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    clock = FakeClock()
+    trials = TimedTrials("rerank", CalibrationLimits(1.0, 1), clock, requests=16)
+    clock.advance(1.5)  # a server start, then a trial abandoned
+    trials.mark_cut_short()
+
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        report = trials.finish(untimed=StageTuning(8, 20, streams=1))
+
+    assert (report.chosen, report.trials) == (StageTuning(8, 20, streams=1), ())
+    assert (report.seconds, report.cut_short) == (1.5, True)
+    [line] = [json.loads(record.message) for record in caplog.records]
+    assert (line["trials"], line["cut_short"]) == ([], True)
+
+
+async def test_the_tuning_given_is_ignored_once_a_trial_completed() -> None:
+    clock = FakeClock()
+    trials = TimedTrials("rerank", CalibrationLimits(100.0, 1), clock)
+    await trials.time_trial(StageTuning(2, 20, streams=2), serving(clock, [1, 1]))
+
+    report = trials.finish(untimed=StageTuning(2, 20, streams=1))
+
+    assert report.chosen == StageTuning(2, 20, streams=2)
+
+
 def test_finishing_with_no_trial_names_the_problem() -> None:
     trials = TimedTrials("embed", CalibrationLimits(1.0, 1), FakeClock())
 

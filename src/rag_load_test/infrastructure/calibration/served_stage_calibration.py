@@ -11,7 +11,11 @@ all at once, and which settings pin a tuning. ``calibrate_served`` does the rest
 - each later thread count that is at least the best stream count is timed with
   that stream count (a stream needs a thread);
 - a trial's seconds are the time until all ``requests`` are answered; the
-  warm-up, rounds and budget are ``TimedTrials``'s.
+  warm-up, rounds and budget are ``TimedTrials``'s;
+- a trial still running when the budget is spent is abandoned, its server
+  stopped, and the search ends there, cut short: the fastest completed trial
+  wins, or the first candidate, untimed, when none completed. A slow candidate
+  never fails the search.
 
 Example:
     >>> report = await calibrate_served(
@@ -23,6 +27,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
@@ -102,7 +107,9 @@ async def calibrate_served(  # noqa: PLR0913 - every candidate list is a keyword
         clock: Seconds, as ``time.perf_counter`` gives them.
 
     Returns:
-        The choice and every trial, logged as one ``stage_calibrated`` line.
+        The choice and every completed trial, logged as one ``stage_calibrated``
+        line; the first candidate, untimed and cut short, when the budget was
+        spent before any trial completed.
 
     Raises:
         ValueError: If a stream count exceeds the first thread count.
@@ -130,7 +137,7 @@ async def calibrate_served(  # noqa: PLR0913 - every candidate list is a keyword
             if count >= best
         ]
         await _time_each(stage, trials, fewer_threads)
-    return trials.finish()
+    return trials.finish(untimed=on_all_threads[0])
 
 
 async def _time_each(
@@ -140,7 +147,23 @@ async def _time_each(
     for tuning in tunings:
         if not trials.may_start():
             return False
-        # One server start per candidate: the start is not timed, only the requests.
-        async with stage.serving(tuning):
-            await trials.time_trial(tuning, stage.serve_sample)
+        if not await _time_within_budget(stage, trials, tuning):
+            return False
+    return True
+
+
+async def _time_within_budget(
+    stage: BaseServedStage, trials: TimedTrials, tuning: StageTuning
+) -> bool:
+    # True when the trial completed; False when the budget ran out during it.
+    # GCP sitting of 2026-11-15: 16 requests on one OVMS stream were answered
+    # one after the other, about 2 s each; a slow candidate must end the search,
+    # not fail the App. One server start per candidate: the start is not timed.
+    async with stage.serving(tuning):
+        trial = trials.time_trial(tuning, stage.serve_sample)
+        try:
+            await asyncio.wait_for(trial, trials.seconds_left())
+        except TimeoutError:  # the server is stopped as the context ends
+            trials.mark_cut_short()
+            return False
     return True

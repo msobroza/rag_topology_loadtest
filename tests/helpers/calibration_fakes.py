@@ -9,8 +9,9 @@ so the search measures exactly what the test scripted.
 
 from __future__ import annotations
 
+import asyncio
 import weakref
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Collection, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -117,6 +118,7 @@ class FakeServedStage(BaseServedStage):
             warm-up first; past the end, the last one repeats.
         default_s: The duration of a sample under a tuning ``seconds`` omits.
         start_s: The duration of one server start.
+        hangs: Tunings whose samples never end: only cancelling them stops them.
     """
 
     stage = "fake-served"
@@ -128,9 +130,11 @@ class FakeServedStage(BaseServedStage):
         *,
         default_s: float = 1.0,
         start_s: float = 0.0,
+        hangs: Collection[StageTuning] = (),
     ) -> None:
         self._clock, self._seconds = clock, dict(seconds or {})
         self._default_s, self._start_s = default_s, start_s
+        self._hangs = frozenset(hangs)
         self.started: list[StageTuning] = []
         self.stopped: list[StageTuning] = []
         self.served: list[StageTuning] = []
@@ -154,6 +158,8 @@ class FakeServedStage(BaseServedStage):
         durations = self._seconds.get(tuning, [self._default_s])
         nth = self.served.count(tuning)
         self.served.append(tuning)
+        if tuning in self._hangs:
+            await asyncio.Event().wait()  # never set
         self._clock.advance(durations[min(nth, len(durations) - 1)])
 
     def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:

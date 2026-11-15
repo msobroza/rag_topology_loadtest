@@ -9,6 +9,9 @@ report the same shape. ``TimedTrials`` owns that part:
   fewest seconds of them;
 - the first trial always runs; once ``budget_s`` has passed since the search
   started no new trial starts, and the report says it was cut short;
+- a search that can cancel a trial (a served stage) waits for it at most
+  ``seconds_left``, and on expiry calls ``mark_cut_short``; when no trial
+  completed, ``finish`` keeps the tuning its caller names;
 - the report is a ``CalibrationReport``, logged as one ``stage_calibrated`` JSON
   line.
 
@@ -40,7 +43,9 @@ Serve = Callable[[], Awaitable[None]]
 class CalibrationLimits:
     """How long calibration may search, and how often it times each candidate."""
 
-    budget_s: float  # no new trial starts once this much time has passed
+    # No new trial starts once this much time has passed; a served stage's trial
+    # still running then is abandoned.
+    budget_s: float
     rounds: int  # timed calls per trial, after one warm-up
 
 
@@ -92,6 +97,26 @@ class TimedTrials:
         self._cut_short = True
         return False
 
+    def seconds_left(self) -> float:
+        """Return the seconds left of the budget, counted from the search's start.
+
+        Returns:
+            ``budget_s`` minus the seconds spent so far; 0.0 once it is spent.
+
+        Example:
+            >>> trials.seconds_left()
+            61.5
+        """
+        return max(0.0, self._limits.budget_s - (self._clock() - self._started))
+
+    def mark_cut_short(self) -> None:
+        """Record that the budget stopped the search: a trial was abandoned.
+
+        Example:
+            >>> trials.mark_cut_short()
+        """
+        self._cut_short = True
+
     async def time_trial(self, tuning: StageTuning, serve: Serve) -> None:
         """Time ``serve`` under ``tuning``: one warm-up, then the timed rounds.
 
@@ -121,23 +146,27 @@ class TimedTrials:
         """
         return fastest(self._trials)
 
-    def finish(self) -> CalibrationReport:
+    def finish(self, untimed: StageTuning | None = None) -> CalibrationReport:
         """Return the report of the search, and log it as one JSON line.
 
+        Args:
+            untimed: The tuning to keep when no trial completed (the first was
+                abandoned); ignored once one did.
+
         Returns:
-            The choice, every trial in order, the seconds spent since the search
-            started, and whether the budget cut it short.
+            The choice, every completed trial in order, the seconds spent since
+            the search started, and whether the budget cut it short.
 
         Raises:
-            ValueError: If no trial has run.
+            ValueError: If no trial completed and ``untimed`` is None.
 
         Example:
-            >>> trials.finish().chosen
+            >>> trials.finish(untimed=StageTuning(2, 20)).chosen
             StageTuning(threads=2, batch_size=20, streams=1)
         """
         report = CalibrationReport(
             stage=self._stage,
-            chosen=fastest(self._trials),
+            chosen=self._chosen(untimed),
             trials=tuple(self._trials),
             seconds=self._clock() - self._started,
             budget_s=self._limits.budget_s,
@@ -146,6 +175,11 @@ class TimedTrials:
         )
         _log(report)
         return report
+
+    def _chosen(self, untimed: StageTuning | None) -> StageTuning:
+        if self._trials or untimed is None:
+            return fastest(self._trials)  # raises when there is no trial
+        return untimed
 
     async def _timed(self, serve: Serve) -> float:
         start = self._clock()
