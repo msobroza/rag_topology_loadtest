@@ -76,6 +76,16 @@ def test_the_fixture_file_declares_three_model_components_and_a_store(
     assert llm.http == ComponentHttpSettings(timeout_s=120.0)
 
 
+def test_the_local_embedder_leaves_vectors_unnormalised_unless_its_block_asks(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert settings_factory().components["embedder"].local.normalize is False
+
+    monkeypatch.setenv("QP_COMPONENTS__EMBEDDER__LOCAL__NORMALIZE", "true")
+
+    assert settings_factory().components["embedder"].local.normalize is True
+
+
 def test_every_value_is_reachable_by_its_environment_path(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

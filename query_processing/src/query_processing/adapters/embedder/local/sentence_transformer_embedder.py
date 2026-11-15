@@ -13,12 +13,27 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from concurrent.futures import Executor
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ....infrastructure.local_models.local_model import LocalModel
 from ....infrastructure.local_models.model_pool import run_blocking
 from ....infrastructure.local_models.native_threads import NativeThreadScope
 from ..base_embedder import BaseEmbedder
+
+
+@dataclass(frozen=True)
+class EncodeOptions:
+    """How each ``encode`` call is made: its batch size and its normalisation.
+
+    Example:
+        >>> EncodeOptions(batch_size=64, normalize_embeddings=False)
+    """
+
+    batch_size: int  # texts per encode batch
+    # Scale each vector to unit length. Off is safe: every store compares
+    # vectors by cosine, which ignores their length.
+    normalize_embeddings: bool
 
 
 class SentenceTransformerEmbedder(BaseEmbedder):
@@ -28,10 +43,10 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         model: A ``SentenceTransformer``, or a fake with the same ``encode``.
         executor: The shared inference pool the encode calls run on.
         model_name: The name ``ready`` reports.
-        batch_size: Texts per ``encode`` batch.
         scope: Caps the OpenMP threads of each encode call.
         query_prefix: Put in front of a query, never of a passage; "" for a
             model that takes none.
+        encode_options: The batch size and normalisation of each encode call.
 
     Example:
         >>> model = local_model("org/embedder", runtime="torch", models_dir="models")
@@ -47,13 +62,13 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         executor: Executor,
         *,
         model_name: str,
-        batch_size: int,
         scope: NativeThreadScope,
         query_prefix: str,
+        encode_options: EncodeOptions,
     ) -> None:
-        self._model, self._executor, self._batch_size = model, executor, batch_size
+        self._model, self._executor = model, executor
         self.model_name, self.scope = model_name, scope
-        self._query_prefix = query_prefix
+        self._query_prefix, self._encode_options = query_prefix, encode_options
 
     @classmethod
     def from_pretrained(
@@ -64,6 +79,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         batch_size: int,
         threads: int,
         query_prefix: str,
+        normalize_embeddings: bool = False,
     ) -> SentenceTransformerEmbedder:
         """Load a ``SentenceTransformer`` on CPU, then build its thread scope.
 
@@ -73,6 +89,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             batch_size: Texts per ``encode`` batch.
             threads: Threads one encode call may use.
             query_prefix: Put in front of a query, never of a passage.
+            normalize_embeddings: Scale each vector to unit length.
 
         Returns:
             The embedder on the loaded model.
@@ -88,9 +105,9 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             loaded,
             executor,
             model_name=model.name,
-            batch_size=batch_size,
             scope=scope,
             query_prefix=query_prefix,
+            encode_options=EncodeOptions(batch_size, normalize_embeddings),
         )
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
@@ -100,7 +117,8 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             texts: The texts to embed; none returns ``[]`` without a model call.
 
         Returns:
-            One unit-norm vector per text, in the same order.
+            One vector per text, in the same order; unit length only when
+            ``normalize_embeddings`` is set.
         """
         if not texts:
             return []
@@ -113,7 +131,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             text: The query, as the user asked it.
 
         Returns:
-            Its unit-norm vector.
+            Its vector; unit length only when ``normalize_embeddings`` is set.
 
         Example:
             >>> vector = await embedder.embed_query("How many vacation days?")
@@ -132,7 +150,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
 
         Returns:
             A new adapter sharing the model, the pool, the model name, the
-            thread scope and the query prefix.
+            thread scope, the query prefix and the normalisation.
 
         Example:
             >>> smaller = adapter.with_batch_size(2)
@@ -141,9 +159,9 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             self._model,
             self._executor,
             model_name=self.model_name,
-            batch_size=batch_size,
             scope=self.scope,
             query_prefix=self._query_prefix,
+            encode_options=replace(self._encode_options, batch_size=batch_size),
         )
 
     async def ready(self) -> tuple[bool, str]:
@@ -158,8 +176,14 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         return await run_blocking(self._executor, self.scope.run, self._encode, texts)
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
-        # Unit-norm vectors, so cosine similarity is a plain dot product.
+        # Normalising is optional: every store compares by cosine, which ignores
+        # length. No progress bar: at the Apps' INFO level one is drawn on stderr
+        # per call.
+        options = self._encode_options
         matrix = self._model.encode(
-            texts, batch_size=self._batch_size, normalize_embeddings=True
+            texts,
+            batch_size=options.batch_size,
+            normalize_embeddings=options.normalize_embeddings,
+            show_progress_bar=False,
         )
         return matrix.tolist()

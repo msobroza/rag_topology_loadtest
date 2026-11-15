@@ -30,9 +30,11 @@ from ..infrastructure.local_models.local_model import LocalModel
 from ..infrastructure.local_models.model_pool import model_executor
 from ..infrastructure.local_models.model_provisioning import (
     Exporter,
+    PackageCheck,
     provision_local_model,
 )
 from ..infrastructure.local_models.native_threads import settle_torch_thread
+from ..infrastructure.local_models.openvino_export import require_openvino
 from ..infrastructure.local_models.stage_calibration import CalibrationLimits
 from .http_resources import HttpResources
 from .resource_scope import OWNED, ResourceScope
@@ -59,6 +61,8 @@ class LocalModelResources:
         http: The shared HTTP client, for the Domino hardware tier lookup.
         container_cpus: Counts the container's CPUs when nothing earlier in the
             chain answers.
+        require_openvino_packages: Raises when the ``openvino`` runtime's
+            packages are missing; checked before each model is provisioned.
 
     Example:
         >>> budget = await local_models.thread_budget()  # openvino, 8 CPUs
@@ -72,6 +76,7 @@ class LocalModelResources:
         scope: ResourceScope,
         http: HttpResources,
         container_cpus: BaseCpuCounter,
+        require_openvino_packages: PackageCheck = require_openvino,
     ) -> None:
         self._settings, self._scope, self._http = settings, scope, http
         self._container_cpus = container_cpus
@@ -81,6 +86,7 @@ class LocalModelResources:
         self.calibration_limits = CalibrationLimits(
             budget_s=calibration.budget_s, rounds=calibration.rounds
         )
+        self._require_openvino_packages = require_openvino_packages
 
     async def thread_budget(self) -> ThreadBudget:
         """Return how the virtual CPUs are split, worked out on the first request.
@@ -145,6 +151,7 @@ class LocalModelResources:
             runtime=local_models.runtime,
             models_dir=local_models.openvino_dir,
             export=export,
+            require_packages=self._require_openvino_packages,
             executor=await self.model_pool(),
         )
 

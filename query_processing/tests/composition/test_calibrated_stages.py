@@ -259,13 +259,47 @@ async def test_embed_threads_above_zero_time_nothing(
     assert fake_weights.batch_sizes == []
 
 
+@pytest.mark.parametrize("normalize", [False, True])
+async def test_the_embedder_is_calibrated_and_opened_as_its_local_block_normalises(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    normalize: bool,
+) -> None:
+    settings = four_thread_settings(
+        settings_factory, components__embedder__local__normalize=normalize
+    )
+    async with CompositionRoot(settings) as composition:
+        embedder = await composition.local_embedder("embedder")
+        calibrated = len(fake_weights.normalized)
+        await embedder.embed_documents(["vacation policy"])
+
+    assert calibrated > 0  # calibration timed encode calls
+    assert fake_weights.normalized == [normalize] * (calibrated + 1)
+
+
+async def test_the_embed_stage_loads_the_embedder_as_it_is_told_to_normalise(
+    fake_weights: FakeSentenceTransformersModule,
+    pool: ThreadPoolExecutor,
+) -> None:
+    stage = CalibratedEmbedStage(
+        TORCH_MODEL, pool, query_prefix="", normalize_embeddings=True
+    )
+
+    adapter = stage.rebatched(await stage.loaded(threads=1), 2)
+    await stage.serve_sample(adapter)
+
+    assert fake_weights.normalized == [True]
+
+
 @pytest.mark.parametrize("prefix", ["query: ", ""])
 async def test_the_embed_sample_is_one_question_embedded_as_a_query(
     fake_weights: FakeSentenceTransformersModule,
     pool: ThreadPoolExecutor,
     prefix: str,
 ) -> None:
-    stage = CalibratedEmbedStage(TORCH_MODEL, pool, query_prefix=prefix)
+    stage = CalibratedEmbedStage(
+        TORCH_MODEL, pool, query_prefix=prefix, normalize_embeddings=False
+    )
 
     # The adapter loaded for a trial carries the embedder's prefix.
     await stage.serve_sample(await stage.loaded(threads=1))
@@ -289,7 +323,9 @@ def test_the_rerank_stage_is_pinned_by_its_threads_and_batch_size(
 def test_the_embed_stage_is_pinned_by_its_threads_only(
     pool: ThreadPoolExecutor,
 ) -> None:
-    stage = CalibratedEmbedStage(TORCH_MODEL, pool, query_prefix="query: ")
+    stage = CalibratedEmbedStage(
+        TORCH_MODEL, pool, query_prefix="query: ", normalize_embeddings=False
+    )
 
     pinned = stage.pinned_settings(StageTuning(threads=3, batch_size=64))
 
@@ -319,6 +355,8 @@ class RecordingCrossEncoder:
     def __init__(self) -> None:
         self.pairs: list[list[tuple[str, str]]] = []
 
-    def predict(self, pairs: list[tuple[str, str]], *, batch_size: int) -> list[float]:
+    def predict(
+        self, pairs: list[tuple[str, str]], *, batch_size: int, show_progress_bar: bool
+    ) -> list[float]:
         self.pairs.append(list(pairs))
         return [0.5 for _ in pairs]

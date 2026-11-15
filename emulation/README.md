@@ -1,10 +1,13 @@
 # Emulation: an emulated Domino on Google Cloud
 
-**Applied on 14 November 2026.** That day `plan` and `apply` created the machines,
-the three topologies were deployed through the emulated Domino and measured on
-real models, and two later sittings tried the cache bucket. "Verified on 14
-November 2026" and "Not verified" at the end say what ran and what has not;
-`query_processing/tests/emulation/` still checks the files only by parsing them.
+**Applied on 14 and 15 November 2026.** On 14 November `plan` and `apply` created
+the machines, the three topologies were deployed through the emulated Domino and
+measured on real models, and two later sittings tried the cache bucket. On
+15 November a sitting of 57 measured runs, on other hardware, deployed and
+measured OVMS Apps for the first time and ran Apps with replicas. "Verified" and
+"Not verified" at the end say what ran and what has not;
+`query_processing/tests/emulation/` checks the files by parsing them and by
+running their shell functions against stand-ins, never on a machine.
 
 The emulation is temporary: it lets the owner rehearse a Domino deployment, and
 compare topologies, before the real Domino is available. All of it lives in this
@@ -28,7 +31,8 @@ it. Terraform never creates an App.
  |  <name>-workspace (n2-standard-8)        <name>-cpu-8-1..3 (n2-standard-8) |
  |   qp-domino-emulation :8899  -- ssh, :8888 -->  one App each, :8888       |
  |   Workspace for ubuntu: make,  <-- :8899 ----   localhost:8899 forwarder   |
- |   qp-deploy, qp-ingest, locust                (socat), OVMS tarball      |
+ |   qp-deploy, qp-ingest, locust,                 (socat), OVMS tarball      |
+ |   OVMS tarball                                                             |
  |            \                                         /                     |
  |             +------> <name>-es (n2-standard-4) <-----+                     |
  |                      Elasticsearch 9.0.0 in Docker, :9200                  |
@@ -128,6 +132,13 @@ emulation, the Elasticsearch URL and the OpenVINO folder under its `overrides`;
 edit it as on
 Domino (topology, per-App blocks, each model server App's `server`, the
 overrides), or override the topology with `QP_DEPLOY_TOPOLOGY`.
+
+The Workspace machine and every pool machine fetch the OVMS tarball that
+`deploy.yaml`'s `ovms_bundle` names, at boot, to the same path. `qp-deploy` checks
+that it exists on the Workspace before an OVMS deploy, as on Domino, where the
+Workspace and the Apps mount the same Dataset. Until 15 November 2026 only the
+pool machines fetched it, and an OVMS deploy needed it copied to the Workspace by
+hand.
 
 The first sitting builds the index and exports the models, then keeps both in the
 cache bucket:
@@ -260,6 +271,9 @@ the machines by one of two rules, which are the two that Kubernetes uses:
 - `connection-random`: each caller connection gets one machine at random and keeps
   it, as a Kubernetes Service does.
 
+Both rules ran on real machines on 15 November 2026, with an App on two machines
+and with an App on four.
+
 Domino says that requests spread across an App's pods when session affinity is
 off. It does not say by which rule. To change the rule on a running emulation, add
 `--replica-balancing connection-random` to the `ExecStart` line of the
@@ -363,7 +377,22 @@ Elasticsearch machines Spot VMs. `cache_bucket` names the cache bucket (default 
 machine that stands in for a Domino Dataset: the Apps and the Workspace's ingestion
 keep their exported models in it.
 
-## Verified on 14 November 2026
+A sitting on other hardware sets the machine types in `terraform.tfvars` and leaves
+the defaults alone. The sitting of 15 November 2026 used four `n2-highmem-2` pool
+machines, Elasticsearch on an `n2-standard-2` and the Workspace on an
+`n2-standard-4`:
+
+```hcl
+hardware_tiers = {
+  "cpu-2" = { machine_type = "n2-highmem-2", count = 4, default = true }
+}
+es_machine_type        = "n2-standard-2"
+workspace_machine_type = "n2-standard-4"
+```
+
+## Verified
+
+### 14 November 2026
 
 One sitting, before the cache bucket and the Spot machines existed: five
 on-demand machines (a 4-CPU Workspace through `workspace_machine_type`, three
@@ -396,35 +425,63 @@ servers, the French corpus. It showed:
 The two sittings of that evening, on Spot machines with the cache bucket, are
 measured under "The cache bucket".
 
+### 15 November 2026
+
+One sitting of 57 measured runs on six machines, for 3 hours 9 minutes: four pool
+machines `n2-highmem-2` in one tier, `cpu-2`, on Spot; Elasticsearch on an
+`n2-standard-2`, on Spot; the Workspace on an `n2-standard-4`. They were set
+through `hardware_tiers`, `es_machine_type` and `workspace_machine_type` in
+`terraform.tfvars` (see "Variables"); the defaults stayed three `n2-standard-8`
+pool machines. All six machines were deleted by hand, by name, before their
+deadline. It showed:
+
+- OVMS Apps, deployed and measured for the first time. The OVMS tarball on the pool
+  machines worked. The OVMS export ran on a pool machine and fitted its 50 GB disk.
+  `models/ovms-models.tar` was saved to the cache bucket.
+- An OVMS deploy needed the OVMS tarball copied to the Workspace machine by hand:
+  `qp-deploy` checks it there, and only the pool machines fetched it. The
+  Workspace's startup script fetches it since (see "3. Work in the Workspace").
+- Replicas and both balancing rules on real machines: an App on two machines, and
+  an App on four (see "Replicas").
+- The hand-over of a Project environment variable: the Apps sent the key they were
+  handed from `project.env`. The provider answered 401 to that key, so no
+  generation ran.
+
 ## Not verified
 
-Not shown by the runs of 14 November 2026:
+Not shown by the runs of 14 and 15 November 2026:
 
+- The layout and the names of today. Both sittings ran the code as it was before
+  the toolkit moved to `query_processing/`, the RAG became the use case in
+  `query_processing_rag_usecase/`, and the commands and variables took `qp-` and
+  `QP_`. Since then the scripts and templates were checked only by
+  `query_processing/tests/emulation/`: no machine has installed both
+  distributions, run `qp-deploy` from the use case's directory, or started an App
+  under the new names.
 - `terraform validate` on its own, and which provider versions the ranges
   `>= 6.0, < 8.0` (`google`) and `~> 4.0` (`tls`) picked: `plan` and `apply` ran,
   but the versions were not recorded.
 - The deletion at the end of `max_run_hours` of an on-demand (`STANDARD`) machine
-  with the default `automatic_restart`: every machine that day was deleted by hand
-  before its deadline.
+  with the default `automatic_restart`: every machine of both days was deleted by
+  hand before its deadline.
 - `enable-oslogin = FALSE` on the machines worked in a project that does not
   require OS Login; an organisation policy that requires it would break both the
   emulated Domino's SSH and `gcloud compute ssh ubuntu@...`.
 - The cost figures are approximate and were not read from a current price list.
 - The Cloud Shell setup script (pinned Terraform 1.12.2, the bucket flags): the
-  notes of that day do not show it running.
-- `qp-domino-emulation` handing the Apps a Project environment variable from
-  `project.env`, and `/query` (generation) through the emulation: only `/retrieve`
-  was measured.
-- OVMS: no OVMS App was deployed, so the OVMS bundle on the pool machines, the
-  OVMS export, and whether 50 GB per pool machine is enough for it are untried.
-  The FastAPI model servers fit.
+  notes of 14 November 2026 do not show it running.
+- `/query` (generation) through the emulation: it is still unmeasured. The Project
+  environment variable reached the Apps, but the provider refused the key (see
+  "15 November 2026").
+- The Workspace machine fetching the OVMS tarball at boot: added after the sitting
+  of 15 November 2026, it has not run on a machine yet.
 - Of the cache bucket and the Spot machines (the rest ran on 14 November 2026, see
   "The cache bucket"):
   - a Spot machine taken back by Google, and the recovery steps of "Spot machines";
   - the self-deletion of a Spot machine at the end of `max_run_hours` (the machines
-    of both sittings were deleted by hand), and an apply with `spot = false`;
-  - `models/ovms-models.tar`: no OVMS App was deployed, so no OVMS export was saved
-    or restored;
+    of every sitting were deleted by hand), and an apply with `spot = false`;
+  - `models/ovms-models.tar` restored at boot: it was saved on 15 November 2026,
+    and no later boot has restored it yet;
   - `models-save FORCE=1`, and the boot's wait for a grant that has not applied yet
     (the first bucket call succeeded at once);
   - whether Elasticsearch's repository needs `roles/storage.legacyBucketReader`: it

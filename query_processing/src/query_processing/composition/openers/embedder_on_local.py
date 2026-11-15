@@ -91,4 +91,9 @@ async def _calibrated_stage(
 ) -> CalibratedEmbedStage:
     pool = await local_models.model_pool()
     model = await local_models.local_model(component.source_id, export_embedder)
-    return CalibratedEmbedStage(model, pool, query_prefix=component.query_prefix)
+    return CalibratedEmbedStage(
+        model,
+        pool,
+        query_prefix=component.query_prefix,
+        normalize_embeddings=component.local.normalize,
+    )

@@ -18,6 +18,7 @@ from local_model_fakes import (
     RecordingScope,
 )
 from query_processing.adapters.embedder.local.sentence_transformer_embedder import (
+    EncodeOptions,
     SentenceTransformerEmbedder,
 )
 from query_processing.infrastructure.local_models.local_model import LocalModel
@@ -26,19 +27,28 @@ pytest_plugins = ["local_model_fixtures"]
 
 
 class FakeSentenceTransformer:
-    """``encode`` double: vector = [len(text), 1.0]; records every call."""
+    """``encode`` double: vector = [len(text), 1.0]; records every call.
+
+    ``show_progress_bar`` has no default, so an ``encode`` call without it fails.
+    """
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
     def encode(
-        self, texts: list[str], *, batch_size: int, normalize_embeddings: bool = False
+        self,
+        texts: list[str],
+        *,
+        batch_size: int,
+        show_progress_bar: bool,
+        normalize_embeddings: bool = False,
     ) -> np.ndarray:
         self.calls.append(
             {
                 "texts": list(texts),
                 "batch_size": batch_size,
                 "normalize_embeddings": normalize_embeddings,
+                "show_progress_bar": show_progress_bar,
             }
         )
         return np.array([[float(len(t)), 1.0] for t in texts], dtype=np.float32)
@@ -64,9 +74,9 @@ def st_embedder(
         st_model,
         executor,
         model_name="fake-st",
-        batch_size=8,
         scope=st_scope,
         query_prefix="query: ",  # a passage must never get it
+        encode_options=EncodeOptions(batch_size=8, normalize_embeddings=False),
     )
 
 
@@ -80,7 +90,7 @@ async def test_st_embedder_encodes_inside_its_scope_on_a_worker(
     assert thread.startswith("rag-model")
 
 
-async def test_st_embedder_returns_plain_lists_and_normalizes(
+async def test_st_embedder_returns_plain_lists_not_normalised_by_default(
     st_embedder: SentenceTransformerEmbedder, st_model: FakeSentenceTransformer
 ) -> None:
     vectors = await st_embedder.embed_documents(("ab", "abcd"))
@@ -89,7 +99,13 @@ async def test_st_embedder_returns_plain_lists_and_normalizes(
     assert all(type(v) is list for v in vectors)
     assert all(type(x) is float for v in vectors for x in v)
     assert st_model.calls == [
-        {"texts": ["ab", "abcd"], "batch_size": 8, "normalize_embeddings": True}
+        {
+            "texts": ["ab", "abcd"],
+            "batch_size": 8,
+            "normalize_embeddings": False,
+            # No tqdm bar on stderr per call (the Apps log at INFO).
+            "show_progress_bar": False,
+        }
     ]
 
 
@@ -109,8 +125,14 @@ async def test_a_query_is_encoded_alone_with_the_prefix_in_front(
     vector = await st_embedder.embed_query("ab")
 
     assert vector == [9.0, 1.0]  # len("query: ab")
+    # As its encode options say: not normalised here, and never a progress bar.
     assert st_model.calls == [
-        {"texts": ["query: ab"], "batch_size": 8, "normalize_embeddings": True}
+        {
+            "texts": ["query: ab"],
+            "batch_size": 8,
+            "normalize_embeddings": False,
+            "show_progress_bar": False,
+        }
     ]
     [thread] = st_scope.ran_on
     assert thread.startswith("rag-model")
@@ -148,3 +170,23 @@ async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
     assert rebatched.scope is st_scope
     assert await rebatched.ready() == (True, "fake-st")
     assert all(thread.startswith("rag-model") for thread in st_scope.ran_on)
+
+
+async def test_st_embedder_passes_normalize_embeddings_to_encode_and_keeps_it(
+    st_model: FakeSentenceTransformer,
+    executor: ThreadPoolExecutor,
+    st_scope: RecordingScope,
+) -> None:
+    embedder = SentenceTransformerEmbedder(
+        st_model,
+        executor,
+        model_name="fake-st",
+        scope=st_scope,
+        query_prefix="",
+        encode_options=EncodeOptions(batch_size=8, normalize_embeddings=True),
+    )
+
+    await embedder.embed_documents(["a"])
+    await embedder.with_batch_size(3).embed_documents(["b"])
+
+    assert [call["normalize_embeddings"] for call in st_model.calls] == [True, True]

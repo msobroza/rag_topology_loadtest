@@ -278,13 +278,13 @@ async def test_an_export_without_the_openvino_packages_fails_before_any_download
     settings = local_settings(
         settings_factory, local_models__openvino_dir=str(tmp_path)
     )
-    embedder_dir, _ = folders(settings, tmp_path)
 
     async with CompositionRoot(settings) as composition:
         with pytest.raises(RagDependencyError) as raised:
             await composition.local_embedder("embedder")
 
-    assert str(embedder_dir) in str(raised.value)
+    # Checked before the folder is looked at, so the error names the package.
+    assert "needs module 'openvino'" in str(raised.value)
     assert "sentence-transformers[openvino]" in str(raised.value)
     assert fake_weights.loaded == []
     assert list(tmp_path.iterdir()) == []
@@ -316,6 +316,9 @@ def exported_settings(
 def one_request_weights(monkeypatch: pytest.MonkeyPatch) -> FakeOneRequestModule:
     module = FakeOneRequestModule()
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
+    # The openvino runtime checks its packages even when the folders exist.
+    for name, fake in fake_openvino_modules().items():
+        monkeypatch.setitem(sys.modules, name, fake)
     return module
 
 

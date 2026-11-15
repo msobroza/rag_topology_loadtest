@@ -140,7 +140,8 @@ def test_the_machines_install_both_and_deploy_from_the_use_cases_directory() -> 
     assert installed in workspace
     # qp-deploy runs in the use case's directory and reads its deploy.yaml there.
     assert f'tee "$REPO_PATH/{use_case}/deploy.yaml"' in workspace
-    assert f'"$REPO_PATH/{toolkit}/ovms/versions.env"' in pool
+    # The OVMS pin is the toolkit's: common.sh reads <toolkit>/ovms/versions.env.
+    assert f'fetch_ovms_bundle "$REPO_PATH/{toolkit}" "$OVMS_BUNDLE"' in pool
     assert (USE_CASE_ROOT / "workflow.yaml").is_file()
     assert (REPO_ROOT / ".python-version").is_file()
     assert (TOOLKIT_ROOT / "ovms" / "versions.env").is_file()
@@ -194,6 +195,21 @@ def test_the_workspace_shell_sets_only_variables_the_project_reads() -> None:
         "QP_LOCAL_MODELS__OPENVINO_DIR",
         "PATH",
     }
+
+
+@pytest.mark.parametrize(
+    "template", ["scripts/pool.sh.tftpl", "scripts/workspace.sh.tftpl"]
+)
+def test_pool_and_workspace_machines_fetch_the_ovms_bundle(template: str) -> None:
+    # qp-deploy checks deploy.yaml's ovms_bundle on the Workspace machine: in the
+    # sitting of 15 November 2026 only the pool machines held it.
+    script = (TF_DIR / template).read_text(encoding="utf-8")
+    assert "OVMS_BUNDLE='${ovms_bundle_path}'" in script
+    # The pin is the toolkit's: query_processing/ovms/versions.env in the clone.
+    call = 'fetch_ovms_bundle "$REPO_PATH/query_processing" "$OVMS_BUNDLE"'
+    assert call in script.splitlines()
+    assert "fetch_ovms_bundle()" not in script, "defined once, in common.sh"
+    assert "ovms_bundle_path" in template_calls()[template]
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck absent")

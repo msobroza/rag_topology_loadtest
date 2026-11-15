@@ -13,20 +13,6 @@ DOMINO_PORT='${domino_port}'
 CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 
-# fetch_ovms_bundle: the OVMS binary tarball the cloned ref pins
-# (query_processing/ovms/versions.env), fetched again only when that pin changes.
-# deploy.yaml's ovms_bundle names it.
-fetch_ovms_bundle() {
-  local url
-  url=$(sed -n 's/^OVMS_BINARY_URL=//p' "$REPO_PATH/query_processing/ovms/versions.env")
-  [ -n "$url" ] || die "no OVMS_BINARY_URL in $REPO_PATH/query_processing/ovms/versions.env"
-  if [ -s "$OVMS_BUNDLE" ] && [ "$(cat "$OVMS_BUNDLE.url" 2>/dev/null)" = "$url" ]; then return 0; fi
-  install -d -m 755 "$(dirname "$OVMS_BUNDLE")"
-  download "$url" "$OVMS_BUNDLE"
-  chmod 644 "$OVMS_BUNDLE"
-  printf '%s\n' "$url" >"$OVMS_BUNDLE.url"
-}
-
 # warm_app_dependencies: app.sh's install_project, run once at boot with what an
 # App's launch script asks for, by the same absolute paths (the clone has the same
 # path on every machine): the toolkit, then the use case of QP_USE_CASE_DIR, the
@@ -48,7 +34,7 @@ sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
 write_cache_config "$CACHE_BUCKET" "$DATASET_PATH"
 restore_cached_models "$CACHE_BUCKET" "$CACHE_MODELS_PREFIX" "$DATASET_PATH"
 warm_app_dependencies
-fetch_ovms_bundle
+fetch_ovms_bundle "$REPO_PATH/query_processing" "$OVMS_BUNDLE"
 
 # Domino's sidecar on localhost:8899 (run token, Domino API) is the fake Domino on
 # the Workspace machine: Apps reach it at the same address as on Domino.

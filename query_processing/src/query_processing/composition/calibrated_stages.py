@@ -232,17 +232,29 @@ class CalibratedEmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
         pool: The shared inference pool.
         query_prefix: The embedder's query prefix, which each loaded adapter
             takes.
+        normalize_embeddings: Whether each loaded adapter scales its vectors
+            to unit length: calibration times the encode the App will run.
 
     Example:
-        >>> stage = CalibratedEmbedStage(model, pool, query_prefix="query: ")
+        >>> stage = CalibratedEmbedStage(
+        ...     model, pool, query_prefix="query: ", normalize_embeddings=False)
         >>> embedder = await stage.loaded(threads=2)
     """
 
     stage = "embed"
 
-    def __init__(self, model: LocalModel, pool: Executor, *, query_prefix: str) -> None:
+    def __init__(
+        self,
+        model: LocalModel,
+        pool: Executor,
+        *,
+        query_prefix: str,
+        normalize_embeddings: bool,
+    ) -> None:
         self._model, self._pool = model, pool
         self._query_prefix = query_prefix
+        # Calibration times the encode the App will run, normalised or not.
+        self._normalize = normalize_embeddings
         self._question = calibration_sample(1).question
 
     async def loaded(self, threads: int) -> SentenceTransformerEmbedder:
@@ -261,6 +273,7 @@ class CalibratedEmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
             batch_size=1,
             threads=threads,
             query_prefix=self._query_prefix,
+            normalize_embeddings=self._normalize,
         )
 
     def rebatched(

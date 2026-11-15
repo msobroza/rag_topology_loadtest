@@ -7,6 +7,7 @@ Example:
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 
@@ -30,13 +31,25 @@ def tokenize(text: str) -> list[str]:
 
 
 def cosine(a: Sequence[float], b: Sequence[float]) -> float:
-    """Return the dot product, which is the cosine for unit vectors.
+    """Return the cosine of two vectors: their dot product over both lengths.
+
+    The in-process embedder may return vectors of any length (its ``local``
+    block's ``normalize`` is off by default), so the length is divided out.
 
     Args:
-        a: A unit vector.
-        b: A unit vector of the same length.
+        a: A vector.
+        b: A vector of the same dimension.
 
     Returns:
-        The dot product of ``a`` and ``b``.
+        The cosine of ``a`` and ``b``; 0.0 when either has length 0.
+
+    Raises:
+        ValueError: ``a`` and ``b`` differ in dimension.
+
+    Example:
+        >>> cosine([3.0, 0.0], [0.5, 0.0])
+        1.0
     """
-    return float(sum(x * y for x, y in zip(a, b, strict=True)))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    lengths = math.hypot(*a) * math.hypot(*b)
+    return float(dot / lengths) if lengths else 0.0

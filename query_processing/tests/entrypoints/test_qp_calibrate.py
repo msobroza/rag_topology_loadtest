@@ -17,9 +17,11 @@ import pytest
 import yaml
 from dotenv import dotenv_values
 
+from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.overrides import override_exports
 from query_processing.entrypoints.qp_calibrate import main
+from query_processing.infrastructure.local_models.local_model import exported_model_dir
 from rag_components import shell_settings
 from repo_paths import TOOLKIT_ROOT
 from sentence_transformers_fakes import (
@@ -224,6 +226,34 @@ def test_a_model_that_cannot_be_provisioned_is_one_stderr_line(
     assert line.startswith("qp-calibrate: cannot calibrate reranker: ")
     assert "No space left on device" in line
     assert "Traceback" not in captured.err
+
+
+def test_a_missing_openvino_package_is_one_stderr_line_when_the_folder_exists(
+    fake_weights: FakeSentenceTransformersModule,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # Regression, sitting of 15 November 2026: an exported folder skipped the
+    # package check and the library's bare Exception printed a traceback. None in
+    # sys.modules makes the import fail as an absent package does.
+    monkeypatch.setitem(sys.modules, "optimum.intel.openvino", None)
+    models = tmp_path / "models"
+    monkeypatch.setenv("QP_LOCAL_MODELS__RUNTIME", "openvino")
+    monkeypatch.setenv("QP_LOCAL_MODELS__OPENVINO_DIR", str(models))
+    reranker = WorkflowSettings(_env_file=None).components["reranker"]  # type: ignore[call-arg]
+    exported_model_dir(str(models), reranker.source_id).mkdir(parents=True)
+
+    assert main(["--only", "reranker"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    [line] = captured.err.splitlines()
+    assert line.startswith("qp-calibrate: cannot calibrate reranker: ")
+    assert "'optimum.intel.openvino'" in line
+    assert "sentence-transformers[openvino]" in line
+    assert "Traceback" not in captured.err
+    assert fake_weights.loaded == []
 
 
 def test_an_unknown_only_value_is_a_usage_error(

@@ -212,7 +212,7 @@ variable "hardware_tiers" {
 }
 
 variable "ovms_bundle_path" {
-  description = "Where pool machines keep the OVMS binary tarball (deploy.yaml's ovms_bundle)."
+  description = "Where pool machines and the Workspace machine keep the OVMS binary tarball (deploy.yaml's ovms_bundle)."
   type        = string
   default     = "/opt/rag-emulation/ovms.tar.gz"
 

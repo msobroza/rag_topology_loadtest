@@ -96,8 +96,12 @@ class CrossEncoderReranker(BaseReranker):
         if not passages:
             return []
         pairs = [(query, p.text) for p in passages]
+        # No progress bar: at the Apps' INFO level one is drawn on stderr per call.
         predict = functools.partial(
-            self._model.predict, pairs, batch_size=self._batch_size
+            self._model.predict,
+            pairs,
+            batch_size=self._batch_size,
+            show_progress_bar=False,
         )
         scores = await run_blocking(self._executor, self.scope.run, predict)
         return top_by_score(passages, [float(s) for s in scores], top_n)

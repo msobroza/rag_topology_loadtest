@@ -146,7 +146,8 @@ async def calibrate(
 
     Example:
         >>> calibrated = await calibrate(
-        ...     CalibratedEmbedStage(model, pool, query_prefix="query: "),
+        ...     CalibratedEmbedStage(
+        ...         model, pool, query_prefix="query: ", normalize_embeddings=False),
         ...     threads=(4, 2, 1), batch_sizes=(64,),
         ...     limits=CalibrationLimits(90.0, 1))
         >>> calibrated.report.chosen

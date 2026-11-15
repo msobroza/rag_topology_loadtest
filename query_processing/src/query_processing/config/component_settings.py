@@ -133,11 +133,15 @@ class EmbedderLocalSettings(SettingsBlock):
     """The embedder's ``local`` block: its in-process model's batch size and threads.
 
     A query is one text, so the batch size is never calibrated; threads at 0
-    are, when the component opens.
+    are, when the component opens. ``normalize`` says whether its vectors are
+    scaled to unit length.
     """
 
     batch_size: int = Field(default=64, ge=1)  # texts per encode call
     threads: int = Field(default=0, ge=0)  # 0 = calibrated at start-up
+    # Scale each vector the in-process embedder returns to unit length. Off is
+    # safe: every store compares vectors by cosine, which ignores their length.
+    normalize: bool = False
 
 
 class RerankerLocalSettings(SettingsBlock):
