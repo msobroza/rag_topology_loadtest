@@ -4,7 +4,7 @@ So that a use case can change its graph without code, and a new step is one regi
 
 ## Considered options
 
-- **A graph built in Python for each use case.** Rejected: a use case holds settings only (ADR 0004).
+- **A graph built in Python for each use case.** Rejected: a use case holds settings only (ADR 0005).
 - **A `path` that returns a label**, LangGraph's own form for more than two ways. Rejected: a bool keeps an edge condition small. More than two ways is several conditional edges on one source, each with its own edge condition (run on LangGraph 1.2.20: with one true only that branch runs, with none true the graph ends).
 - **Branching on a state field named in the file, or expressions in the file.** Rejected: the owner chose registered functions, and expressions would be a second language inside the YAML.
 - **`Command(goto=...)` returned by a stage.** Rejected: the links would be in Python, and the file would no longer show how the stages are linked.
