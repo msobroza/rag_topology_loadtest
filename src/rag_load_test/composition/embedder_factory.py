@@ -32,8 +32,8 @@ class EmbedderFactory(BasePortFactory[BaseEmbedder]):
     """The embedder of each Backend: ``local``, ``api`` or ``fake``.
 
     Args:
-        settings: The embedding Backend, model, endpoint, batch size and threads
-            (0 = calibrated at start-up).
+        settings: The embedding Backend, model, endpoint, query prefix, batch
+            size and threads (0 = calibrated at start-up).
         scope: Opens the embedder once.
         http: The shared HTTP client, for the ``api`` Backend.
         local_models: The thread budget, pool and files, for the ``local`` one.
@@ -143,6 +143,7 @@ class EmbedderFactory(BasePortFactory[BaseEmbedder]):
             tokens=self._http.run_tokens,
             policy=self._http.policy,
             batch_size=self._settings.embedding_batch_size,
+            query_prefix=self._settings.embedding_query_prefix,
         )
 
     async def _fake(self) -> BaseEmbedder:

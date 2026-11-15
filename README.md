@@ -41,8 +41,10 @@ flowchart LR
 Each node is timed; responses carry `timings_ms{embed,retrieve,rerank,generate,total}`
 and Locust turns those into per-stage statistics. `RagWorkflow(deps, parameters)`
 takes the four ports and one `WorkflowParameters` (retrieval mode, both top-k
-sizes, the query prefix and the prompts), built by
-`RagSettings.workflow_parameters()`. The prompts live in
+sizes and the prompts), built by `RagSettings.workflow_parameters()`. The embed
+stage embeds the question with `BaseEmbedder.embed_query`, and the embedder puts
+its model's query prefix in front; passages are embedded with
+`embed_documents`, as they are. The prompts live in
 `src/rag_load_test/config/prompts.yaml`. With `RAG_RETRIEVAL_MODE=lexical` the
 graph starts at retrieve: no vector is computed and `embed` is 0 ms. Lexical and
 hybrid retrieval also take a `BaseLexicalSearch`, which only a store that ranks
@@ -136,7 +138,7 @@ src/rag_load_test/
     errors.py       RagDependencyError, describe_error
     registry.py     Registry: named things of one sort, filled by a decorator (rule 6); import_package_modules
     prompts.py      RagPrompts: system prompt + user template -> chat messages
-    workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
+    workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes and prompts for one workflow
     rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
     thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
     calibration.py  StageTuning, halvings, fastest, calibration_sample: the rules of calibration, no clock
@@ -157,7 +159,7 @@ src/rag_load_test/
   adapters/         the ports and their implementations, nothing else (rule 4)
                     (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
     embedder/       the embedder
-      base_embedder.py  BaseEmbedder, the port
+      base_embedder.py  BaseEmbedder, the port: embed_query (the model's query prefix in front) and embed_documents (as they are)
       local/        RAG_EMBEDDING_BACKEND=local
         sentence_transformer_embedder.py  SentenceTransformerEmbedder: a sentence-transformers model in this process
       api/          RAG_EMBEDDING_BACKEND=api; importing it imports every module, so each format registers itself
@@ -476,7 +478,7 @@ with a one-line usage error, not a traceback.
 | **Embedding** | | |
 | `RAG_EMBEDDING_BACKEND` | from the topology | `local` \| `api` \| `fake`; `api` and `fake` (or the topology's own value) may override it |
 | `RAG_EMBEDDING_MODEL` | `Snowflake/snowflake-arctic-embed-l-v2.0` | the `local` model (a Hugging Face id or a folder); also what our model servers load |
-| `RAG_EMBEDDING_QUERY_PREFIX` | `query: ` | put in front of each question before it is embedded (arctic-embed expects it on queries, never on passages); every backend but `fake` gets it; set it empty for a model that takes none |
+| `RAG_EMBEDDING_QUERY_PREFIX` | `query: ` | put in front of each question before it is embedded (arctic-embed expects it on queries, never on passages); the `local` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; set it empty for a model that takes none |
 | `RAG_EMBEDDING_API_URL` | `` | the full route of the endpoint, e.g. `http://localhost:8002/v3/embeddings`; required with the `api` backend |
 | `RAG_EMBEDDING_API_FORMAT` | `openai` | the request and response shapes the route speaks |
 | `RAG_EMBEDDING_API_KEY` | `` | empty = no `Authorization` header; `domino` = the Domino run's token from `RAG_DOMINO_TOKEN_URL`; anything else = a bearer token |

@@ -13,7 +13,6 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-import numpy as np
 import pytest
 
 from rag_load_test.adapters.embedder.local.sentence_transformer_embedder import (
@@ -222,18 +221,21 @@ async def test_embed_threads_above_zero_time_nothing(
     assert fake_weights.batch_sizes == []
 
 
-async def test_the_embed_sample_is_one_question_with_the_query_prefix(
-    settings_factory: SettingsFactory, pool: ThreadPoolExecutor
+@pytest.mark.parametrize("prefix", ["query: ", ""])
+async def test_the_embed_sample_is_one_question_embedded_as_a_query(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    pool: ThreadPoolExecutor,
+    prefix: str,
 ) -> None:
-    model = RecordingSentenceTransformer()
-    embedder = SentenceTransformerEmbedder(
-        model, pool, model_name="m", batch_size=4, scope=NativeThreadScope(1)
+    stage = EmbedStage(
+        TORCH_MODEL, pool, settings_factory(embedding_query_prefix=prefix)
     )
-    settings = settings_factory(embedding_query_prefix="query: ")
 
-    await EmbedStage(TORCH_MODEL, pool, settings).serve_sample(embedder)
+    # The adapter loaded for a trial carries the prefix of the settings.
+    await stage.serve_sample(await stage.loaded(threads=1))
 
-    assert model.texts == [[f"query: {calibration_sample(1).question}"]]
+    assert fake_weights.encoded == [[prefix + calibration_sample(1).question]]
 
 
 # --- the settings that pin a tuning --------------------------------------------------
@@ -285,14 +287,3 @@ class RecordingCrossEncoder:
     def predict(self, pairs: list[tuple[str, str]], *, batch_size: int) -> list[float]:
         self.pairs.append(list(pairs))
         return [0.5 for _ in pairs]
-
-
-class RecordingSentenceTransformer:
-    def __init__(self) -> None:
-        self.texts: list[list[str]] = []
-
-    def encode(
-        self, texts: list[str], *, batch_size: int, normalize_embeddings: bool
-    ) -> np.ndarray:
-        self.texts.append(list(texts))
-        return np.array([[1.0, 0.0] for _ in texts])

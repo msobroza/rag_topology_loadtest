@@ -137,7 +137,7 @@ async def test_the_api_embedder_calls_its_endpoint(
     )
     async with composition:
         embedder, _ = await composition.ingest_ports()
-        assert await embedder.embed(["a", "b", "c"]) == [[1.0], [1.0], [1.0]]
+        assert await embedder.embed_documents(["a", "b", "c"]) == [[1.0], [1.0], [1.0]]
 
     assert routes.sent() == [
         (EMBED_URL, {"model": "bge-small", "input": ["a", "b"]}, "Bearer emb-key", 4.5),

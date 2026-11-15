@@ -51,7 +51,9 @@ def api_embedder(client: httpx.AsyncClient, alias: str) -> ApiEmbedder:
     """An ``ApiEmbedder`` at ``http://models/v3/embeddings`` without auth."""
     endpoint = ApiEndpoint("http://models/v3/embeddings", "openai", "", alias)
     embed_client = endpoint_client(client, endpoint, component="embedder")
-    return ApiEmbedder(embed_client, OpenAIEmbeddingsFormat(), batch_size=64)
+    return ApiEmbedder(
+        embed_client, OpenAIEmbeddingsFormat(), batch_size=64, query_prefix=""
+    )
 
 
 @pytest.fixture
@@ -163,7 +165,7 @@ async def test_api_adapters_work_against_the_fastapi_server(
         ranked = await reranker.rerank("vacation days", passages, 1)
         assert [p.id for p in ranked] == ["y"]
         assert ranked[0].rerank_score is not None
-        vectors = await embedder.embed(["a", "b"])
+        vectors = await embedder.embed_documents(["a", "b"])
         assert len(vectors) == 2
         assert len(vectors[0]) == 4
         assert (await reranker.ready())[0]
@@ -212,7 +214,7 @@ async def _rerank_with_alias(client: httpx.AsyncClient, alias: str) -> None:
 
 async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
     embedder = api_embedder(client, alias)
-    await embedder.embed(["a"])
+    await embedder.embed_documents(["a"])
 
 
 def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:

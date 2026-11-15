@@ -40,15 +40,20 @@ def _record(**fields: object) -> str:
 
 
 class SpyEmbedder(FakeEmbedder):
-    """FakeEmbedder recording the size of every ``embed`` batch."""
+    """FakeEmbedder recording every batch of passages and every query."""
 
     def __init__(self) -> None:
         super().__init__()
         self.batch_sizes: list[int] = []
+        self.queries: list[str] = []
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         self.batch_sizes.append(len(texts))
-        return await super().embed(texts)
+        return await super().embed_documents(texts)
+
+    async def embed_query(self, text: str) -> list[float]:
+        self.queries.append(text)
+        return await super().embed_query(text)
 
 
 async def test_ingest_upserts_every_passage_in_batches() -> None:
@@ -58,5 +63,6 @@ async def test_ingest_upserts_every_passage_in_batches() -> None:
     assert await ingest(passages, embedder, store, batch_size=3) == 7
     assert await store.count() == 7
     assert embedder.batch_sizes == [3, 3, 1]
+    assert embedder.queries == []  # passages, never embedded as a query
     hits = await store.query(embedder.embed_text(passages[4].text), top_k=1)
     assert hits[0].id == passages[4].id

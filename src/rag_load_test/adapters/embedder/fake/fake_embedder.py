@@ -4,7 +4,7 @@ Texts sharing words get similar vectors, so retrieval over the synthetic corpus
 stays meaningful in tests and LLM-free load runs.
 
 Example:
-    >>> await FakeEmbedder(dim=8).embed(["refund policy"])
+    >>> await FakeEmbedder(dim=8).embed_documents(["refund policy"])
     [[...]]
 """
 
@@ -54,7 +54,7 @@ class FakeEmbedder(BaseEmbedder):
                 acc[i] += value
         return _normalise(acc)
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         """Embed texts with ``embed_text``.
 
         Args:
@@ -64,6 +64,21 @@ class FakeEmbedder(BaseEmbedder):
             One unit vector per text, in the same order.
         """
         return [self.embed_text(t) for t in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        """Embed one query as it is: the fake runs no model, so it has no prefix.
+
+        Args:
+            text: The query.
+
+        Returns:
+            The unit vector ``embed_text`` gives it.
+
+        Example:
+            >>> await FakeEmbedder().embed_query("vacation days")
+            [...]
+        """
+        return self.embed_text(text)
 
     async def ready(self) -> tuple[bool, str]:
         """Report ready; the fake has nothing to load.

@@ -61,14 +61,19 @@ def st_embedder(
     st_scope: RecordingScope,
 ) -> SentenceTransformerEmbedder:
     return SentenceTransformerEmbedder(
-        st_model, executor, model_name="fake-st", batch_size=8, scope=st_scope
+        st_model,
+        executor,
+        model_name="fake-st",
+        batch_size=8,
+        scope=st_scope,
+        query_prefix="query: ",  # a passage must never get it
     )
 
 
 async def test_st_embedder_encodes_inside_its_scope_on_a_worker(
     st_embedder: SentenceTransformerEmbedder, st_scope: RecordingScope
 ) -> None:
-    await st_embedder.embed(["a"])
+    await st_embedder.embed_documents(["a"])
 
     assert st_embedder.scope is st_scope
     [thread] = st_scope.ran_on
@@ -78,7 +83,7 @@ async def test_st_embedder_encodes_inside_its_scope_on_a_worker(
 async def test_st_embedder_returns_plain_lists_and_normalizes(
     st_embedder: SentenceTransformerEmbedder, st_model: FakeSentenceTransformer
 ) -> None:
-    vectors = await st_embedder.embed(("ab", "abcd"))
+    vectors = await st_embedder.embed_documents(("ab", "abcd"))
     assert vectors == [[2.0, 1.0], [4.0, 1.0]]
     assert type(vectors) is list
     assert all(type(v) is list for v in vectors)
@@ -91,9 +96,24 @@ async def test_st_embedder_returns_plain_lists_and_normalizes(
 async def test_st_embedder_empty_input_skips_model_and_ready_names_model(
     st_embedder: SentenceTransformerEmbedder, st_model: FakeSentenceTransformer
 ) -> None:
-    assert await st_embedder.embed([]) == []
+    assert await st_embedder.embed_documents([]) == []
     assert st_model.calls == []
     assert await st_embedder.ready() == (True, "fake-st")
+
+
+async def test_a_query_is_encoded_alone_with_the_prefix_in_front(
+    st_embedder: SentenceTransformerEmbedder,
+    st_model: FakeSentenceTransformer,
+    st_scope: RecordingScope,
+) -> None:
+    vector = await st_embedder.embed_query("ab")
+
+    assert vector == [9.0, 1.0]  # len("query: ab")
+    assert st_model.calls == [
+        {"texts": ["query: ab"], "batch_size": 8, "normalize_embeddings": True}
+    ]
+    [thread] = st_scope.ran_on
+    assert thread.startswith("rag-model")
 
 
 @pytest.mark.parametrize(("model", "expected"), RUNTIME_LOADS)
@@ -104,7 +124,7 @@ async def test_from_pretrained_loads_the_source_with_the_runtime_arguments(
     expected: dict[str, Any],
 ) -> None:
     embedder = SentenceTransformerEmbedder.from_pretrained(
-        model, executor, batch_size=8, threads=3
+        model, executor, batch_size=8, threads=3, query_prefix="query: "
     )
 
     assert fake_loading.loads == [("SentenceTransformer", model.source, expected)]
@@ -118,11 +138,13 @@ async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
     st_scope: RecordingScope,
 ) -> None:
     rebatched = st_embedder.with_batch_size(3)
-    await rebatched.embed(["a"])
-    await st_embedder.embed(["b"])
+    await rebatched.embed_documents(["a"])
+    await st_embedder.embed_documents(["b"])
+    await rebatched.embed_query("c")
 
     assert type(rebatched) is SentenceTransformerEmbedder
-    assert [call["batch_size"] for call in st_model.calls] == [3, 8]
+    assert [call["batch_size"] for call in st_model.calls] == [3, 8, 3]
+    assert st_model.calls[-1]["texts"] == ["query: c"]  # the prefix is kept
     assert rebatched.scope is st_scope
     assert await rebatched.ready() == (True, "fake-st")
     assert all(thread.startswith("rag-model") for thread in st_scope.ran_on)

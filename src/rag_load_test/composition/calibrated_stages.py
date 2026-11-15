@@ -225,13 +225,15 @@ class RerankStage(BaseCalibratedStage[CrossEncoderReranker]):
 class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
     """The embed stage on the in-process sentence-transformers model.
 
-    Its sample is one question with the query prefix, as the workflow embeds
-    it; a query is one text, so its batch size is never searched.
+    Its sample is one question, embedded as a query the way the workflow embeds
+    it, so the embedder puts the query prefix in front; a query is one text, so
+    its batch size is never searched.
 
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
-        settings: ``embedding_query_prefix``.
+        settings: ``embedding_query_prefix``, a setting of the embedder that
+            each loaded adapter takes.
 
     Example:
         >>> stage = EmbedStage(model, pool, settings)
@@ -244,8 +246,8 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
         self, model: LocalModel, pool: Executor, settings: RagSettings
     ) -> None:
         self._model, self._pool = model, pool
-        question = calibration_sample(1).question
-        self._query = settings.embedding_query_prefix + question
+        self._query_prefix = settings.embedding_query_prefix
+        self._question = calibration_sample(1).question
 
     async def loaded(self, threads: int) -> SentenceTransformerEmbedder:
         """Load the embedding model for ``threads`` threads.
@@ -254,10 +256,15 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
             threads: Native threads one encode call may use.
 
         Returns:
-            The embedder, at batch size 1 until ``rebatched``.
+            The embedder, at batch size 1 until ``rebatched``, with the query
+            prefix of the settings.
         """
         return SentenceTransformerEmbedder.from_pretrained(
-            self._model, self._pool, batch_size=1, threads=threads
+            self._model,
+            self._pool,
+            batch_size=1,
+            threads=threads,
+            query_prefix=self._query_prefix,
         )
 
     def rebatched(
@@ -275,12 +282,12 @@ class EmbedStage(BaseCalibratedStage[SentenceTransformerEmbedder]):
         return adapter.with_batch_size(batch_size)
 
     async def serve_sample(self, adapter: SentenceTransformerEmbedder) -> None:
-        """Embed the sample question, as the workflow embeds a question.
+        """Embed the sample question as a query, as the workflow embeds a question.
 
         Args:
             adapter: The embedder under trial.
         """
-        await adapter.embed([self._query])
+        await adapter.embed_query(self._question)
 
     def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
         """Name the one setting embed calibration searches: its batch size is not.

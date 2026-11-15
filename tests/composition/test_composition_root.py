@@ -141,7 +141,7 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
     )
     async with composition:
         deps = await composition.workflow_dependencies()
-        assert await deps.embedder.embed(["q"]) == [[1.0, 0.0]]
+        assert await deps.embedder.embed_documents(["q"]) == [[1.0, 0.0]]
         candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
         [ranked] = await deps.reranker.rerank("q", [candidate], 1)
         assert ranked.rerank_score == 0.9
@@ -177,9 +177,9 @@ async def test_api_embedder_batches_and_retries_as_configured(
     )
     async with composition:
         embedder, _ = await composition.ingest_ports()
-        assert await embedder.embed(["a", "b"]) == [[1.0], [1.0]]
+        assert await embedder.embed_documents(["a", "b"]) == [[1.0], [1.0]]
         with pytest.raises(RagDependencyError, match="HTTP 503"):
-            await embedder.embed(["c"])
+            await embedder.embed_documents(["c"])
 
     assert sent == [["a", "b"], ["c"]]  # batches of 2; the 503 is not retried
 
@@ -191,7 +191,7 @@ async def test_local_models_use_the_configured_batch_sizes(
     settings = settings_factory(**batch_sizes, **PINNED_THREADS)
     candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
     async with CompositionRoot(settings) as composition:
-        await (await composition.local_embedder()).embed(["hello"])
+        await (await composition.local_embedder()).embed_documents(["hello"])
         await (await composition.local_reranker()).rerank("q", [candidate], 1)
 
     assert fake_weights.batch_sizes == [("encode", 16), ("predict", 8)]
@@ -288,7 +288,7 @@ async def test_local_models_ignore_the_configured_backend(
         embedder = await composition.local_embedder()
 
         assert isinstance(embedder, SentenceTransformerEmbedder)
-        assert await embedder.embed(["hello"]) == [[1.0, 0.0]]
+        assert await embedder.embed_documents(["hello"]) == [[1.0, 0.0]]
         assert fake_weights.loaded == [EMBEDDER_WEIGHTS]
         assert isinstance(await composition.local_reranker(), CrossEncoderReranker)
 
@@ -351,7 +351,7 @@ async def test_leaving_the_block_releases_the_pool_and_the_http_client(
 
     assert transport.closed
     with pytest.raises(RuntimeError, match="after shutdown"):
-        await deps.embedder.embed(["the model pool is gone"])
+        await deps.embedder.embed_documents(["the model pool is gone"])
 
 
 # --- thread budget ----------------------------------------------------------------------

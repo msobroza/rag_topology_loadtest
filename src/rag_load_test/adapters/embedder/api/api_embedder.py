@@ -1,9 +1,13 @@
 """BaseEmbedder over an HTTP endpoint that speaks an embeddings API format.
 
+The query prefix goes on here, before the request: an embeddings format has no
+field for it, and a model server of ours embeds what it receives as it is, so
+the text on the wire is the text the model encodes.
+
 Example:
     >>> embedder = ApiEmbedder(endpoint_client, EMBEDDING_API_FORMATS.get("openai")(),
-    ...                        batch_size=64)
-    >>> vectors = await embedder.embed(["vacation policy", "expense report"])
+    ...                        batch_size=64, query_prefix="query: ")
+    >>> vectors = await embedder.embed_documents(["vacation policy", "expense report"])
 """
 
 from __future__ import annotations
@@ -37,11 +41,13 @@ class ApiEmbedder(BaseEmbedder):
             ``embedder``).
         api_format: Builds each request body and reads each answer.
         batch_size: Texts per request.
+        query_prefix: Put in front of a query, never of a passage; "" for a
+            model that takes none.
 
     Example:
         >>> embedder = ApiEmbedder(endpoint_client, OpenAIEmbeddingsFormat(),
-        ...                        batch_size=64)
-        >>> await embedder.embed(["a", "b"])
+        ...                        batch_size=64, query_prefix="query: ")
+        >>> await embedder.embed_documents(["a", "b"])
         [[0.1, ...], [0.3, ...]]
     """
 
@@ -51,13 +57,14 @@ class ApiEmbedder(BaseEmbedder):
         api_format: BaseEmbeddingApiFormat,
         *,
         batch_size: int,
+        query_prefix: str,
     ) -> None:
         self._endpoint_client, self._api_format = endpoint_client, api_format
-        self._batch_size = batch_size
+        self._batch_size, self._query_prefix = batch_size, query_prefix
         self.model_name = endpoint_client.endpoint.model
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed texts, ``batch_size`` per request.
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed texts as they are, ``batch_size`` per request.
 
         Args:
             texts: The texts to embed; none sends no request.
@@ -74,6 +81,26 @@ class ApiEmbedder(BaseEmbedder):
             batch = texts[start : start + self._batch_size]
             vectors.extend(await self._embed_batch(batch, self._endpoint_client.post))
         return vectors
+
+    async def embed_query(self, text: str) -> list[float]:
+        """Embed one query, the query prefix put in front before it is sent.
+
+        Args:
+            text: The query, as the user asked it.
+
+        Returns:
+            Its vector.
+
+        Raises:
+            RagDependencyError: If the request fails, or the answer is not the
+                format's shape or has not one vector.
+
+        Example:
+            >>> vector = await embedder.embed_query("How many vacation days?")
+        """
+        query = self._query_prefix + text
+        [vector] = await self._embed_batch([query], self._endpoint_client.post)
+        return vector
 
     async def ready(self) -> tuple[bool, str]:
         """Embed one short text, once and without retry, to see the endpoint work.
@@ -117,6 +144,7 @@ def open_api_embedder(
     tokens: RunTokenSource,
     policy: HttpPolicy,
     batch_size: int,
+    query_prefix: str,
 ) -> ApiEmbedder:
     """Build the embedder of one embeddings endpoint.
 
@@ -126,6 +154,7 @@ def open_api_embedder(
         tokens: Where the Domino run token comes from, for the ``domino`` key.
         policy: Timeout, retries and backoff of every call.
         batch_size: Texts per request.
+        query_prefix: Put in front of a query, never of a passage.
 
     Returns:
         The embedder.
@@ -135,10 +164,12 @@ def open_api_embedder(
 
     Example:
         >>> open_api_embedder(client, endpoint, tokens=tokens, policy=policy,
-        ...                   batch_size=64)
+        ...                   batch_size=64, query_prefix="query: ")
     """
     api_format = EMBEDDING_API_FORMATS.get(endpoint.api_format)()
     endpoint_client = open_endpoint_client(
         client, endpoint, component="embedder", tokens=tokens, policy=policy
     )
-    return ApiEmbedder(endpoint_client, api_format, batch_size=batch_size)
+    return ApiEmbedder(
+        endpoint_client, api_format, batch_size=batch_size, query_prefix=query_prefix
+    )

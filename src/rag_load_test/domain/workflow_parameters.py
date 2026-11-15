@@ -25,9 +25,9 @@ class WorkflowParameters:
 
     ``top_k_retrieve`` candidates come from the store by ``retrieval_mode``,
     ``top_k_rerank`` are kept for the LLM, and ``prompts`` frame them.
-    ``query_prefix`` goes in front of the question before it is embedded (some
-    embedding models expect one on queries); ``rrf_k`` is the rank constant of
-    the fusion a ``hybrid`` retrieval ends with.
+    ``rrf_k`` is the rank constant of the fusion a ``hybrid`` retrieval ends
+    with. The query prefix is not here: it belongs to the embedding model, and
+    the embedder applies it.
     """
 
     top_k_retrieve: int
@@ -35,4 +35,3 @@ class WorkflowParameters:
     prompts: RagPrompts
     retrieval_mode: RetrievalMode
     rrf_k: int
-    query_prefix: str

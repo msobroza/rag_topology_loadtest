@@ -26,8 +26,9 @@ class FakeSentenceTransformersModule(ModuleType):
 
     ``loaded`` holds ``<role>:<name>`` per constructor call, the export's load
     included; ``saved`` the folders ``save_pretrained`` wrote, ``save_threads`` the
-    thread each save ran on. Set ``save_error`` to make ``save_pretrained`` write a
-    partial file and then raise it.
+    thread each save ran on; ``encoded`` the texts of each ``encode`` call, as
+    the model received them. Set ``save_error`` to make ``save_pretrained`` write
+    a partial file and then raise it.
     """
 
     def __init__(self) -> None:
@@ -36,6 +37,7 @@ class FakeSentenceTransformersModule(ModuleType):
         self.saved: list[str] = []
         self.save_threads: list[str] = []
         self.batch_sizes: list[tuple[str, int]] = []
+        self.encoded: list[list[str]] = []
         self.load_arguments: list[dict[str, object]] = []  # the runtime's, per load
         self.save_error: Exception | None = None
         self.SentenceTransformer = self._model_class("embedder")
@@ -70,6 +72,7 @@ class FakeSentenceTransformersModule(ModuleType):
                 self, texts: list[str], *, batch_size: int, normalize_embeddings: bool
             ) -> np.ndarray:
                 fake.batch_sizes.append(("encode", batch_size))
+                fake.encoded.append(list(texts))
                 return np.array([[1.0, 0.0] for _ in texts])
 
             def predict(

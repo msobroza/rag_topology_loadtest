@@ -16,7 +16,7 @@ async def ingest(
     *,
     batch_size: int = 64,
 ) -> int:
-    """Embed passages in batches and upsert them.
+    """Embed passages in batches, as documents with no query prefix, and upsert them.
 
     Args:
         passages: The passages to store.
@@ -29,5 +29,6 @@ async def ingest(
     """
     for start in range(0, len(passages), batch_size):
         batch = passages[start : start + batch_size]
-        await store.upsert(batch, await embedder.embed([p.text for p in batch]))
+        vectors = await embedder.embed_documents([p.text for p in batch])
+        await store.upsert(batch, vectors)
     return len(passages)

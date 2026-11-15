@@ -101,7 +101,7 @@ class RagSettings(BaseSettings):
     embedding_model: str = "Snowflake/snowflake-arctic-embed-l-v2.0"
     # Put in front of every question before it is embedded (arctic-embed expects
     # it on queries, never on passages); "" for a model that takes none. The
-    # fake backend gets none: see workflow_parameters.
+    # local and api embedders take it; the fake runs no model and has none.
     embedding_query_prefix: str = "query: "
     embedding_api_url: str = ""  # the full route, e.g. http://host:8002/v3/embeddings
     # A format registered in adapters/embedder/api/. The settings cannot import
@@ -349,9 +349,6 @@ class RagSettings(BaseSettings):
     def workflow_parameters(self) -> WorkflowParameters:
         """Build what ``RagWorkflow`` runs with: retrieval mode, sizes and prompts.
 
-        The query prefix belongs to the embedding model, so the ``fake`` embedder,
-        which runs none, gets "".
-
         Returns:
             The workflow parameters from the retrieval settings and the two
             prompts.
@@ -359,14 +356,12 @@ class RagSettings(BaseSettings):
         Example:
             >>> RagWorkflow(deps, RagSettings().workflow_parameters())
         """
-        is_fake = self.embedding_backend == "fake"
         return WorkflowParameters(
             top_k_retrieve=self.top_k_retrieve,
             top_k_rerank=self.top_k_rerank,
             prompts=RagPrompts(system=self.system_prompt, user=self.user_prompt),
             retrieval_mode=self.retrieval_mode,
             rrf_k=self.hybrid_rrf_k,
-            query_prefix="" if is_fake else self.embedding_query_prefix,
         )
 
     def embedding_api(self) -> ApiEndpoint:

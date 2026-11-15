@@ -49,11 +49,11 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
     async with CompositionRoot(settings) as composition:
         embedder, store = await composition.ingest_ports()
         passage = Passage(id="p1", text="Employees accrue vacation days")
-        await store.upsert([passage], await embedder.embed([passage.text]))
+        await store.upsert([passage], await embedder.embed_documents([passage.text]))
 
         assert isinstance(store, ChromaVectorStore)
         assert await store.ready() == (True, "1 passages in passages_under_test")
-        [vector] = await embedder.embed([passage.text])
+        [vector] = await embedder.embed_documents([passage.text])
         [hit] = await store.query(vector, 5)
         assert hit.id == "p1"
     assert (tmp_path / "chroma").is_dir()  # embedded: written where the settings say
@@ -335,7 +335,9 @@ async def test_concurrent_openvino_embeds_never_overlap_on_one_model(
     container = FakeCpuCounter(8, "container")
     async with CompositionRoot(settings, container_cpus=container) as composition:
         embedder = await composition.local_embedder()
-        vectors = await asyncio.gather(*(embedder.embed([f"q{i}"]) for i in range(4)))
+        vectors = await asyncio.gather(
+            *(embedder.embed_documents([f"q{i}"]) for i in range(4))
+        )
 
     assert vectors == [[[1.0, 0.0]]] * 4
 

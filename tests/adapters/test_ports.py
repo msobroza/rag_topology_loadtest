@@ -65,7 +65,10 @@ def test_a_class_with_the_right_methods_but_no_port_base_is_not_a_port() -> None
     class DuckEmbedder:
         model_name = "duck"
 
-        async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+            return []
+
+        async def embed_query(self, text: str) -> list[float]:
             return []
 
         async def ready(self) -> tuple[bool, str]:

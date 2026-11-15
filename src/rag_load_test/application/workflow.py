@@ -205,8 +205,8 @@ class RagWorkflow:
         )
 
     async def _embed(self, state: RagState) -> dict[str, Any]:
-        query = self.parameters.query_prefix + state["question"]
-        [vector] = await self.deps.embedder.embed([query])
+        # A query, not a passage: the embedder puts its model's prefix in front.
+        vector = await self.deps.embedder.embed_query(state["question"])
         return {"query_embedding": vector}
 
     async def _retrieve(self, state: RagState) -> dict[str, Any]:

@@ -36,14 +36,13 @@ DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 
 
 def workflow_parameters(**overrides: object) -> WorkflowParameters:
-    """Dense retrieval of 20, 10 kept, no query prefix; ``overrides`` win."""
+    """Dense retrieval of 20, 10 kept; ``overrides`` win."""
     values: dict[str, object] = {
         "top_k_retrieve": 20,
         "top_k_rerank": 10,
         "prompts": RagPrompts(system="s", user="{question} {context}"),
         "retrieval_mode": "dense",
         "rrf_k": 60,
-        "query_prefix": "",
     }
     return WorkflowParameters(**{**values, **overrides})  # type: ignore[arg-type]
 
@@ -114,7 +113,7 @@ async def test_no_reranker_keeps_retrieval_order(
     workflow = RagWorkflow(deps, parameters)
     result = await workflow.run(VACATION_QUESTION, mode="retrieve")
 
-    [vector] = await deps.embedder.embed([VACATION_QUESTION])
+    vector = await deps.embedder.embed_query(VACATION_QUESTION)
     expected = await deps.vector_store.query(vector, DEFAULT_TOP_K_RETRIEVE)
     first_kept = [p.id for p in expected[:DEFAULT_TOP_K_RERANK]]
     assert [p.id for p in result.passages] == first_kept
@@ -201,16 +200,21 @@ async def test_every_step_of_the_graph_reaches_a_tracer_with_a_name(
 
 
 class RecordingEmbedder(BaseEmbedder):
-    """Answers a fixed vector and records every text it was asked to embed."""
+    """Answers a fixed vector and records every query and passage it embedded."""
 
     model_name = "recording-embedder"
 
     def __init__(self) -> None:
-        self.texts: list[str] = []
+        self.queries: list[str] = []
+        self.passages: list[str] = []
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        self.texts.extend(texts)
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        self.passages.extend(texts)
         return [[1.0, 0.0] for _ in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        self.queries.append(text)
+        return [1.0, 0.0]
 
     async def ready(self) -> tuple[bool, str]:
         return True, self.model_name
@@ -285,7 +289,7 @@ async def test_lexical_mode_skips_the_embed_stage_and_asks_by_words(
 
     assert [p.id for p in result.passages] == ["z", "y"]
     assert store.calls == [("lexical", "vacation days", 2)]
-    assert embedder.texts == []  # no vector is needed, so none is computed
+    assert embedder.queries == []  # no vector is needed, so none is computed
     assert result.timings_ms["embed"] == 0.0
     assert result.timings_ms["retrieve"] > 0.0
 
@@ -309,18 +313,19 @@ async def test_hybrid_mode_asks_both_ways_and_fuses_by_rank(
     ]
 
 
-async def test_the_query_prefix_goes_in_front_of_the_embedded_question_only(
+async def test_the_embed_stage_embeds_the_question_as_a_query(
     fake_deps: RagDependencies,
 ) -> None:
     store, embedder = ScriptedStore(["a"], ["a"]), RecordingEmbedder()
     workflow = RagWorkflow(
         scripted_deps(fake_deps, store, embedder),
-        workflow_parameters(retrieval_mode="hybrid", query_prefix="query: "),
+        workflow_parameters(retrieval_mode="hybrid"),
     )
 
     result = await workflow.run("vacation days", mode="retrieve")
 
-    assert embedder.texts == ["query: vacation days"]
+    # As the user asked it: the embedder puts its own prefix in front.
+    assert (embedder.queries, embedder.passages) == (["vacation days"], [])
     lexical_calls = [call for call in store.calls if call[0] == "lexical"]
     assert lexical_calls == [("lexical", "vacation days", 20)]  # words, unprefixed
     assert result.question == "vacation days"

@@ -10,12 +10,6 @@ from pydantic import ValidationError
 from rag_load_test.config.rag_settings import RagSettings
 
 SettingsFactory = Callable[..., RagSettings]
-EMBED_URL = "http://embedder/v3/embeddings"
-SPLIT_ALL = {
-    "topology": "split-all",
-    "embedding_api_url": EMBED_URL,
-    "rerank_api_url": "http://reranker/v3/rerank",
-}
 
 
 # --- defaults ------------------------------------------------------------------
@@ -141,20 +135,3 @@ def test_the_retrieval_mode_and_the_store_name_the_run(
     s = settings_factory(vector_store_backend="fake", retrieval_mode="lexical")
 
     assert s.run_label == "monolith+store=fake+retrieval=lexical"
-
-
-@pytest.mark.parametrize(
-    ("overrides", "prefix"),
-    [
-        ({}, "query: "),  # monolith: the model in-process
-        (SPLIT_ALL, "query: "),  # our model behind a model server
-        ({"embedding_backend": "api", "embedding_api_url": EMBED_URL}, "query: "),
-        ({"embedding_backend": "fake"}, ""),
-        ({"embedding_query_prefix": ""}, ""),
-    ],
-)
-def test_the_query_prefix_goes_to_every_embedder_but_the_fake(
-    settings_factory: SettingsFactory, overrides: dict[str, str], prefix: str
-) -> None:
-    # The fake embedder runs no model, so it has no query convention.
-    assert settings_factory(**overrides).workflow_parameters().query_prefix == prefix

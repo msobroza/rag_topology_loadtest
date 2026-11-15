@@ -6,7 +6,7 @@ the methods that need them, so importing this module stays cheap.
 
 Example:
     >>> embedder = SentenceTransformerEmbedder.from_pretrained(
-    ...     model, pool, batch_size=64, threads=2)
+    ...     model, pool, batch_size=64, threads=2, query_prefix="query: ")
 """
 
 from __future__ import annotations
@@ -30,13 +30,15 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         model_name: The name ``ready`` reports.
         batch_size: Texts per ``encode`` batch.
         scope: Caps the OpenMP threads of each encode call.
+        query_prefix: Put in front of a query, never of a passage; "" for a
+            model that takes none.
 
     Example:
         >>> model = local_model("org/embedder", runtime="torch", models_dir="models")
         >>> embedder = SentenceTransformerEmbedder.from_pretrained(
-        ...     model, pool, batch_size=64, threads=2
+        ...     model, pool, batch_size=64, threads=2, query_prefix="query: "
         ... )
-        >>> [vector] = await embedder.embed(["vacation policy"])
+        >>> vector = await embedder.embed_query("vacation policy")
     """
 
     def __init__(
@@ -47,13 +49,21 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         model_name: str,
         batch_size: int,
         scope: NativeThreadScope,
+        query_prefix: str,
     ) -> None:
         self._model, self._executor, self._batch_size = model, executor, batch_size
         self.model_name, self.scope = model_name, scope
+        self._query_prefix = query_prefix
 
     @classmethod
     def from_pretrained(
-        cls, model: LocalModel, executor: Executor, *, batch_size: int, threads: int
+        cls,
+        model: LocalModel,
+        executor: Executor,
+        *,
+        batch_size: int,
+        threads: int,
+        query_prefix: str,
     ) -> SentenceTransformerEmbedder:
         """Load a ``SentenceTransformer`` on CPU, then build its thread scope.
 
@@ -62,6 +72,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             executor: The shared inference pool the encode calls run on.
             batch_size: Texts per ``encode`` batch.
             threads: Threads one encode call may use.
+            query_prefix: Put in front of a query, never of a passage.
 
         Returns:
             The embedder on the loaded model.
@@ -74,11 +85,16 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         # After the model: the scope only sees native libraries already loaded.
         scope = NativeThreadScope(threads)
         return cls(
-            loaded, executor, model_name=model.name, batch_size=batch_size, scope=scope
+            loaded,
+            executor,
+            model_name=model.name,
+            batch_size=batch_size,
+            scope=scope,
+            query_prefix=query_prefix,
         )
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed texts on the pool, inside the model's thread scope.
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed texts as they are, on the pool, inside the model's thread scope.
 
         Args:
             texts: The texts to embed; none returns ``[]`` without a model call.
@@ -88,9 +104,22 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         """
         if not texts:
             return []
-        return await run_blocking(
-            self._executor, self.scope.run, self._encode, list(texts)
-        )
+        return await self._run_encode(list(texts))
+
+    async def embed_query(self, text: str) -> list[float]:
+        """Embed one query with the query prefix in front, as one encode call.
+
+        Args:
+            text: The query, as the user asked it.
+
+        Returns:
+            Its unit-norm vector.
+
+        Example:
+            >>> vector = await embedder.embed_query("How many vacation days?")
+        """
+        [vector] = await self._run_encode([self._query_prefix + text])
+        return vector
 
     def with_batch_size(self, batch_size: int) -> SentenceTransformerEmbedder:
         """Return this adapter at another batch size, on the same loaded model.
@@ -102,8 +131,8 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             batch_size: Texts per ``encode`` batch.
 
         Returns:
-            A new adapter sharing the model, the pool, the model name and the
-            thread scope.
+            A new adapter sharing the model, the pool, the model name, the
+            thread scope and the query prefix.
 
         Example:
             >>> smaller = adapter.with_batch_size(2)
@@ -114,6 +143,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             model_name=self.model_name,
             batch_size=batch_size,
             scope=self.scope,
+            query_prefix=self._query_prefix,
         )
 
     async def ready(self) -> tuple[bool, str]:
@@ -123,6 +153,9 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             ``True`` and the model name.
         """
         return True, self.model_name
+
+    async def _run_encode(self, texts: list[str]) -> list[list[float]]:
+        return await run_blocking(self._executor, self.scope.run, self._encode, texts)
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
         # Unit-norm vectors, so cosine similarity is a plain dot product.

@@ -105,7 +105,6 @@ def test_workflow_parameters_carry_the_sizes_and_the_prompts(
         prompts=RagPrompts(system=SYSTEM_PROMPT, user=USER_PROMPT),
         retrieval_mode="dense",
         rrf_k=60,
-        query_prefix="query: ",
     )
 
 

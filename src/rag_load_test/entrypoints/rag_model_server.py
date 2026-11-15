@@ -156,7 +156,9 @@ async def embeddings(body: OpenAIEmbeddingsRequest, request: Request) -> JSONRes
     alias = request.app.state.alias
     if body.model != alias:
         return _unknown_model()
-    vectors = await request.app.state.embedder.embed(body.input)
+    # As documents: a client of ours has already put the query prefix in front of
+    # a query, so adding it here would prefix that query twice.
+    vectors = await request.app.state.embedder.embed_documents(body.input)
     return JSONResponse(embeddings_response_for(alias, vectors).model_dump())
 
 
