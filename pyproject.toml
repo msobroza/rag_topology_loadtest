@@ -103,6 +103,9 @@ filterwarnings = [
 line-length = 88
 target-version = "py311"
 src = ["src", "tests/helpers"]
+# vulture's input, a list of bare names, not code: a bare `ruff check .` then
+# agrees with `make lint`, which never passes it.
+extend-exclude = ["vulture_whitelist.py"]
 
 [tool.ruff.lint]
 # Preview is on for DOC501 alone: explicit-preview-rules keeps every other
