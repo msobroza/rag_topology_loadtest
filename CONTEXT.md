@@ -4,6 +4,16 @@ One text RAG workflow, deployed in several topologies on Domino, and a Locust su
 
 ## Language
 
+### Packages
+
+**Toolkit**:
+What every use case is built from: the stage types, the components and their backends, the deploy tool and the load-test client. Its package is `query_processing`.
+_Avoid_: framework, library, platform
+
+**Use case**:
+One application of the toolkit, in a package of its own that installs it: the settings of its workflow, components and topologies. RAG is the first, in `query_processing_rag_usecase`.
+_Avoid_: project, app (that is what Domino publishes), workflow (a use case has one, and more besides)
+
 ### Applications
 
 The code is three applications over one shared domain; the README's "Where a file goes" places each.
@@ -41,19 +51,23 @@ _Avoid_: factory (a factory builds one port), container, wiring
 ### Deployment shape
 
 **Topology**:
-Where the embedder and the reranker run relative to the workflow app. A closed set: `monolith` (both in its process), `split-reranker` (reranker behind a model server), `split-all` (both behind model servers).
+Where each component runs relative to the workflow app: `local` in its process, or `served` behind a model server. The three compared are `monolith` (nothing served), `split-reranker` (the reranker served) and `split-all` (the embedder and the reranker served, each by its own App). The deploy tool applies it: the workflow app only reads each component's backend.
 _Avoid_: deployment, layout, and using "topology" for a free-form name (that is a run label)
 
+**Topology alias**:
+The name a topology is chosen by, defined in the deploy settings: `monolith`, `split-reranker`, `split-all`.
+_Avoid_: alias alone (that is a served model's name), profile, preset
+
 **Component**:
-One of the three model steps of the workflow: embedding, rerank, generation. Each has its own backend and its own endpoint settings, shaped the same way.
-_Avoid_: model, service, and "embedder" or "reranker" for the setting (those are the objects that do the work)
+A named thing a stage calls that has a backend: a model (the embedder, the reranker, the LLM) or the vector store. Its type is the port it is used through, and components of one type have settings shaped the same way.
+_Avoid_: model, service, resource, dependency
 
 **Backend**:
-How a component, or the vector store, runs: `local` (a model loaded in the workflow app's process), `api` (an endpoint called over HTTP), `fake`, `none` (rerank only), and for the store `elasticsearch`, `chroma`, `fake`. The topology decides the embedding and rerank backends; `api`, `fake` and `none` load no model of ours into the process and are variants allowed in any topology. Generation is `api` or `fake`.
-_Avoid_: provider, implementation, driver, and a vendor's name for a backend (a vendor is reached through an endpoint)
+How a component runs: `local` (a model loaded in the process that calls it), `served` (a model server of ours serves it), `api` (an endpoint we do not run, called over HTTP), `fake`, `none` (rerank only), and for the vector store `elasticsearch`, `chroma`, `fake`. A topology says `local` or `served` for the components it names. Generation has no `local` backend.
+_Avoid_: provider, implementation, driver, external (that is `api`), and a vendor's name for a backend (a vendor is reached through an endpoint)
 
 **Endpoint**:
-Where a component on the `api` backend is called: the full route, the API format it speaks, an API key and the model name sent. A model server of ours, a gateway and a vendor's API are all endpoints.
+Where a component on the `served` or `api` backend is called: the full route, the API format it speaks, an API key and the model name sent. A model server of ours, a gateway and a vendor's API are all endpoints.
 _Avoid_: base URL (an endpoint is the full route), hosted API, external model, remote model
 
 **API format**:
@@ -89,18 +103,22 @@ _Avoid_: model name, weights id
 
 **Alias**:
 The name clients send to a model server to select a served model.
-_Avoid_: servable, model name
+_Avoid_: servable, model name, and "alias" for a topology's name (that is a topology alias)
 
 **Role**:
-What one Domino app is published as: a workflow app (`monolith` for the monolith topology, `workflow` for a split topology) or a model server (an OpenVINO Model Server or a FastAPI model server, for the reranker or the embedder).
+What one Domino App is published as: the workflow app (`workflow`) or a model server (`model-server`), which is told the component it serves and its kind.
 _Avoid_: mode, app type
+
+**Model-server kind**:
+What serves a component in a model-server App: `fastapi` or `ovms`. Each kind says which component types it can serve.
+_Avoid_: server type, runtime (that is what runs an in-process model)
 
 **App**:
 What Domino publishes and serves behind its proxy, in one role; an Agent is an App with tracing.
 _Avoid_: service, deployment
 
 **App part**:
-Which App of a topology it is: the workflow app (`workflow`), or the model server of the embedder (`embedder`) or of the reranker (`reranker`). A topology's App parts follow from the backends it implies; the App is named `rag-<part>`.
+Which App of a topology it is: the workflow app (`workflow`), or the model server of one served component, named after it (`embedder`, `reranker`). A topology's App parts are the components it serves, plus the workflow app. The App is named by the use case's prefix and the part, such as `qp-rag-reranker`.
 _Avoid_: role (a role also says what serves the model, and which workflow app), app name
 
 **Instance**:
@@ -110,6 +128,10 @@ _Avoid_: pod, replica, and "instance" for a cloud VM (that is a machine)
 **Hardware tier**:
 A named size of compute that Domino runs an App or a Workspace on. In the emulation each tier is a pool of machines of one size.
 _Avoid_: machine type, instance type, flavour
+
+**Environment**:
+The Domino compute environment an App or a Workspace starts in. An environment revision is one build of it, and an App can be held to one.
+_Avoid_: image, environment version (Domino says revision)
 
 **Dataset**:
 A folder of files Domino shares with the Apps and Workspaces of a project; the exported models live in one.
@@ -150,8 +172,20 @@ _Avoid_: cache (alone), state bucket (that is Terraform's)
 ### Workflow
 
 **Stage**:
-One step of the workflow, in order: embed, retrieve, rerank, generate. Timings are reported per stage.
+One step of the workflow graph, calling the component it names. The RAG workflow has four, in order: embed, retrieve, rerank, generate. Timings are reported per stage.
 _Avoid_: step, node, phase
+
+**Stage type**:
+The registered behaviour a stage is an instance of. A new kind of step is a new stage type.
+_Avoid_: node type, stage adapter (a stage implements no port)
+
+**Edge**:
+A link from one stage to the next. A conditional edge asks an edge condition and goes one way on yes and another on no.
+_Avoid_: link, transition, arrow
+
+**Edge condition**:
+A registered yes-or-no question about the workflow state, asked by a conditional edge.
+_Avoid_: condition (alone), predicate, guard, rule
 
 **Mode**:
 How far a request runs through the stages: `query` runs all four, `retrieve` stops after rerank.
@@ -159,6 +193,35 @@ How far a request runs through the stages: `query` runs all four, `retrieve` sto
 **Retrieval mode**:
 How the retrieve stage finds candidates: `dense` (by vector), `lexical` (by words, ranked by the store) or `hybrid` (both, fused by reciprocal rank). A lexical workflow has no embed stage.
 _Avoid_: search type, and plain "mode" for it (that is query or retrieve)
+
+### Conversation
+
+**Message**:
+One thing one party sends: a question or an answer. On another channel it would be an email or an utterance.
+
+**Turn**:
+One message from the user and the answer the workflow gave it.
+_Avoid_: exchange, round
+
+**Conversation**:
+The turns that belong together, in order.
+_Avoid_: thread, session, dialogue
+
+**History**:
+The turns of the conversation before the current one, as the workflow receives them. There is none today: every question is answered on its own.
+_Avoid_: memory, context (that is the passages given to the LLM)
+
+**Conversational query**:
+The user's message as sent in a turn. It may lean on the history.
+_Avoid_: raw query, user query
+
+**Standalone query**:
+The same request made self-contained, which the stages search with. Today it is the message itself, since there is no history.
+_Avoid_: rewritten query, condensed question
+
+**Channel**:
+How messages reach the workflow and leave it. Chat over HTTP is the only one today; email and calls would be others.
+_Avoid_: interface, medium
 
 ### Load test
 
@@ -171,7 +234,7 @@ The name the load-test side gives a run; it names the run's result files.
 _Avoid_: run label
 
 **Run label**:
-The free-form name the workflow app reports for the configuration being measured. Defaults to the topology plus every choice (embedding, rerank, store, generation, retrieval) that differs from its default; set explicitly to name a variant such as model-server kind or hardware tier.
+The free-form name the workflow app reports for the configuration being measured. Defaults to each component with its backend; the deploy tool sets it to the topology alias plus each served component's model-server kind. Set explicitly to name a variant such as a hardware tier.
 _Avoid_: deployment, topology label, run name
 
 **Target record**:
