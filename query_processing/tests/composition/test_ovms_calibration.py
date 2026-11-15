@@ -147,6 +147,7 @@ async def test_start_up_calibrates_then_writes_the_folder_for_the_choice(
     assert {p.name for p in models.iterdir()} == {
         "config_reranker.json",
         "config_embedder.json",
+        "weight-format",
         settings.components["reranker"].alias,
         settings.components["embedder"].alias,
     }  # nothing written into the export
@@ -253,3 +254,39 @@ async def test_a_candidate_slower_than_the_budget_is_kept_untimed_not_a_failure(
     assert (calibrated["trials"], calibrated["cut_short"]) == ([], True)
     [line] = logged(caplog, "ovms_serving_config")
     assert (line["streams"], line["threads"], line["calibrated"]) == (1, 2, False)
+
+
+# --- the weight format of the export -----------------------------------------------
+
+
+async def test_an_export_of_another_weight_format_is_refused_before_ovms_starts(
+    settings_factory: SettingsFactory, models: Path, record: Path, tmp_path: Path
+) -> None:
+    (models / "weight-format").write_text("int8\n")
+    settings = two_cpus(settings_factory)  # asks fp32, the default
+
+    with pytest.raises(
+        ValueError, match="weight format int8, but fp32 was asked"
+    ) as refusal:
+        await serving_config(
+            settings, ovms_settings(), "reranker", models, tmp_path / "s"
+        )
+
+    assert ovms_starts(record) == []
+    message = str(refusal.value)
+    assert str(models) in message
+    # Both ways out: serve what the folder holds, or export into another folder.
+    assert "QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=int8" in message
+    assert "QP_OVMS_MODELS_DIR" in message
+
+
+async def test_an_export_without_a_record_is_served_when_int8_is_asked(
+    settings_factory: SettingsFactory, models: Path, record: Path, tmp_path: Path
+) -> None:
+    (models / "weight-format").unlink()  # exported before the record: int8
+    settings = two_cpus(settings_factory, local_models__openvino_weight_format="int8")
+    pinned = ovms_settings(num_streams=1, threads=1)
+
+    config = await serving_config(settings, pinned, "reranker", models, tmp_path / "s")
+
+    assert config == tmp_path / "s" / "config_reranker.json"

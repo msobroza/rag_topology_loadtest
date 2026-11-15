@@ -161,8 +161,8 @@ overrides:
   # calls run at once (torch only; openvino runs one call at a time):
   # local_models: {openvino_dir: /domino/datasets/local/<dataset>/openvino, workers: 2}
   # What both OpenVINO exports store the weights as, fp32 (default) or int8, a
-  # key of the same block; an OVMS folder exported at another format stops its
-  # App (see the README):
+  # key of the same block (the workflow file may state it instead); an OVMS
+  # folder exported at another format stops its App (see the README):
   # local_models: {openvino_weight_format: fp32}
   # The default timeout, retries and backoff of every call to a served or api
   # component:

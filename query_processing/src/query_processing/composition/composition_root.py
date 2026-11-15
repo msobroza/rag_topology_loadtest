@@ -71,6 +71,7 @@ from .ovms_calibration import (
     OvmsAppCalibration,
     OvmsCalibration,
     OvmsServedComponent,
+    require_asked_weight_format,
 )
 from .resource_scope import ResourceScope
 
@@ -266,7 +267,8 @@ class CompositionRoot:
 
         Each of ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS`` left at 0 is
         calibrated, one ``ovms`` start per candidate (``ovms`` on ``PATH``);
-        with both pinned nothing is started.
+        with both pinned nothing is started. An export of another weight
+        format than the settings ask is refused first.
 
         Args:
             name: An embedder or reranker component of the workflow file.
@@ -278,7 +280,9 @@ class CompositionRoot:
             The config file to start OVMS with.
 
         Raises:
-            ValueError: If ``name`` is no component, or one OVMS cannot serve.
+            ValueError: If ``name`` is no component, or one OVMS cannot serve,
+                or the export holds another weight format than the settings'
+                ``local_models.openvino_weight_format``.
 
         Example:
             >>> await composition.ovms_serving_config(
@@ -286,6 +290,8 @@ class CompositionRoot:
             PosixPath('/tmp/serving/config_reranker.json')
         """
         served = self._served_by_ovms(name, models_dir)
+        asked = self.settings.local_models.openvino_weight_format
+        require_asked_weight_format(served, asked)
         return await self._ovms.serving_config(served, ovms, serving_dir)
 
     async def ovms_calibration(

@@ -14,7 +14,8 @@ the graph as one JSON line, then does what ``behaviour`` says:
 - ``stubborn``: answers, but ignores SIGTERM, so only a kill stops it.
 
 ``write_ovms_export`` writes ``config_<component>.json`` and ``<alias>/`` with a
-``graph.pbtxt`` holding the exporter's one ``plugin_config`` line.
+``graph.pbtxt`` holding the exporter's one ``plugin_config`` line, and the
+folder's ``weight-format`` record, as ``ovms/export_models.sh`` writes it.
 
 Example::
 
@@ -138,8 +139,14 @@ def ovms_starts(record: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in record.read_text().splitlines()]
 
 
-def write_ovms_export(models_dir: Path, component: str, alias: str) -> Path:
-    """Write one model's export as OVMS's exporter lays it out; return its folder."""
+def write_ovms_export(
+    models_dir: Path, component: str, alias: str, weight_format: str = "fp32"
+) -> Path:
+    """Write one model's export as OVMS's exporter lays it out; return its folder.
+
+    The models folder's ``weight-format`` record says ``weight_format``: fp32 is
+    what the settings ask for by default.
+    """
     calculator = (
         "RerankCalculatorOV" if component == "reranker" else "EmbeddingsCalculatorOV"
     )
@@ -152,4 +159,5 @@ def write_ovms_export(models_dir: Path, component: str, alias: str) -> Path:
         (folder / name).write_text(f"{name} of {alias}")
     config = {"model_config_list": [{"config": {"name": alias, "base_path": alias}}]}
     (models_dir / f"config_{component}.json").write_text(json.dumps(config))
+    (models_dir / "weight-format").write_text(f"{weight_format}\n")
     return folder

@@ -11,6 +11,7 @@ import pytest
 from ovms_stand_ins import MODEL_FILES, write_ovms_export
 from query_processing.infrastructure.ovms.ovms_serving_folder import (
     OvmsExport,
+    recorded_weight_format,
     write_ovms_serving_folder,
 )
 
@@ -96,3 +97,19 @@ def test_a_missing_export_names_the_path_and_the_exporter(tmp_path: Path) -> Non
     message = str(raised.value)
     assert str(tmp_path / "empty" / "emb" / "graph.pbtxt") in message
     assert "ovms/export_models.sh" in message
+
+
+# --- the weight format an export says it holds -------------------------------------
+
+
+def test_an_export_holds_the_weight_format_its_record_says(export: OvmsExport) -> None:
+    (export.models_dir / "weight-format").write_text("fp32\n")
+
+    assert recorded_weight_format(export.models_dir) == "fp32"
+
+
+def test_an_export_without_a_record_holds_int8(export: OvmsExport) -> None:
+    # ovms/export_models.sh exported int8 only, before it recorded the format.
+    (export.models_dir / "weight-format").unlink()
+
+    assert recorded_weight_format(export.models_dir) == "int8"

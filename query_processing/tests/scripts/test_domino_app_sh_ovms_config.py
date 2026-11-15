@@ -58,12 +58,12 @@ def with_uv(tmp_path: Path, bin_dir: Path) -> None:
 
 
 def run_app(
-    tmp_path: Path, bin_dir: Path, **env: str
+    tmp_path: Path, bin_dir: Path, *, recorded: str = "fp32", **env: str
 ) -> subprocess.CompletedProcess[str]:
     home, temporary = tmp_path / "home", tmp_path / "tmp"
     home.mkdir(exist_ok=True)
     temporary.mkdir(exist_ok=True)
-    models = models_dir(tmp_path)
+    models = models_dir(tmp_path, recorded)
     full_env = {
         "PATH": str(bin_dir),
         "HOME": str(home),
@@ -144,3 +144,28 @@ def test_a_failing_qp_ovms_config_stops_the_app_and_names_the_pins(
     assert "QP_OVMS_NUM_STREAMS" in line
     assert "QP_OVMS_THREADS" in line
     assert log(tmp_path, "ovms") == ""
+
+
+@pytest.mark.parametrize(
+    ("recorded", "env", "asked"),
+    [
+        ("int8", {}, "fp32"),  # unset: the default, all the script can see
+        ("fp32", {"QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT": "int8"}, "int8"),
+    ],
+    ids=["int8-folder-default", "fp32-folder-int8-asked"],
+)
+def test_without_qp_ovms_config_the_script_checks_the_weight_format_itself(
+    tmp_path: Path, bin_dir: Path, recorded: str, env: dict[str, str], asked: str
+) -> None:
+    # No command reads the settings here, so the variable, else the default,
+    # is what is asked.
+    result = run_app(tmp_path, bin_dir, recorded=recorded, **env)
+
+    assert result.returncode == 1
+    assert log(tmp_path, "ovms") == ""
+    [line] = [x for x in result.stderr.splitlines() if "weight format" in x]
+    assert line.startswith("app.sh[model-server ovms reranker]: ")
+    assert str(tmp_path / "models") in line
+    assert f"weight format {recorded}, but {asked} was asked" in line
+    assert f"set QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT={recorded}" in line
+    assert "point QP_OVMS_MODELS_DIR at another folder" in line

@@ -21,15 +21,17 @@
 # are uv-installed into $HOME/qp-venv first when `qp-served-models` is not on
 # PATH. Every path of the toolkit's own is under $TOOLKIT, which app.sh sets.
 #
-# QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT (fp32, the default, or int8) is what both
-# exports store the weights as. An OVMS models folder holds one export, of one
-# weight format, recorded in its weight-format file (a folder without one holds
-# int8). An App whose folder holds another format stops before OVMS starts: set
-# QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT to the format found, or point
+# The settings' local_models.openvino_weight_format (fp32, the default, or int8) is
+# what both exports store the weights as. An OVMS models folder holds one export,
+# of one weight format, recorded in its weight-format file (a folder without one
+# holds int8). An App whose folder holds another format stops before OVMS starts:
+# set QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT to the format found, or point
 # QP_OVMS_MODELS_DIR at another folder, where the asked format is exported on
-# first start. This check reads the variable, which qp-deploy exports from
-# overrides.local_models.openvino_weight_format of deploy.yaml: a format written
-# only in the workflow file or in .env is not seen here.
+# first start. Who checks depends on who can know what is asked. When the variable
+# is set it is what the settings read first, so this script checks at once. Unset,
+# the workflow file or .env may state the format, which only Python reads: the
+# check is then qp-ovms-config's, with the settings. Without that command nothing
+# reads the settings, and this script checks against the default.
 #
 # The App then starts ovms on the config `qp-ovms-config` prints: it calibrates
 # OVMS's streams and threads left at 0 by QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS
@@ -49,9 +51,6 @@
 # (200 = prefix stripped, no proxy needed; 404 = enable the proxy).
 
 OVMS_MODELS_DIR=${QP_OVMS_MODELS_DIR:-/mnt/data/ovms-models}
-# The default of LocalModelsSettings.openvino_weight_format, repeated in bash; a
-# test (tests/scripts/test_domino_app_sh_weight_format.py) fails if the two differ.
-OVMS_WEIGHT_FORMAT=${QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT:-fp32}
 OVMS_UPSTREAM_PORT=9000
 
 bootstrap_model_server() {
@@ -76,7 +75,12 @@ bootstrap_model_server() {
 # serve_model_server <component>: serve that component with OpenVINO Model Server.
 serve_model_server() {
   local component=$1 config="$OVMS_MODELS_DIR/config_$1.json"
-  if [ ! -f "$config" ]; then ovms_provision_models "$config"; else ovms_require_weight_format; fi
+  if [ ! -f "$config" ]; then
+    ovms_provision_models "$config"
+  elif [ -n "${QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT:-}" ]; then
+    # Set, the variable is what the settings ask: checked before anything else.
+    ovms_require_weight_format
+  fi
   command -v ovms >/dev/null 2>&1 \
     || die "'ovms' binary not on PATH; use the environment built from domino/Dockerfile --target ovms"
   # Installed here, not inside the command substitution below: its output must
@@ -106,18 +110,26 @@ serve_model_server() {
 }
 
 # ovms_require_weight_format: the export in $OVMS_MODELS_DIR is of the weight
-# format asked. ovms/export_models.sh records it in weight-format; a folder
-# without that file was exported before it did, always at int8.
+# format the variable asks, or the default when it is unset.
+# ovms/export_models.sh records the format in weight-format; a folder without that
+# file was exported before it did, always at int8. The default is that of
+# LocalModelsSettings.openvino_weight_format, repeated here for the App with no
+# command to ask the settings; a test
+# (tests/scripts/test_domino_app_sh_weight_format.py) fails if the two differ.
 ovms_require_weight_format() {
+  local asked=${QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT:-fp32}
   local found=int8 record="$OVMS_MODELS_DIR/weight-format"
   if [ -f "$record" ]; then found=$(<"$record"); fi
-  [ "$found" = "$OVMS_WEIGHT_FORMAT" ] \
-    || die "$OVMS_MODELS_DIR (QP_OVMS_MODELS_DIR) holds an OVMS export at weight format $found, but $OVMS_WEIGHT_FORMAT was asked (QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT, fp32 when unset); set QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=$found to serve that export, or point QP_OVMS_MODELS_DIR at another folder, where $OVMS_WEIGHT_FORMAT is exported on first start"
+  [ "$found" = "$asked" ] \
+    || die "$OVMS_MODELS_DIR (QP_OVMS_MODELS_DIR) holds an OVMS export at weight format $found, but $asked was asked (QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT, fp32 when unset); set QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=$found to serve that export, or point QP_OVMS_MODELS_DIR at another folder, where $asked is exported on first start"
 }
 
 # ovms_serving_config <component> <export config>: print the config ovms starts with.
 ovms_serving_config() {
   if ! command -v qp-ovms-config >/dev/null 2>&1; then
+    # No command reads the settings: the weight format is checked here, against
+    # the variable, else the default.
+    ovms_require_weight_format
     # A pin that cannot be applied must not be silently ignored.
     [ -z "${QP_OVMS_NUM_STREAMS:-}${QP_OVMS_THREADS:-}" ] \
       || die "QP_OVMS_NUM_STREAMS / QP_OVMS_THREADS are set but cannot be applied: 'qp-ovms-config' is not on PATH and 'uv' is not there to install it; install the toolkit and the use case, or unset both"
@@ -128,7 +140,7 @@ ovms_serving_config() {
   local serving_dir
   serving_dir=$(mktemp -d "${TMPDIR:-/tmp}/qp-ovms-serving.XXXXXX")
   qp-ovms-config --serve "$1" --models-dir "$OVMS_MODELS_DIR" --serving-dir "$serving_dir" \
-    || die "qp-ovms-config could not write the OVMS config for $1 (see above); to skip its calibration, pin both QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS (qp-calibrate --ovms-models prints them)"
+    || die "qp-ovms-config could not write the OVMS config for $1: its reason is on the line above; if its calibration is what failed, pinning both QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS (qp-calibrate --ovms-models prints them) skips it"
 }
 
 # Render domino/ovms-proxy.conf: __PREFIX__ becomes DOMINO_RUN_HOST_PATH (the

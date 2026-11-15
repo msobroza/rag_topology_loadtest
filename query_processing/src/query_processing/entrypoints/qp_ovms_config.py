@@ -1,6 +1,8 @@
 """``qp-ovms-config``: the config an OVMS App starts with, calibrated first.
 
-``domino/model_servers/ovms.sh`` runs it when an OVMS App starts. It calibrates
+``domino/model_servers/ovms.sh`` runs it when an OVMS App starts. It refuses an
+export of another weight format than the settings ask (the script sees the
+variable only; the workflow file may state the format), calibrates
 each of ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS`` left at 0 (one ``ovms``
 start per candidate, so ``ovms`` must be on ``PATH``), writes the serving folder
 for the choice in ``--serving-dir`` (the export in ``--models-dir`` is never
@@ -35,7 +37,8 @@ from ..infrastructure.ovms.ovms_process import OvmsStartError
 
 PROG = "qp-ovms-config"
 # Failures an operator can act on: a bad setting, an export or ovms that is
-# missing, an ovms that would not start or answer, a graph it cannot rewrite.
+# missing, an export of another weight format, an ovms that would not start or
+# answer, a graph it cannot rewrite.
 EXPECTED_ERRORS = (OvmsStartError, RagDependencyError, OSError, ValueError)
 
 

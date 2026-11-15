@@ -536,7 +536,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         served_stage_calibration.py  BaseServedStage, calibrate_served: one model server start per candidate, streams then threads
       ovms/           OpenVINO Model Server, run by us
         ovms_graph.py  ovms_plugin_config, graph_with_plugin_config: the graph's one plugin_config line for a tuning
-        ovms_serving_folder.py  write_ovms_serving_folder: the export linked, a graph of our own; the export is never written
+        ovms_serving_folder.py  write_ovms_serving_folder: the export linked, a graph of our own; the export is never written; recorded_weight_format: what the export says its weights are stored as
         ovms_process.py  OvmsProcess: one ovms on a free local port for an async with, waited for and stopped
       openvino_cpu_properties.py  openvino_cpu_properties: INFERENCE_NUM_THREADS and ENABLE_HYPER_THREADING for a thread count
       one_line_failure.py  one_line_failure: how a command reports a failure an operator can act on, on one stderr line
@@ -549,7 +549,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
-      ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder
+      ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
       registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
@@ -575,7 +575,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_served_models.py  qp-served-models: each embedder and reranker of the workflow file (name, type, source id, alias, then the weight format), one line of shell words each
       qp_export_openvino.py  qp-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
       qp_calibrate.py  qp-calibrate: calibrate the in-process models (or OVMS) here, print the environment paths (or the OVMS App's variables) that pin them
-      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its streams and threads calibrated first
+      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its export held to the weight format asked, its streams and threads calibrated first
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
@@ -1510,11 +1510,14 @@ QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=int8 ../query_processing/ovms/export_mod
 An OVMS models folder holds one export, of one weight format, recorded in its
 `weight-format` file (see [OpenVINO Model Server](#openvino-model-server)).
 
-On Domino, state the format under the overrides of `deploy.yaml`
-(`overrides: {local_models: {openvino_weight_format: int8}}`), which every App
-gets as the variable. An OVMS App checks its folder against that variable
-before any Python runs: it does not see a format written only in the workflow
-file or in `.env`, and then asks for `fp32`.
+An OVMS App holds its folder to what the settings ask. When the variable is set,
+as `qp-deploy` sets it from the overrides of `deploy.yaml`
+(`overrides: {local_models: {openvino_weight_format: int8}}`), its launch script
+checks at once. Unset, the workflow file or `.env` may be what states the
+format, which only Python reads: the check is then `qp-ovms-config`'s, with the
+settings. Only an OVMS App with neither that command nor `uv` to install it (the
+prebuilt `ovms` image) sees the variable alone and asks for `fp32` when it is
+unset: there, set the variable.
 
 Verified on an 8-CPU machine on 15 November 2026, before the setting and the
 commands took the names of today. The in-process `int8` export
@@ -1571,11 +1574,11 @@ config but no `weight-format` file was exported before the setting existed and
 holds `int8`. The script refuses to export into a folder of another weight
 format, since OVMS's exporter skips a model folder that exists and would leave
 the old weights under the new label: export into another folder instead. An
-OVMS App whose folder holds another format than
-`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` asks stops before OVMS starts and
+OVMS App whose folder holds another format than the settings ask
+(`local_models.openvino_weight_format`) stops before OVMS starts and
 names both ways out: set `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` to the format
 found, or point `QP_OVMS_MODELS_DIR` at another folder, where the asked format
-is exported on first start.
+is exported on first start. See [Weight format](#weight-format) for who checks.
 
 **On Domino the export is optional.** A model server App of kind `ovms`
 (`domino/model_servers/ovms.sh`) that finds its component's
@@ -1589,9 +1592,10 @@ This path has not been run for real.
 **How an OVMS App starts.** Once the export is there,
 `domino/model_servers/ovms.sh` runs
 `qp-ovms-config --serve <component> --models-dir "$QP_OVMS_MODELS_DIR" --serving-dir <a fresh temporary folder>`
-and starts `ovms` on the config it prints. That command calibrates each of
+and starts `ovms` on the config it prints. That command first refuses an export
+of another weight format than the settings ask, then calibrates each of
 `QP_OVMS_NUM_STREAMS` and `QP_OVMS_THREADS` left at `0` (see "Calibrating
-OVMS" above), then writes the serving folder for the choice: a copy of the
+OVMS" above), and writes the serving folder for the choice: a copy of the
 export's `config_<component>.json`, and a `<alias>/` folder that links every
 file of the export's but `graph.pbtxt`. The graph is written there with its one
 `plugin_config` line set to `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and
@@ -1603,8 +1607,9 @@ calibrated and the App starts at once. When `qp-ovms-config` is not on `PATH`
 toolkit and the use case with `uv` into `$HOME/qp-venv` first. Without `uv` it
 serves the export's own config, one stream and not calibrated, and says so on
 standard error; a pinned `QP_OVMS_NUM_STREAMS` or `QP_OVMS_THREADS` then stops
-the App, since it cannot be applied. If `qp-ovms-config` fails, the App stops
-and its message says to pin both variables to skip calibration. The prefix
+the App, since it cannot be applied. If `qp-ovms-config` fails, the App stops:
+the command's own line says why, and the script's adds that pinning both
+variables skips a calibration that failed. The prefix
 proxy (`QP_OVMS_PREFIX_PROXY=1`) serves the same config. Verified on a real
 OVMS on 15 November 2026, with the command under its name of that day: OVMS
 follows the linked model files of the serving folder, and it takes
@@ -1805,8 +1810,8 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `qp-serve: error: ...` in a workflow app's log | a settings mistake: a `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_COMPONENTS__EMBEDDER__SERVED__URL` missing for a component on the `served` backend, or an unknown backend or API format; the message names the variable and the fix |
 | `app.sh[...]: unknown QP_ROLE '...'` | an old role (`monolith`, `ovms-reranker`, ...): the roles are `workflow` and `model-server`, the latter with `QP_MODEL_SERVER_COMPONENT` and `QP_MODEL_SERVER_KIND` |
 | `app.sh[model-server ovms ...]: OVMS config not found` | Dataset not mounted at `/mnt/data/ovms-models`; set `QP_OVMS_MODELS_DIR` |
-| `app.sh[model-server ovms ...]: ... holds an OVMS export at weight format ...` | the folder's export is of another weight format than the App asks; set `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` to the format found (`overrides.local_models.openvino_weight_format` in `deploy.yaml`), or point `QP_OVMS_MODELS_DIR` at another folder |
-| `app.sh[model-server ovms ...]: qp-ovms-config could not write the OVMS config` | OVMS's calibration failed (its reason is on the line above); pin `QP_OVMS_NUM_STREAMS` and `QP_OVMS_THREADS` in that App's `settings` to start without it |
+| `... holds an OVMS export at weight format ...`, from `app.sh[model-server ovms ...]` or from `qp-ovms-config` | the folder's export is of another weight format than the settings ask; set `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` to the format found (`overrides.local_models.openvino_weight_format` in `deploy.yaml`), or point `QP_OVMS_MODELS_DIR` at another folder |
+| `app.sh[model-server ovms ...]: qp-ovms-config could not write the OVMS config` | the reason is `qp-ovms-config`'s own line, just above; when it is OVMS's calibration that failed, pin `QP_OVMS_NUM_STREAMS` and `QP_OVMS_THREADS` in that App's `settings` to start without it |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `QP_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
 
 ### Deploy on Domino in a few commands

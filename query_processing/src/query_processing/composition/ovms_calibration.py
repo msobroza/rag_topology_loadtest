@@ -14,6 +14,10 @@ CPUs, then half of them, down to 1. A request is scored in one batch, so the
 tuning's batch size is the request's size: a reranker's
 ``local.calibration_passages`` passages, or one question.
 
+Before an App's serving folder is written, the export is held to the weight
+format the settings ask (``require_asked_weight_format``): the launch script sees
+the variable only, and the workflow file may be what states the format.
+
 Example:
     >>> ovms = OvmsCalibration(http, local_models, settings.calibration)
     >>> served = OvmsServedComponent("reranker", reranker_settings, models_dir)
@@ -29,10 +33,15 @@ from pathlib import Path
 
 from ..config.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
+from ..config.workflow_settings import WorkflowSettings
+from ..domain.backends import OpenVinoWeightFormat
 from ..domain.calibration import CalibrationReport, halvings
 from ..infrastructure.calibration.served_stage_calibration import calibrate_served
 from ..infrastructure.json_log import log_json
-from ..infrastructure.ovms.ovms_serving_folder import OvmsExport
+from ..infrastructure.ovms.ovms_serving_folder import (
+    OvmsExport,
+    recorded_weight_format,
+)
 from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
 from .ovms_stages import (
@@ -94,6 +103,43 @@ class OvmsServedComponent:
         return OvmsExport(
             self.models_dir, ovms_config_file(self.name), self.settings.alias
         )
+
+
+def require_asked_weight_format(
+    served: OvmsServedComponent, asked: OpenVinoWeightFormat
+) -> None:
+    """Refuse an OVMS export of another weight format than the settings ask.
+
+    OVMS would serve it all the same, and the App would then run other weights
+    than the in-process models and than its settings say. A folder that holds no
+    export of the component is not judged here: building the serving folder
+    says that it is missing.
+
+    Args:
+        served: The component, and the folder OVMS's exporter wrote into.
+        asked: The settings' ``local_models.openvino_weight_format``.
+
+    Raises:
+        ValueError: If the folder holds another weight format; the message names
+            the folder, both formats and both ways out.
+
+    Example:
+        >>> require_asked_weight_format(served, "fp32")
+    """
+    models_dir = served.models_dir
+    if not (models_dir / served.export.config_file).is_file():
+        return
+    found = recorded_weight_format(models_dir)
+    if found == asked:
+        return
+    variable = WorkflowSettings.variable_of("local_models", "openvino_weight_format")
+    raise ValueError(
+        f"{models_dir} holds an OVMS export at weight format {found}, but {asked} "
+        f"was asked (local_models.openvino_weight_format of the workflow file, "
+        f"{variable}); set {variable}={found} to serve that export, or point "
+        f"QP_OVMS_MODELS_DIR at another folder, where {asked} is exported on "
+        "first start"
+    )
 
 
 @dataclass(frozen=True)

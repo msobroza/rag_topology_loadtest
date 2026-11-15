@@ -14,6 +14,9 @@ serving folder is the App's own and holds:
 
 Building it again replaces what a previous build wrote.
 
+The export also says what its weights are stored as: ``export_models.sh`` writes
+the folder's ``weight-format`` record last (``recorded_weight_format``).
+
 Example:
     >>> config = write_ovms_serving_folder(
     ...     OvmsExport(Path("/mnt/data/ovms-models"), "config_reranker.json", "rr"),
@@ -32,6 +35,10 @@ from typing import NamedTuple
 from .ovms_graph import graph_with_plugin_config
 
 GRAPH_FILE = "graph.pbtxt"  # the name OVMS's exporter gives every graph
+WEIGHT_FORMAT_FILE = "weight-format"  # one line, written by ovms/export_models.sh
+# What a folder without the record holds: it was exported before the record
+# existed, when ovms/export_models.sh exported 8-bit weights only.
+UNRECORDED_WEIGHT_FORMAT = "int8"
 
 
 class OvmsExport(NamedTuple):
@@ -84,6 +91,26 @@ def write_ovms_serving_folder(
     served_config = serving_dir / export.config_file
     shutil.copyfile(config, served_config)
     return served_config
+
+
+def recorded_weight_format(models_dir: Path) -> str:
+    """Return the weight format the export in ``models_dir`` holds.
+
+    Args:
+        models_dir: The folder OVMS's exporter wrote into.
+
+    Returns:
+        What its ``weight-format`` record says; ``int8`` for a folder without
+        the record.
+
+    Example:
+        >>> recorded_weight_format(Path("/mnt/data/ovms-models"))
+        'fp32'
+    """
+    record = models_dir / WEIGHT_FORMAT_FILE
+    if not record.is_file():
+        return UNRECORDED_WEIGHT_FORMAT
+    return record.read_text(encoding="utf-8").strip()
 
 
 def _required(path: Path) -> Path:

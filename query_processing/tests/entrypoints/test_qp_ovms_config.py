@@ -17,6 +17,7 @@ from ovms_stand_ins import ovms_starts, write_ovms_export, write_ovms_stand_in
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.entrypoints.qp_ovms_config import main
 from rag_components import shell_settings
+from rag_graphs import FIXTURE_WORKFLOW
 from repo_paths import TOOLKIT_ROOT
 
 
@@ -132,6 +133,52 @@ def test_a_stream_count_above_the_threads_is_refused_naming_both(
     assert line.startswith("qp-ovms-config: cannot read the settings: ")
     assert "QP_OVMS_NUM_STREAMS=4" in line
     assert "QP_OVMS_THREADS=2" in line
+
+
+def int8_in_the_workflow_file_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A workflow file that states int8, no variable: both counts pinned, no ovms."""
+    workflow = tmp_path / "int8-workflow.yaml"
+    stated = "\nlocal_models:\n  openvino_weight_format: int8\n"
+    workflow.write_text(FIXTURE_WORKFLOW.read_text() + stated)
+    monkeypatch.setenv("QP_WORKFLOW_FILE", str(workflow))
+    monkeypatch.setenv("QP_OVMS_NUM_STREAMS", "1")
+    monkeypatch.setenv("QP_OVMS_THREADS", "1")
+
+
+def test_a_weight_format_written_only_in_the_workflow_file_is_the_one_asked(
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The launch script sees the variable only; this command reads the settings,
+    # so an int8 export is served when the workflow file alone asks for int8.
+    int8_in_the_workflow_file_only(tmp_path, monkeypatch)
+    (models / "weight-format").write_text("int8\n")
+
+    assert main(args("reranker", models, tmp_path / "s")) == 0
+
+    assert capsys.readouterr().out.strip().endswith("config_reranker.json")
+
+
+def test_an_export_of_another_weight_format_than_the_settings_ask_is_one_stderr_line(
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    int8_in_the_workflow_file_only(tmp_path, monkeypatch)  # the folder holds fp32
+
+    assert main(args("reranker", models, tmp_path / "s")) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    [line] = captured.err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot write the reranker config: ")
+    assert "weight format fp32, but int8 was asked" in line
+    assert "QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=fp32" in line
 
 
 @pytest.mark.parametrize("name", ["llm", "no-such-component"])
