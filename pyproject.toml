@@ -41,6 +41,8 @@ chroma = ["chromadb>=1.0"]
 loadtest = ["locust>=2.29"]
 # Domino 6.2 agent tracing (`domino.agents.tracing.add_tracing`).
 domino = ["dominodatalab[agents]>=2.2.0"]
+# experiment_charts, which draws experiments-explained/ from experiments/; not the product.
+charts = ["matplotlib>=3.9"]
 dev = [
     "locust>=2.29",
     "chromadb>=1.0",  # the Chroma store's tests run a real embedded Chroma
@@ -48,6 +50,7 @@ dev = [
     "pyjwt>=2.8",
     "cryptography>=42",
     "python-hcl2>=4.3",
+    "matplotlib>=3.9",  # experiment_charts and its tests (the charts group)
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     # Gate tools are pinned exactly: a new release may add a rule or move a score,
@@ -83,6 +86,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "rag_load_test" = ["py.typed", "config/prompts.yaml"]
 "fake_domino" = ["py.typed"]
+"experiment_charts" = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -194,7 +198,7 @@ ignore_names = [
 ]
 
 [tool.deptry]
-known_first_party = ["rag_load_test", "fake_domino"]
+known_first_party = ["rag_load_test", "fake_domino", "experiment_charts"]
 optional_dependencies_dev_groups = ["dev"]
 package_module_name_map = { dominodatalab = "domino" }
 

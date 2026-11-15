@@ -1,0 +1,7 @@
+weights,vcpus,experiment,users,requests_per_s,vcpu_seconds_per_request
+32-bit weights,2,m7-calibrated-fastapi-rerank,4,0.282,7.092
+32-bit weights,8,v8-alone-fastapi-fp32,4,1.004,7.968
+32-bit weights,16,v16-alone-fastapi-fp32,4,1.808,8.85
+8-bit weights,2,m8-fastapi-int8-calibrated-rerank,4,0.422,4.739
+8-bit weights,8,v8-alone-fastapi-int8,4,1.553,5.151
+8-bit weights,16,v16-alone-fastapi-int8,4,3.096,5.168

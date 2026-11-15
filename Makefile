@@ -1,6 +1,6 @@
 # rag_load_test — developer tasks (run from this directory)
 .DEFAULT_GOAL := help
-.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test ingest serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run
+.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test ingest serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run experiment-charts
 
 # A .venv in this directory is used without activating it; without one, commands
 # come from the PATH as usual. Two lines because make 3.81 (macOS) looks a recipe's
@@ -105,6 +105,9 @@ status: ## On Domino: each App's status and instance URL, then the workflow App'
 
 deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's settings and entry script
 	$(BIN)rag-deploy --dry-run deploy all
+
+experiment-charts: ## Redraw experiments-explained/ (figures and their tables) from the registry in experiments/
+	$(BIN)python -m experiment_charts
 
 fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow
 	$(BIN)rag-fake-domino --behaviour $(BEHAVIOUR)
