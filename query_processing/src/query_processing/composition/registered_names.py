@@ -13,11 +13,14 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ..adapters.embedder.api.base_embedding_api_format import EMBEDDING_API_FORMATS
 from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
+from ..config.component_settings import ComponentSettings
+from ..config.contract_component_settings import ContractComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.registry import Registry
 from .openers.component_openers import OPENERS_BY_TYPE
@@ -53,14 +56,22 @@ def check_registered_names(settings: WorkflowSettings) -> None:
     variable_of = WorkflowSettings.variable_of
     for name, component in settings.components.items():
         backend = variable_of("components", name, "backend")
-        _check(OPENERS_BY_TYPE[component.type], component.backend, backend)
+        _check(_known_backends(component), component.backend, backend)
     for name, model in settings.model_components().items():
         api_format = variable_of("components", name, "api", "api_format")
-        _check(_API_FORMATS_BY_TYPE[model.type], model.api.api_format, api_format)
+        _check(_API_FORMATS_BY_TYPE[model.type].get, model.api.api_format, api_format)
 
 
-def _check(registry: Registry[Any], value: str, variable: str) -> None:
+def _known_backends(component: ComponentSettings) -> Callable[[str], object]:
+    # A type registered in COMPONENT_TYPES knows its backends by its classes;
+    # the toolkit's four by their openers.
+    if isinstance(component, ContractComponentSettings):
+        return component.component_type().backend_class
+    return OPENERS_BY_TYPE[component.type].get
+
+
+def _check(find: Callable[[str], object], value: str, variable: str) -> None:
     try:
-        registry.get(value)  # raises, naming the known names, when value is unknown
+        find(value)  # raises, naming the known names, when value is unknown
     except ValueError as exc:
         raise ValueError(f"{variable}: {exc}") from exc

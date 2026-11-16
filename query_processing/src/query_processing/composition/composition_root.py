@@ -15,7 +15,9 @@ Each job has its own module, and this class only wires them together:
   implementations share (the HTTP client, the thread budget, the model pool);
 - ``component_factory.py``: opens a component with the opener registered for
   its type and backend, one module each in ``openers/``: a new backend is one
-  new module there, and no factory is edited.
+  new module there, and no factory is edited;
+- ``registered_components.py``: opens a component of a type that registers
+  its implementations on their class line, an extension's, by its own class.
 
 The openers take each component's settings in the workflow file's shape
 (``config/component_settings.py``).
@@ -48,7 +50,9 @@ from ..config.component_settings import (
     RerankerSettings,
     VectorStoreSettings,
 )
+from ..config.contract_component_settings import ContractComponentSettings
 from ..config.workflow_settings import WorkflowSettings
+from ..domain.component_resources import ComponentResources
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
 from .component_factory import ComponentFactory
@@ -251,6 +255,13 @@ class CompositionRoot:
 
     async def _open(self, name: str) -> object:
         component = self._component(name)
+        if isinstance(component, ContractComponentSettings):
+            resources = ComponentResources(
+                name=name,
+                type_settings=component.type_block(),
+                component_settings=self._component,
+            )
+            return await self._factory.open_registered(name, component, resources)
         return await self._factory.open(
             OPENERS_BY_TYPE[component.type], name, component
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,47 @@ def test_a_type_defaults_to_the_name_unless_the_file_states_it(tmp_path: Path) -
         "reranker": WorkflowComponent(type="reranker", backend="none"),
         "reranker_fr": WorkflowComponent(type="reranker", backend="served"),
     }
+
+
+def test_the_extensions_the_file_names_are_loaded_before_its_components(
+    tmp_path: Path,
+) -> None:
+    path = written(
+        tmp_path,
+        "extensions: [shout_extension]\ncomponents:\n  shouter: {backend: local}\n",
+    )
+
+    assert read_workflow_components(path) == {
+        "shouter": WorkflowComponent(type="shouter", backend="local")
+    }
+    assert "shout_extension.shouting" in sys.modules
+
+
+def test_an_override_of_an_extensions_component_is_checked_by_its_block(
+    tmp_path: Path,
+) -> None:
+    path = written(
+        tmp_path,
+        (FIXTURE_WORKFLOW.read_text() + "\nextensions: [shout_extension]\n").replace(
+            "components:\n", "components:\n  shouter: {backend: local}\n", 1
+        ),
+    )
+    overrides = {"components": {"shouter": {"local": {"sufix": "!"}}}}
+
+    refuse_unknown_override_keys(overrides, path)  # the type's keys are its own
+    with pytest.raises(DominoDeployError, match=r"sufix.*expected.*suffix"):
+        refuse_override_values(overrides, path)
+
+
+def test_an_extension_that_cannot_be_imported_stops_the_deploy_tool(
+    tmp_path: Path,
+) -> None:
+    path = written(tmp_path, "extensions: [no_such_package]\ncomponents: {}\n")
+
+    with pytest.raises(
+        DominoDeployError, match="extension 'no_such_package' cannot be imported"
+    ):
+        read_workflow_components(path)
 
 
 def test_only_the_file_is_read_not_the_variables_of_this_shell(

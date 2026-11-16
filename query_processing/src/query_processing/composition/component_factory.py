@@ -16,14 +16,18 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
+from ..config.contract_component_settings import ContractComponentSettings
+from ..domain.base_component import BaseComponent
+from ..domain.component_resources import ComponentResources
 from .openers.component_openers import (
     ComponentOpeners,
     P,
     S,
     SharedResources,
 )
+from .registered_components import open_registered
 
 # The backend whose model runs in this process; a model server always opens it.
 LOCAL = "local"
@@ -76,6 +80,42 @@ class ComponentFactory:
             _resource_name(name, backend),
             backend,
             lambda: self._open_backend(openers, component),
+        )
+
+    async def open_registered(
+        self,
+        name: str,
+        component: ContractComponentSettings,
+        resources: ComponentResources,
+    ) -> BaseComponent[Any, Any]:
+        """Open a component of a type registered in ``COMPONENT_TYPES``, once.
+
+        It has no opener: the implementation its backend names builds itself.
+
+        Args:
+            name: The component's name, which it is opened and supplied under.
+            component: The component's settings, its backend's block read.
+            resources: What its implementation may use besides its block.
+
+        Returns:
+            The supplied component, else the one its backend names, the same
+            object on every call within the scope.
+
+        Raises:
+            RagDependencyError: If no implementation names the backend, naming
+                those that do, or if building it fails.
+
+        Example:
+            >>> shouter = await factory.open_registered("shouter", settings, resources)
+        """
+        supplied = self._supplied.get(name)
+        if supplied is not None:
+            # A ready-made component handed in under this name, as for the others.
+            return cast(BaseComponent[Any, Any], supplied)
+        return await self._shared.scope.once(
+            name,
+            component.backend,
+            lambda: open_registered(name, component, resources),
         )
 
     async def open_local(

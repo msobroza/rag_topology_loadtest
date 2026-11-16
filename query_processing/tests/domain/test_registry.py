@@ -33,7 +33,8 @@ def test_a_name_registered_twice_is_refused_with_the_sort_and_the_name() -> None
         greetings.register("hello")(str.lower)
 
     assert str(refused.value) == (
-        "greeting 'hello' is registered twice (expected each name once)"
+        "greeting 'hello' is registered twice, by str.upper and then by str.lower "
+        "(expected each name once)"
     )
     assert greetings.get("hello") is str.upper  # the first entry is kept
 

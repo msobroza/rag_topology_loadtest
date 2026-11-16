@@ -19,6 +19,9 @@ from repo_paths import TOOLKIT_ROOT
 PACKAGE = TOOLKIT_ROOT / "src" / "query_processing"
 FAKE_DOMINO = PACKAGE.parent / "fake_domino"
 FAKE_DOMINO_IMPORTERS = {Path("deploy") / "qp_deploy.py"}  # relative to PACKAGE
+# What a use case imports of the toolkit: a module, not a package, outside the
+# table below. It may import every package, and none imports it.
+EXTENSION_API = PACKAGE / "extension_api.py"
 # Package -> the packages of query_processing its modules may import.
 MAY_IMPORT: dict[str, set[str]] = {
     "domain": {"domain"},
@@ -236,6 +239,22 @@ def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
     ]
     allowed = ", ".join(sorted(MAY_IMPORT[package]))
     assert not offending, f"{package} may import only {allowed}: {offending}"
+
+
+def test_no_package_of_the_toolkit_imports_the_extension_api() -> None:
+    # extension_api may import every package: it is what a use case imports,
+    # and the toolkit never depends on what it offers a use case.
+    offending = [
+        f"{module_name(path)}:{line} imports {imported}"
+        for path in sorted(PACKAGE.rglob("*.py"))
+        if path != EXTENSION_API
+        for line, imported in imported_product_modules(
+            importer_name(path), path.read_text(encoding="utf-8")
+        )
+        if imported.split(".")[1] == EXTENSION_API.stem
+    ]
+    assert EXTENSION_API.is_file(), f"{EXTENSION_API} is what a use case imports"
+    assert not offending, f"no package may import extension_api: {offending}"
 
 
 def test_the_ports_import_only_the_domain() -> None:

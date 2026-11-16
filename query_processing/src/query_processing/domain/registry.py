@@ -58,9 +58,11 @@ class Registry(Generic[_Entry]):
 
         def add(entry: _Entry) -> _Entry:
             if name in self._entries:
+                # Both named: a use case's entry may clash with the toolkit's.
+                first, second = _entry_name(self._entries[name]), _entry_name(entry)
                 raise ValueError(
-                    f"{self._sort} {name!r} is registered twice "
-                    "(expected each name once)"
+                    f"{self._sort} {name!r} is registered twice, by {first} and "
+                    f"then by {second} (expected each name once)"
                 )
             self._entries[name] = entry
             return entry
@@ -104,6 +106,10 @@ class Registry(Generic[_Entry]):
         return self._entries[name]
 
 
+def _entry_name(entry: object) -> str:
+    return str(getattr(entry, "__qualname__", repr(entry)))
+
+
 def import_package_modules(package: str, path: Iterable[str]) -> None:
     """Import every module of a package, so that each one's registrations run.
 
@@ -120,3 +126,26 @@ def import_package_modules(package: str, path: Iterable[str]) -> None:
     """
     for module in pkgutil.iter_modules(path, prefix=f"{package}."):
         importlib.import_module(module.name)
+
+
+def import_package_tree(package: str) -> None:
+    """Import a package and every module under it, its subpackages' included.
+
+    A use case's package registers its classes when its modules are imported,
+    and its ``__init__.py`` files stay empty, so the toolkit imports them all
+    (ADR 0006). An error of any import propagates as it is.
+
+    Args:
+        package: The package's dotted name, as a workflow file's
+            ``extensions`` names it.
+
+    Example:
+        >>> import_package_tree("my_use_case")
+    """
+    imported = importlib.import_module(package)
+    for module in pkgutil.iter_modules(getattr(imported, "__path__", ())):
+        name = f"{package}.{module.name}"
+        if module.ispkg:
+            import_package_tree(name)
+        else:
+            importlib.import_module(name)

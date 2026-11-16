@@ -222,7 +222,9 @@ def test_a_component_of_an_unknown_type_is_refused_naming_the_types(
     message = str(refused.value)
     assert "components.encoder" in message
     assert "'encoder'" in message
-    assert "'embedder', 'llm', 'reranker', 'vector_store'" in message
+    # A test extension's type is listed too once it is imported in the run.
+    for known in ("'embedder'", "'llm'", "'reranker'", "'vector_store'"):
+        assert known in message
 
 
 def test_typed_by_name_leaves_a_given_type_and_what_is_no_mapping() -> None:

@@ -79,10 +79,10 @@ def test_an_unknown_type_names_the_type_found_and_lists_the_known_ones(
 
     message = str(refused.value)
     assert "components.gen" in message
-    assert (
-        "unknown component type 'generator' (expected one of: "
-        "'embedder', 'llm', 'reranker', 'vector_store')"
-    ) in message
+    # A test extension's type is listed too once it is imported in the run.
+    assert "unknown component type 'generator' (expected one of: " in message
+    for known in ("'embedder'", "'llm'", "'reranker'", "'vector_store'"):
+        assert known in message.split("expected one of: ")[1]
 
 
 def test_an_entry_that_is_no_mapping_is_refused(

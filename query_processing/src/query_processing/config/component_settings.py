@@ -3,8 +3,10 @@
 A component is named. Its type is the port it is used through (``embedder``,
 ``reranker``, ``llm``, ``vector_store``) and defaults to its name, so two
 components of one type take two names and state ``type``. It is read with
-the settings class its type names in ``COMPONENT_TYPE_SETTINGS``, and a type
-with no class there is refused, listing the known types. It states its
+the settings class its type names in ``COMPONENT_TYPE_SETTINGS``, else, for a
+component type registered in ``COMPONENT_TYPES`` (one an extension defines),
+with ``ContractComponentSettings``; any other type is refused, listing the
+known types. It states its
 backend, which picks its opener; the openers registered in ``composition/``
 know which backends exist, and refuse any other. A model component has a
 source id (the weights) and an alias (the name a model server serves it
@@ -31,45 +33,19 @@ from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    PlainValidator,
-    SerializeAsAny,
-    model_validator,
-)
+from pydantic import Field, PlainValidator, SerializeAsAny, model_validator
 
 from ..domain.api_endpoint import ApiEndpoint
+from ..domain.base_component import COMPONENT_TYPES
 from ..domain.registry import Registry
 from ..domain.standard_formats import STANDARD_API_FORMATS
-
-
-class SettingsBlock(BaseModel):
-    """A block of the workflow file: frozen, and refusing a key it does not have.
-
-    Example:
-        >>> FakeStoreSettings.model_validate({"seed_document": 3})
-        ValidationError: ... seed_document ... Extra inputs are not permitted
-    """
-
-    # A key the shape does not have is a typo, never a silent default.
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class ServedSettings(SettingsBlock):
-    """A ``served`` block: the full route of the model server of ours that serves it.
-
-    The rest of the endpoint follows from the component, so it is not set: the
-    standard format of its type, its alias as the model name, and the Domino
-    run token when the app runs on Domino (``composition/http_resources.py``).
-
-    Example:
-        >>> ServedSettings(url="http://reranker-app/v3/rerank").url
-        'http://reranker-app/v3/rerank'
-    """
-
-    url: str = ""  # the full route, e.g. http://host:8001/v3/rerank
+from .contract_component_settings import ContractComponentSettings
+from .settings_blocks import (
+    ComponentHttpSettings,
+    ComponentSettings,
+    ServedSettings,
+    SettingsBlock,
+)
 
 
 class EndpointSettings(ServedSettings):
@@ -166,66 +142,6 @@ class RerankerLocalSettings(SettingsBlock):
     threads: int = Field(default=0, ge=0)
     # The reranker's own: calibration reads no stage's setting.
     calibration_passages: int = Field(default=20, ge=1)
-
-
-class ComponentHttpSettings(SettingsBlock):
-    """A component's ``http`` block: how patiently it is called over HTTP.
-
-    It applies on ``served`` and on ``api`` alike, so it is the component's,
-    not one backend's: a topology that moves a component from ``local`` to
-    ``served`` keeps it. Each value it leaves out is the default every
-    component shares, the workflow file's top-level ``http`` block
-    (``QP_HTTP__TIMEOUT_S``, ``QP_HTTP__RETRIES``, ``QP_HTTP__BACKOFF_S``);
-    ``composition/http_resources.py`` resolves them.
-
-    Example:
-        >>> ComponentHttpSettings(timeout_s=120).model_dump(exclude_none=True)
-        {'timeout_s': 120.0}
-    """
-
-    timeout_s: float | None = Field(default=None, gt=0)  # of one attempt
-    retries: int | None = Field(default=None, ge=0)  # attempts after the first
-    # The wait before the first retry, doubled before each next one.
-    backoff_s: float | None = Field(default=None, ge=0)
-
-
-class ComponentSettings(SettingsBlock):
-    """What every component states: its backend, which picks its opener.
-
-    Example:
-        >>> EmbedderSettings(backend="fake", source_id="org/m").backend
-        'fake'
-    """
-
-    type: str
-    backend: str
-
-    @model_validator(mode="before")
-    @classmethod
-    def refuse_unknown_keys(cls, data: Any) -> Any:
-        """Refuse a key the type does not have, naming the keys it has.
-
-        Args:
-            data: The component's entry, as read.
-
-        Returns:
-            ``data``, unchanged.
-
-        Raises:
-            ValueError: If a key is not a setting or block of the type, such as
-                the ``local`` block of an LLM.
-        """
-        if not isinstance(data, Mapping):
-            return data
-        unknown = sorted(str(key) for key in data if key not in cls.model_fields)
-        if unknown:
-            raise ValueError(
-                f"the {cls.model_fields['type'].default!r} component type has no "
-                f"{', '.join(map(repr, unknown))}; expected its keys "
-                f"({', '.join(sorted(cls.model_fields))}), a backend's settings "
-                "in the block named after that backend"
-            )
-        return data
 
 
 class ModelComponentSettings(ComponentSettings):
@@ -382,10 +298,13 @@ def read_component(entry: object) -> ComponentSettings:
             or settings already read.
 
     Returns:
-        The component's settings, of the class registered for its type.
+        The component's settings, of the class registered for its type, else a
+        ``ContractComponentSettings`` for a type registered in
+        ``COMPONENT_TYPES``.
 
     Raises:
-        ValueError: If the entry is no mapping, or its type is unknown.
+        ValueError: If the entry is no mapping, or its type is unknown; the
+            message lists the known types.
 
     Example:
         >>> read_component({"type": "llm", "backend": "fake"}).backend
@@ -398,8 +317,16 @@ def read_component(entry: object) -> ComponentSettings:
             f"a component's entry is {entry!r}; expected a mapping of its keys, "
             "such as {backend: fake}"
         )
-    settings_class = COMPONENT_TYPE_SETTINGS.get(str(entry.get("type")))
-    return settings_class.model_validate(entry)
+    type_name = str(entry.get("type"))
+    if type_name in COMPONENT_TYPE_SETTINGS.names():
+        return COMPONENT_TYPE_SETTINGS.get(type_name).model_validate(entry)
+    if type_name in COMPONENT_TYPES.names():
+        return ContractComponentSettings.model_validate(entry)
+    known = sorted({*COMPONENT_TYPE_SETTINGS.names(), *COMPONENT_TYPES.names()})
+    raise ValueError(
+        f"unknown component type {type_name!r} (expected one of: "
+        f"{', '.join(map(repr, known))})"
+    )
 
 
 # A component of the workflow file, read with the settings class of its type.

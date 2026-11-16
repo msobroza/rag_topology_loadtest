@@ -34,6 +34,7 @@ from ..config.component_settings import (
     Component,
     typed_by_name,
 )
+from ..config.extensions import load_extensions
 from ..config.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
     WorkflowFileNotFoundError,
@@ -111,8 +112,12 @@ def read_workflow_components(path: Path) -> dict[str, WorkflowComponent]:
 
 
 def _workflow_data(path: Path) -> dict[str, Any]:
+    # The extensions first, as the workflow app loads them: a component type
+    # of the use case's is registered before its components are read.
     try:
-        return workflow_file_source(WorkflowSettings, path).yaml_data
+        data = workflow_file_source(WorkflowSettings, path).yaml_data
+        load_extensions(data.get("extensions"))
+        return data
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise DominoDeployError(
             f"qp-deploy reads the components of the workflow file: {exc}"

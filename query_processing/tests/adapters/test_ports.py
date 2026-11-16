@@ -103,12 +103,11 @@ async def test_each_port_answers_ainvoke_from_its_own_method() -> None:
 
 
 def test_the_four_ports_are_the_registered_component_types() -> None:
-    assert sorted(COMPONENT_TYPES.names()) == [
-        "embedder",
-        "llm",
-        "reranker",
-        "vector_store",
-    ]
+    # A test extension registers a type of its own once it is imported in the
+    # same run (shout_extension), so the four are checked, not the count.
+    assert {"embedder", "llm", "reranker", "vector_store"} <= set(
+        COMPONENT_TYPES.names()
+    )
     assert COMPONENT_TYPES.get("vector_store") is BaseVectorStore
     assert (BaseReranker.request_type, BaseReranker.component_type_name) == (
         RerankRequest,

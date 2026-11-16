@@ -34,6 +34,9 @@ receive the values from the ``composition`` package and never read this module.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
@@ -57,6 +60,7 @@ from .component_settings import (
     VectorStoreSettings,
     typed_by_name,
 )
+from .extensions import load_extensions
 from .shared_settings import (
     CalibrationSettings,
     DefaultHttpSettings,
@@ -107,6 +111,9 @@ class WorkflowSettings(BaseSettings):
     )
 
     # --- the workflow ----------------------------------------------------------------
+    # The packages of the use case whose every module is imported before the
+    # components are read, so that the classes they define register (ADR 0006).
+    extensions: list[str] = Field(default_factory=list)
     # The workflow file's graph block: its stages with their own settings (the
     # retrieval mode, the sizes, the prompts), its edges and conditional edges.
     graph: GraphDescription
@@ -170,6 +177,21 @@ class WorkflowSettings(BaseSettings):
         del file_secret_settings
         workflow = workflow_file_source(settings_cls, workflow_file())
         return init_settings, env_settings, dotenv_settings, workflow
+
+    @model_validator(mode="before")
+    @classmethod
+    def load_the_extensions(cls, data: Any) -> Any:
+        """Import the packages ``extensions`` names, before the components are read.
+
+        Args:
+            data: Every source merged, as read.
+
+        Returns:
+            ``data``, unchanged.
+        """
+        if isinstance(data, Mapping):
+            load_extensions(data.get("extensions"))
+        return data
 
     @field_validator("components", mode="before")
     @classmethod

@@ -434,13 +434,15 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
                     vulture_whitelist.py; no workflow file and no use case's file
   src/query_processing/
     __init__.py       package docstring, __version__
+    extension_api.py  what a use case imports of the toolkit, every name it needs; its docstring holds the table of what can be added; no package imports it
     domain/           no I/O, no framework; imports no other package
       passages.py     Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
       api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
       standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       errors.py       RagDependencyError, describe_error
-      registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules
-      base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line
+      registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
+      base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line; each type's backends, filled on each implementation's class line (backend=, settings=); from_settings
+      component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
       component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
       prompts.py      RagPrompts: system prompt + user template -> chat messages
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
@@ -474,6 +476,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
       component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
+      settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
+      contract_component_settings.py  ContractComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
+      extensions.py   load_extensions: every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
       workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
     adapters/         the ports and their implementations, nothing else (rule 4)
@@ -547,6 +552,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
       registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
+      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
         component_openers.py  SharedResources (what an opener is given), ComponentOpeners, the four registries (EMBEDDER_OPENERS, ...) and OPENERS_BY_TYPE
         embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for qp-calibrate
