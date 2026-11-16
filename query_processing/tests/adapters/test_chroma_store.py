@@ -10,8 +10,8 @@ import pytest
 
 from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.metadata_filter import MetadataCondition
-from query_processing.domain.passages import Passage
+from query_processing.domain.metadata_filter import Comparator, MetadataCondition
+from query_processing.domain.passages import MetadataValue, Passage
 
 COLLECTION = "passages_under_test"  # any name: the adapter must use the one given
 
@@ -67,18 +67,45 @@ async def test_chroma_query_is_nearest_first_with_cosine_similarity(
     assert all(h.rerank_score is None for h in hits)
 
 
-async def test_chroma_refuses_a_metadata_filter_it_cannot_apply_yet(
-    tmp_path: Path,
+def cond(
+    attribute: str, comparator: Comparator, value: MetadataValue | list[MetadataValue]
+) -> MetadataCondition:
+    """A condition, written as a test reads it."""
+    return MetadataCondition(attribute=attribute, comparator=comparator, value=value)
+
+
+TAGGED = [
+    Passage(id="amf", text="t", metadata={"source": "AMF", "chunk": 1, "on": True}),
+    Passage(id="gaa", text="t", metadata={"source": "GAA", "chunk": 2, "on": False}),
+    Passage(id="chad", text="t", metadata={"source": "CHAD", "chunk": 3.5}),
+]
+TAGGED_VECTORS = [[1.0, 0.0], [0.8, 0.6], [0.6, 0.8]]  # amf nearest, chad last
+
+
+@pytest.mark.parametrize(
+    ("conditions", "kept"),
+    [
+        ([], ["amf", "gaa", "chad"]),
+        ([cond("source", "eq", "GAA")], ["gaa"]),
+        ([cond("on", "eq", True)], ["amf"]),
+        ([cond("source", "ne", "AMF")], ["gaa", "chad"]),
+        ([cond("chunk", "gt", 1)], ["gaa", "chad"]),
+        ([cond("chunk", "gte", 2)], ["gaa", "chad"]),
+        ([cond("chunk", "lt", 2)], ["amf"]),
+        ([cond("chunk", "lte", 2)], ["amf", "gaa"]),
+        ([cond("source", "in", ["AMF", "CHAD"])], ["amf", "chad"]),
+        ([cond("source", "nin", ["AMF", "CHAD"])], ["gaa"]),
+        ([cond("source", "ne", "AMF"), cond("chunk", "lt", 3)], ["gaa"]),
+        ([cond("topic", "eq", "hr")], []),  # no passage has the field
+    ],
+)
+async def test_chroma_query_returns_only_the_passages_the_filter_keeps(
+    tmp_path: Path, conditions: list[MetadataCondition], kept: list[str]
 ) -> None:
-    # Until Chroma has its translator, a filter fails rather than being ignored.
     store = await open_store(tmp_path)
-    await store.upsert(PASSAGES, VECTORS)
-    conditions = [MetadataCondition(attribute="topic", comparator="eq", value="hr")]
-
-    with pytest.raises(RagDependencyError, match="chroma") as info:
-        await store.query([1.0, 0.0], 3, conditions)
-
-    assert (info.value.component, info.value.target) == ("vector_store", COLLECTION)
+    await store.upsert(TAGGED, TAGGED_VECTORS)
+    hits = await store.query([1.0, 0.0], 3, conditions)
+    assert [h.id for h in hits] == kept
 
 
 async def test_chroma_ready_reports_count_and_collection(tmp_path: Path) -> None:

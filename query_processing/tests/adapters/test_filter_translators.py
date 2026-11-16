@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from query_processing.adapters.vector_store.chroma.chroma_filter_translator import (
+    ChromaFilterTranslator,
+)
+from query_processing.adapters.vector_store.elasticsearch import (
+    elasticsearch_filter_translator,
+)
 from query_processing.adapters.vector_store.fake.in_memory_filter_translator import (
     InMemoryFilterTranslator,
 )
 from query_processing.domain.metadata_filter import Comparator, MetadataCondition
 from query_processing.domain.passages import MetadataValue, Passage
+
+ElasticsearchFilterTranslator = (
+    elasticsearch_filter_translator.ElasticsearchFilterTranslator
+)
 
 
 def cond(
@@ -74,3 +86,97 @@ def test_the_in_memory_predicate_needs_every_condition() -> None:
     assert translate([])(PASSAGE) is True
     assert translate([cond("source", "eq", "AMF"), cond("chunk", "lt", 3)])(PASSAGE)
     assert not translate([cond("source", "eq", "AMF"), cond("chunk", "lt", 2)])(PASSAGE)
+
+
+# --- Elasticsearch ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("condition", "clause"),
+    [
+        (cond("source", "eq", "AMF"), {"term": {"metadata.source.keyword": "AMF"}}),
+        (cond("active", "eq", True), {"term": {"metadata.active": True}}),
+        (
+            cond("source", "ne", "CHAD"),
+            {
+                "bool": {
+                    "filter": [{"exists": {"field": "metadata.source"}}],
+                    "must_not": [{"term": {"metadata.source.keyword": "CHAD"}}],
+                }
+            },
+        ),
+        (cond("chunk", "gt", 1), {"range": {"metadata.chunk": {"gt": 1}}}),
+        (cond("chunk", "gte", 2), {"range": {"metadata.chunk": {"gte": 2}}}),
+        (cond("chunk", "lt", 3.5), {"range": {"metadata.chunk": {"lt": 3.5}}}),
+        (cond("chunk", "lte", 2), {"range": {"metadata.chunk": {"lte": 2}}}),
+        (
+            cond("source", "in", ["AMF", "GAA"]),
+            {"terms": {"metadata.source.keyword": ["AMF", "GAA"]}},
+        ),
+        (cond("chunk", "in", [1, 2]), {"terms": {"metadata.chunk": [1, 2]}}),
+        (
+            cond("source", "nin", ["GAA"]),
+            {
+                "bool": {
+                    "filter": [{"exists": {"field": "metadata.source"}}],
+                    "must_not": [{"terms": {"metadata.source.keyword": ["GAA"]}}],
+                }
+            },
+        ),
+        (
+            cond("on", "nin", [True]),
+            {
+                "bool": {
+                    "filter": [{"exists": {"field": "metadata.on"}}],
+                    "must_not": [{"terms": {"metadata.on": [True]}}],
+                }
+            },
+        ),
+    ],
+)
+def test_elasticsearch_turns_each_comparator_into_its_clause(
+    condition: MetadataCondition, clause: dict[str, Any]
+) -> None:
+    assert ElasticsearchFilterTranslator().translate([condition]) == [clause]
+
+
+def test_elasticsearch_gives_one_clause_per_condition_and_none_for_none() -> None:
+    translate = ElasticsearchFilterTranslator().translate
+
+    assert translate([]) == []
+    assert translate([cond("source", "in", ["AMF"]), cond("chunk", "gte", 2)]) == [
+        {"terms": {"metadata.source.keyword": ["AMF"]}},
+        {"range": {"metadata.chunk": {"gte": 2}}},
+    ]
+
+
+# --- Chroma -------------------------------------------------------------------
+
+
+def test_chroma_gives_no_where_for_no_condition() -> None:
+    assert ChromaFilterTranslator().translate([]) is None
+
+
+@pytest.mark.parametrize(
+    ("condition", "where"),
+    [
+        (cond("active", "eq", True), {"active": {"$eq": True}}),
+        (cond("source", "ne", "AMF"), {"source": {"$ne": "AMF"}}),
+        (cond("chunk", "gt", 1), {"chunk": {"$gt": 1}}),
+        (cond("chunk", "gte", 2), {"chunk": {"$gte": 2}}),
+        (cond("chunk", "lt", 3.5), {"chunk": {"$lt": 3.5}}),
+        (cond("chunk", "lte", 2), {"chunk": {"$lte": 2}}),
+        (cond("source", "in", ["AMF"]), {"source": {"$in": ["AMF"]}}),
+        (cond("source", "nin", ["GAA"]), {"source": {"$nin": ["GAA"]}}),
+    ],
+)
+def test_chroma_turns_one_condition_into_its_where(
+    condition: MetadataCondition, where: dict[str, Any]
+) -> None:
+    assert ChromaFilterTranslator().translate([condition]) == where
+
+
+def test_chroma_joins_several_conditions_under_and() -> None:
+    assert ChromaFilterTranslator().translate(
+        [cond("source", "in", ["AMF"]), cond("chunk", "lt", 3)]
+    ) == {"$and": [{"source": {"$in": ["AMF"]}}, {"chunk": {"$lt": 3}}]}

@@ -525,8 +525,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_metadata_filter_translator.py  BaseMetadataFilterTranslator, the port that turns a metadata filter into a store's own
         elasticsearch/  backend: elasticsearch
           elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+          elasticsearch_filter_translator.py  ElasticsearchFilterTranslator: a metadata filter as filter clauses
         chroma/       backend: chroma
           chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
+          chroma_filter_translator.py  ChromaFilterTranslator: a metadata filter as a where
         fake/         backend: fake
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
           in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage

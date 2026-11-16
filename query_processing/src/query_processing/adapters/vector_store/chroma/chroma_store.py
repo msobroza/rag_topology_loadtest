@@ -20,7 +20,8 @@ from urllib.parse import urlsplit
 from ....domain.errors import RagDependencyError
 from ....domain.metadata_filter import MetadataCondition
 from ....domain.passages import MetadataValue, Passage, ScoredPassage
-from ..base_vector_store import BaseVectorStore, refuse_metadata_filter
+from ..base_vector_store import BaseVectorStore
+from .chroma_filter_translator import ChromaFilterTranslator
 
 # Cosine distance, so ``1 - distance`` is the cosine similarity ``query`` reports.
 _COSINE_SPACE = {"hnsw": {"space": "cosine"}}
@@ -45,6 +46,7 @@ class ChromaVectorStore(BaseVectorStore):
     def __init__(self, collection: Any) -> None:
         self._collection = collection
         self._name: str = collection.name
+        self._filter_translator = ChromaFilterTranslator()
 
     @classmethod
     async def open(cls, *, url: str, path: str, collection: str) -> ChromaVectorStore:
@@ -102,27 +104,26 @@ class ChromaVectorStore(BaseVectorStore):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredPassage]:
-        """Find the passages nearest to a vector.
+        """Find the passages nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
             top_k: How many passages to return at most.
-            metadata_filter: Must be empty: no translator to Chroma yet.
+            metadata_filter: Conditions a passage must all meet, sent as the
+                query's ``where``, which Chroma applies before its vector
+                search; none sends no ``where``.
 
         Returns:
             The nearest passages, nearest first, with the cosine similarity
             (``1 - cosine distance``, higher is nearer) as ``retrieval_score``.
-
-        Raises:
-            RagDependencyError: ``metadata_filter`` has a condition.
         """
-        refuse_metadata_filter("chroma", self._name, metadata_filter)
         if top_k <= 0:
             return []
         found = await self._call(
             self._collection.query,
             query_embeddings=[list(embedding)],
             n_results=top_k,
+            where=self._filter_translator.translate(metadata_filter),
             include=["documents", "metadatas", "distances"],
         )
         rows = zip(

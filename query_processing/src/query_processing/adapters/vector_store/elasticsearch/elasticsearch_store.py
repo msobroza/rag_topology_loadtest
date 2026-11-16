@@ -24,11 +24,8 @@ from typing import Any
 from ....domain.errors import RagDependencyError
 from ....domain.metadata_filter import MetadataCondition
 from ....domain.passages import Passage, ScoredPassage
-from ..base_vector_store import (
-    BaseLexicalSearch,
-    BaseVectorStore,
-    refuse_metadata_filter,
-)
+from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
+from .elasticsearch_filter_translator import ElasticsearchFilterTranslator
 
 
 class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
@@ -67,6 +64,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         self._text_analyzer = "" if text_analyzer == "standard" else text_analyzer
         self._index_strategy = index_strategy
         self._index_ensured = False
+        self._filter_translator = ElasticsearchFilterTranslator()
 
     @classmethod
     def open(
@@ -126,25 +124,24 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredPassage]:
-        """Find the passages nearest to a vector.
+        """Find the passages nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
             top_k: How many passages to return at most.
-            metadata_filter: Must be empty: no translator to Elasticsearch yet.
+            metadata_filter: Conditions a passage must all meet, sent as the
+                ``knn`` clause's filter, which the server applies during the
+                search; none filters nothing.
 
         Returns:
             The nearest passages with Elasticsearch's relevance score as
             ``retrieval_score``.
-
-        Raises:
-            RagDependencyError: ``metadata_filter`` has a condition.
         """
-        refuse_metadata_filter("elasticsearch", self.index, metadata_filter)
         hits = await self._call(
             self._store.asimilarity_search_by_vector_with_relevance_scores,
             list(embedding),
             k=top_k,
+            filter=self._filter_translator.translate(metadata_filter),
             doc_builder=_document_with_id,
         )
         return [
@@ -168,21 +165,18 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         Args:
             text: The text searched for.
             top_k: How many passages to return at most.
-            metadata_filter: Must be empty: no translator to Elasticsearch yet.
+            metadata_filter: Conditions a passage must all meet, sent in the
+                ``filter`` of a ``bool`` query, where they score nothing; none
+                filters nothing.
 
         Returns:
             The best-matching passages, best first, with Elasticsearch's BM25
             ``_score`` as ``retrieval_score``.
-
-        Raises:
-            RagDependencyError: ``metadata_filter`` has a condition.
         """
-        refuse_metadata_filter("elasticsearch", self.index, metadata_filter)
-        # LangChain's store keeps the passage text in the ``text`` field.
         found = await self._call(
             self._store.client.search,
             index=self.index,
-            query={"match": {"text": text}},
+            query=self._text_query(text, metadata_filter),
             size=top_k,
         )
         return [
@@ -194,6 +188,14 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             )
             for hit in found["hits"]["hits"]
         ]
+
+    def _text_query(
+        self, text: str, metadata_filter: Sequence[MetadataCondition]
+    ) -> dict[str, Any]:
+        # LangChain's store keeps the passage text in the ``text`` field.
+        match = {"match": {"text": text}}
+        clauses = self._filter_translator.translate(metadata_filter)
+        return {"bool": {"must": match, "filter": clauses}} if clauses else match
 
     async def count(self) -> int:
         """Count the passages in the index.

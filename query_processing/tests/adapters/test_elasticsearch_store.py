@@ -16,6 +16,7 @@ from langchain_elasticsearch import AsyncElasticsearchStore
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
+from query_processing.domain.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import Passage
@@ -111,10 +112,15 @@ class FakeLangChainStore:
         return list(ids)
 
     async def asimilarity_search_by_vector_with_relevance_scores(
-        self, embedding: list[float], k: int, doc_builder: Callable[..., Any]
+        self,
+        embedding: list[float],
+        k: int,
+        filter: list[dict[str, Any]] | None = None,
+        *,
+        doc_builder: Callable[..., Any],
     ) -> list[tuple[Any, float]]:
         self._maybe_fail()
-        self.search_calls.append({"embedding": embedding, "k": k})
+        self.search_calls.append({"embedding": embedding, "k": k, "filter": filter})
         return [(doc_builder(hit), score) for hit, score in self.hits[:k]]
 
     async def aclose(self) -> None:
@@ -172,7 +178,7 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
     assert scores == sorted(scores, reverse=True)
     assert all(type(h.retrieval_score) is float for h in hits)
     assert all(h.rerank_score is None for h in hits)
-    assert fake.search_calls == [{"embedding": [0.5, 0.5], "k": 2}]
+    assert fake.search_calls == [{"embedding": [0.5, 0.5], "k": 2, "filter": []}]
 
 
 async def test_es_lexical_query_is_a_match_query_on_the_text_field() -> None:
@@ -199,19 +205,45 @@ async def test_es_lexical_query_without_a_match_is_empty() -> None:
     assert await plain_store(fake).lexical_query("x", 5) == []
 
 
-async def test_es_refuses_a_metadata_filter_it_cannot_apply_yet() -> None:
-    # Until Elasticsearch has its translator, a filter fails rather than being
-    # ignored: no client gets passages its conditions would drop.
+TOPIC_HR = [MetadataCondition(attribute="topic", comparator="eq", value="hr")]
+TOPIC_HR_CLAUSES = [{"term": {"metadata.topic.keyword": "hr"}}]
+
+
+async def test_es_query_sends_the_conditions_as_the_vector_searchs_filter() -> None:
     fake = FakeLangChainStore()
-    conditions = [MetadataCondition(attribute="topic", comparator="eq", value="hr")]
+    await plain_store(fake).query([0.5, 0.5], 2, TOPIC_HR)
+    assert fake.search_calls == [
+        {"embedding": [0.5, 0.5], "k": 2, "filter": TOPIC_HR_CLAUSES}
+    ]
 
-    with pytest.raises(RagDependencyError, match="elasticsearch") as dense:
-        await plain_store(fake).query([0.5, 0.5], 2, conditions)
-    with pytest.raises(RagDependencyError, match="elasticsearch"):
-        await plain_store(fake).lexical_query("x", 2, conditions)
 
-    assert (dense.value.component, dense.value.target) == ("vector_store", INDEX)
-    assert fake.search_calls == fake.lexical_calls == []
+async def test_es_lexical_query_sends_the_conditions_in_its_bool_filter() -> None:
+    fake = FakeLangChainStore()
+    await plain_store(fake).lexical_query("vacation", 2, TOPIC_HR)
+    query = {"match": {"text": "vacation"}}
+    assert fake.lexical_calls == [
+        {
+            "index": INDEX,
+            "query": {"bool": {"must": query, "filter": TOPIC_HR_CLAUSES}},
+            "size": 2,
+        }
+    ]
+
+
+async def test_es_hybrid_search_passes_the_conditions_to_both_searches() -> None:
+    fake = FakeLangChainStore()
+    request = SearchRequest(
+        embedding=[0.5, 0.5],
+        text="vacation",
+        top_k=2,
+        retrieval_mode="hybrid",
+        rrf_k=60,
+        metadata_filter=TOPIC_HR,
+    )
+    await plain_store(fake).ainvoke(request)
+    assert [call["filter"] for call in fake.search_calls] == [TOPIC_HR_CLAUSES]
+    [lexical] = fake.lexical_calls
+    assert lexical["query"]["bool"]["filter"] == TOPIC_HR_CLAUSES
 
 
 @pytest.mark.parametrize(("exists", "expected"), [(False, 0), (True, 17)])
@@ -391,13 +423,14 @@ class FakeAsyncElasticsearch:
 
     It answers what LangChain's index creation and elasticsearch-py's
     ``async_bulk`` call: ``options``, ``indices.exists`` / ``create``, ``bulk`` and
-    the transport's JSON serializer. Created indices and bulk-indexed ids are
-    recorded.
+    the transport's JSON serializer, and the vector search's ``search``. Created
+    indices, bulk-indexed ids and search bodies are recorded.
     """
 
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
         self.indexed_ids: list[str] = []
+        self.searches: list[dict[str, Any]] = []
         self.indices = SimpleNamespace(exists=self._exists, create=self._create)
         serializers = SimpleNamespace(get_serializer=lambda _mime: JsonSerializer())
         self.transport = SimpleNamespace(serializers=serializers)
@@ -418,6 +451,10 @@ class FakeAsyncElasticsearch:
         self.indexed_ids += [h["index"]["_id"] for h in headers]
         items = [{"index": {"_id": h["index"]["_id"], "status": 201}} for h in headers]
         return SimpleNamespace(body={"errors": False, "items": items})
+
+    async def search(self, **body: Any) -> dict[str, Any]:
+        self.searches.append(body)
+        return {"hits": {"hits": []}}
 
     async def close(self) -> None:
         pass
@@ -442,3 +479,13 @@ async def test_es_first_upsert_into_a_missing_index_works_with_the_default_analy
     assert client.indexed_ids == ["p1"]
     vector = client.created[0]["mappings"]["properties"]["vector"]
     assert (vector["type"], vector["dims"]) == ("dense_vector", 3)
+
+
+async def test_es_langchain_puts_the_conditions_inside_the_knn_clause() -> None:
+    # A contract check on the installed LangChain: the clauses are the kNN
+    # search's own filter, applied during the search, not a filter after it.
+    client = FakeAsyncElasticsearch()
+    await langchain_store_over(client).query([0.1, 0.2], 3, TOPIC_HR)
+    [body] = client.searches
+    assert body["knn"]["filter"] == TOPIC_HR_CLAUSES
+    assert "query" not in body

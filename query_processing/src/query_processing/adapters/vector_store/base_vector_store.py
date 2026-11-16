@@ -26,7 +26,6 @@ from collections.abc import Sequence
 
 from ...domain.base_component import BaseComponent
 from ...domain.component_requests import SearchAnswer, SearchRequest
-from ...domain.errors import RagDependencyError
 from ...domain.metadata_filter import MetadataCondition
 from ...domain.passages import Passage, ScoredPassage
 from ...domain.rank_fusion import reciprocal_rank_fusion
@@ -178,33 +177,3 @@ def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSea
         "elasticsearch (QP_COMPONENTS__VECTOR_STORE__BACKEND for the one named "
         "vector_store), or the retrieve stage's retrieval_mode to dense"
     )
-
-
-def refuse_metadata_filter(
-    store: str, target: str, metadata_filter: Sequence[MetadataCondition]
-) -> None:
-    """Refuse a filter on a store that has no translator yet, rather than ignore it.
-
-    The Elasticsearch and Chroma stores take a metadata filter once their
-    translators exist; until then a search with conditions fails, naming the
-    store, so no client is answered with passages the filter would drop.
-
-    Args:
-        store: The store's backend, such as ``elasticsearch``.
-        target: Its index or collection, the error's target.
-        metadata_filter: The search's conditions; none passes.
-
-    Raises:
-        RagDependencyError: The filter has a condition.
-
-    Example:
-        >>> refuse_metadata_filter("chroma", "passages", [])  # passes
-    """
-    if metadata_filter:
-        raise RagDependencyError(
-            "vector_store",
-            f"the {store} store applies no metadata filter yet (got "
-            f"{len(metadata_filter)} conditions, expected none on {store}: "
-            "set the vector store's backend to fake to filter)",
-            target=target,
-        )
