@@ -18,40 +18,29 @@ from __future__ import annotations
 
 import json
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
 
-from pydantic import BaseModel, Field, StringConstraints, ValidationError
+from pydantic import ValidationError
 
 from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
-from ..domain.conversation import HistoryMessage
 from ..domain.corpus import chunk, synthetic_corpus, synthetic_questions
-from ..domain.metadata_filter import MetadataCondition
+from ..domain.query_request import QueryRequest
 from ..domain.standard_formats import CohereRerankRequest, OpenAIEmbeddingsRequest
 
 QUESTIONS_FILE_VAR = "QP_LOADTEST_QUESTIONS_FILE"  # named in the reader's errors
 _BODY_SHAPE = (
-    'expected a JSON object with a non-empty "question", and a'
-    ' "conversational_history" and a "metadata_filter" in the shape of the body'
+    'expected the body of a /query request: a JSON object with a "question",'
+    ' and a "conversational_history" and a "metadata_filter" in the shape of the body'
 )
 
-
-class _QuestionLine(BaseModel):
-    # What a line of the questions file may carry of a /query body. The history
-    # and the filter are checked in the domain's shapes, so a malformed one
-    # stops the load test at start-up naming its line rather than as 422s
-    # during the run; the app's other limits (the question's length, the
-    # conditions against the store's fields) stay the app's to check.
-    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-    conversational_history: list[HistoryMessage] = Field(default_factory=list)
-    metadata_filter: list[MetadataCondition] = Field(default_factory=list)
-
-
 # A line keeps these keys and leaves out any other (a corpus's evaluation
-# material, say).
-_BODY_KEYS = tuple(_QuestionLine.model_fields)
+# material, say). Each body is checked against the app's own model of it, so
+# a malformed one stops the load test at start-up naming its line rather than
+# as 422s during the run; the conditions against the store's fields stay the
+# app's to check, since only it knows them.
+_BODY_KEYS = tuple(QueryRequest.model_fields)
 
 
 @dataclass(frozen=True)
@@ -131,10 +120,11 @@ def load_questions(path: Path) -> tuple[dict[str, object], ...]:
         The bodies, in file order.
 
     Raises:
-        ValueError: If the file cannot be read or holds no question, or a JSON
-            line is not an object with a non-empty string ``question`` and a
-            history and filter of the body's shape; the message names the
-            file, and the line.
+        ValueError: If the file cannot be read or holds no question, or a
+            line is not a body the workflow app takes (``QueryRequest``): a
+            JSON line not an object with a ``question`` and a history and
+            filter of the body's shape, or a question empty or too long; the
+            message names the file, and the line.
 
     Example:
         >>> load_questions(Path("data/quebec/questions.jsonl"))[0]
@@ -148,31 +138,50 @@ def load_questions(path: Path) -> tuple[dict[str, object], ...]:
     lines = [(n, line) for n, line in lines if line]
     if not lines:
         raise ValueError(f"{QUESTIONS_FILE_VAR}={str(path)!r}: no question in it")
-    if not lines[0][1].startswith("{"):
-        return tuple({"question": line} for _, line in lines)
-    return tuple(_json_body(path, n, line) for n, line in lines)
+    body_of_line = _json_body if lines[0][1].startswith("{") else _text_body
+    return tuple(_checked(path, n, line, body_of_line) for n, line in lines)
 
 
-def _json_body(path: Path, lineno: int, line: str) -> dict[str, object]:
-    # The body of one JSON line, as written but for its other keys and the
-    # spaces around its question, or an error naming the line.
+def _checked(
+    path: Path, lineno: int, line: str, body_of_line: Callable[[str], dict[str, object]]
+) -> dict[str, object]:
+    # The body of one line, checked as the app checks it, or an error naming
+    # the line.
     try:
-        raw = json.loads(line)
-        question = _QuestionLine.model_validate(raw).question
+        body = body_of_line(line)
+        QueryRequest.model_validate(body)
     except ValueError as exc:  # not JSON, or not a body (ValidationError is one)
         got = f"got {line[:80]!r}{_failed_field(exc)}"
         raise ValueError(f"{path}: line {lineno}: {_BODY_SHAPE}, {got}") from exc
+    return body
+
+
+def _text_body(line: str) -> dict[str, object]:
+    # A plain-text line is a question alone.
+    return {"question": line}
+
+
+def _json_body(line: str) -> dict[str, object]:
+    # The body of one JSON line, as written but for its other keys and the
+    # spaces around its question.
+    raw = json.loads(line)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{type(raw).__name__} is no JSON object")
     body = {key: raw[key] for key in _BODY_KEYS if key in raw}
-    body["question"] = question
+    question = body.get("question")
+    if isinstance(question, str):
+        body["question"] = question.strip()
     return body
 
 
 def _failed_field(exc: ValueError) -> str:
-    # Where a body that is not of its shape fails, e.g. " at
-    # conversational_history.0.role"; nothing for a line that is not JSON.
+    # Where a body that is not of its shape fails and why, e.g. " at
+    # question: String should have at most ... characters"; nothing for a line
+    # that is not JSON.
     if not isinstance(exc, ValidationError):
         return ""
-    return " at " + ".".join(str(part) for part in exc.errors()[0]["loc"])
+    error = exc.errors()[0]
+    return f" at {'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
 
 
 def _drawn_question(pool: RequestPool, rng: random.Random) -> str:

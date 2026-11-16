@@ -30,7 +30,7 @@ from ...adapters.llm.base_llm import BaseLLM
 from ...domain.errors import RagDependencyError
 from ...domain.metadata_filter import MetadataFieldInfo
 from ...domain.prompts import Prompt
-from ..output_schemas import OUTPUT_SCHEMAS, narrowed_to
+from ..output_schemas import OUTPUT_SCHEMAS, condition_fields, narrowed_to
 from ..prompt_rendering import prompt_placeholders, prompt_variables, render_prompt
 from ..workflow_state import MESSAGES_TYPE, WorkflowState
 from .base_stage import (
@@ -116,7 +116,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
                 the stage does not read, the output schema is not registered,
                 or ``writes`` does not list one field, or under a schema each
                 of the schema's fields by name; ``metadata_fields_of`` names
-                no vector store, or one that declares no field.
+                no vector store, or one that declares no field, or is missing
+                under a schema that holds conditions.
 
         Example:
             >>> GenerateStage.check_fields(
@@ -136,7 +137,9 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
                 "expected each variable of the prompt among its reads)"
             )
         if settings.output_schema is not None:  # narrowing fails at start-up
-            _asked_schema(_named_schema(settings.output_schema), field_info)
+            schema = _named_schema(settings.output_schema)
+            _refuse_undeclared_conditions(settings, schema, context)
+            _asked_schema(schema, field_info)
         # A placeholder splices messages; a template takes any value as it is.
         spliced = prompt_placeholders(prompt)
         reads = {f: MESSAGES_TYPE if f in spliced else Any for f in fields.reads}
@@ -164,9 +167,11 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
         # _asked is None only when _schema is: the second test is for the type checker.
         if self._schema is None or self._asked is None:
             return self.write_field(text)
-        # Back to the schema's own types: the state holds the domain's conditions.
-        asked = _instance_of(self._asked, text)
-        answer = self._schema.model_validate(asked.model_dump())
+        answer = _instance_of(self._asked, text)
+        if self._asked is not self._schema:
+            # Back to the schema's own types: the state holds the domain's
+            # conditions. Dumped by alias, which the narrowed schema keeps.
+            answer = self._schema.model_validate(answer.model_dump(by_alias=True))
         return {field: getattr(answer, field) for field in self.fields.writes}
 
 
@@ -211,6 +216,22 @@ def _declared_fields(
     raise ValueError(
         f"metadata_fields_of names {store!r}, which is no vector store "
         f"(expected one of: {known})"
+    )
+
+
+def _refuse_undeclared_conditions(
+    settings: GenerateSettings, schema: type[BaseModel], context: StageContext
+) -> None:
+    # A condition the LLM writes is held to a store's declared fields, as a
+    # client's is (spec 7): a schema of conditions needs metadata_fields_of.
+    held = condition_fields(schema)
+    if not held or settings.metadata_fields_of is not None:
+        return
+    stores = ", ".join(map(repr, context.metadata_field_info)) or "none"
+    raise ValueError(
+        f"the output schema {settings.output_schema!r} holds conditions in {held}, "
+        "which no vector store's declared fields would limit (expected "
+        f"metadata_fields_of: <a vector store> (one of: {stores}) on the stage)"
     )
 
 

@@ -155,7 +155,51 @@ def test_a_condition_of_the_right_shape_needs_no_field_declared() -> None:
     check_condition_shapes(
         [
             MetadataCondition(attribute="version", comparator="eq", value="1"),
-            MetadataCondition(attribute="active", comparator="in", value=[True]),
+            # A boolean has eq and ne only, in the domain's table: no "in".
+            MetadataCondition(attribute="version", comparator="in", value=["1", "2"]),
+            MetadataCondition(attribute="active", comparator="ne", value=False),
+            MetadataCondition(attribute="year", comparator="gte", value=2020),
+            MetadataCondition(attribute="score", comparator="lt", value=0.5),
         ],
         "prefilter",
     )
+
+
+@pytest.mark.parametrize(
+    ("condition", "problem"),
+    [
+        (
+            {"attribute": "version", "comparator": "gt", "value": "1"},
+            r"'gt' is not a comparator of a string \(expected one of: eq, in, ne, nin\)",
+        ),
+        (
+            {"attribute": "active", "comparator": "gte", "value": True},
+            r"'gte' is not a comparator of a boolean \(expected one of: eq, ne\)",
+        ),
+        (
+            {"attribute": "version", "comparator": "in", "value": ["1", 2, True]},
+            r"\['1', 2, True\] mixes values of the types string, integer, boolean "
+            r"\(expected values of one type\)",
+        ),
+        (
+            # Chroma refuses it too: its values must all have one type.
+            {"attribute": "score", "comparator": "nin", "value": [1, 2.5]},
+            r"mixes values of the types integer, float",
+        ),
+    ],
+    ids=[
+        "gt-on-a-string",
+        "gte-on-a-boolean",
+        "in-of-mixed-types",
+        "nin-of-an-integer-and-a-float",
+    ],
+)
+def test_a_prefilter_condition_is_refused_when_its_comparator_misfits_its_value(
+    condition: dict[str, Any], problem: str
+) -> None:
+    # Regression of the review: these were accepted, the deploy tool's check
+    # included, and every Chroma search then failed.
+    with pytest.raises(ValueError, match=problem) as refused:
+        check_condition_shapes([MetadataCondition(**condition)], "prefilter")
+
+    assert str(refused.value).startswith("prefilter[0] ")

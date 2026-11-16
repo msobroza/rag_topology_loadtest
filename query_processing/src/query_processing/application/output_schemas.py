@@ -18,6 +18,7 @@ Example:
 
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Sequence
 from typing import Any, Literal, Union, get_args, get_origin
@@ -32,6 +33,7 @@ from pydantic import (
     conlist,
     create_model,
 )
+from pydantic.fields import FieldInfo
 
 from ..domain.metadata_filter import (
     COMPARATORS_BY_TYPE,
@@ -58,6 +60,9 @@ _VALUE_TYPES: dict[MetadataFieldType, Any] = {
     "boolean": StrictBool,
 }
 _NOT_A_NAME = re.compile(r"\W")
+# The attributes of a field that make it required: pydantic reads a default
+# of ... as none.
+_NO_DEFAULT: dict[str, Any] = {"default": ..., "default_factory": None}
 
 
 @OUTPUT_SCHEMAS.register("standalone_query_with_filter")
@@ -90,7 +95,7 @@ def narrowed_to(
     ``allowed_values`` when it declares them, in a list for ``in`` and
     ``nin``. Every model forbids extra keys and has no default, so an
     endpoint's strict mode accepts the schema. The other fields keep their
-    types.
+    types, and every field keeps its alias, constraints and description.
 
     Args:
         schema: An output schema, such as ``StandaloneQueryWithFilter``.
@@ -119,17 +124,50 @@ def narrowed_to(
         )
     condition = _condition_union(fields)
     narrowed: dict[str, Any] = {
-        name: (_narrowed_type(info.annotation, condition), ...)
+        name: (_narrowed_type(info.annotation, condition), _required_copy(info))
         for name, info in schema.model_fields.items()
     }
     return create_model(schema.__name__, __config__=_STRICT, **narrowed)
 
 
+def condition_fields(schema: type[BaseModel]) -> list[str]:
+    """Return the fields of ``schema`` that hold conditions of a metadata filter.
+
+    Args:
+        schema: An output schema.
+
+    Returns:
+        The names of its fields typed ``list[MetadataCondition]``, in order.
+
+    Example:
+        >>> condition_fields(StandaloneQueryWithFilter)
+        ['metadata_filter']
+    """
+    return [
+        name
+        for name, info in schema.model_fields.items()
+        if _holds_conditions(info.annotation)
+    ]
+
+
+def _holds_conditions(annotation: Any) -> bool:
+    is_list = get_origin(annotation) is list
+    return is_list and get_args(annotation) == (MetadataCondition,)
+
+
 def _narrowed_type(annotation: Any, condition: Any) -> Any:
     # A list of conditions holds the narrowed ones; another type is kept.
-    if get_origin(annotation) is list and get_args(annotation) == (MetadataCondition,):
-        return list[condition]
-    return annotation
+    return list[condition] if _holds_conditions(annotation) else annotation
+
+
+def _required_copy(info: FieldInfo) -> FieldInfo:
+    # The field as the schema states it (alias, constraints, description), but
+    # required: the type create_model is given replaces its annotation.
+    kept = copy.copy(info)
+    # By setattr: only pydantic reads these, and vulture would call them unused.
+    for attribute, value in _NO_DEFAULT.items():
+        setattr(kept, attribute, value)
+    return kept
 
 
 def _condition_union(fields: Sequence[MetadataFieldInfo]) -> Any:

@@ -6,9 +6,10 @@ import json
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from output_schema_fakes import FIXTURE_SCHEMA, FixtureRewrite, ScriptedLLM
+from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM, fake_instance_json
 from query_processing.application.output_schemas import (
     OUTPUT_SCHEMAS,
@@ -27,9 +28,14 @@ from query_processing.domain.metadata_filter import (
 )
 from query_processing.domain.prompts import PromptMessage
 
-REWRITE = GenerateSettings(prompt="rewrite", output_schema=FIXTURE_SCHEMA)
+# A schema of conditions names the store whose declared fields limit them.
+REWRITE = GenerateSettings(
+    prompt="rewrite", output_schema=FIXTURE_SCHEMA, metadata_fields_of="handbook"
+)
+TOPIC = MetadataFieldInfo(name="topic", type="string", description="what it is about")
 CONTEXT = StageContext(
-    {"rewrite": [PromptMessage(role="user", content="{{ conversational_query }}")]}
+    {"rewrite": [PromptMessage(role="user", content="{{ conversational_query }}")]},
+    metadata_field_info={"handbook": [TOPIC]},
 )
 # The schema's fields, stated in another order than the schema's.
 FIELDS = StageFields(("conversational_query",), ("metadata_filter", "standalone_query"))
@@ -43,6 +49,28 @@ SOURCE = MetadataFieldInfo(
 YEAR = MetadataFieldInfo(
     name="year", type="integer", description="when it was published"
 )
+_DESCRIBED, _ALIASED = "fixture_described", "fixture_aliased"
+
+
+@OUTPUT_SCHEMAS.register(_DESCRIBED)
+class _Described(BaseModel):
+    # A use case's schema: a field with a constraint, a description, an alias.
+    model_config = ConfigDict(extra="forbid")
+
+    standalone_query: str = Field(
+        min_length=5, description="The message, self-contained.", alias="query"
+    )
+    metadata_filter: list[MetadataCondition]
+
+
+class _Aliased(BaseModel):
+    # A schema of no conditions, asked for as it is, with an alias.
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(alias="finalAnswer")
+
+
+OUTPUT_SCHEMAS.register(_ALIASED)(_Aliased)
 
 
 def test_a_registered_schema_is_found_by_its_name() -> None:
@@ -210,7 +238,8 @@ async def test_a_stage_with_a_schema_writes_each_field_of_the_answer() -> None:
         "standalone_query": "pay in May",
         "metadata_filter": [MetadataCondition.model_validate(ON_PAY)],
     }
-    assert llm.schemas == [FixtureRewrite]
+    # The schema is asked for narrowed to the store's fields, under its name.
+    assert [schema and schema.__name__ for schema in llm.schemas] == ["FixtureRewrite"]
 
 
 async def test_on_the_fake_llm_a_stage_with_a_schema_writes_its_fields() -> None:
@@ -239,6 +268,62 @@ async def test_without_a_schema_the_stage_writes_the_text_and_asks_for_none() ->
 
     assert await stage.run({"conversational_query": "q"}) == {"answer": "pay in May"}
     assert llm.schemas == [None]
+
+
+def test_the_narrowed_schema_keeps_each_fields_constraints_and_description() -> None:
+    # Regression of the review: the narrowing rebuilt each field without its
+    # Field(...), so the constraint and the description left the schema sent.
+    narrowed = narrowed_to(_Described, [SOURCE])
+
+    sent = narrowed.model_json_schema()["properties"]["query"]
+    assert sent["minLength"] == 5
+    assert sent["description"] == "The message, self-contained."
+    with pytest.raises(ValidationError):
+        narrowed.model_validate({"query": "hi", "metadata_filter": []})
+
+
+@pytest.mark.parametrize(
+    ("llm", "schema", "writes", "written"),
+    [
+        (ScriptedLLM('{"finalAnswer": "a"}'), _ALIASED, ("answer",), ["a"]),
+        (FakeLLM(), _ALIASED, ("answer",), ["[fake-llm] and in May?"]),
+        (
+            ScriptedLLM('{"query": "pay in May", "metadata_filter": []}'),
+            _DESCRIBED,
+            FIELDS.writes,
+            [[], "pay in May"],
+        ),
+        (FakeLLM(), _DESCRIBED, FIELDS.writes, [[], "[fake-llm] and in May?"]),
+    ],
+    ids=["as-is", "as-is-on-the-fake-llm", "narrowed", "narrowed-on-the-fake-llm"],
+)
+async def test_a_schema_with_an_alias_writes_its_fields_by_their_names(
+    llm: BaseLLM, schema: str, writes: tuple[str, ...], written: list[object]
+) -> None:
+    # Regression of the review: the answer was validated a second time from a
+    # dump by field name, which a schema with an alias refuses.
+    store = "handbook" if schema == _DESCRIBED else None
+    settings = GenerateSettings(
+        prompt="rewrite", output_schema=schema, metadata_fields_of=store
+    )
+    fields = StageFields(FIELDS.reads, writes)
+
+    update = await GenerateStage(llm, settings, fields, CONTEXT).run(
+        {"conversational_query": "and in May?"}
+    )
+
+    assert update == dict(zip(writes, written, strict=True))
+
+
+async def test_a_narrowed_answer_that_breaks_a_constraint_fails_as_the_llm() -> None:
+    llm = ScriptedLLM('{"query": "hi", "metadata_filter": []}')
+    settings = GenerateSettings(
+        prompt="rewrite", output_schema=_DESCRIBED, metadata_fields_of="handbook"
+    )
+    stage = GenerateStage(llm, settings, FIELDS, CONTEXT)
+
+    with pytest.raises(RagDependencyError, match="at least 5 characters"):
+        await stage.run({"conversational_query": "and in May?"})
 
 
 def _json(condition: dict[str, str]) -> str:

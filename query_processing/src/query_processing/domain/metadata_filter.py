@@ -44,6 +44,15 @@ _PYTHON_TYPES: dict[MetadataFieldType, tuple[type, ...]] = {
     "float": (int, float),
     "boolean": (bool,),
 }
+# The type of field a value of each Python type would be: a prefilter's
+# fields are not declared, so its values say their type. An integer is not a
+# float here, unlike _PYTHON_TYPES: Chroma refuses an "in" of [1, 2.5].
+_TYPE_OF_VALUE: dict[type, MetadataFieldType] = {
+    str: "string",
+    int: "integer",
+    float: "float",
+    bool: "boolean",
+}
 
 
 class MetadataCondition(BaseModel):
@@ -117,18 +126,22 @@ def check_conditions(
 
 
 def check_condition_shapes(conditions: Sequence[MetadataCondition], label: str) -> None:
-    """Refuse a condition whose value does not have its comparator's shape.
+    """Refuse a condition whose value does not fit its comparator.
 
     For conditions on fields no store declares, such as a vector store's
-    prefilter: only the shape is checked, not a field's type nor its values.
+    prefilter: the type of the value stands for the field's, so the comparator
+    is checked against it, and a list of values of several types is refused
+    (Chroma refuses one mid-search).
 
     Args:
         conditions: The conditions.
         label: What holds them, named in the error, such as ``"prefilter"``.
 
     Raises:
-        ValueError: ``in`` or ``nin`` has one value or an empty list, or another
-            comparator has a list. The message names the condition.
+        ValueError: ``in`` or ``nin`` has one value or an empty list, another
+            comparator has a list, the values are of several types, or the
+            comparator is not one of their type (``gt`` on a string). The
+            message names the condition.
 
     Example:
         >>> check_condition_shapes(
@@ -138,7 +151,7 @@ def check_condition_shapes(conditions: Sequence[MetadataCondition], label: str) 
         ValueError: prefilter[0] ... 'in' takes a list of at least one value ...
     """
     for index, condition in enumerate(conditions):
-        problem = _shape_problem(condition)
+        problem = _shape_problem(condition) or _value_type_problem(condition)
         if problem:
             raise ValueError(
                 f"{label}[{index}] {condition.model_dump()} does not have the "
@@ -160,14 +173,31 @@ def _problem(
 
 
 def _comparator_problem(condition: MetadataCondition, field: MetadataFieldInfo) -> str:
-    comparator = condition.comparator
-    allowed = COMPARATORS_BY_TYPE[field.type]
-    if comparator not in allowed:
+    misfit = _comparator_misfit(condition.comparator, field.type)
+    return misfit or _shape_problem(condition)
+
+
+def _comparator_misfit(comparator: Comparator, field_type: MetadataFieldType) -> str:
+    allowed = COMPARATORS_BY_TYPE[field_type]
+    if comparator in allowed:
+        return ""
+    return (
+        f"{comparator!r} is not a comparator of a {field_type} "
+        f"(expected one of: {', '.join(sorted(allowed))})"
+    )
+
+
+def _value_type_problem(condition: MetadataCondition) -> str:
+    # The shape is checked first: a list holds at least one value here.
+    value = condition.value
+    values = value if isinstance(value, list) else [value]
+    types = list(dict.fromkeys(_TYPE_OF_VALUE[type(v)] for v in values))
+    if len(types) > 1:
         return (
-            f"{comparator!r} is not a comparator of a {field.type} "
-            f"(expected one of: {', '.join(sorted(allowed))})"
+            f"{value!r} mixes values of the types {', '.join(types)} "
+            "(expected values of one type)"
         )
-    return _shape_problem(condition)
+    return _comparator_misfit(condition.comparator, types[0])
 
 
 def _shape_problem(condition: MetadataCondition) -> str:

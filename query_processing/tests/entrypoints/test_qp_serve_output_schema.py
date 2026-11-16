@@ -94,6 +94,8 @@ def rewrite_graph(**rewrite: object) -> Graph:
         "call": "llm",
         "prompt": "rewrite",
         "output_schema": FIXTURE_SCHEMA,
+        # A schema of conditions is limited to a store's declared fields.
+        "metadata_fields_of": "vector_store",
         "reads": ["conversational_query"],
         "writes": ["standalone_query", "metadata_filter"],
         **rewrite,
@@ -128,7 +130,11 @@ def test_a_stage_with_a_schema_writes_the_fields_the_stages_after_it_read(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert llm.schemas == [FixtureRewrite, None]  # the rewrite, then the answer
+    # The rewrite, its schema narrowed under its name, then the answer.
+    assert [schema and schema.__name__ for schema in llm.schemas] == [
+        FixtureRewrite.__name__,
+        None,
+    ]
     assert body["answer"].startswith("[fake-llm] ")
     assert body["passages"]
     assert body["metadata_filter"] == []  # the fake LLM's instance has none
@@ -187,11 +193,19 @@ def test_the_conditions_a_rewrite_writes_are_added_to_the_clients(
             "stage 'rewrite': metadata_fields_of names 'vector_stor', which is no "
             "vector store (expected one of: 'vector_store')",
         ),
+        (
+            {"metadata_fields_of": None},
+            "stage 'rewrite': the output schema 'fixture_rewrite' holds conditions "
+            "in ['metadata_filter'], which no vector store's declared fields would "
+            "limit (expected metadata_fields_of: <a vector store> (one of: "
+            "'vector_store') on the stage)",
+        ),
     ],
     ids=[
         "an-unregistered-schema",
         "writes-that-differ-from-its-fields",
         "metadata-fields-of-no-vector-store",
+        "conditions-without-metadata-fields-of",
     ],
 )
 def test_a_schema_that_does_not_fit_its_stage_is_a_usage_error_at_start_up(

@@ -29,7 +29,7 @@ from typing import Any, Literal
 import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..application.graph_check import WorkflowGraphError
@@ -43,7 +43,7 @@ from ..composition.composition_root import (
 from ..composition.registered_names import check_registered_names
 from ..config.component_settings import VectorStoreSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.conversation import HistoryMessage, check_history_conditions
+from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
 from ..domain.metadata_filter import (
     MetadataCondition,
@@ -51,23 +51,10 @@ from ..domain.metadata_filter import (
     check_conditions,
 )
 from ..domain.passages import RagMode, ScoredPassage
+from ..domain.query_request import QueryRequest
 from ..infrastructure.json_log import log_json
 
 logger = logging.getLogger("query_processing")
-
-
-class QueryRequest(BaseModel):
-    """The question to answer, 1 to 2000 characters, its history and its conditions.
-
-    ``conversational_history`` is optional: the earlier turns, in order, for the
-    prompts to read. ``metadata_filter`` is optional: every passage retrieved
-    meets all its conditions. Each condition, a history message's included, is
-    checked against the fields the vector stores declare.
-    """
-
-    question: str = Field(min_length=1, max_length=2000)
-    conversational_history: list[HistoryMessage] = Field(default_factory=list)
-    metadata_filter: list[MetadataCondition] = Field(default_factory=list)
 
 
 class QueryResponse(BaseModel):

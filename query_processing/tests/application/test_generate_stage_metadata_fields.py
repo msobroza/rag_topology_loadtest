@@ -95,6 +95,22 @@ def test_start_up_refuses_a_store_that_cannot_narrow_the_schema(
         GenerateStage.check_fields(settings, FIELDS, CONTEXT)
 
 
+def test_start_up_refuses_a_schema_of_conditions_without_metadata_fields_of() -> None:
+    # Regression of the review: the stage wrote any condition the LLM answered,
+    # on any field, where a client's would get a 422 (spec 7).
+    settings = REWRITE.model_copy(update={"metadata_fields_of": None})
+    plain = [PromptMessage(role="user", content="{{ conversational_query }}")]
+    context = StageContext({"rewrite": plain}, CONTEXT.metadata_field_info)
+
+    with pytest.raises(
+        ValueError,
+        match=r"the output schema 'standalone_query_with_filter' holds conditions "
+        r"in \['metadata_filter'\].*expected metadata_fields_of: <a vector store> "
+        r"\(one of: 'handbook', 'archive'\)",
+    ):
+        GenerateStage.check_fields(settings, FIELDS, context)
+
+
 def test_without_metadata_fields_of_the_prompt_cannot_use_the_fields() -> None:
     settings = REWRITE.model_copy(update={"metadata_fields_of": None})
 

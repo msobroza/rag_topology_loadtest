@@ -31,7 +31,7 @@ from query_processing.application.stages.retrieve_stage import (
 from query_processing.application.state_fields import field_types_of, state_type
 from query_processing.application.workflow_builder import open_stage
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.metadata_filter import MetadataCondition
+from query_processing.domain.metadata_filter import MetadataCondition, MetadataFieldInfo
 from query_processing.domain.passages import ScoredPassage
 from query_processing.domain.prompts import PromptMessage
 from rag_graphs import rag_graph
@@ -278,14 +278,17 @@ def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:
 
 async def test_a_generate_stage_with_a_schema_writes_each_of_its_fields() -> None:
     settings = GenerateSettings(
-        prompt="rewrite", output_schema="standalone_query_with_filter"
+        prompt="rewrite",
+        output_schema="standalone_query_with_filter",
+        metadata_fields_of="handbook",
     )
     rewrite = [PromptMessage(role="user", content="{{ conversational_query }}")]
     fields = StageFields(
         ("conversational_query", "conversational_history"),
         ("standalone_query", "metadata_filter"),
     )
-    context = StageContext({"rewrite": rewrite})
+    topic = MetadataFieldInfo(name="topic", type="string", description="d")
+    context = StageContext({"rewrite": rewrite}, {"handbook": [topic]})
     stage = GenerateStage(FakeLLM(), settings, fields, context)
 
     update = await stage.run(

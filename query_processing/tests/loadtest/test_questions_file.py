@@ -139,6 +139,32 @@ def test_a_bad_history_message_is_named_by_its_place(tmp_path: Path) -> None:
         load_questions(written(tmp_path, line))
 
 
+@pytest.mark.parametrize(
+    ("text", "name"),
+    [
+        ('{"question": "ok"}\n' + json.dumps({"question": "x" * 2001}), "q.jsonl"),
+        ("ok\n" + "x" * 2001, "q.txt"),
+    ],
+    ids=["json-line", "plain-text-line"],
+)
+def test_a_question_longer_than_the_app_takes_is_refused_naming_the_line(
+    tmp_path: Path, text: str, name: str
+) -> None:
+    # Regression of the review: the loader missed the body's limit on a
+    # question's length, so the line gave 422s during the run.
+    with pytest.raises(
+        ValueError, match=r"line 2: .* at question: String should have at most 2000"
+    ):
+        load_questions(written(tmp_path, text, name))
+
+
+def test_a_question_of_the_longest_length_the_app_takes_is_read(
+    tmp_path: Path,
+) -> None:
+    path = written(tmp_path, json.dumps({"question": "x" * 2000}))
+    assert load_questions(path) == ({"question": "x" * 2000},)
+
+
 def test_the_question_of_a_follow_up_is_stripped(tmp_path: Path) -> None:
     history = [{"role": "user", "content": "a?"}]
     line = json.dumps({"question": "  and b? ", "conversational_history": history})

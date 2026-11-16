@@ -727,6 +727,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
       metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
+      query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
       retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
       rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
