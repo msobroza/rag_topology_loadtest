@@ -2,14 +2,16 @@
 #
 # Build from the repository's root, the context: it holds .python-version, the
 # toolkit's directory query_processing/ (pyproject.toml, src/, ovms/) and the use
-# case's (USE_CASE, the RAG's by default: its pyproject.toml and workflow.yaml):
+# case's (USE_CASE, the RAG's by default: its pyproject.toml, its package under
+# src/, and the workflow, prompts and routes files its settings read):
 #   docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/query-processing-rag  .
 #   docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/query-processing-ovms .
 #
 #   rag   for the workflow apps (QP_ROLE=workflow), the model servers of kind
 #         fastapi (QP_ROLE=model-server, QP_MODEL_SERVER_KIND=fastapi) and the
 #         Workspaces that run Locust: the toolkit with the [loadtest,domino]
-#         extras and the use case, the use case's two HF models pre-downloaded,
+#         extras and the use case, each embedder and reranker of its workflow
+#         file pre-downloaded,
 #         HF_HUB_OFFLINE=1.
 #   ovms  for the model servers of kind ovms (QP_ROLE=model-server,
 #         QP_MODEL_SERVER_KIND=ovms): the ovms binary tarball pinned in
@@ -33,14 +35,19 @@ FROM ${BASE_IMAGE} AS rag
 ARG USE_CASE
 USER root
 
-# Only what pip needs, laid out as in the repository (the use case finds the
-# toolkit beside it): the entry point (domino/app.sh), locustfile.py and the use
-# case's other files come from the project files Domino mounts into the run, and
-# .env never enters the image.
+# What pip needs and every file the use case's settings read, laid out as in
+# the repository (the use case finds the toolkit beside it): its package under
+# src/, which its workflow file names under extensions, its workflow file, its
+# prompts and its routes. The entry point (domino/app.sh), locustfile.py and the
+# use case's other files come from the project files Domino mounts into the
+# run, and .env never enters the image. A use case's tests can read these COPY
+# lines and read its settings from what they copy, so that a file it gains is
+# not forgotten here.
 COPY .python-version /opt/qp/
 COPY query_processing/pyproject.toml /opt/qp/query_processing/
 COPY query_processing/src /opt/qp/query_processing/src
-COPY ${USE_CASE}/pyproject.toml ${USE_CASE}/workflow.yaml /opt/qp/${USE_CASE}/
+COPY ${USE_CASE}/pyproject.toml ${USE_CASE}/workflow.yaml ${USE_CASE}/prompts.yaml ${USE_CASE}/routes.yaml /opt/qp/${USE_CASE}/
+COPY ${USE_CASE}/src /opt/qp/${USE_CASE}/src
 # The toolkit and the use case in one command, the toolkit first: no package index
 # has the toolkit. [loadtest] adds locust; [domino] adds dominodatalab[agents] for
 # QP_DOMINO__TRACING=true.
@@ -52,8 +59,8 @@ RUN pip install --no-cache-dir uv \
         "/opt/qp/${USE_CASE}"
 ENV PATH=/opt/qp-venv/bin:$PATH
 
-# Download the use case's two HF models and convert them to OpenVINO, so app
-# start-up needs no network and no conversion. qp-export-openvino takes the
+# Download each embedder and reranker of the use case's workflow file and convert
+# them to OpenVINO, so app start-up needs no network and no conversion. qp-export-openvino takes the
 # source ids from the use case's workflow file (the one served-model pin), read
 # in its directory as every command reads it, so this step cannot drift from what
 # the apps load. The download stays in HF_HOME, so QP_LOCAL_MODELS__RUNTIME=torch

@@ -69,6 +69,7 @@ from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.base_component import BaseComponent
 from .domain.component_requests import EmbedAnswer, EmbedRequest
 from .domain.component_resources import ComponentResources
+from .domain.errors import RagDependencyError
 from .domain.routes import Route, RouteChoice, RouteRequest
 from .infrastructure.endpoint.served_call import ServedCallMixin
 
@@ -86,6 +87,7 @@ __all__ = [
     "EmbedAnswer",
     "EmbedRequest",
     "FieldTypes",
+    "RagDependencyError",
     "Route",
     "RouteChoice",
     "RouteRequest",

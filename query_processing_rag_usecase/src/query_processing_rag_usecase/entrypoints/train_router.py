@@ -8,7 +8,9 @@ leave-one-out; and writes the pipeline file with its manifest (spec 9.3).
 Run from the use case's directory, where it finds ``workflow.yaml`` and
 ``routes.yaml``. With ``--check-questions`` it then routes the questions of a
 file, one ``{"question"}`` per line, and reports how many go to each route:
-a check run by hand on questions that are never committed.
+a check run by hand on questions that are never committed. It refuses the
+router's embedder on its fake backend, whose vectors no model gives, unless
+``--allow-fake-embedder`` asks for it, as the tests do.
 
 Example:
     $ qp-rag-train-router --router router --check-questions data/quebec/questions.jsonl
@@ -45,6 +47,8 @@ from ..infrastructure.pipeline_artifact import (
 
 # The backend whose block holds the pipeline file and the training values.
 _LOCAL = "local"
+# The embedder's backend training refuses unless asked: its vectors are no model's.
+_FAKE = "fake"
 
 
 class RouterParts(NamedTuple):
@@ -80,16 +84,25 @@ def router_parts(settings: WorkflowSettings, name: str) -> RouterParts:
 
 
 async def train_router(
-    settings: WorkflowSettings, router_name: str
+    settings: WorkflowSettings,
+    router_name: str,
+    *,
+    allow_fake_embedder: bool = False,
 ) -> PipelineManifest:
     """Train the router's pipeline and write it with its manifest.
 
     Args:
         settings: The workflow settings, with the routes of ``routes.yaml``.
         router_name: The router component to train.
+        allow_fake_embedder: Train even with the router's embedder on its fake
+            backend, as the tests do; its vectors are not the real embedder's.
 
     Returns:
         The manifest written beside the pipeline file.
+
+    Raises:
+        ValueError: If the router's embedder is on its fake backend and that
+            is not allowed; the message names the variable to unset.
 
     Example:
         >>> manifest = await train_router(WorkflowSettings(), "router")
@@ -97,6 +110,8 @@ async def train_router(
         ['leans_on_history', 'self_contained']
     """
     router, knn, routes, embedder = router_parts(settings, router_name)
+    if not allow_fake_embedder:
+        refuse_a_fake_embedder(router.embedder, embedder)
     texts = [u for route in routes for u in route.utterances]
     labels = [route.name for route in routes for _ in route.utterances]
     vectors = await embed_texts(settings, router.embedder, texts)
@@ -112,6 +127,36 @@ async def train_router(
         }
     )
     return save_pipeline(fitted.pipeline, Path(knn.pipeline_file), manifest)
+
+
+def refuse_a_fake_embedder(name: str, embedder: BaseModel) -> None:
+    """Refuse to train on an embedder on its fake backend.
+
+    A pipeline trained on the fake embedder's vectors gets a manifest naming
+    the real embedder's alias, so start-up would accept it beside the real
+    embedder, whose vectors it was never trained on.
+
+    Args:
+        name: The embedder component the router reads.
+        embedder: Its settings.
+
+    Raises:
+        ValueError: If its backend is ``fake``; the message names the variable
+            to unset and the flag that allows it.
+
+    Example:
+        >>> name = "router_embedder"
+        >>> refuse_a_fake_embedder(name, settings.components[name])
+    """
+    backend = getattr(embedder, "backend", None)
+    if backend != _FAKE:
+        return
+    raise ValueError(
+        f"the router's embedder {name!r} is on the backend {backend!r}, whose "
+        "vectors are not the real embedder's; expected the backend it embeds "
+        f"with at query time: unset QP_COMPONENTS__{name.upper()}__BACKEND, or "
+        "pass --allow-fake-embedder to train on the fake vectors anyway"
+    )
 
 
 async def route_questions(
@@ -299,7 +344,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         settings = WorkflowSettings()
-        manifest = asyncio.run(train_router(settings, args.router))
+        manifest = asyncio.run(
+            train_router(
+                settings, args.router, allow_fake_embedder=args.allow_fake_embedder
+            )
+        )
         print(json.dumps({"event": "router_trained", **manifest.model_dump()}))
         if args.check_questions is not None:
             _report_routed(settings, args.router, args.check_questions)
@@ -327,6 +376,11 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         help="then report how many of this file's questions go to each route",
+    )
+    parser.add_argument(
+        "--allow-fake-embedder",
+        action="store_true",
+        help="train even with the router's embedder on its fake backend (tests)",
     )
     return parser
 

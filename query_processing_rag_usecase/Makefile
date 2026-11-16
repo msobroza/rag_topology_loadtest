@@ -38,7 +38,10 @@ help: ## Show this help
 ingest: ## Index the synthetic corpus into Elasticsearch (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
 	$(BIN)qp-ingest --synthetic 200 --embedder embedder
 
-train-router: ## Train the router on the utterances of routes.yaml: writes router_pipeline.joblib and its manifest (needs the router's embedder)
+# No --allow-fake-embedder: a pipeline trained on the fake embedder's vectors
+# would pass for one trained on the real embedder, so the command refuses the
+# router's embedder on fake; only the tests pass the flag.
+train-router: ## Train the router on the utterances of routes.yaml: writes router_pipeline.joblib and its manifest (needs the router's embedder, refused on fake)
 	$(BIN)qp-rag-train-router
 
 serve: ## Run the FastAPI service with this workflow file and the current QP_* environment

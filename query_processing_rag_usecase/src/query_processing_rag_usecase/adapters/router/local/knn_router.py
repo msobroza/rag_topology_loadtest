@@ -7,17 +7,20 @@ once its manifest matches the router's settings, routes and embedder (spec
 belong to, with the share of their votes as the confidence.
 
 Example:
-    >>> router = KnnRouter(load_pipeline(settings, embedder, routes))
+    >>> router = KnnRouter(load_pipeline(settings, embedder, routes), vector_size=1024)
     >>> router.invoke(RouteRequest(embedding=vector)).name
     'leans_on_history'
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import BaseModel
 from query_processing.extension_api import (
     BaseRouter,
     ComponentResources,
+    RagDependencyError,
     RouteChoice,
     RouteRequest,
     RouterSettings,
@@ -25,7 +28,7 @@ from query_processing.extension_api import (
 from sklearn.pipeline import Pipeline
 
 from ....config.knn_router_settings import KnnRouterSettings
-from ....infrastructure.pipeline_artifact import load_pipeline
+from ....infrastructure.pipeline_artifact import load_pipeline, read_manifest
 
 
 class KnnRouter(BaseRouter, backend="local", settings=KnnRouterSettings):
@@ -33,10 +36,13 @@ class KnnRouter(BaseRouter, backend="local", settings=KnnRouterSettings):
 
     Args:
         pipeline: The fitted pipeline, its classes the route names.
+        vector_size: The length of the vectors it was trained on, from its
+            manifest; a query's vector of another length is refused.
     """
 
-    def __init__(self, pipeline: Pipeline) -> None:
+    def __init__(self, pipeline: Pipeline, vector_size: int) -> None:
         self._pipeline = pipeline
+        self._vector_size = vector_size
 
     @classmethod
     def from_settings(
@@ -74,7 +80,8 @@ class KnnRouter(BaseRouter, backend="local", settings=KnnRouterSettings):
             )
         embedder = resources.component_settings(router.embedder)
         routes = list(resources.routes.values())
-        return cls(load_pipeline(settings, embedder, routes))
+        pipeline = load_pipeline(settings, embedder, routes)
+        return cls(pipeline, read_manifest(Path(settings.pipeline_file)).vector_size)
 
     def invoke(self, request: RouteRequest) -> RouteChoice:
         """Choose the route most of the query's nearest utterances belong to.
@@ -85,10 +92,22 @@ class KnnRouter(BaseRouter, backend="local", settings=KnnRouterSettings):
         Returns:
             The route, with the share of the neighbours' votes it got.
 
+        Raises:
+            RagDependencyError: If the vector's length is not the one the
+                pipeline was trained on: the embedder is not the one it was
+                trained with. The message names both lengths.
+
         Example:
             >>> router.invoke(RouteRequest(embedding=vector))
             RouteChoice(name='leans_on_history', confidence=0.67)
         """
+        if len(request.embedding) != self._vector_size:
+            raise RagDependencyError(
+                "router",
+                f"the query's vector has {len(request.embedding)} numbers; expected "
+                f"{self._vector_size}, the size the pipeline was trained on: train "
+                "it again with qp-rag-train-router on the embedder the router reads",
+            )
         probabilities = self._pipeline.predict_proba([request.embedding])[0]
         best = int(probabilities.argmax())
         return RouteChoice(

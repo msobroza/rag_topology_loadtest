@@ -329,6 +329,30 @@ def test_the_rewrite_prompt_lists_the_stores_field_and_splices_the_earlier_turns
     ]
 
 
+def test_the_rewrite_prompt_lists_a_declared_field_without_allowed_values(
+    use_case_dir: Path,
+) -> None:
+    # A field may leave its allowed values out: the prompt lists it with none.
+    settings = settings_here()
+    (source,) = settings.components["vector_store"].metadata_field_info
+    year = source.model_copy(
+        update={"name": "year", "description": "The year.", "allowed_values": None}
+    )
+
+    messages = render_prompt(
+        settings.prompts["rewrite_as_standalone"],
+        {
+            "metadata_field_info": [source, year],
+            "conversational_history": [],
+            "conversational_query": "Et en 2020 ?",
+        },
+    )
+
+    lines = messages[0]["content"].splitlines()
+    assert lines[2].startswith("- source: The reference the passage comes from.")
+    assert lines[3] == "- year: The year."
+
+
 def test_the_load_test_sends_a_model_server_the_sizes_of_the_files_stages(
     use_case_dir: Path,
 ) -> None:

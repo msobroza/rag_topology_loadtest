@@ -72,7 +72,7 @@ class Trained(NamedTuple):
 async def train_on_fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Trained:
     """Train the router of the router's workflow file; return what it read."""
     settings = settings_on_fakes(tmp_path, monkeypatch)
-    await train_router(settings, "router")
+    await train_router(settings, "router", allow_fake_embedder=True)
     parts = router_parts(settings, "router")
     return Trained(settings, parts.knn, parts.embedder, parts.routes)
 

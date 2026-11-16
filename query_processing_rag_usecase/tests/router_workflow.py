@@ -10,7 +10,7 @@ A pipeline the tests train is written beside it, never in this directory.
 Example::
 
     settings = settings_on_fakes(tmp_path, monkeypatch)
-    manifest = await train_router(settings, "router")
+    manifest = await train_router(settings, "router", allow_fake_embedder=True)
 """
 
 from __future__ import annotations

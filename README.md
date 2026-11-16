@@ -244,7 +244,9 @@ make serve                    # qp-serve on http://0.0.0.0:8888
 On the real backends the workflow app refuses to start until the router's
 pipeline is trained with `make train-router`, and no pipeline file is
 committed: until it is trained, uncomment the router's two `fake` lines of
-`.env`. The calls of the
+`.env`. Comment the router's embedder's line out again before `make
+train-router`: it refuses to train on the fake embedder's vectors, which no
+model gives, and names the variable to unset. The calls of the
 first run reach it on port 8888; `make infra-down` stops the
 containers. `make ingest` embeds with the component `embedder`, which it names
 since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
@@ -971,7 +973,8 @@ App behind Domino's proxy, is called with the run token; a component on `api`
 is called with its own key, on Domino or not. A settings mistake ends `qp-serve`
 with a one-line usage error, not a traceback, before any component opens; so
 does a graph that cannot run, a stage setting its stage type refuses (such as a
-user prompt without `{context}`) included. Only what needs an open component,
+prompt `prompts.yaml` does not define, or one using a field its stage does not
+read) included. Only what needs an open component,
 a store that ranks no text under a lexical or hybrid retrieve stage, is found
 as the graph is built: the app then fails to start before it serves, and the
 server logs the refusal as one line, `qp-serve: cannot start: stage
@@ -1022,7 +1025,7 @@ block, and `qp-ingest` fills the one the file declares.
 | --- | --- | --- | --- |
 | every type | `backend` | `local`, `local`, `local`, `local`, `api`, `elasticsearch` | how it runs, one of the backends registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store, `served` \| `fake` for a router and `local` when the use case's extension registers it, as the RAG's does; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. Nothing else decides it: `qp-deploy` sets it for each component the topology alias names, and on a laptop you set it |
 | every type | `type` | the router's embedder's: `embedder`; not written for the others: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` \| `router`, or a type an extension registers |
-| every model | `source_id` | the two models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
+| every model | `source_id` | the three models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
 | every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
 | `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
@@ -1248,7 +1251,7 @@ qp-serve: error: stage 'retrieve' reads 'query_embedding' as str, but 'embed' wr
 - two writers, the request or stages, that write one field as two types,
   naming both;
 - a field a stage writes that no stage and no response reads (the response
-  reads `answer` and `reranked`), as a likely typo;
+  reads `answer`, `reranked` and `metadata_filter`), as a likely typo;
 - a key of a plain call that does not fit the type of the request attribute it
   fills, such as `top_k: ten`, naming the key, its value and the type expected.
 
@@ -1294,8 +1297,8 @@ the `served` or `api` backend whose URL (`served.url` or `api.url`, the block
 of its backend) does not start with `http://` or `https://`, a `served`
 component without an alias, a missing workflow file or an unknown key in it
 fails as the settings are read. A graph that cannot run, a stage setting its stage type refuses included
-(an unknown key, a retrieval mode, a size below 1, a user prompt missing a
-placeholder), is refused as `qp-serve` reads its settings
+(an unknown key, a retrieval mode, a size below 1, a prompt the prompts file
+does not define or one using a field its stage does not read), is refused as `qp-serve` reads its settings
 (see [What start-up refuses in a graph](#what-start-up-refuses-in-a-graph)),
 and lexical or hybrid retrieval on a store that ranks no text fails as the
 graph is built. All are at start-up, with the offending value. For example:
@@ -2338,7 +2341,10 @@ docker push <registry>/query-processing-rag && docker push <registry>/query-proc
 or (1b, no registry) create two Environments on the Domino Standard Environment
 and paste the instructions of one `domino/Dockerfile` stage (everything after its
 `FROM`) into each Environment's Dockerfile Instructions. The `rag` build downloads
-the two HF models, so it needs Hub access at build time.
+each embedder and reranker of the use case's workflow file (the RAG's three HF
+models: its two embedders and its reranker), so it needs Hub access at build
+time. It holds the use case's package and the workflow, prompts and routes
+files its settings read.
 
 **2. Projects (one per app).** A Domino App inherits its project's environment
 variables and each app needs its own `QP_ROLE` (and a model server its

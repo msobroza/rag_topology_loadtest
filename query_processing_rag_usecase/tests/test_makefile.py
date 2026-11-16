@@ -54,6 +54,13 @@ def test_each_command_runs_here_with_no_flag(
     assert dry_run(use_case_dir, target) == [f"{TOOLS}{command}"]
 
 
+def test_train_router_never_allows_the_fake_embedder(use_case_dir: Path) -> None:
+    # Only the tests train on the fake embedder: the command run here refuses it.
+    (command,) = dry_run(use_case_dir, "train-router")
+
+    assert "--allow-fake-embedder" not in command
+
+
 def test_ingest_names_the_embedder_that_the_store_is_searched_with(
     use_case_dir: Path,
 ) -> None:
