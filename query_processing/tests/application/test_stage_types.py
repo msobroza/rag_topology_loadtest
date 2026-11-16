@@ -30,13 +30,13 @@ from query_processing.application.stages.retrieve_stage import (
     RetrieveSettings,
     RetrieveStage,
 )
+from query_processing.application.state_fields import field_types_of, state_type
 from query_processing.application.workflow_builder import open_stage
 from query_processing.application.workflow_state import WorkflowState
 from query_processing.domain.passages import ScoredPassage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored
 
-STATE_FIELDS = set(get_type_hints(WorkflowState))
 RAG_STAGE_TYPES = {
     "retrieve": (RetrieveStage, BaseVectorStore),
     "generate": (GenerateStage, BaseLLM),
@@ -69,12 +69,17 @@ async def test_each_rag_stage_reads_and_writes_fields_of_the_workflow_state(
     fake_deps: RagDependencies, mode: str
 ) -> None:
     graph = rag_graph(mode)
+    stages = {
+        name: open_stage(name, description, fake_deps.components(), STAGE_TYPES)
+        for name, description in graph.stages.items()
+    }
+    types = field_types_of({name: stage.field_types for name, stage in stages.items()})
+    state_fields = set(get_type_hints(state_type(types)))
 
     for name, description in graph.stages.items():
-        open_stage(name, description, fake_deps.components(), STAGE_TYPES)
         assert description.reads, name
         assert description.writes, name
-        assert {*description.reads, *description.writes} <= STATE_FIELDS, name
+        assert {*description.reads, *description.writes} <= state_fields, name
 
 
 @pytest.mark.parametrize(

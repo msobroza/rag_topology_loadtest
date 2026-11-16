@@ -25,7 +25,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, NamedTuple
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, create_model
+from pydantic.fields import FieldInfo
 
 from ..domain.base_component import BaseComponent
 from ..domain.graph_description import StageDescription
@@ -120,7 +121,8 @@ def bind_call(
         Where each request attribute comes from and each answer attribute goes.
 
     Raises:
-        ValueError: A key names no request attribute, ``reads`` does not fill
+        ValueError: A key names no request attribute or does not fit its
+            type, ``reads`` does not fill
             the attributes the keys leave exactly, or ``writes`` lists more
             fields than the answer has attributes, or one field twice. The
             message shows what the component takes and gives.
@@ -132,7 +134,8 @@ def bind_call(
     takes = _attributes(component_type, component_type.request_type)
     gives = _attributes(component_type, component_type.answer_type)
     left = [attribute for attribute in takes if attribute not in stage_keys]
-    problem = _binding_problem(takes, gives, stage_keys, left, fields)
+    problem = _keys_problem(component_type.request_type, stage_keys)
+    problem = problem or _binding_problem(takes, gives, stage_keys, left, fields)
     if problem:
         raise ValueError(f"{_signature(component_type, takes, gives)}; {problem}")
     from_reads = dict(zip(left, fields.reads, strict=True))
@@ -155,15 +158,42 @@ def _binding_problem(
     left: list[str],
     fields: StageFields,
 ) -> str | None:
-    # The first rule of the three the stage breaks, if any.
-    unknown = [key for key in stage_keys if key not in takes]
-    if unknown:
-        return f"key {unknown[0]!r} names no attribute of the request"
+    # The second and third rules, once the keys fit (_keys_problem).
     if len(fields.reads) != len(left):
         filled = [key for key in takes if key in stage_keys]
         after = f" after its keys fill {', '.join(filled)}" if filled else ""
         return f"reads lists {field_count(len(fields.reads))}{after}"
     return _writes_problem(gives, fields.writes)
+
+
+def _keys_problem(
+    request_type: type[Any], stage_keys: Mapping[str, object]
+) -> str | None:
+    # The first rule: each key names a request attribute, and fits it.
+    attributes: dict[str, FieldInfo] = request_type.model_fields
+    unknown = [key for key in stage_keys if key not in attributes]
+    if unknown:
+        return f"key {unknown[0]!r} names no attribute of the request"
+    for key, value in stage_keys.items():
+        refusal = _misfit(attributes[key], value)
+        if refusal:
+            expected = type_name(attributes[key].annotation)
+            return f"key {key!r} is {value!r} (expected {expected}: {refusal})"
+    return None
+
+
+def _misfit(attribute: FieldInfo, value: object) -> str | None:
+    # Validated as the request will validate it, its constraints included, so
+    # "10" from a QP_* variable fits an int, and "ten" or 0 for a top_k of at
+    # least 1 is refused at start-up, not on the first request.
+    # A one-attribute model of the request's own attribute, built at run time.
+    annotation: Any = attribute.annotation  # never None on a model's attribute
+    key_model = create_model("StageKey", value=(annotation, attribute))
+    try:
+        key_model.model_validate({"value": value})
+    except ValidationError as exc:
+        return str(exc.errors()[0]["msg"])
+    return None
 
 
 def _writes_problem(gives: Mapping[str, Any], writes: tuple[str, ...]) -> str | None:

@@ -16,6 +16,12 @@ provides it or a stage writes it on every path from ``START`` to the stage. A
 dense retrieval with no embed stage before it is refused by that rule, not by a
 rule of its own (ADR 0004).
 
+The type rules (spec 3.4): a field's type is that of what writes it, the
+request or a stage, and two writers that disagree are refused; a stage reads a
+field only as the type it is written; and a field a stage writes is read by a
+stage or by the response, else it is likely a typo. A type of ``Any`` is not
+compared.
+
 Example:
     >>> check_graph(settings.graph, settings.component_types())  # today's passes
 """
@@ -40,8 +46,17 @@ from ..domain.registry import Registry
 from .component_types import COMPONENT_TYPES
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
 from .stage_binding import bind_call, stage_fields, stage_type_of
-from .stages.base_stage import STAGE_TYPES, BaseStage, StageSettings, StageTypes
-from .workflow_state import REQUEST_FIELDS
+from .stages.base_stage import (
+    STAGE_TYPES,
+    BaseStage,
+    FieldTypes,
+    StageSettings,
+    StageTypes,
+    type_name,
+)
+from .state_fields import WorkflowGraphError as WorkflowGraphError
+from .state_fields import WrittenField, written_fields
+from .workflow_state import REQUEST_FIELDS, RESPONSE_FIELDS
 
 # A stage named like one of these could not be told from it.
 _RESERVED_STAGE_NAMES = {
@@ -58,15 +73,11 @@ _RESERVED_STAGE_NAMES = {
 ComponentTypes = Registry[type[BaseComponent[Any, Any]]]
 
 
-class WorkflowGraphError(ValueError):
-    """A workflow graph that cannot run: the message says what and what was expected."""
-
-
-class DeclaredFields(NamedTuple):
-    """The workflow state fields one stage reads and writes, as it states them."""
-
-    reads: frozenset[str]
-    writes: frozenset[str]
+class _Read(NamedTuple):
+    # One field a stage reads, with the type it takes.
+    stage: str
+    field: str
+    takes: Any
 
 
 def check_graph(
@@ -93,8 +104,10 @@ def check_graph(
             the component a plain call calls, or calls a missing component or
             one of the wrong type; an edge names no stage; a conditional edge names
             an unknown edge condition, lacks its true or false target, or repeats
-            an edge condition on one source; nothing leaves START; or a stage
-            reads a field that is not sure to be set when it runs.
+            an edge condition on one source; nothing leaves START; a stage
+            reads a field that is not sure to be set when it runs, or reads it
+            as another type than its writer writes; two writers write a field
+            as two types; or a stage writes a field nothing reads.
 
     Example:
         >>> check_graph(settings.graph, settings.component_types())
@@ -108,6 +121,8 @@ def check_graph(
     _check_conditional_edges(graph, edge_conditions)
     _check_entry(graph)
     _check_fields_read(graph, fields)
+    _check_read_types(fields)
+    _check_fields_unread(fields)
 
 
 def fields_set_before(
@@ -157,18 +172,16 @@ def _declared_fields(
     components: Mapping[str, str],
     component_types: ComponentTypes,
     stage_types: StageTypes,
-) -> DeclaredFields:
+) -> FieldTypes:
     stage_type = _stage_type(name, stage, stage_types)
     if stage_type is None:
         return _plain_call_fields(name, stage, components, component_types)
     settings = _stage_settings(name, stage, stage_type)
     _check_call(name, stage, stage_type, components, component_types)
-    fields = stage_fields(stage)
     try:
-        stage_type.check_fields(settings, fields)
+        return stage_type.check_fields(settings, stage_fields(stage))
     except ValueError as exc:  # it shows the lists its stage type expects
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
-    return DeclaredFields(frozenset(fields.reads), frozenset(fields.writes))
 
 
 def _stage_type(
@@ -185,17 +198,16 @@ def _plain_call_fields(
     stage: StageDescription,
     components: Mapping[str, str],
     component_types: ComponentTypes,
-) -> DeclaredFields:
-    # A plain call declares the fields it states, once they bind to its
-    # component's request and answer.
+) -> FieldTypes:
+    # A plain call declares the fields it states, with the types of the request
+    # and answer attributes they bind to.
     _check_declared(name, stage, components)
-    fields = stage_fields(stage)
     try:
         component_type = component_types.get(components[stage.call])
-        bind_call(component_type, stage.stage_settings, fields)
+        binding = bind_call(component_type, stage.stage_settings, stage_fields(stage))
     except ValueError as exc:
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
-    return DeclaredFields(frozenset(fields.reads), frozenset(fields.writes))
+    return binding.field_types
 
 
 def _stage_settings(
@@ -349,12 +361,12 @@ def _links(graph: GraphDescription) -> list[tuple[str, str]]:
 
 
 def _check_fields_read(
-    graph: GraphDescription, fields: Mapping[str, DeclaredFields]
+    graph: GraphDescription, fields: Mapping[str, FieldTypes]
 ) -> None:
-    writes = {name: declared.writes for name, declared in fields.items()}
+    writes = {name: frozenset(declared.writes) for name, declared in fields.items()}
     set_before = fields_set_before(graph, writes)
     for name, declared in fields.items():
-        unset = sorted(declared.reads - set_before[name])
+        unset = sorted(set(declared.reads) - set_before[name])
         if unset:
             raise WorkflowGraphError(_unset_field_message(name, unset[0], writes))
 
@@ -375,6 +387,42 @@ def _unset_field_message(
         f"provides, one of: {_quoted(REQUEST_FIELDS)}, or one a stage writes on "
         f"every path from START to {stage!r})"
     )
+
+
+def _check_read_types(fields: Mapping[str, FieldTypes]) -> None:
+    # A field's type is its writers' (written_fields refuses two that
+    # disagree); a type of Any on either side is not compared.
+    written = written_fields(fields)
+    for read in _reads(fields):
+        given = written.get(read.field, WrittenField(Any, ""))
+        if Any in (read.takes, given.type) or read.takes == given.type:
+            continue
+        raise WorkflowGraphError(
+            f"stage {read.stage!r} reads {read.field!r} as {type_name(read.takes)}, "
+            f"but {given.writer} writes it as {type_name(given.type)} "
+            f"(expected a field written as {type_name(read.takes)})"
+        )
+
+
+def _reads(fields: Mapping[str, FieldTypes]) -> list[_Read]:
+    return [
+        _Read(stage, field, takes)
+        for stage, declared in fields.items()
+        for field, takes in declared.reads.items()
+    ]
+
+
+def _check_fields_unread(fields: Mapping[str, FieldTypes]) -> None:
+    # A field no one reads is most likely a misspelt one that someone does.
+    read = RESPONSE_FIELDS.union(*(declared.reads for declared in fields.values()))
+    for name, declared in fields.items():
+        unread = [field for field in declared.writes if field not in read]
+        if unread:
+            raise WorkflowGraphError(
+                f"stage {name!r} writes {unread[0]!r}, but no stage, edge or "
+                "response reads it, a likely typo (expected a field a stage "
+                f"reads, or one the response reads: {_quoted(RESPONSE_FIELDS)})"
+            )
 
 
 def _sources_by_stage(graph: GraphDescription) -> dict[str, set[str]]:

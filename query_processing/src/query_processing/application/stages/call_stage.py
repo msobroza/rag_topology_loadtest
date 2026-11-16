@@ -14,7 +14,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from ...domain.base_component import BaseComponent
 from ..workflow_state import WorkflowState
@@ -41,6 +41,8 @@ class CallStage:
         self, component: BaseComponent[Any, Any], binding: CallBinding
     ) -> None:
         self.component, self.binding = component, binding
+        # As a stage of a stage type has it, so the builder reads both alike.
+        self.field_types = binding.field_types
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         """Call the component once.
@@ -55,14 +57,12 @@ class CallStage:
             >>> await CallStage(Upper(), binding).run({"message": "ab"})
             {'shout': 'AB', 'size': 2}
         """
-        read = cast(dict[str, Any], state)
         request = self.component.request_type(
             **self.binding.from_keys,
-            **{attr: read[field] for attr, field in self.binding.from_reads.items()},
+            **{attr: state[field] for attr, field in self.binding.from_reads.items()},
         )
         answer = await self.component.ainvoke(request)
-        written = {
+        return {
             field: getattr(answer, attr)
             for field, attr in self.binding.to_writes.items()
         }
-        return cast(WorkflowState, written)

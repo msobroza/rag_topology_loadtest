@@ -186,6 +186,36 @@ def user_prompt_without_its_context(graph: Graph) -> None:
     graph["stages"]["generate"]["user_prompt"] = "Q: {question}"
 
 
+def plain_call_key_of_the_wrong_type(graph: Graph) -> None:
+    graph["stages"]["rerank"]["top_k"] = "ten"
+
+
+def lexical_retrieval_reading_the_vector(graph: Graph) -> None:
+    # Only the retrieval mode is overridden: the stage would read the query's
+    # vector as its words, and fail on the first request.
+    graph["stages"]["retrieve"]["retrieval_mode"] = "lexical"
+
+
+def field_written_that_nothing_reads(graph: Graph) -> None:
+    graph["stages"]["generate"]["writes"] = ["anwser"]
+
+
+def lexical_retrieval_after_an_embed_stage(graph: Graph) -> None:
+    # The embed stage's vector is read by nothing once retrieval reads words.
+    graph["stages"]["retrieve"]["retrieval_mode"] = "lexical"
+    graph["stages"]["retrieve"]["reads"] = ["standalone_query"]
+
+
+def two_writers_of_one_field_that_disagree(graph: Graph) -> None:
+    # A second embed writes a vector where the request writes words.
+    graph["stages"]["embed_message"] = {
+        "call": "embedder",
+        "reads": ["standalone_query"],
+        "writes": ["conversational_query"],
+    }
+    graph["edges"][0] = ["START", "embed_message", "embed", "retrieve", "rerank"]
+
+
 MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     "an unknown stage type": (
         unknown_stage_type,
@@ -295,6 +325,32 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     "a user prompt without its context": (
         user_prompt_without_its_context,
         ["stage 'generate'", "lacks the {context} placeholder"],
+    ),
+    "a key of a plain call of the wrong type": (
+        plain_call_key_of_the_wrong_type,
+        ["stage 'rerank': reranker takes", "key 'top_k' is 'ten' (expected int: "],
+    ),
+    "a lexical retrieval that reads the query's vector": (
+        lexical_retrieval_reading_the_vector,
+        [
+            "stage 'retrieve' reads 'query_embedding' as str, but 'embed' writes "
+            "it as list[float] (expected a field written as str)"
+        ],
+    ),
+    "a field written that nothing reads": (
+        field_written_that_nothing_reads,
+        ["stage 'generate' writes 'anwser', but no stage, edge or response reads"],
+    ),
+    "a lexical retrieval after an embed stage": (
+        lexical_retrieval_after_an_embed_stage,
+        ["stage 'embed' writes 'query_embedding', but no stage, edge or response"],
+    ),
+    "two writers of one field that disagree": (
+        two_writers_of_one_field_that_disagree,
+        [
+            "'conversational_query' is written as str by the request and as "
+            "list[float] by 'embed_message'"
+        ],
     ),
 }
 

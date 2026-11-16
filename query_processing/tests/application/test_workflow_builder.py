@@ -10,7 +10,7 @@ shouts it only when the message is a question:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, get_type_hints
 
 import pytest
 
@@ -33,7 +33,11 @@ from query_processing.application.workflow_builder import (
     path_map,
     timed,
 )
-from query_processing.application.workflow_state import WorkflowState, initial_state
+from query_processing.application.workflow_state import (
+    REQUEST_FIELDS,
+    WorkflowState,
+    initial_state,
+)
 from query_processing.domain.graph_description import (
     ConditionalEdge,
     GraphDescription,
@@ -197,6 +201,36 @@ async def test_every_step_reaches_a_tracer_with_a_name() -> None:
     assert None not in recorder.names, recorder.names
     # The edge condition keeps its own function name: the branch is named after it.
     assert {"draft", "is_a_question", "shout"} <= set(recorder.names)
+
+
+def test_the_state_holds_the_fields_the_file_names_with_their_writers_types() -> None:
+    graph = fixture_workflow(FakeScribe()).graph
+
+    hints = get_type_hints(graph.builder.state_schema, include_extras=True)
+
+    assert hints["answer"] is str  # the copy and the shout stages write a str
+    assert set(hints) == {*REQUEST_FIELDS, "answer"}  # with timings_ms
+
+
+def test_two_stages_that_write_one_field_as_two_types_are_refused() -> None:
+    loud = {"call": "echo", "reads": ["answer"], "writes": ["answer", "size"]}
+    sized = {
+        "call": "echo",
+        "reads": ["conversational_query"],
+        "writes": ["x", "answer"],
+    }
+    graph = GraphDescription.model_validate(
+        {
+            "stages": {"loud": loud, "sized": sized},
+            "edges": [["START", "sized", "loud", "END"]],
+        }
+    )
+
+    with pytest.raises(
+        WorkflowGraphError,
+        match="'answer' is written as str by 'loud' and as int by 'sized'",
+    ):
+        build_workflow(graph, {"echo": Upper()}, stage_types=FIXTURE_STAGE_TYPES)
 
 
 def test_a_longer_chain_is_one_edge_per_pair() -> None:

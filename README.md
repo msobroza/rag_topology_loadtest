@@ -459,6 +459,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
+      state_fields.py  field_types_of: each field the request and the stages write, with its type; state_type: the LangGraph state built from them; WorkflowGraphError
       component_types.py  COMPONENT_TYPES, as the four ports register it: each component type's port, which the start-up checks read before any component opens
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states; WorkflowGraphError
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
@@ -959,11 +960,10 @@ graph:
     - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
 ```
 
-`QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` with
-`QP_GRAPH__STAGES__RETRIEVE__READS='["standalone_query"]'` over the RAG's file
-is accepted too, but its embed stage then embeds every question for nothing.
-The mode alone is not enough: the retrieve stage would read the query's vector
-as its words.
+`QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the RAG's file is
+refused at start-up: the retrieve stage would read the query's vector as its
+words. With `QP_GRAPH__STAGES__RETRIEVE__READS='["standalone_query"]'` too it is
+refused still, since the embed stage would write a vector that nothing reads.
 
 ### What start-up refuses in a graph
 
@@ -1000,6 +1000,26 @@ mode needs). They refuse:
 ```
 qp-serve: error: stage 'retrieve' reads the workflow state field 'query_embedding', which the request does not provide and is written by no stage of the graph (expected a field the request provides, one of: 'conversational_query', 'history', 'mode', 'standalone_query', 'timings_ms', or one a stage writes on every path from START to 'retrieve')
 ```
+
+- a stage that reads a field as another type than what writes it: the
+  request, or a stage, whose type is that of the answer attribute or the stage
+  type's output it is bound to. A lexical retrieve stage that still reads
+  `query_embedding` is refused so:
+
+```
+qp-serve: error: stage 'retrieve' reads 'query_embedding' as str, but 'embed' writes it as list[float] (expected a field written as str)
+```
+
+- two writers, the request or stages, that write one field as two types,
+  naming both;
+- a field a stage writes that no stage and no response reads (the response
+  reads `answer` and `reranked`), as a likely typo;
+- a key of a plain call that does not fit the type of the request attribute it
+  fills, such as `top_k: ten`, naming the key, its value and the type expected.
+
+The workflow state is built from the same fields: each field the request or a
+stage writes, with its type, and `timings_ms`
+(`application/state_fields.py`).
 
 Only whether the vector store ranks text needs the store open, so a lexical
 or hybrid retrieve stage over `chroma` is refused as the graph is built, still

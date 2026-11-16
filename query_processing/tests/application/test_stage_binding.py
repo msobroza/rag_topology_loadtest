@@ -68,6 +68,23 @@ def test_lists_and_keys_that_do_not_fill_the_request_once_are_refused(
         bind_call(BaseEcho, keys, fields)
 
 
+def test_a_key_must_fit_the_type_of_the_attribute_it_fills() -> None:
+    fields = StageFields(("q", "found"), ("kept",))
+
+    with pytest.raises(ValueError, match="key 'top_k' is") as refused:
+        bind_call(BaseReranker, {"top_k": "ten"}, fields)
+
+    assert str(refused.value).endswith(
+        "; key 'top_k' is 'ten' (expected int: Input should be a valid integer, "
+        "unable to parse string as an integer)"
+    )
+    # Its constraints too: a reranker keeps at least one passage.
+    with pytest.raises(ValueError, match=r"key 'top_k' is 0 \(expected int: .* 1\)"):
+        bind_call(BaseReranker, {"top_k": 0}, fields)
+    # A number as text, as a QP_* variable gives it, is a number, as in a request.
+    assert bind_call(BaseReranker, {"top_k": "10"}, fields).from_keys == {"top_k": "10"}
+
+
 def test_a_stage_is_of_its_type_else_of_its_name_else_a_plain_call() -> None:
     plain = StageDescription.model_validate(
         {"call": "embedder", "reads": ["a"], "writes": ["b"]}

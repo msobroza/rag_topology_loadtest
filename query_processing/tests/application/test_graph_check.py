@@ -62,13 +62,15 @@ class FixtureStage(BaseStage[Any, NoSettings]):
     """A stage type that reads one field and writes one, whatever their names."""
 
     settings_type = NoSettings
+    takes: Any = str  # the type of the field it reads
+    gives: Any = str  # the type of the field it writes
 
     @classmethod
     def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
-        one = {"text": Any}
+        expecting = f"the {cls.__name__}"
         return FieldTypes(
-            fields_in_order("reads", fields.reads, one, f"the {cls.__name__}"),
-            fields_in_order("writes", fields.writes, one, f"the {cls.__name__}"),
+            fields_in_order("reads", fields.reads, {"text": cls.takes}, expecting),
+            fields_in_order("writes", fields.writes, {"text": cls.gives}, expecting),
         )
 
     async def run(self, state: WorkflowState) -> WorkflowState:
@@ -85,6 +87,12 @@ class PolishStage(FixtureStage):
 
 class JudgeStage(FixtureStage):
     component_type = FakeJudge
+    gives = bool  # a verdict
+
+
+class ExplainStage(FixtureStage):
+    component_type = FakeScribe
+    takes = bool  # a verdict, explained in words
 
 
 FIXTURE_STAGE_TYPES: StageTypes = Registry("stage type")
@@ -92,6 +100,7 @@ for _name, _stage_type in [
     ("draft", DraftStage),
     ("polish", PolishStage),
     ("judge", JudgeStage),
+    ("explain", ExplainStage),
 ]:
     FIXTURE_STAGE_TYPES.register(_name)(_stage_type)
 FIXTURE_EDGE_CONDITIONS: Registry[EdgeCondition] = Registry("edge condition")
@@ -131,16 +140,17 @@ def check(graph: GraphDescription, components: dict[str, str] = COMPONENTS) -> N
 DRAFT = {"call": "pen", "reads": ["conversational_query"], "writes": ["draft"]}
 POLISH = {"call": "pen", "reads": ["draft"], "writes": ["answer"]}
 JUDGE = {"call": "jury", "reads": ["draft"], "writes": ["verdict"]}
+EXPLAIN = {"call": "pen", "reads": ["verdict"], "writes": ["answer"]}
 ANOTHER_DRAFT = {**DRAFT, "type": "draft"}
 
 
 def test_a_graph_of_other_stage_types_and_edge_conditions_passes() -> None:
     graph = graph_of(
-        {"draft": DRAFT, "polish": POLISH, "judge": JUDGE},
-        [["START", "draft", "judge"], ["polish", "END"]],
+        {"draft": DRAFT, "polish": POLISH, "judge": JUDGE, "explain": EXPLAIN},
+        [["START", "draft", "judge", "explain"], ["polish", "END"]],
         [
             {
-                "source": "judge",
+                "source": "explain",
                 "path": "is_question",
                 "path_map": {True: "polish", False: "END"},
             },
@@ -252,7 +262,7 @@ def test_fields_set_before_each_stage_follow_every_path_to_it() -> None:
 
 
 def test_a_field_the_request_provides_may_be_read_by_the_first_stage() -> None:
-    graph = graph_of({"draft": DRAFT}, [["START", "draft", "END"]])
+    graph = graph_of({"draft": DRAFT, "polish": POLISH}, [["START", "draft", "polish"]])
 
     check(graph)  # draft reads conversational_query, which the request provides
 
@@ -396,6 +406,73 @@ def test_a_stage_of_a_stage_type_states_the_lists_its_type_can_use() -> None:
         check(graph_of({"draft": misstated}, [["START", "draft", "END"]]))
 
     assert str(refused.value) == (
-        "stage 'draft': the DraftStage reads 1 field, for text: Any "
+        "stage 'draft': the DraftStage reads 1 field, for text: str "
         "(got reads ['conversational_query', 'standalone_query'])"
     )
+
+
+# --- the types of the fields ---------------------------------------------------------
+
+
+def test_a_read_of_another_type_is_refused_naming_the_type_expected() -> None:
+    misread = {**DRAFT, "reads": ["mode"]}  # draft takes a str message
+    graph = graph_of(
+        {"draft": misread, "polish": POLISH}, [["START", "draft", "polish"]]
+    )
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(graph)
+
+    assert str(refused.value) == (
+        "stage 'draft' reads 'mode' as str, but the request writes it as "
+        "Literal['query', 'retrieve'] (expected a field written as str)"
+    )
+
+
+def test_a_read_of_a_field_a_stage_writes_as_another_type_is_refused() -> None:
+    # explain takes a verdict, a bool; the draft is a str
+    graph = graph_of(
+        {"draft": DRAFT, "explain": {**EXPLAIN, "reads": ["draft"]}},
+        [["START", "draft", "explain"]],
+    )
+
+    with pytest.raises(WorkflowGraphError, match="'explain' reads 'draft' as bool, "):
+        check(graph)
+
+
+def test_two_writers_of_one_field_must_agree() -> None:
+    judged = {**JUDGE, "writes": ["draft"]}  # a verdict is a bool
+    graph = graph_of(
+        {"draft": DRAFT, "judge": judged, "polish": POLISH},
+        [["START", "draft", "judge", "polish"]],
+    )
+
+    with pytest.raises(
+        WorkflowGraphError, match="'draft' is written as str by 'draft' and as bool by"
+    ):
+        check(graph)
+
+
+def test_a_field_nothing_reads_is_refused_as_a_likely_typo() -> None:
+    typo = {**POLISH, "writes": ["anwser"]}
+    graph = graph_of({"draft": DRAFT, "polish": typo}, [["START", "draft", "polish"]])
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(graph)
+
+    assert str(refused.value) == (
+        "stage 'polish' writes 'anwser', but no stage, edge or response reads it, "
+        "a likely typo (expected a field a stage reads, or one the response reads: "
+        "'answer', 'reranked')"
+    )
+
+
+def test_a_plain_call_reads_fields_of_its_requests_types() -> None:
+    shout = {"call": "voice", "reads": ["verdict"], "writes": ["answer"]}
+    graph = graph_of(
+        {"draft": DRAFT, "judge": JUDGE, "shout": shout},
+        [["START", "draft", "judge", "shout"]],
+    )
+
+    with pytest.raises(WorkflowGraphError, match="'shout' reads 'verdict' as str"):
+        check(graph, WITH_VOICE)

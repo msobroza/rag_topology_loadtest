@@ -5,7 +5,8 @@ instance of the stage type its description names, built with the component its
 ``call`` names, its own settings and its ``reads`` and ``writes``, or, when it is
 of no stage type, a plain call bound by them; each is timed under its name; the
 workflow's
-results are keyed by those names, in the description's order. Each chain of
+results are keyed by those names, in the description's order. The LangGraph
+state is built from the fields the request and the stages write. Each chain of
 plain edges becomes one LangGraph edge per pair, the reserved ``START`` and
 ``END`` becoming LangGraph's own. Each conditional edge asks the edge condition
 its ``path`` names, handed to LangGraph as it is registered: LangGraph names the
@@ -40,6 +41,7 @@ from .graph_check import WorkflowGraphError
 from .stage_binding import bind_call, stage_fields, stage_type_of
 from .stages.base_stage import STAGE_TYPES, BaseStage, StageTypes
 from .stages.call_stage import CallStage
+from .state_fields import field_types_of, state_type
 from .workflow import CompiledWorkflow
 from .workflow_state import WorkflowState
 
@@ -52,10 +54,12 @@ class LangGraphNode(Protocol):
 
     A Protocol rather than ``Callable[[WorkflowState], ...]`` because LangGraph
     1.x types a node by a parameter named ``state``; a ``Callable`` alias erases
-    the name and mypy then rejects ``StateGraph.add_node``.
+    the name and mypy then rejects ``StateGraph.add_node``. Its state is
+    ``Any``: the state type is built at run time, and LangGraph bounds a node's
+    input by a TypedDict-like type that a plain ``dict`` is not.
     """
 
-    def __call__(self, state: WorkflowState) -> Awaitable[WorkflowState]:
+    def __call__(self, state: Any) -> Awaitable[WorkflowState]:
         """Run the stage.
 
         Args:
@@ -90,18 +94,21 @@ def build_workflow(
         ValueError: A stage type or an edge condition is not registered (the
             registry names the known ones); ``check_graph`` refuses that first,
             before any component opens.
-        WorkflowGraphError: A stage's settings do not fit its stage type, or a
+        WorkflowGraphError: A stage's settings do not fit its stage type, a
             stage type refuses its opened component, such as a store that ranks
-            no text under a lexical retrieval.
+            no text under a lexical retrieval, or two writers write a field as
+            two types.
 
     Example:
         >>> build_workflow(settings.graph, deps.components())
     """
-    # ty 0.0.100 does not match a TypedDict class against LangGraph's
-    # TypedDictLike protocol (its __required_keys__); mypy accepts it.
-    builder = StateGraph(WorkflowState)  # ty: ignore[invalid-argument-type]
-    for name, description in graph.stages.items():
-        stage = open_stage(name, description, components, stage_types)
+    stages = {
+        name: open_stage(name, description, components, stage_types)
+        for name, description in graph.stages.items()
+    }
+    types = field_types_of({name: stage.field_types for name, stage in stages.items()})
+    builder = StateGraph(state_type(types))
+    for name, stage in stages.items():
         builder.add_node(name, timed(name, stage))
     for source, target in graph.edge_pairs():
         builder.add_edge(langgraph_name(source), langgraph_name(target))

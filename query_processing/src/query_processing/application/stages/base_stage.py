@@ -20,7 +20,7 @@ from __future__ import annotations
 import abc
 import re
 from collections.abc import Mapping
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar, cast
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -142,8 +142,7 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
         Example:
             >>> question, passages = stage.read_fields(state)
         """
-        read = cast(dict[str, Any], state)
-        return [read[field] for field in self.fields.reads]
+        return [state[field] for field in self.fields.reads]
 
     def write_field(self, value: object) -> WorkflowState:
         """Return the update that writes ``value`` to the stage's one written field.
@@ -159,8 +158,7 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             {'answer': 'the answer'}
         """
         (written,) = self.fields.writes  # check_fields allows one field only
-        update: dict[str, Any] = {written: value}
-        return cast(WorkflowState, update)
+        return {written: value}
 
 
 def field_count(count: int) -> str:

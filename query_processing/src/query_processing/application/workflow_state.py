@@ -1,11 +1,11 @@
-"""The workflow state: the one typed state every graph of the toolkit carries.
+"""The workflow state: what the request provides, and what the response reads.
 
+The state is no closed class: ``state_fields.state_type`` builds it from the
+fields the request and the stages write, each with the type of what writes it.
 A request provides the conversational query, the standalone query, the history
-and the mode; each stage reads some fields and writes others, as its stage type
-declares. There is no history yet, so the standalone query is the question as
-asked and the history is always empty: nothing reads it. A later stage type may
-rewrite the conversational query into the standalone one, and the stages that
-search keep reading the standalone query.
+and the mode; each stage reads some fields and writes others, as the workflow
+file states. There is no history yet, so the standalone query is the question
+as asked and the history is always empty.
 
 Example:
     >>> state = initial_state("How many vacation days?", "retrieve")
@@ -15,9 +15,29 @@ Example:
 
 from __future__ import annotations
 
-from typing import Annotated, TypedDict
+from typing import Any
 
-from ..domain.passages import RagMode, ScoredPassage
+from ..domain.passages import RagMode
+
+# What one request carries from stage to stage, by field name: a stage reads
+# the values its reads name and returns the fields it writes, the update
+# LangGraph merges into the state.
+WorkflowState = dict[str, Any]
+
+# The field that holds each stage's wall time under the stage's name; a
+# LangGraph reducer, merge_timings, merges the stages' updates.
+TIMINGS_FIELD = "timings_ms"
+
+# The fields the request writes before the first stage runs, with their types.
+REQUEST_FIELD_TYPES: dict[str, Any] = {
+    "conversational_query": str,  # the user's message as sent in this turn
+    "standalone_query": str,  # the same request made self-contained; searched
+    "history": list[tuple[str, str]],  # earlier turns as (message, answer)
+    "mode": RagMode,
+}
+
+# The fields the response reads: names fixed in the toolkit, as the wire's are.
+RESPONSE_FIELDS: frozenset[str] = frozenset({"answer", "reranked"})
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:
@@ -35,24 +55,6 @@ def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, 
         {'embed': 1.0, 'retrieve': 2.0}
     """
     return {**left, **right}
-
-
-class WorkflowState(TypedDict, total=False):
-    """What one request carries from stage to stage.
-
-    ``timings_ms`` holds each stage's wall time under the stage's name; a
-    LangGraph reducer merges the stages' updates.
-    """
-
-    conversational_query: str  # the user's message as sent in this turn
-    standalone_query: str  # the same request made self-contained; what is searched
-    history: list[tuple[str, str]]  # earlier turns as (message, answer); empty
-    mode: RagMode
-    query_embedding: list[float]
-    candidates: list[ScoredPassage]
-    reranked: list[ScoredPassage]
-    answer: str | None
-    timings_ms: Annotated[dict[str, float], merge_timings]
 
 
 def initial_state(question: str, mode: RagMode) -> WorkflowState:
@@ -75,10 +77,10 @@ def initial_state(question: str, mode: RagMode) -> WorkflowState:
         "standalone_query": question,
         "history": [],
         "mode": mode,
-        "timings_ms": {},
+        TIMINGS_FIELD: {},
     }
 
 
 # The fields every request provides before the first stage runs: a stage may
-# read them wherever it is. Read off initial_state, so the two never disagree.
-REQUEST_FIELDS: frozenset[str] = frozenset(initial_state("", "query"))
+# read them wherever it is.
+REQUEST_FIELDS: frozenset[str] = frozenset({*REQUEST_FIELD_TYPES, TIMINGS_FIELD})
