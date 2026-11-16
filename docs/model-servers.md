@@ -231,6 +231,13 @@ A reading of the results above, not a measurement.
 - **OVMS** when its own features are needed: model versions, configuration changes
   at run time, metrics, gRPC, or batching for text generation. Its streams are worth
   trying again where one request cannot use every core.
+- **For text generation, a first look only.** One sitting by hand on 16 vCPUs
+  (16 November 2026, in `experiments/`) ran Qwen3.5 with 2 B parameters and 4-bit
+  weights on OVMS 2026.4.1, on PyTorch behind a stand-in FastAPI server and on vLLM.
+  OVMS answered one user soonest (7.9 s against 13 s and 19 s). At 4 users its batching
+  gained only once it read each prompt in one pass (`--dynamic_split_fuse false
+  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. Neither
+  model server of this project serves a generator yet.
 
 ## Limits
 
@@ -240,6 +247,8 @@ A reading of the results above, not a measurement.
   runs hold 14 to 60 requests each.
 - Machines of 2, 8 and 16 vCPUs. Nothing here says what happens with more cores, or
   with several sockets.
+- The text-generation figures are one sitting on one machine, with runs of 11 to 30
+  requests and a stand-in server for PyTorch.
 - Ranking quality on `int8` weights was not checked.
 
 ## Where the runs are

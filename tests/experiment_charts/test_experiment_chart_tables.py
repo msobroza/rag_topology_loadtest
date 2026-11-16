@@ -159,3 +159,49 @@ def test_scale_out_or_scale_up() -> None:
     assert up.column("median_s") == (1.3, 1.6, 3.5, 7.9, 16.0)
     assert set(table.column("reranker_vcpus_total")) == {8}
     assert up.column("approach")[0] == "one bigger machine"
+
+
+def test_reading_and_writing() -> None:
+    table = table_of("12-reading-and-writing")
+    assert table.columns == ("panel", "server", "experiment", "seconds")
+    reading = table.rows_where("panel", "Reading a 781-token prompt")
+    assert reading.column("server") == ("OVMS", "PyTorch", "vLLM")
+    assert reading.column("experiment") == (
+        "g16-probe-ovms-settings",
+        "g16-probe-pytorch-threads",
+        "g16-probe-vllm",
+    )
+    assert reading.column("seconds") == (3.94, 1.14, 7.91)
+    whole = table.rows_where(
+        "panel", "A whole request: a 922-token prompt, 128 tokens written"
+    )
+    assert whole.column("seconds") == (8.56, 9.58, 19.85)
+
+
+def test_generation_under_load() -> None:
+    table = table_of("13-generation-under-load")
+    assert table.columns == (
+        "server",
+        "experiment",
+        "users",
+        "served_tokens_per_s",
+        "p50_s",
+    )
+    assert table.distinct("server") == (
+        "OVMS, as it ships",
+        "OVMS, one pass",
+        "PyTorch",
+        "vLLM",
+    )
+    assert table.column("users") == (1, 4, 1, 4, 1, 4, 1, 4)
+    assert table.column("served_tokens_per_s") == (
+        14.1,
+        11.6,
+        14.4,
+        20.4,
+        9.3,
+        10.0,
+        7.0,
+        15.8,
+    )
+    assert table.column("p50_s") == (7.9, 42.0, 7.9, 23.0, 13.0, 51.0, 19.0, 25.0)

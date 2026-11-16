@@ -1,4 +1,4 @@
-"""The catalog: eleven charts, numbered in order, each with a title."""
+"""The catalog: thirteen charts, numbered in order, each with a title."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from experiment_charts.chart_catalog import experiment_charts
 from experiment_charts.write_experiment_charts import main
 
 
-def test_eleven_charts_with_unique_slugs_in_order() -> None:
+def test_thirteen_charts_with_unique_slugs_in_order() -> None:
     slugs = [chart.slug for chart in experiment_charts()]
     assert slugs == [
         "01-where-the-time-goes",
@@ -23,12 +23,14 @@ def test_eleven_charts_with_unique_slugs_in_order() -> None:
         "09-overload",
         "10-topologies",
         "11-larger-model",
+        "12-reading-and-writing",
+        "13-generation-under-load",
     ]
     assert all(chart.title for chart in experiment_charts())
 
 
-def test_main_writes_eleven_tables_and_twenty_two_figures(tmp_path: Path) -> None:
+def test_main_writes_thirteen_tables_and_twenty_six_figures(tmp_path: Path) -> None:
     argv = ["--registry", str(REGISTRY_DIR), "--out", str(tmp_path)]
     assert main([*argv, "--image-format", "png"]) == 0
-    assert len(list((tmp_path / "data").glob("*.csv"))) == 11
-    assert len(list((tmp_path / "figures").glob("*.png"))) == 22
+    assert len(list((tmp_path / "data").glob("*.csv"))) == 13
+    assert len(list((tmp_path / "figures").glob("*.png"))) == 26

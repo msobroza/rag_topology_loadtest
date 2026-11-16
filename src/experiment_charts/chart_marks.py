@@ -229,6 +229,26 @@ def server_colours(theme: ChartTheme) -> dict[str, str]:
     return {server: theme.server_colour(server) for server in SERVERS}
 
 
+def generator_server_colours(theme: ChartTheme) -> dict[str, str]:
+    """Each generator server's hue: OVMS's orange, PyTorch's blue, vLLM neutral.
+
+    PyTorch takes the FastAPI model server's blue because it is served behind
+    FastAPI; vLLM has no colour of its own in the theme, so it takes the neutral
+    reference rather than a hue that would mean another server elsewhere.
+
+    Args:
+        theme: The light or the dark theme.
+
+    Returns:
+        ``"OVMS"``, ``"PyTorch"`` and ``"vLLM"`` with their colours.
+
+    Example:
+        >>> generator_server_colours(light_theme())["vLLM"]
+        '#8a8984'
+    """
+    return {"OVMS": theme.ovms, "PyTorch": theme.fastapi, "vLLM": theme.reference}
+
+
 def draw_users_series(
     panels: tuple[Axes, Axes],
     theme: ChartTheme,
