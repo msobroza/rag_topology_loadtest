@@ -8,12 +8,16 @@ deploy tool.
 
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 
 import pytest
 
 from query_processing.composition.openers.component_openers import OPENERS_BY_TYPE
-from query_processing.deploy.registered_backends import registered_backends
+from query_processing.deploy.registered_backends import (
+    is_registered_type,
+    registered_backends,
+)
 
 
 @pytest.mark.parametrize("component_type", sorted(OPENERS_BY_TYPE))
@@ -27,6 +31,31 @@ def test_neither_the_vector_store_nor_the_llm_runs_locally() -> None:
     assert "local" not in registered_backends("vector_store")
     assert "local" not in registered_backends("llm")
     assert "local" in registered_backends("reranker")
+
+
+@pytest.mark.parametrize(
+    ("component_type", "backends"),
+    [
+        # served is built by the toolkit for the shouter and the murmurer, and
+        # the whisperer names a served class of its own: once either way.
+        ("shouter", ("fake", "local", "served")),
+        ("whisperer", ("local", "served")),
+        ("murmurer", ("fake", "served")),
+    ],
+)
+def test_a_registered_type_has_its_class_line_backends_and_served(
+    component_type: str, backends: tuple[str, ...]
+) -> None:
+    import_module("shout_extension.whispering")  # as a workflow file loads it
+    assert is_registered_type(component_type)
+    assert registered_backends(component_type) == backends
+
+
+def test_a_type_with_openers_or_unregistered_is_no_registered_type() -> None:
+    import_module("query_processing.adapters.llm.base_llm")  # registers llm
+    assert not is_registered_type("llm")
+    assert not is_registered_type("no_such_type")
+    assert registered_backends("no_such_type") == ()
 
 
 def test_a_new_opener_module_is_a_new_backend_of_its_type(tmp_path: Path) -> None:

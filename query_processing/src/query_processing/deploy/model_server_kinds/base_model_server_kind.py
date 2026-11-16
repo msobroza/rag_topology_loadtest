@@ -6,7 +6,9 @@ registered here, in a module of its own beside this one, and one hand-written
 launch script, ``domino/model_servers/<name>.sh``, that holds its bootstrap and
 its command (shell, because the bootstrap runs before Python is installed). The
 class says which component types the kind serves, on which route, and how a
-served model is probed. The deploy tool builds the URL it hands the workflow
+served model is probed; a kind that serves the registered component types (an
+extension's, ``registered_backends.py``) serves each on its call route
+(``domain/api_endpoint.py``). The deploy tool builds the URL it hands the workflow
 App from that route, and refuses a component no kind can serve before anything
 is published. A new kind is one module here and one script: the deploy tool's
 flow and ``domino/app.sh`` do not change.
@@ -22,7 +24,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+from ...domain.api_endpoint import call_path
 from ...domain.registry import Registry
+from ..registered_backends import is_registered_type
 
 if TYPE_CHECKING:  # deploy_settings checks a kind's name against the registry
     from ..deploy_settings import DeploySettings
@@ -46,6 +50,11 @@ class BaseModelServerKind(ABC):
     def probe_route(self) -> str:
         """The route that says whether a model is served; ``{name}`` is its alias."""
 
+    @property
+    def serves_registered_types(self) -> bool:
+        """Whether it serves every registered component type, on its call route."""
+        return False
+
     def serves(self, component_type: str) -> bool:
         """Say whether this kind can serve a component of ``component_type``.
 
@@ -59,7 +68,7 @@ class BaseModelServerKind(ABC):
             >>> model_server_kind("ovms").serves("embedder")
             True
         """
-        return component_type in self.routes
+        return self._route_or_none(component_type) is not None
 
     def route_of(self, component_type: str) -> str:
         """Return the route a served component of ``component_type`` is called on.
@@ -68,7 +77,8 @@ class BaseModelServerKind(ABC):
             component_type: The served component's type.
 
         Returns:
-            The route, such as ``/v3/rerank``, to append to the App's URL.
+            The route, such as ``/v3/rerank``, to append to the App's URL; a
+            registered component type's call route, such as ``/call/shouter``.
 
         Raises:
             ValueError: If the kind serves no component of that type; the
@@ -78,12 +88,21 @@ class BaseModelServerKind(ABC):
             >>> model_server_kind("fastapi").route_of("embedder")
             '/v3/embeddings'
         """
-        if component_type in self.routes:
-            return self.routes[component_type]
+        route = self._route_or_none(component_type)
+        if route is not None:
+            return route
+        registered = " or a registered type" if self.serves_registered_types else ""
         raise ValueError(
             f"this model-server kind serves no component of type {component_type!r} "
-            f"(expected one of: {', '.join(map(repr, self.routes))})"
+            f"(expected one of: {', '.join(map(repr, self.routes))}{registered})"
         )
+
+    def _route_or_none(self, component_type: str) -> str | None:
+        if component_type in self.routes:
+            return self.routes[component_type]
+        if self.serves_registered_types and is_registered_type(component_type):
+            return call_path(component_type)
+        return None
 
     def launch_exports(self, settings: DeploySettings) -> dict[str, str]:
         """Give what its launch script reads beyond the component and the kind.

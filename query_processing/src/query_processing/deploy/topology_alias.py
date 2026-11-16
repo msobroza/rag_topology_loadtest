@@ -99,7 +99,8 @@ class ResolvedTopology:
 
         Returns:
             The route its model-server kind declares for its type, such as
-            ``/v3/rerank``.
+            ``/v3/rerank``, or the call route of a registered component type,
+            such as ``/call/shouter``.
 
         Example:
             >>> topology.served_route("reranker")

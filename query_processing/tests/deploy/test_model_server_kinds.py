@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,17 @@ def test_a_type_a_kind_does_not_serve_has_no_route() -> None:
         "this model-server kind serves no component of type 'llm' "
         "(expected one of: 'embedder', 'reranker')"
     )
+
+
+def test_only_the_fastapi_kind_serves_a_registered_type_on_its_call_route() -> None:
+    import_module("shout_extension.shouting")  # registers shouter, as a file would
+    fastapi, ovms = model_server_kind("fastapi"), model_server_kind("ovms")
+    assert (fastapi.serves("shouter"), ovms.serves("shouter")) == (True, False)
+    assert fastapi.route_of("shouter") == "/call/shouter"
+    # The LLM registers in COMPONENT_TYPES too, but it has openers: no call route.
+    assert not fastapi.serves("llm")
+    with pytest.raises(ValueError, match="'reranker' or a registered type"):
+        fastapi.route_of("llm")
 
 
 def test_an_unknown_kind_names_every_registered_one() -> None:

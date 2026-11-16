@@ -2,7 +2,8 @@
 
 It serves an embedder or a reranker from the component's ``local`` backend, on
 OpenVINO Model Server's /v3 routes and formats, which it copies so that a client
-cannot tell the two apart (``entrypoints/qp_model_server.py``). Its launch
+cannot tell the two apart (``entrypoints/qp_model_server.py``), and a component
+of a registered type on its call route, ``/call/<type>``. Its launch
 script is ``domino/model_servers/fastapi.sh``.
 
 Example:
@@ -24,7 +25,10 @@ from .base_model_server_kind import MODEL_SERVER_KINDS, BaseModelServerKind
 
 @MODEL_SERVER_KINDS.register("fastapi")
 class FastApiModelServerKind(BaseModelServerKind):
-    """``qp-model-server``: an embedder or a reranker, on the /v3 routes.
+    """``qp-model-server``: an embedder or a reranker, and a registered type.
+
+    The embedder and the reranker on the /v3 routes, a component of a
+    registered type on its call route.
 
     Example:
         >>> FastApiModelServerKind().probe_route
@@ -38,6 +42,11 @@ class FastApiModelServerKind(BaseModelServerKind):
             "embedder": MODEL_SERVER_EMBEDDINGS_PATH,
             "reranker": MODEL_SERVER_RERANK_PATH,
         }
+
+    @property
+    def serves_registered_types(self) -> bool:
+        """It does: each on its call route, in its component type's API format."""
+        return True
 
     @property
     def probe_route(self) -> str:
