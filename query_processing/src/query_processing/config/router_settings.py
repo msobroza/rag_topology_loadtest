@@ -5,9 +5,10 @@ router is read as a component of a registered type is, its backend's block
 with the class its implementation names (``RegisteredComponentSettings``).
 Its type's own keys are fields here, since its port cannot import the config:
 ``embedder``, the embedder component whose vectors it reads, and ``routes``,
-the names of the routes it chooses between, two at least, each one of the
-catalogue of ``routes.yaml`` (spec 8). A route the catalogue lacks is refused,
-and so is an ``embedder`` that names no embedder component of the file.
+the names of the routes it chooses between, distinct and two at least, each
+one of the catalogue of ``routes.yaml`` (spec 8). A route the catalogue lacks
+is refused, and so is an ``embedder`` that names no embedder component of the
+file.
 
 Example:
     >>> router = RouterSettings.model_validate({"type": "router", "backend": "fake",
@@ -21,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..domain.routes import Route
 from .registered_component_settings import RegisteredComponentSettings
@@ -39,6 +40,18 @@ class RouterSettings(RegisteredComponentSettings):
     type: Literal["router"] = "router"
     embedder: str  # the name of an embedder component of the workflow file
     routes: list[str] = Field(min_length=2)  # names of routes of routes.yaml
+
+    @field_validator("routes")
+    @classmethod
+    def _refuse_a_route_listed_twice(cls, routes: list[str]) -> list[str]:
+        # [a, a] passes min_length, and leaves one route to choose.
+        twice = [route for index, route in enumerate(routes) if route in routes[:index]]
+        if twice:
+            raise ValueError(
+                f"the router lists the route {twice[0]!r} twice (expected distinct "
+                f"routes, two at least; got {routes})"
+            )
+        return routes
 
     def type_block(self) -> BaseModel | None:
         """Return the router's own keys: these settings, which hold them as fields.

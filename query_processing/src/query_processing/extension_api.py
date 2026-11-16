@@ -32,6 +32,11 @@ mirrors its request and its answer. A use case redefines the format by
 registering a ``BaseApiFormat`` under the type's name, and the served class by
 naming ``backend="served"`` on a subclass of ``ServedCallMixin`` and the type.
 
+A component whose model or service fails raises ``RagDependencyError``,
+naming itself, and the app answers 503, or 504 with ``kind="timeout"``. An
+output schema whose fields hold a metadata filter types them with
+``MetadataCondition``.
+
 A use case's tests import the test classes the toolkit ships from
 ``query_processing.testing``, not from here, so that no command loads what
 they serve a component with: ``ComponentContract``, subclassed with
@@ -70,6 +75,7 @@ from .domain.base_component import BaseComponent
 from .domain.component_requests import EmbedAnswer, EmbedRequest
 from .domain.component_resources import ComponentResources
 from .domain.errors import RagDependencyError
+from .domain.metadata_filter import MetadataCondition
 from .domain.routes import Route, RouteChoice, RouteRequest
 from .infrastructure.endpoint.served_call import ServedCallMixin
 
@@ -87,6 +93,7 @@ __all__ = [
     "EmbedAnswer",
     "EmbedRequest",
     "FieldTypes",
+    "MetadataCondition",
     "RagDependencyError",
     "Route",
     "RouteChoice",

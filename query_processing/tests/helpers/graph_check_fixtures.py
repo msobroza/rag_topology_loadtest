@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel
+
 from echo_components import Echo, EchoRequest
 from query_processing.application.edge_conditions.edge_condition import EdgeCondition
 from query_processing.application.edge_conditions.label import label
@@ -39,14 +41,24 @@ FIXTURE_COMPONENT_TYPES: Registry[type[BaseComponent[Any, Any]]] = Registry(
 )
 
 
+class Draft(BaseModel):
+    # The two ports' request and answer: a component type's are pydantic
+    # models, though the fixture stage types declare the fields they use.
+    text: str
+
+
 class FakeScribe(
-    BaseComponent[str, str], component_type="scribe", registry=FIXTURE_COMPONENT_TYPES
+    BaseComponent[Draft, Draft],
+    component_type="scribe",
+    registry=FIXTURE_COMPONENT_TYPES,
 ):
     """The port a draft and a polish stage call."""
 
 
 class FakeJudge(
-    BaseComponent[str, bool], component_type="judge", registry=FIXTURE_COMPONENT_TYPES
+    BaseComponent[Draft, Draft],
+    component_type="judge",
+    registry=FIXTURE_COMPONENT_TYPES,
 ):
     """The port a judge stage calls."""
 

@@ -1,0 +1,19 @@
+# The workflow file of the README's example, "What a use case adds": a
+# shouter that answers only a quiet question, as the grader grades it.
+# tests/testing/test_the_readme_example.py runs it and checks the README
+# shows it as it is here.
+extensions: [shout_extension]
+components:
+  grader: {backend: local}
+  shouter:
+    backend: local
+    local: {suffix: "!"}
+graph:
+  stages:
+    grade: {call: grader, reads: [standalone_query], writes: [level]}
+    shout: {call: shouter, reads: [standalone_query], writes: [answer]}
+  edges:
+    - [START, grade]
+    - [shout, END]
+  conditional_edges:
+    - {source: grade, path: label, reads: [level], path_map: {quiet: shout, loud: END}}

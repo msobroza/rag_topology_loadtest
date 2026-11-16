@@ -22,6 +22,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import inspect
 from abc import ABC
 from typing import Any, ClassVar, Generic, Self, TypeVar, get_args, get_origin
 
@@ -229,9 +230,25 @@ def _define_type(
     settings: type[BaseModel] | None,
 ) -> None:
     cls.request_type, cls.answer_type = _request_and_answer(cls)
+    _refuse_no_pydantic_model(cls, "takes", cls.request_type)
+    _refuse_no_pydantic_model(cls, "answers", cls.answer_type)
     cls.component_type_name = component_type
     cls.type_settings = settings
     cls.backends = {}  # its own: the implementations of this type alone
+
+
+def _refuse_no_pydantic_model(cls: type[Any], verb: str, model: Any) -> None:
+    # Any, a TypeVar or a generic alias such as list[X] cannot be read as a class
+    # here: the ComponentContract checks those, on an implementation.
+    if model is Any or not isinstance(model, type) or issubclass(model, BaseModel):
+        return
+    raise TypeError(
+        f"component type {cls.__name__} {verb} a {model.__name__}, which is no "
+        "pydantic model: the toolkit reads the workflow state's fields from a "
+        "request's and an answer's fields, and carries them as JSON to a model "
+        f"server (expected class {model.__name__}(BaseModel), with its fields as "
+        "annotations)"
+    )
 
 
 def _define_implementation(
@@ -251,6 +268,7 @@ def _define_implementation(
             f"{cls.__name__} still has to write: invoke(self, request) -> {answer}"
             f", or async ainvoke(self, request) -> {answer}"
         )
+    _refuse_wrong_from_settings(cls, settings)
     existing = cls.backends.get(backend)
     if existing is not None:
         raise TypeError(
@@ -260,6 +278,51 @@ def _define_implementation(
         )
     cls.settings_type = settings
     cls.backends[backend] = cls
+
+
+def _refuse_wrong_from_settings(
+    cls: type[Any], settings: type[BaseModel] | None
+) -> None:
+    # The composition calls cls.from_settings(block, resources): the default
+    # takes no argument, so a class that names a block and keeps it would
+    # answer with its constructor's defaults, the block read and then ignored.
+    written = inspect.getattr_static(cls, "from_settings")
+    expected = _from_settings_to_write(cls, settings)
+    if written is vars(BaseComponent)["from_settings"]:
+        if settings is not None:
+            raise TypeError(
+                f"{cls.__name__} names settings={settings.__name__} but writes no "
+                "from_settings, so its block of the workflow file would be read "
+                f"and never used {expected}"
+            )
+        return
+    if not _callable_as_the_toolkit_calls(written):
+        function = getattr(written, "__func__", written)
+        raise TypeError(
+            f"{cls.__name__}.from_settings{inspect.signature(function)} is not "
+            "what the toolkit calls with the block of the workflow file and the "
+            f"component's resources {expected}"
+        )
+
+
+def _callable_as_the_toolkit_calls(written: object) -> bool:
+    if not isinstance(written, classmethod):
+        return False
+    try:  # cls, the backend's block and the resources, by position
+        inspect.signature(written.__func__).bind(None, None, None)
+    except TypeError:
+        return False
+    return True
+
+
+def _from_settings_to_write(cls: type[Any], settings: type[BaseModel] | None) -> str:
+    # What a refusal shows, in parentheses: the method as the user writes it.
+    block = "BaseModel | None" if settings is None else settings.__name__
+    name = cls.__name__
+    return (
+        f"(expected, in {name}:\n    @classmethod\n    def from_settings(cls, "
+        f"settings: {block}, resources: ComponentResources) -> {name}: ...)"
+    )
 
 
 def _answer_name(cls: type[Any]) -> str:

@@ -355,11 +355,19 @@ Two spellings fill the same registries: a keyword on the class line for a
 component, a decorator for the other entries (`STAGE_TYPES`, `EDGE_CONDITIONS`,
 `OUTPUT_SCHEMAS`, `COMPONENT_API_FORMATS`). A component type names its type on
 its class line, `component_type="anonymizer"`, and an implementation its
-backend and its settings block, `backend="local", settings=...`; the class is
-refused when it is defined if it writes neither `invoke` nor `ainvoke`, or
-names a backend its component type already has, and the message says what to
-write. A use case adds registrations and never replaces one of the toolkit's:
-a name registered twice stops the load, naming both classes.
+backend and its settings block, `backend="local", settings=...`. A class is
+refused when it is defined, and the message says what to write, if it is a
+component type whose request or answer is no pydantic model, or an
+implementation that writes neither `invoke` nor `ainvoke`, names a backend its
+component type already has, names `settings=` and writes no `from_settings`,
+or writes a `from_settings` that is not `@classmethod from_settings(cls,
+settings, resources)`. A use case adds registrations and never replaces one of
+the toolkit's: a name registered twice stops the load, naming both classes.
+Two more names are in `extension_api` for a use case's code:
+`MetadataCondition`, the type of an output schema's field that holds a
+metadata filter, and `RagDependencyError`, which a component raises, naming
+itself, when its model or service fails, and which the app answers with 503,
+or 504 with `kind="timeout"`.
 
 Every component type made this way has a `served` backend with no code: the
 toolkit builds the class that calls a model server of ours on the type's call
@@ -372,11 +380,133 @@ type, only to redefine the built one.
 The toolkit ships two test classes in `query_processing.testing`, which a use
 case's tests import from there and not from `extension_api`, so that no command
 loads what they serve a component with. `ComponentContract`, subclassed with
-`make_component` and `make_request`, checks the answer's shape, the API format
-both ways, and the served class through an in-process model server.
-`RouterContract` adds `routes`, and checks that the route chosen is one of
-them and that the confidence is between 0 and 1. The RAG's
-`tests/test_knn_router.py` subclasses it.
+`make_component` and `make_request`, checks that the class names a backend,
+that the request and the answer are pydantic models, the answer's shape, the
+API format both ways, and the served class through an in-process model server;
+given `settings_block`, the backend's block as the workflow file states it, it
+also builds the component from it through `from_settings`, as the app does,
+and compares the two answers. `RouterContract` adds `routes`, and checks that
+the route chosen is one of them and that the confidence is between 0 and 1.
+The RAG's `tests/test_knn_router.py` subclasses it.
+
+#### One component type from end to end
+
+The toolkit's own tests define, as a use case would, a component type
+`shouter` in `query_processing/tests/helpers/shout_extension/`; a test checks
+that every block below is still what those files hold. A module of the use
+case's package defines the request and the answer, two pydantic models, the
+component type that names them, and one implementation with its settings
+block, which `from_settings` reads:
+
+```python
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+from query_processing.extension_api import (
+    BaseComponent,
+    ComponentResources,
+    SettingsBlock,
+)
+
+
+class ShoutRequest(BaseModel):
+    text: str
+
+
+class Shouted(BaseModel):
+    text: str
+
+
+class BaseShouter(BaseComponent[ShoutRequest, Shouted], component_type="shouter"):
+    """Says a text louder."""
+
+
+class UpperShouterSettings(SettingsBlock):
+    suffix: str = ""
+
+
+class UpperShouter(BaseShouter, backend="local", settings=UpperShouterSettings):
+    """Says the text in capitals, its suffix after it."""
+
+    def __init__(self, suffix: str) -> None:
+        self.suffix = suffix
+
+    @classmethod
+    def from_settings(
+        cls, settings: UpperShouterSettings, resources: ComponentResources
+    ) -> UpperShouter:
+        del resources  # a shouter needs nothing besides its own block
+        return cls(settings.suffix)
+
+    def invoke(self, request: ShoutRequest) -> Shouted:
+        return Shouted(text=request.text.upper() + self.suffix)
+```
+
+An implementation with no settings names no `settings=` and writes no
+`from_settings`; one that calls a service writes `async def ainvoke` instead of
+`invoke`. A component type whose answer a conditional edge on `label` reads
+declares the labels of that answer attribute with `answer_labels` (ADR 0007),
+as the test extension's `grader` does:
+
+```python
+class BaseGrader(BaseComponent[ShoutRequest, Grade], component_type="grader"):
+    """Grades how loud a text is: quiet or loud."""
+
+    @classmethod
+    def answer_labels(
+        cls, type_settings: BaseModel | None
+    ) -> dict[str, tuple[str, ...]]:
+        del type_settings  # every grader answers one of the same two labels
+        return {"level": ("quiet", "loud")}
+```
+
+The workflow file names the package under `extensions`, each component's
+backend and the block named after it, and the stages that call them: a plain
+call's `reads` fill the request's fields and its `writes` take the answer's.
+Here the shouter answers only a question its grader finds quiet:
+
+```yaml
+extensions: [shout_extension]
+components:
+  grader: {backend: local}
+  shouter:
+    backend: local
+    local: {suffix: "!"}
+graph:
+  stages:
+    grade: {call: grader, reads: [standalone_query], writes: [level]}
+    shout: {call: shouter, reads: [standalone_query], writes: [answer]}
+  edges:
+    - [START, grade]
+    - [shout, END]
+  conditional_edges:
+    - {source: grade, path: label, reads: [level], path_map: {quiet: shout, loud: END}}
+```
+
+Its test imports `ComponentContract` from `query_processing.testing` and says
+how to make one component, one request and, to have the component built as
+the app builds it, its block:
+
+```python
+class TestUpperShouter(ComponentContract):
+    def make_component(self) -> BaseShouter:
+        return UpperShouter(suffix="!")
+
+    def make_request(self) -> ShoutRequest:
+        return ShoutRequest(text="a")
+
+    def settings_block(self) -> dict[str, object]:
+        return {"suffix": "!"}
+```
+
+The contract's tests are coroutines: the use case's `pyproject.toml` runs them
+with pytest-asyncio, as the toolkit's does:
+
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+```
 
 ### What only the toolkit adds
 

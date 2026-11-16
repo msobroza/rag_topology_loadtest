@@ -117,6 +117,16 @@ def test_a_router_lists_two_routes_at_least(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("here")
+def test_a_router_lists_each_route_once(tmp_path: Path) -> None:
+    # [a, a] would pass "two at least" with one route to choose.
+    with pytest.raises(
+        ValidationError,
+        match=r"lists the route 'a' twice \(expected distinct routes, two at least;",
+    ):
+        settings_with_router(tmp_path, ["a", "b"], ["a", "a"])
+
+
+@pytest.mark.usefixtures("here")
 def test_a_route_named_twice_in_the_file_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValidationError, match="names the route 'a' twice"):
         settings_with_router(tmp_path, ["a", "b", "a"], ["a", "b"])

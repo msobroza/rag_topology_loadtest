@@ -1,10 +1,14 @@
 """``ComponentContract``: the tests a user runs on an implementation of theirs.
 
 A user subclasses it in a test module and says how to make one component and
-one request; their test runner collects the three tests it inherits. They
-check that the answer has the shape of the component type, that the request
-and the answer survive the type's API format, and that the type's ``served``
-class answers as the component does, through a model server run in process.
+one request; their test runner collects the tests it inherits. They check that
+the component's class names a backend, so that a workflow file can choose it;
+that its type's request and answer are pydantic models; that the answer has
+the shape of the component type; that the request and the answer survive the
+type's API format; and that the type's ``served`` class answers as the
+component does, through a model server run in process. A test that also gives
+``settings_block``, its backend's block as the workflow file states it, has
+the component built from it through ``from_settings``, as the app builds it.
 
 The tests are coroutines, as the toolkit's own async tests are: a runner that
 awaits them is needed, such as pytest with pytest-asyncio's ``asyncio_mode =
@@ -113,6 +117,79 @@ class ComponentContract(ABC):
         """
         return {}
 
+    def settings_block(self) -> dict[str, object] | None:
+        """Return the block of the workflow file that builds this component, if any.
+
+        Returns:
+            None by default: the component is then made by ``make_component``
+            alone. A test that gives the block named after the backend, as the
+            workflow file states it, has the component built from it through
+            ``from_settings``, as the app builds it, and compared.
+
+        Example:
+            >>> TestUpperShouter().settings_block()
+            {'suffix': '!'}
+        """
+        return None
+
+    async def test_a_workflow_file_can_choose_its_backend(self) -> None:
+        """The component's class names a backend of its component type.
+
+        Raises:
+            AssertionError: If it is registered under none; the message shows
+                the class line to write and the backends the type has.
+
+        Example:
+            >>> await TestUpperShouter().test_a_workflow_file_can_choose_its_backend()
+        """
+        backend_of(self.make_component())
+
+    async def test_its_request_and_answer_are_pydantic_models(self) -> None:
+        """The component type's request and answer are pydantic models.
+
+        Raises:
+            AssertionError: If one is not; the message names both.
+
+        Example:
+            >>> contract = TestUpperShouter()
+            >>> await contract.test_its_request_and_answer_are_pydantic_models()
+        """
+        port = component_type_of(self.make_component())
+        request, answer = port.request_type, port.answer_type
+        both = all(_is_pydantic_model(model) for model in (request, answer))
+        assert both, (
+            f"{port.__name__} takes {_named(request)} and answers {_named(answer)}"
+            "; expected two pydantic models (class Request(BaseModel), class "
+            "Answer(BaseModel)), which the toolkit reads fields from and carries "
+            "as JSON"
+        )
+
+    async def test_it_builds_from_its_settings_block(self) -> None:
+        """Built from ``settings_block`` as the app builds it, it answers alike.
+
+        Nothing is checked when ``settings_block`` gives None.
+
+        Raises:
+            AssertionError: If the two answers differ; the message shows both.
+
+        Example:
+            >>> await TestUpperShouter().test_it_builds_from_its_settings_block()
+        """
+        block = self.settings_block()
+        if block is None:
+            return
+        component, request = self.make_component(), self.make_request()
+        expected = await component.ainvoke(request)
+        built = await built_from_settings(
+            component, block, self.component_keys(), self.workflow_keys()
+        )
+        answer = await built.ainvoke(request)
+        assert answer == expected, (
+            f"{type(built).__name__} built from its settings block {block!r} "
+            f"answered {answer!r}; expected {expected!r}, the answer of the "
+            "component make_component returns"
+        )
+
     async def test_the_answer_has_the_shape_of_its_component_type(self) -> None:
         """The component answers with its component type's answer class.
 
@@ -199,6 +276,72 @@ def component_type_of(component: object) -> ComponentType:
     )
 
 
+def backend_of(component: object) -> str:
+    """Return the backend a component's class registers under.
+
+    Args:
+        component: What ``make_component`` returned.
+
+    Returns:
+        The backend its class names on its class line.
+
+    Raises:
+        AssertionError: If its class names none; the message shows the class
+            line to write and the backends its type has.
+
+    Example:
+        >>> backend_of(UpperShouter(suffix="!"))
+        'local'
+    """
+    port, cls = component_type_of(component), type(component)
+    for backend, implementation in port.backends.items():
+        if implementation is cls:
+            return backend
+    has = ", ".join(repr(name) for name in sorted(port.backends)) or "none"
+    # 'local' when it is free: a first implementation runs in process.
+    name = "<its name>" if "local" in port.backends else "local"
+    raise AssertionError(
+        f"{cls.__name__} names no backend, so no workflow file can choose it "
+        f"(expected class {cls.__name__}({port.__name__}, backend='{name}'), a "
+        f"backend {port.__name__} does not have yet; it has: {has})"
+    )
+
+
+async def built_from_settings(
+    component: BaseComponent[Any, Any],
+    block: Mapping[str, object],
+    component_keys: Mapping[str, object] | None = None,
+    workflow_keys: Mapping[str, object] | None = None,
+) -> BaseComponent[Any, Any]:
+    """Build a component of the same class from its block, as the app builds it.
+
+    The block is read with the settings class the class names, and the
+    composition opens the component through ``from_settings``.
+
+    Args:
+        component: A component of the class to build.
+        block: Its backend's block, as the workflow file states it.
+        component_keys: The keys of its type its settings need; None for none.
+        workflow_keys: The top-level settings they need; None for none.
+
+    Returns:
+        The component the composition opened.
+
+    Example:
+        >>> await built_from_settings(UpperShouter(suffix="!"), {"suffix": "?"})
+        <UpperShouter ...>
+    """
+    name, backend = (
+        component_type_of(component).component_type_name,
+        backend_of(component),
+    )
+    entry = {**(component_keys or {}), "backend": backend, backend: dict(block)}
+    settings = _ContractSettings(**_blocks(name, entry, dict(workflow_keys or {})))
+    async with CompositionRoot(settings) as composition:
+        opened = (await composition.workflow_dependencies()).components()
+        return cast(BaseComponent[Any, Any], opened[name])
+
+
 async def served_answer(
     component: BaseComponent[Any, Any],
     request: BaseModel,
@@ -248,6 +391,14 @@ def _blocks(
     components = dict(declared_beside) if isinstance(declared_beside, Mapping) else {}
     components[name] = {"type": name, **component}
     return {**top, "components": components, "graph": {"stages": {name: stage}}}
+
+
+def _is_pydantic_model(model: object) -> bool:
+    return isinstance(model, type) and issubclass(model, BaseModel)
+
+
+def _named(model: object) -> str:
+    return str(getattr(model, "__name__", model))
 
 
 def _assert_survives(
