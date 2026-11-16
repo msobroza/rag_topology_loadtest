@@ -1,4 +1,4 @@
-"""``emulation/machine/`` and the restore at boot, against stand-ins on ``PATH``.
+"""``emulation/machine/``, the restore at boot and the emulated Domino's unit.
 
 ``curl`` plays the metadata server, the cache bucket and Elasticsearch;
 ``chown`` and ``rag-served-models`` are stand-ins too
@@ -26,6 +26,7 @@ from emulation_machine_fakes import (
     run_common_sh_function,
     run_machine_script,
 )
+from emulation_terraform import render, variables
 
 MACHINE_SCRIPTS = (CACHE_BUCKET_SH, INDEX_SNAPSHOT_SH)
 SNAPSHOT = "quebec-insurance-french-snowflake-snowflake-arctic-embed-l-v2.0"
@@ -307,3 +308,28 @@ def test_results_save_uploads_one_archive_that_status_lists(
     assert status.returncode == 0, status.stderr
     assert archive in status.stdout
     assert "elasticsearch/" not in status.stdout
+
+
+def fake_domino_exec_start(values: dict[str, str]) -> str:
+    """The ``ExecStart`` line of the emulated Domino's unit in the Workspace script."""
+    script = render("scripts/workspace.sh.tftpl", values)
+    (line,) = [
+        line
+        for line in script.splitlines()
+        if line.startswith("ExecStart=") and "rag-domino-emulation" in line
+    ]
+    return line
+
+
+def test_the_fake_domino_forwards_for_30_seconds_by_default() -> None:
+    default = str(variables()["forward_timeout_seconds"]["default"])
+
+    line = fake_domino_exec_start({"forward_timeout_seconds": default})
+
+    assert line.endswith(" --forward-timeout 30")
+
+
+def test_the_fake_domino_forwards_for_as_long_as_the_variable_says() -> None:
+    line = fake_domino_exec_start({"forward_timeout_seconds": "300"})
+
+    assert line.endswith(" --forward-timeout 300")

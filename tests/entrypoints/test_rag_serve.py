@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
@@ -32,6 +33,7 @@ RESPONSE_FIELDS = {
     "answer",
     "passages",
     "timings_ms",
+    "tokens",
 }
 
 
@@ -149,6 +151,22 @@ def test_retrieve_skips_generation(client: TestClient) -> None:
     assert body["answer"] is None
     assert body["timings_ms"]["generate"] == 0.0
     assert body["passages"]
+    assert body["tokens"] == {}
+
+
+def test_a_query_answer_carries_its_tokens(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        body = client.post("/query", json={"question": "How many days?"}).json()
+
+    assert body["tokens"]["completion"] > 0
+    [logged] = [
+        json.loads(r.getMessage())
+        for r in caplog.records
+        if '"event": "rag_request"' in r.getMessage()
+    ]
+    assert logged["tokens"] == body["tokens"]
 
 
 @pytest.mark.parametrize("path", ["/query", "/retrieve"])

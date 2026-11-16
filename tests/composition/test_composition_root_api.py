@@ -190,10 +190,29 @@ async def test_the_api_llm_calls_its_endpoint_with_the_generation_timeout(
     ) as composition:
         llm = (await composition.workflow_dependencies()).llm
         messages = [{"role": "user", "content": "How many vacation days?"}]
-        assert await llm.generate(messages) == "Twenty-five days."
+        assert (await llm.generate(messages)).text == "Twenty-five days."
 
     expected_body = {"model": "llama-3", "messages": messages, "temperature": 0.7}
     assert routes.sent() == [(CHAT_URL, expected_body, "Bearer sk-key", 90.0)]
+
+
+async def test_the_api_llm_sends_the_cap_of_the_settings(
+    settings_factory: SettingsFactory,
+) -> None:
+    routes = RecordingModelRoutes()
+    settings = settings_factory(
+        **(EVERYTHING_FAKE | {"generation_backend": "api"}),
+        generation_api_url=CHAT_URL,
+        generation_max_tokens=64,
+    )
+    async with CompositionRoot(
+        settings, transport=httpx.MockTransport(routes)
+    ) as composition:
+        llm = (await composition.workflow_dependencies()).llm
+        await llm.generate([{"role": "user", "content": "q"}])
+
+    [(_, body, _, _)] = routes.sent()
+    assert body["max_tokens"] == 64
 
 
 async def test_the_generation_endpoint_keeps_the_shared_retries(

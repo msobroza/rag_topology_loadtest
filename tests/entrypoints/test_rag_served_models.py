@@ -33,6 +33,37 @@ def test_assignments_pair_each_source_id_with_its_alias(
         "EMBEDDER_SOURCE_MODEL=org/embed",
         "EMBEDDER_MODEL_NAME=embed",
         "OPENVINO_WEIGHT_FORMAT=int8",
+        "GENERATOR_SOURCE_MODEL=OpenVINO/Qwen3.5-2B-int4-ov",
+        "GENERATOR_MODEL_NAME=gpt-4o-mini",
+        "GENERATOR_DYNAMIC_SPLIT_FUSE=true",
+        "GENERATOR_MAX_BATCHED_TOKENS=''",
+    ]
+
+
+def test_the_served_models_include_the_generator(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    lines = served_model_assignments(settings_factory())
+
+    assert lines[5:] == [
+        "GENERATOR_SOURCE_MODEL=OpenVINO/Qwen3.5-2B-int4-ov",
+        "GENERATOR_MODEL_NAME=gpt-4o-mini",
+        "GENERATOR_DYNAMIC_SPLIT_FUSE=true",
+        "GENERATOR_MAX_BATCHED_TOKENS=''",
+    ]
+
+
+def test_the_generators_tuning_reaches_the_shell(
+    settings_factory: Callable[..., RagSettings],
+) -> None:
+    settings = settings_factory(
+        ovms_generation_dynamic_split_fuse=False,
+        ovms_generation_max_batched_tokens=8192,
+    )
+
+    assert served_model_assignments(settings)[7:] == [
+        "GENERATOR_DYNAMIC_SPLIT_FUSE=false",
+        "GENERATOR_MAX_BATCHED_TOKENS=8192",
     ]
 
 
@@ -56,6 +87,10 @@ def test_rag_served_models_prints_the_settings_defaults(
         "EMBEDDER_SOURCE_MODEL=Snowflake/snowflake-arctic-embed-l-v2.0",
         "EMBEDDER_MODEL_NAME=snowflake-arctic-embed-l-v2.0",
         "OPENVINO_WEIGHT_FORMAT=fp32",
+        "GENERATOR_SOURCE_MODEL=OpenVINO/Qwen3.5-2B-int4-ov",
+        "GENERATOR_MODEL_NAME=gpt-4o-mini",
+        "GENERATOR_DYNAMIC_SPLIT_FUSE=true",
+        "GENERATOR_MAX_BATCHED_TOKENS=''",
     ]
 
 
@@ -76,6 +111,10 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
         "EMBEDDER_SOURCE_MODEL='org/embed v2'",
         "EMBEDDER_MODEL_NAME=embed",
         "OPENVINO_WEIGHT_FORMAT=fp32",
+        "GENERATOR_SOURCE_MODEL=OpenVINO/Qwen3.5-2B-int4-ov",
+        "GENERATOR_MODEL_NAME=gpt-4o-mini",
+        "GENERATOR_DYNAMIC_SPLIT_FUSE=true",
+        "GENERATOR_MAX_BATCHED_TOKENS=''",
     ]
 
 
@@ -84,8 +123,16 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; echo pwned")
+    monkeypatch.setenv("RAG_GENERATION_API_MODEL", "qwen3.5-2b")
+    monkeypatch.setenv("RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE", "false")
     main([])
-    script = 'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
+    # The names domino/app.sh reads for the generator, as bash sees them; an
+    # empty batched-token count must stay empty, not become the text ''.
+    script = (
+        'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
+        ' "$GENERATOR_SOURCE_MODEL" "$GENERATOR_MODEL_NAME"'
+        ' "$GENERATOR_DYNAMIC_SPLIT_FUSE" "[$GENERATOR_MAX_BATCHED_TOKENS]"'
+    )
 
     result = subprocess.run(
         ["bash", "-c", script, "bash", capsys.readouterr().out],
@@ -98,6 +145,10 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     assert result.stdout.splitlines() == [
         "it's; echo pwned",
         "Snowflake/snowflake-arctic-embed-l-v2.0",
+        "OpenVINO/Qwen3.5-2B-int4-ov",
+        "qwen3.5-2b",
+        "false",
+        "[]",
     ]
 
 
@@ -116,5 +167,7 @@ def test_versions_env_pins_no_served_model() -> None:
 def test_no_source_id_literal_outside_the_settings(relative: str) -> None:
     text = (ROOT / relative).read_text()
     assert [
-        org for org in ("BAAI/", "Snowflake/", "antoinelouis/") if org in text
+        org
+        for org in ("BAAI/", "Snowflake/", "antoinelouis/", "OpenVINO/")
+        if org in text
     ] == []

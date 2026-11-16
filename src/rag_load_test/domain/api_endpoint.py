@@ -25,6 +25,7 @@ DOMINO_RUN_TOKEN = "domino"
 # FastAPI model server copies so a client cannot tell the two apart.
 MODEL_SERVER_EMBEDDINGS_PATH = "/v3/embeddings"
 MODEL_SERVER_RERANK_PATH = "/v3/rerank"
+MODEL_SERVER_CHAT_PATH = "/v3/chat/completions"
 MODEL_SERVER_MODEL_ROUTE = "/v3/models/{name}"
 
 

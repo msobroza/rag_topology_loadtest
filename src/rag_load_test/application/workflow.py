@@ -26,6 +26,7 @@ from typing import Annotated, Any, Protocol, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from ..adapters.vector_store.base_vector_store import BaseLexicalSearch
+from ..domain.generation import Generation
 from ..domain.passages import STAGES, RagMode, RagResult, ScoredPassage
 from ..domain.rank_fusion import reciprocal_rank_fusion
 from ..domain.workflow_parameters import WorkflowParameters
@@ -45,6 +46,29 @@ def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, 
     return {**left, **right}
 
 
+def answer_tokens(generation: Generation) -> dict[str, int]:
+    """Return an answer's token counts, or nothing unless both were reported.
+
+    One count alone is left out with the other: a tokens-per-second figure
+    needs the completion count, and a prompt count alone would read as an
+    answer of 0 tokens.
+
+    Args:
+        generation: The LLM's answer.
+
+    Returns:
+        ``{"prompt": n, "completion": m}``, or ``{}`` when either is None.
+
+    Example:
+        >>> answer_tokens(Generation("Paris.", 829, 128))
+        {'prompt': 829, 'completion': 128}
+    """
+    prompt, completion = generation.prompt_tokens, generation.completion_tokens
+    if prompt is None or completion is None:
+        return {}
+    return {"prompt": prompt, "completion": completion}
+
+
 class RagState(TypedDict, total=False):
     """The graph state one run carries from node to node."""
 
@@ -54,6 +78,7 @@ class RagState(TypedDict, total=False):
     candidates: list[ScoredPassage]
     reranked: list[ScoredPassage]
     answer: str | None
+    tokens: dict[str, int]  # "prompt" and "completion", only when both are known
     timings_ms: Annotated[dict[str, float], merge_timings]
 
 
@@ -185,11 +210,12 @@ class RagWorkflow:
         Args:
             question: The question to answer.
             mode: ``query`` runs every stage; ``retrieve`` stops after reranking
-                and leaves ``answer`` None.
+                and leaves ``answer`` None and ``tokens`` empty.
 
         Returns:
             The result; ``timings_ms`` has one key per stage (0.0 for a skipped
-            one) and ``total``, the wall time around the whole graph.
+            one) and ``total``, the wall time around the whole graph; ``tokens``
+            the answer's counts when the LLM reported both.
         """
         state: RagState = {"question": question, "mode": mode, "timings_ms": {}}
         started = time.perf_counter()
@@ -202,6 +228,7 @@ class RagWorkflow:
             answer=final.get("answer") if mode == "query" else None,
             passages=final.get("reranked", []),
             timings_ms=timings,
+            tokens=final.get("tokens", {}) if mode == "query" else {},
         )
 
     async def _embed(self, state: RagState) -> dict[str, Any]:
@@ -247,4 +274,5 @@ class RagWorkflow:
     async def _generate(self, state: RagState) -> dict[str, Any]:
         prompts = self.parameters.prompts
         messages = prompts.messages(state["question"], state["reranked"])
-        return {"answer": await self.deps.llm.generate(messages)}
+        generation = await self.deps.llm.generate(messages)
+        return {"answer": generation.text, "tokens": answer_tokens(generation)}

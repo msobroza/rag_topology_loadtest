@@ -8,16 +8,19 @@ import pytest
 
 from rag_load_test.domain.roles import (
     AppPart,
+    GeneratorServer,
     ModelServerKind,
     Role,
     apps_for_topology,
+    generator_role,
     model_servers_for_topology,
     role_for,
 )
 from rag_load_test.domain.topology import Topology
 
 TOPOLOGIES: tuple[Topology, ...] = get_args(Topology)
-PARTS: tuple[AppPart, ...] = get_args(AppPart)
+# The generator's Role follows from generator_server, not from the topology.
+PARTS = tuple(part for part in get_args(AppPart) if part != "generator")
 KINDS: tuple[ModelServerKind, ...] = get_args(ModelServerKind)
 # Every Role, written out: (topology, App part, model-server kind) -> Role, or
 # None when the topology has no such App.
@@ -84,6 +87,36 @@ def test_an_app_the_topology_lacks_has_no_role(
         role_for(topology, part, kind)
 
 
+def test_a_generator_is_published_after_the_model_servers_and_before_the_workflow() -> (
+    None
+):
+    assert apps_for_topology("monolith", generator=True) == ["generator", "workflow"]
+    assert apps_for_topology("split-all", generator=True) == [
+        "embedder",
+        "reranker",
+        "generator",
+        "workflow",
+    ]
+
+
+def test_no_generator_unless_asked() -> None:
+    assert apps_for_topology("split-all") == ["embedder", "reranker", "workflow"]
+
+
+def test_the_generators_role_names_its_server() -> None:
+    assert generator_role("ovms") == "ovms-generator"
+    with pytest.raises(ValueError, match="generator_server"):
+        generator_role("none")
+
+
+@pytest.mark.parametrize("topology", TOPOLOGIES)
+def test_the_generators_role_is_not_the_topologys_to_give(topology: Topology) -> None:
+    with pytest.raises(ValueError, match="generator_role"):
+        role_for(topology, "generator", "ovms")
+
+
 def test_every_role_is_given_to_some_app() -> None:
+    servers: tuple[GeneratorServer, ...] = get_args(GeneratorServer)
+    generators = {generator_role(server) for server in servers if server != "none"}
     given = {role for role in EXPECTED_ROLES.values() if role is not None}
-    assert given == set(get_args(Role))
+    assert given | generators == set(get_args(Role))

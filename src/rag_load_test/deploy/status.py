@@ -10,7 +10,6 @@ from http import HTTPStatus
 import httpx
 
 from ..domain.errors import describe_error
-from ..domain.roles import apps_for_topology
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -23,20 +22,20 @@ from .endpoint_url import endpoint_url
 
 
 def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
-    """Print one line per App the topology needs, then the workflow App's /readyz.
+    """Print one line per App the deploy needs, then the workflow App's /readyz.
 
     The /readyz lines appear only when the workflow App is Running.
 
     Args:
         client: Apps API client for the project.
-        settings: The deploy settings (topology, Domino host, run token URL).
+        settings: The deploy settings (Apps, Domino host, run token URL).
 
     Example:
         >>> print_status(client, DeploySettings())
         rag-workflow   Running   https://...
     """
     endpoint: str | None = None
-    for part in apps_for_topology(settings.topology):  # the workflow App is last
+    for part in settings.app_parts():  # the workflow App is last
         app = client.find(f"rag-{part}")
         endpoint = None
         if app is not None and app.status == "Running":

@@ -386,3 +386,17 @@ def test_a_cache_file_that_cannot_be_read_is_named(run_main: RunMain) -> None:
     code, _, err = run_main(["status"], create_fake_domino())
     assert code == 2
     assert f"{CACHE_FILE} is not an App id cache" in err
+
+
+def test_deploy_generator_publishes_only_the_generator(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RAG_DEPLOY_GENERATOR_SERVER", "ovms")
+    monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", str(tmp_path))
+    apps = FakeDominoApps(["Running"])
+    code, out, err = run_main(["deploy", "generator"], create_fake_domino(apps))
+    assert (code, err) == (0, "")
+    assert out == deployed_lines(1, ["rag-generator"])
+    assert str(apps.creates[0].version.entryScript).startswith(
+        "export RAG_ROLE=ovms-generator\n"
+    )

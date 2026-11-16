@@ -143,6 +143,7 @@ class RagSettings(BaseSettings):
     generation_api_key: str = ""  # as embedding_api_key
     generation_api_model: str = "gpt-4o-mini"
     generation_temperature: float = Field(default=0.0, ge=0, le=2)
+    generation_max_tokens: int = Field(default=0, ge=0)  # 0 = not sent
     # An answer takes longer than a model-server call, so generation has its own
     # timeout; retries and backoff are the shared http_retries / http_backoff_s.
     generation_timeout_s: float = Field(default=120.0, gt=0)
@@ -202,14 +203,21 @@ class RagSettings(BaseSettings):
     calibration_users: int = Field(default=4, ge=1)
 
     # --- OpenVINO Model Server (an ovms-* App) ----------------------------------------
-    # Requests OVMS runs at once on its model (NUM_STREAMS); 0 = calibrated at
-    # start-up, by rag-ovms-config.
+    # The reranker's and embedder's OVMS only (the generator has its own two
+    # below): requests it runs at once (NUM_STREAMS); 0 = calibrated at start-up.
     ovms_num_streams: int = Field(default=0, ge=0)
-    # Threads its inference shares, all streams together (INFERENCE_NUM_THREADS);
-    # 0 = calibrated at start-up, up to the CPUs.
+    # Likewise: threads its inference shares, all streams together
+    # (INFERENCE_NUM_THREADS); 0 = calibrated at start-up, up to the CPUs.
     ovms_threads: int = Field(default=0, ge=0)
     # How long one OVMS start may take to answer before calibration fails.
     ovms_start_timeout_s: float = Field(default=120.0, gt=0)
+    # The generator an ovms-generator App pulls from the Hub, already converted
+    # by OpenVINO, and serves as generation_api_model; no export of ours.
+    ovms_generation_model: str = "OpenVINO/Qwen3.5-2B-int4-ov"
+    # OVMS's own --dynamic_split_fuse and --max_num_batched_tokens; true and 0
+    # leave the flag out (OVMS's defaults: split fuse on, 256 tokens per step).
+    ovms_generation_dynamic_split_fuse: bool = True
+    ovms_generation_max_batched_tokens: int = Field(default=0, ge=0)
 
     # --- HTTP and Domino -------------------------------------------------------------
     http_timeout_s: float = Field(default=30.0, gt=0)

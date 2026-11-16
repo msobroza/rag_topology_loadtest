@@ -110,11 +110,16 @@ class CohereRerankResponse(BaseModel):
 
 
 class OpenAIChatRequest(BaseApiRequest):
-    """``{model, messages, temperature}`` of ``POST /v1/chat/completions``."""
+    """``{model, messages, temperature, max_tokens}`` of ``POST /v1/chat/completions``.
+
+    ``max_tokens`` caps the answer; None leaves it out, so the server's own
+    limit applies.
+    """
 
     model: str
     messages: list[dict[str, str]]
     temperature: float
+    max_tokens: int | None = None
 
 
 class OpenAIChatMessage(BaseModel):
@@ -129,7 +134,18 @@ class OpenAIChatChoice(BaseModel):
     message: OpenAIChatMessage
 
 
+class OpenAIChatUsage(BaseModel):
+    """The token counts of one answer; a server may report either, or neither."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
 class OpenAIChatResponse(BaseModel):
-    """The answer; an empty ``choices`` list carries no answer, so it is malformed."""
+    """The answer; an empty ``choices`` list carries no answer, so it is malformed.
+
+    ``usage`` is optional: not every server reports one.
+    """
 
     choices: list[OpenAIChatChoice] = Field(min_length=1)
+    usage: OpenAIChatUsage | None = None

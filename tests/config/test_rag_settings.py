@@ -255,3 +255,17 @@ def test_each_field_names_the_variable_it_is_read_from() -> None:
 def test_a_field_that_does_not_exist_names_no_variable() -> None:
     with pytest.raises(ValueError, match="'rerank_thread'"):
         RagSettings.variable_of("rerank_thread")
+
+
+# --- generation cap ----------------------------------------------------------------
+
+
+def test_the_cap_is_a_setting_that_defaults_to_not_sent(
+    settings_factory: SettingsFactory,
+) -> None:
+    assert settings_factory().generation_max_tokens == 0
+    assert (
+        RagSettings.variable_of("generation_max_tokens") == "RAG_GENERATION_MAX_TOKENS"
+    )
+    with pytest.raises(ValidationError, match="generation_max_tokens"):
+        settings_factory(generation_max_tokens=-1)

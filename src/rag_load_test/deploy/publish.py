@@ -1,7 +1,8 @@
 """Publishing a topology's Apps: their entry scripts, versions and order.
 
-The model server Apps are published first, then the workflow App with the URLs
-their running instances answer on.
+The model server Apps are published first (the topology's, then the generator
+when the deploy asks for one), then the workflow App with the URLs their running
+instances answer on.
 """
 
 from __future__ import annotations
@@ -12,11 +13,16 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Literal
 
-from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
+from ..domain.api_endpoint import (
+    DOMINO_RUN_TOKEN,
+    MODEL_SERVER_CHAT_PATH,
+    MODEL_SERVER_EMBEDDINGS_PATH,
+    MODEL_SERVER_RERANK_PATH,
+)
 from ..domain.roles import (
     AppPart,
     ModelServerPart,
-    apps_for_topology,
+    generator_role,
     model_servers_for_topology,
     role_for,
 )
@@ -101,6 +107,8 @@ def entry_script(
     """
     if app.part == "workflow":
         computed = _workflow_exports(settings, urls, app.settings)
+    elif app.part == "generator":
+        computed = _generator_exports(settings)
     else:
         computed = _model_server_exports(app.part, settings)
     if app.kind == "agent":
@@ -121,6 +129,12 @@ def _model_server_exports(
     return exports
 
 
+def _generator_exports(settings: DeploySettings) -> dict[str, str]:
+    # The generator is served by OVMS only, whatever model_server says.
+    role = generator_role(settings.generator_server)
+    return {"RAG_ROLE": role, "RAG_OVMS_BUNDLE": settings.ovms_bundle}
+
+
 def _workflow_exports(
     settings: DeploySettings,
     urls: Mapping[AppPart, str],
@@ -130,18 +144,37 @@ def _workflow_exports(
     role = role_for(topology, "workflow", settings.model_server)
     exports: dict[str, str] = {"RAG_ROLE": role, "RAG_TOPOLOGY": topology}
     servers = model_servers_for_topology(topology)
-    if not servers:  # everything in one process: no URL, no run label
-        return exports
+    # Everything in one process (monolith): no model server URL, no run label.
+    if servers:
+        exports |= _model_server_routes(servers, urls)
+    if servers and "RAG_RUN_LABEL" not in app_settings:
+        exports["RAG_RUN_LABEL"] = f"{topology}-{settings.model_server}"
+    if settings.generator_server != "none":
+        exports |= _generation_exports(urls)
+    return exports
+
+
+def _model_server_routes(
+    servers: list[ModelServerPart], urls: Mapping[AppPart, str]
+) -> dict[str, str]:
     # The settings take the full route; an App URL may end with a "/".
+    exports: dict[str, str] = {}
     if "reranker" in servers:
         reranker = _route(urls["reranker"], MODEL_SERVER_RERANK_PATH)
         exports["RAG_RERANK_API_URL"] = reranker
     if "embedder" in servers:
         embeddings = _route(urls["embedder"], MODEL_SERVER_EMBEDDINGS_PATH)
         exports["RAG_EMBEDDING_API_URL"] = embeddings
-    if "RAG_RUN_LABEL" not in app_settings:
-        exports["RAG_RUN_LABEL"] = f"{topology}-{settings.model_server}"
     return exports
+
+
+def _generation_exports(urls: Mapping[AppPart, str]) -> dict[str, str]:
+    # The generator App answers the run's token, as the other model servers do.
+    return {
+        "RAG_GENERATION_BACKEND": "api",
+        "RAG_GENERATION_API_URL": _route(urls["generator"], MODEL_SERVER_CHAT_PATH),
+        "RAG_GENERATION_API_KEY": DOMINO_RUN_TOKEN,
+    }
 
 
 def _route(app_url: str, path: str) -> str:
@@ -259,7 +292,8 @@ def deploy(
 
     Settings holding secrets, placeholders, no environment id or a missing OVMS
     bundle are refused first, with ``DominoDeployError``. Redeploying a model
-    server prints a note that the workflow App still calls its old instance.
+    server (the generator included) prints a note that the workflow App still
+    calls its old instance.
 
     Args:
         client: Apps API client for the project.
@@ -269,19 +303,16 @@ def deploy(
         sleep: Waits between polls; tests and dry runs pass a no-op.
 
     Raises:
-        DominoDeployError: If the topology does not use ``target``.
+        DominoDeployError: If the deploy does not use ``target``: the topology
+            does not, or ``generator_server`` asks for no generator.
 
     Example:
         >>> deploy(client, DeploySettings(), "all", launch_script=path)
     """
     refuse_secrets(settings)
-    needed = apps_for_topology(settings.topology)
+    needed = settings.app_parts()
     if target != "all" and target not in needed:
-        names = ", ".join(f"rag-{part}" for part in needed)
-        raise DominoDeployError(
-            f"the {settings.topology} topology does not use App rag-{target}; "
-            f"it needs: {names}"
-        )
+        raise DominoDeployError(_not_used(settings, target, needed))
     parts = needed if target == "all" else [target]
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, parts)
@@ -290,8 +321,21 @@ def deploy(
         publish_app(
             client, settings, part, urls, launch_script=launch_script, sleep=sleep
         )
-    if target in ("embedder", "reranker"):
+    if target in ("embedder", "reranker", "generator"):
         _note_the_workflow_calls_the_old_instance(client, target)
+
+
+def _not_used(settings: DeploySettings, target: AppPart, needed: list[AppPart]) -> str:
+    if target == "generator":
+        return (
+            f"{deploy_file()} asks for no generator App (generator_server: none): "
+            f"set generator_server: ovms in {deploy_file()} to deploy rag-generator"
+        )
+    names = ", ".join(f"rag-{part}" for part in needed)
+    return (
+        f"the {settings.topology} topology does not use App rag-{target}; "
+        f"it needs: {names}"
+    )
 
 
 def _note_the_workflow_calls_the_old_instance(
@@ -313,7 +357,7 @@ def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> No
                 f"(or apps.{part}.environment_id) in {deploy_file()}; it is the id "
                 "of the Domino compute environment the App runs in"
             )
-    if settings.model_server != "ovms" or parts == ["workflow"]:
+    if not any(_served_by_ovms(settings, part) for part in parts):
         return
     if not settings.ovms_bundle or not os.path.exists(settings.ovms_bundle):
         raise DominoDeployError(
@@ -323,6 +367,14 @@ def _check_deploy_settings(settings: DeploySettings, parts: list[AppPart]) -> No
         )
 
 
+def _served_by_ovms(settings: DeploySettings, part: AppPart) -> bool:
+    if part == "workflow":
+        return False
+    if part == "generator":
+        return settings.generator_server == "ovms"
+    return settings.model_server == "ovms"
+
+
 def model_server_urls(
     client: DominoAppsClient, settings: DeploySettings
 ) -> dict[AppPart, str]:
@@ -330,10 +382,11 @@ def model_server_urls(
 
     Args:
         client: Apps API client for the project.
-        settings: The deploy settings, for the topology and Domino host.
+        settings: The deploy settings, for the Apps deployed and the Domino host.
 
     Returns:
-        Each model server part's endpoint URL.
+        Each model server part's endpoint URL, the generator's included when the
+        deploy asks for one.
 
     Raises:
         DominoDeployError: If one of them is not deployed or not Running.
@@ -344,7 +397,8 @@ def model_server_urls(
     """
     return {
         part: endpoint_url(client, require_app(client, part), settings.domino_host)
-        for part in model_servers_for_topology(settings.topology)
+        for part in settings.app_parts()
+        if part != "workflow"
     }
 
 

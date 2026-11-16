@@ -8,18 +8,25 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from ....domain.generation import Generation
+
 
 class BaseGenerationApiFormat(ABC):
-    """A chat wire shape: messages in, the answer text out.
+    """A chat wire shape: messages in, the answer and its token counts out.
 
     Example:
-        >>> OpenAIChatFormat().answer({"choices": [{"message": {"content": "Hi"}}]})
+        >>> chat = OpenAIChatFormat()
+        >>> chat.generation({"choices": [{"message": {"content": "Hi"}}]}).text
         'Hi'
     """
 
     @abstractmethod
     def request_body(
-        self, model: str, messages: list[dict[str, str]], temperature: float
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
     ) -> dict[str, object]:
         """Build the body that asks ``model`` to answer ``messages``.
 
@@ -27,20 +34,22 @@ class BaseGenerationApiFormat(ABC):
             model: The model name sent with the request.
             messages: OpenAI-style messages, each with ``role`` and ``content``.
             temperature: The sampling temperature.
+            max_tokens: The cap on the answer's tokens; 0 sends no cap.
 
         Returns:
             The JSON body.
         """
 
     @abstractmethod
-    def answer(self, body: object) -> str:
-        """Read the answer text out of a decoded answer.
+    def generation(self, body: object) -> Generation:
+        """Read the answer and its token counts out of a decoded answer.
 
         Args:
             body: The decoded JSON answer.
 
         Returns:
-            The answer text; "" when the answer carries no content.
+            The answer text ("" when the answer carries no content) and the
+            token counts the answer reports (None for each one it does not).
 
         Raises:
             pydantic.ValidationError: If ``body`` is not this format's answer.

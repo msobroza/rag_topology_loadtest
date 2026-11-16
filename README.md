@@ -137,6 +137,7 @@ src/rag_load_test/
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
     api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
+    generation.py   Generation: an answer's text and the token counts its endpoint reported
     errors.py       RagDependencyError, describe_error
     prompts.py      RagPrompts: system prompt + user template -> chat messages
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
@@ -146,7 +147,7 @@ src/rag_load_test/
     backends.py     the Backend and Runtime names, the variants every topology allows, the defaults
     topology.py     the topology rule: backends per topology, contradictions
     run_label.py    the run label: its default for a configuration, what a valid one is
-    roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
+    roles.py        the Apps a deploy needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind, GeneratorServer)
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
     rag_dependencies.py  RagDependencies: one open port of each kind, what a workflow run needs
@@ -266,8 +267,8 @@ src/rag_load_test/
   loadtest/         the load-test client, with locustfile.py
     loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four RAG_* values a model-server request carries, Domino auth
     request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
-    response_checks.py  what to record: a response becomes a failure or STAGE rows
-    target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
+    response_checks.py  what to record: a response becomes a failure, or STAGE rows and its AnswerTokens
+    target_record.py  the target record (_target.json): TargetRecord and its TokenTotals, written as a run stops and read by rag-compare
     rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
                     It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
@@ -397,6 +398,7 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | `RAG_LOADTEST_TARGET` | the user class: `rag` (default), `rerank` or `embeddings` |
 | `RAG_LOADTEST_QUERY_WEIGHT` / `RAG_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3`; a whole number of 0 or more |
 | `RAG_LOADTEST_WAIT_MIN_S` / `RAG_LOADTEST_WAIT_MAX_S` | each user waits a random time in this range between requests, default `0.2` / `1.0` s |
+| `RAG_LOADTEST_REQUEST_TIMEOUT_S` | how long each user waits for an answer before Locust records a failure, default `60` s; above 0. A long answer generated on CPUs can need more |
 | `RAG_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more); any other value but unset is refused |
 | `RAG_LOADTEST_STEP_USERS` / `RAG_LOADTEST_STEP_SECONDS` | the steps of the step shape, default `5,10,20,40` / `60` |
 | `RAG_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
@@ -425,6 +427,14 @@ A run straight at a model server (`make loadtest-models`) writes
 `{"target": "rerank", "seen": []}` (or `embeddings`), since model servers send
 no such headers.
 
+When answers report their tokens (`/query`'s `tokens` holds both `prompt` and
+`completion`, and its generate stage took time), the record also adds them up:
+`"tokens": {"answers": 22, "prompt": 17446, "completion": 2516, "generate_ms": 164428.0}`.
+A run with no such answer, `/retrieve` alone for one, has no `tokens` key
+rather than a total of zeros; a record from before tokens were counted reads
+as one without them. With `RAG_GENERATION_BACKEND=fake` the counts are words of
+the echo, not tokens of a model, so its token figures say nothing of a server.
+
 `make compare` feeds every `results/*_stats.csv` prefix (sorted, so
 `monolith` is the baseline) to `rag-compare`, which writes one markdown table
 per endpoint and per stage: requests, failure %, RPS, p50, p95, p99 and Δp95
@@ -434,7 +444,13 @@ When a run has a target record, the intro line names the topology and run label
 it saw beside the run name, and a warning line
 flags any run that saw more than one pair, because its numbers mix
 configurations (for example an app redeployed mid-run). A run without the file
-is listed by its run name alone, as before.
+is listed by its run name alone, as before. When any run's record has tokens,
+a last section, `## Tokens`, has one row per such run: `run`, `answers`,
+`prompt tokens per answer`, `completion tokens per answer`, `tokens/s as a
+caller sees them` (completion tokens over the generate time) and `tokens/s
+served` (the run's completion tokens over its seconds, the request count of
+its `POST /query` row over that row's RPS; a failed request adds no tokens).
+A run without tokens has no row there.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
@@ -495,8 +511,8 @@ sittings measured (streams, batch size, order of service).
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}` |
-| `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
+| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}, tokens{prompt,completion}}`; `tokens` is `{}` when the LLM did not report both counts |
+| `POST /retrieve` | same request → same response with `answer: null` and `tokens: {}` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}` for `vector_store` (index count > 0), `embedder`, `reranker`; `503` when a check fails |
 
@@ -540,12 +556,13 @@ with a one-line usage error, not a traceback.
 | `RAG_RERANK_BATCH_SIZE` | `0` | passages per batch for the in-process cross-encoder; `0` = calibrated at start-up, up to `RAG_TOP_K_RETRIEVE` |
 | `RAG_RERANK_THREADS` | `0` | native threads one in-process rerank call may use; `0` = calibrated at start-up, up to the budget's share |
 | **Generation** | | |
-| `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network) |
+| `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network; its `tokens` are words of the echo, not tokens of a model) |
 | `RAG_GENERATION_API_URL` | `https://api.openai.com/v1/chat/completions` | the full route of the endpoint |
 | `RAG_GENERATION_API_FORMAT` | `openai` | the request and response shapes the route speaks |
 | `RAG_GENERATION_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY`; `rag-serve --domino` never changes it |
 | `RAG_GENERATION_API_MODEL` | `gpt-4o-mini` | the model name sent |
 | `RAG_GENERATION_TEMPERATURE` | `0` | sampling temperature, 0 to 2 |
+| `RAG_GENERATION_MAX_TOKENS` | `0` | cap on the tokens of each answer, sent as `max_tokens` (>= 0); 0 sends no cap, so the server's own limit applies |
 | `RAG_GENERATION_TIMEOUT_S` | `120` | timeout of one generation request (> 0); an answer takes longer than a model-server call. Retries and backoff are `RAG_HTTP_RETRIES` / `RAG_HTTP_BACKOFF_S` |
 | **Everything else** | | |
 | `RAG_LOCAL_MODEL_RUNTIME` | `openvino` | what runs the in-process models: `openvino` \| `torch` |
@@ -571,9 +588,12 @@ with a one-line usage error, not a traceback.
 | `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them, and an OVMS trial still running then is abandoned (> 0) |
 | `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `RAG_CALIBRATION_USERS` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
-| `RAG_OVMS_NUM_STREAMS` | `0` | an OVMS App: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
-| `RAG_OVMS_THREADS` | `0` | an OVMS App: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
+| `RAG_OVMS_NUM_STREAMS` | `0` | the reranker's and the embedder's OVMS Apps (the generator's App has its own two options, below): requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
+| `RAG_OVMS_THREADS` | `0` | the reranker's and the embedder's OVMS Apps (the generator's App has its own two options, below): threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
 | `RAG_OVMS_START_TIMEOUT_S` | `120` | how long one OVMS start may take to answer before its calibration fails (> 0) |
+| `RAG_OVMS_GENERATION_MODEL` | `OpenVINO/Qwen3.5-2B-int4-ov` | an `ovms-generator` App: the Hugging Face id OVMS pulls, already converted by OpenVINO, and serves as `RAG_GENERATION_API_MODEL` |
+| `RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE` | `true` | an `ovms-generator` App: OVMS's `--dynamic_split_fuse`; `true` = the flag is left out and OVMS keeps its own (on), `false` = `--dynamic_split_fuse false` |
+| `RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS` | `0` | an `ovms-generator` App: OVMS's `--max_num_batched_tokens`; `0` = the flag is left out and OVMS keeps its own (256) (>= 0) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
 | `RAG_HTTP_RETRIES` | `2` | endpoint retries (embedding, rerank and generation) on transport errors, 5xx, 429, and 401 when the key is `domino`; hardware-tier lookup retries on transport errors |
@@ -585,6 +605,7 @@ with a one-line usage error, not a traceback.
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
 | `RAG_LOADTEST_WAIT_MIN_S`, `RAG_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
+| `RAG_LOADTEST_REQUEST_TIMEOUT_S` | `60` | Locust side: how long each user waits for an answer, in seconds (Locust's `network_timeout`) |
 | `RAG_LOADTEST_STEP_USERS`, `RAG_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `RAG_LOADTEST_SHAPE=step` |
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |
@@ -967,8 +988,15 @@ compose with `--env-file`:
 
 | Key | Value |
 | --- | --- |
-| `OVMS_VERSION` / `OVMS_IMAGE` | `2026.3.1` / `openvino/model_server:2026.3.1` |
-| `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
+| `OVMS_VERSION` / `OVMS_IMAGE` | `2026.4.1` / `openvino/model_server:2026.4.1` |
+| `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.4.1_python_off.tar.gz` from the GitHub release `v2026.4.1` (Domino `ovms` image) |
+
+The pin is 2026.4.1 since the generator, and it moved for every OVMS App. That
+version was run on a machine for the generator only, by hand. The reranker's and
+the embedder's OVMS at 2026.4.1 have not been run, nor the exporter fetched at
+that tag (`export_models.sh` fetches `export_model.py` from `v${OVMS_VERSION}`),
+so reranker and embedder figures taken after the move do not compare with those
+of 15 November 2026 without a re-run.
 
 The served models (source id and alias) are pinned once, by the `RagSettings`
 defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
@@ -978,11 +1006,39 @@ defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL
 assignments (`RERANKER_SOURCE_MODEL=...`) for `export_models.sh`; the `rag`
 Domino image reads the source ids from the installed package.
 
+**The generator is pulled, not exported.** An `ovms-generator` App
+(`RAG_ROLE=ovms-generator`) serves a language model that OpenVINO publishes
+already converted, `RAG_OVMS_GENERATION_MODEL` (`OpenVINO/Qwen3.5-2B-int4-ov` by
+default), under the name `RAG_GENERATION_API_MODEL`; `export_models.sh` plays no
+part. `app.sh` reads both from `rag-served-models` (installing the project into
+`$HOME/rag-venv` with `uv` first when the command is missing, and stopping when
+neither is there) and starts `ovms --source_model <id> --model_name <name>
+--model_repository_path "$RAG_OVMS_MODELS_DIR" --task text_generation
+--target_device CPU`, after creating `$RAG_OVMS_MODELS_DIR` (it stops, naming the
+folder, when it cannot): OVMS pulls the model from the Hub into
+`$RAG_OVMS_MODELS_DIR/<id>` on its first start and reuses it after. Its two
+options are OVMS's own `--dynamic_split_fuse`
+(`RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE`, passed only as `false`, left out at
+`true`) and `--max_num_batched_tokens` (`RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS`,
+left out at `0`), so with the defaults the command is the one above. Nothing is
+calibrated. Checked by hand on a real machine on 16 November 2026, the bare
+`ovms` command alone: OVMS 2026.4.1 pulled the default model (2.0 GB) and served
+it 60 s after its first start and 5 s after a later one, on
+`/v3/chat/completions`. The 60 s is OVMS alone; an App's first start adds the
+bootstrap's `apt-get` and the install of the project. The Role,
+`rag-served-models` on an App and the deploy have not run on a machine. It
+writes its `graph.pbtxt` again at every start with `--source_model`, so a changed option takes effect on files already
+pulled. The Role does not run on the prebuilt `ovms` image: it holds neither `uv` nor the
+project, which the Role needs to read the generator's model and options. The Role
+runs in the generic environment `rag-deploy` publishes into, with `uv`, the OVMS
+bundle (`RAG_OVMS_BUNDLE`) and `RAG_BOOTSTRAP=1`.
+
 **Known defect: OVMS does not start on the default embedder.** On a real machine
-OVMS 2026.3.1 crashes with a segmentation fault while it loads
-`snowflake-arctic-embed-l-v2.0`, on the export exactly as written, so an
-`ovms-embedder` App fails at start (the check of 16 November 2026 in
-`experiments/`; the cause is not established). OVMS serves the reranker without
+OVMS 2026.3.1, the pin at the time, crashed with a segmentation fault while it
+loaded `snowflake-arctic-embed-l-v2.0`, on the export exactly as written, so an
+`ovms-embedder` App failed at start (the check of 16 November 2026 in
+`experiments/`; the cause is not established). It has not been tried again at
+2026.4.1, the pin now. OVMS serves the reranker without
 trouble. Until this is fixed, serve the embedder with the FastAPI model server or
 in the workflow's process.
 
@@ -1092,7 +1148,10 @@ A model server App is OpenVINO Model Server or the FastAPI model server
 (`rag-model-server`, the same models on the same `/v3` routes and formats):
 `model_server` in `deploy.yaml` picks one for every model server App of a
 topology. Which Apps a topology needs and the Role of each follow from the
-backends the topology implies (`src/rag_load_test/domain/roles.py`).
+backends the topology implies (`src/rag_load_test/domain/roles.py`). The
+generator App (`ovms-generator`) does not depend on the topology: any topology
+gets one when `deploy.yaml` names its server (see "Deploy on Domino in a few
+commands").
 
 | Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
@@ -1227,7 +1286,7 @@ project that hosts all the Apps:
 
 ```bash
 cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, model server
-make deploy                           # model server Apps first, then rag-workflow with their URLs
+make deploy                           # model server Apps (and the generator) first, then rag-workflow with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
 make compare
@@ -1235,25 +1294,28 @@ make compare
 
 `rag-deploy` (behind these targets) calls Domino's beta Apps API through
 `DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
-as the topology needs. The Apps install their own dependencies when they start
+as the topology needs, and `rag-generator` when `generator_server` asks for one. The Apps install their own dependencies when they start
 (`domino/app.sh` with `RAG_BOOTSTRAP=1`), into a virtualenv on Python 3.11, so any
 environment with `uv` works, but the first start is slower and needs access to
 the package index and the Hugging Face Hub. An environment without Python 3.11
-also needs access to GitHub, where `uv` downloads it from. For `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
-`bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
-example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
-root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
+also needs access to GitHub, where `uv` downloads it from. When an OVMS App is
+deployed (`model_server: ovms`, or `generator_server: ovms`), `ovms_bundle` points
+at the OVMS bundle (a folder with `bin/ovms` and `lib/`, or the release `.tar.gz`)
+at a path both the Workspace that runs `rag-deploy` (which checks it exists) and
+the OVMS Apps (which read it as `RAG_OVMS_BUNDLE`) can read, for example
+`/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs root or
+`sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
 the directory `rag-deploy` runs from, so run it from the repository root (the Apps
 mount the repository at the same path); elsewhere it refuses to publish.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
-`model_server`, `project_id`, `ovms_bundle`, `domino_host`) and how to talk to
+`model_server`, `generator_server`, `project_id`, `ovms_bundle`, `domino_host`) and how to talk to
 Domino (`wait_timeout_s`, `poll_interval_s`, `no_instance_grace_s`,
 `http_timeout_s`, `http_retries`, `run_token_url`); a `RAG_DEPLOY_<KEY>` variable
 overrides one, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
 `RAG_DEPLOY_FILE` names another file. `defaults` applies to every App and
-`apps.<embedder|reranker|workflow>` to one, each App taking its own value, else the
+`apps.<embedder|reranker|generator|workflow>` to one, each App taking its own value, else the
 default:
 
 ```yaml
@@ -1286,6 +1348,49 @@ whose name ends in `_API_KEY` (such as `RAG_GENERATION_API_KEY` or
 `RAG_ES_API_KEY`) unless its value is empty or `domino`, which names the run's
 token and is not a secret. A misspelt key is refused with its name.
 
+**The generator App.** `generator_server: ovms` (default `none`) adds
+`rag-generator`, served by OpenVINO Model Server whatever `model_server` says:
+`rag-deploy` publishes it after the topology's model servers and before
+`rag-workflow`, and `make deploy-generator` publishes it alone. Its launch script
+exports `RAG_ROLE=ovms-generator` and `RAG_OVMS_BUNDLE`; the workflow App's then
+also exports `RAG_GENERATION_BACKEND=api`, `RAG_GENERATION_API_URL` (the generator
+App's URL plus `/v3/chat/completions`) and `RAG_GENERATION_API_KEY=domino`, which
+win over its settings. `RAG_RUN_LABEL` is set as before, only for a topology with
+model servers. With `generator_server: none` no script changes, `make
+deploy-generator` is refused, and generation calls what the workflow App's
+settings name. `make deploy-workflow` with a generator asked for but not deployed
+stops and says to run `make deploy-generator`. The model and its two OVMS options
+are the `RAG_OVMS_GENERATION_*` settings (see "The generator is pulled, not
+exported"); `RAG_GENERATION_API_MODEL` in `defaults.settings` names it alike for
+both Apps. The workflow App's `/readyz` does not check the generator, so `make
+status` can report it ready while OVMS is still pulling the model on the
+generator App's first start; a run started then records failed requests.
+
+**The waits on the path of a generation.** A `/query` that generates passes
+these waits, in order:
+
+| Wait | Default | Set by |
+| --- | --- | --- |
+| The load-test user | 60 s | `RAG_LOADTEST_REQUEST_TIMEOUT_S` |
+| Domino's proxy, twice (to the workflow App, then to the generator App) | Domino's own | not a setting of this project |
+| One generation call of the workflow App | 120 s | `RAG_GENERATION_TIMEOUT_S` |
+| Attempts of that call | 3 (2 retries), 0.2 s then 0.4 s between | `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` |
+| nginx in front of OVMS, with `RAG_OVMS_PREFIX_PROXY=1` | 300 s | `proxy_read_timeout` in `domino/ovms-proxy.conf`, not a setting |
+
+With the defaults, a generation that outlasts the call's timeout or a proxy's
+wait is sent again, up to three attempts: a timeout is a transport error and a
+proxy that gave up answers a 5xx, and both are retried. No log line records a
+retry that succeeded, and when an attempt succeeds the time of every attempt is
+counted as one slow generate stage, which `tokens/s as a caller sees them`
+divides by. The user, who is not retried, has left at 60 s, while the workflow
+App may keep the generation going for three attempts of 120 s. A run that
+measures the generate stage therefore sets `RAG_HTTP_RETRIES` to `0` on the
+workflow App (the setting is shared: that App's embedding and rerank calls and
+its hardware-tier lookup lose their retries too), and raises the user's
+patience (`RAG_LOADTEST_REQUEST_TIMEOUT_S`) together with
+`RAG_GENERATION_TIMEOUT_S`, so the user does not leave a generation the
+workflow App still waits for.
+
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
 that field is the only API-level difference), `kind: app` with `STANDARD`. The
@@ -1315,8 +1420,8 @@ is what the workflow App gets as `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL`;
 the URL alone is what `rag-deploy url <part>` prints, what `make status` shows and
 checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
 own `url` stays in the messages that point at its page or logs. The instance id
-changes at every redeploy, so after `make deploy-embedder` or `make
-deploy-reranker` alone, `rag-deploy` reminds you that `rag-workflow` still calls
+changes at every redeploy, so after `make deploy-embedder`, `make
+deploy-reranker` or `make deploy-generator` alone, `rag-deploy` reminds you that `rag-workflow` still calls
 the previous instance: run `make deploy-workflow`. Every model server call in a
 split topology goes through Domino's proxy: it is part of what the split
 topologies measure on Domino.
@@ -1439,12 +1544,19 @@ one project per app and set, in Project → Settings → Environment variables:
 | `rag-monolith` | `monolith` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY` |
 | `rag-ovms-reranker` | `ovms-reranker` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
+| `rag-ovms-generator` | `ovms-generator` | the generic environment `rag-deploy` publishes into, with `uv` (not `ovms`: see "The generator is pulled, not exported") | `RAG_BOOTSTRAP=1`, `RAG_OVMS_BUNDLE`, `RAG_OVMS_MODELS_DIR` if needed, `RAG_OVMS_GENERATION_*` to change the model or its options |
 | `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
 | `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
 | `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY`, `RAG_RERANK_API_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_EMBEDDING_API_URL` for split-all), `RAG_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `RAG_DOMINO_TRACING` identical across projects
-(unset, or `true` everywhere).
+(unset, or `true` everywhere). With a `rag-ovms-generator` project made by hand, the
+project of the App that generates (`rag-workflow` or `rag-monolith`) must hold what
+`rag-deploy` would export: `RAG_GENERATION_BACKEND=api`, `RAG_GENERATION_API_URL`
+(the generator App's URL plus `/v3/chat/completions`),
+`RAG_GENERATION_API_KEY=domino` in place of the vendor key the table lists (else
+that key is sent to the generator App), and `RAG_GENERATION_API_MODEL` set to the
+same name in both projects.
 
 **3. OVMS models Dataset (once, OVMS projects only).** In `rag-ovms-reranker`
 create a Dataset `ovms-models`, open a Workspace with the `rag` environment and run:

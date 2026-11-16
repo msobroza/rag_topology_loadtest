@@ -195,6 +195,7 @@ def test_unknown_role_is_rejected(tmp_path: Path, bin_dir: Path) -> None:
     result = run_app(tmp_path, bin_dir, RAG_ROLE="bogus")
     assert result.returncode == 1
     assert "unknown RAG_ROLE" in result.stderr
+    assert "ovms-generator" in result.stderr
 
 
 def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -> None:

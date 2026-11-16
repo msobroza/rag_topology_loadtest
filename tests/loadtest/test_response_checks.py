@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.loadtest.response_checks import ResponseVerdict, judge_response
+from rag_load_test.application.workflow import answer_tokens
+from rag_load_test.domain.generation import Generation
+from rag_load_test.entrypoints.rag_serve import QueryResponse
+from rag_load_test.loadtest.response_checks import (
+    AnswerTokens,
+    ResponseVerdict,
+    judge_response,
+)
 
 # --- what to record ---
 
@@ -70,3 +77,54 @@ def test_judge_response_failure(status: int, body: str, failure: str) -> None:
     assert verdict.failure.startswith(failure)
     assert verdict.stage_rows == ()
     assert body[:200] in verdict.failure
+
+
+# --- the tokens of an answer ---
+
+
+def test_a_response_with_tokens_becomes_a_verdict_with_tokens() -> None:
+    body = '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829, "completion": 128}}'
+    assert judge_response("/query", 200, body).tokens == AnswerTokens(829, 128, 7474.0)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"timings_ms": {"generate": 7474.0}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": "many", "completion": 128}}',
+        '{"timings_ms": {}, "tokens": {"prompt": 829, "completion": 128}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 8.5, "completion": 1}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": true, "completion": 1}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": [829, 128]}',
+        '{"timings_ms": {"generate": 0}, "tokens": {"prompt": 829, "completion": 128}}',
+    ],
+)
+def test_a_response_without_usable_tokens_has_none(body: str) -> None:
+    assert judge_response("/query", 200, body).tokens is None
+
+
+def test_a_failure_has_no_tokens() -> None:
+    body = '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829, "completion": 128}}'
+    assert judge_response("/query", 503, body).tokens is None
+
+
+def test_the_tokens_the_workflow_writes_are_the_tokens_the_load_test_reads() -> None:
+    # The keys are written in application/workflow.py and read in
+    # loadtest/response_checks.py; a body rag-serve would send proves they agree.
+    served = QueryResponse(
+        request_id="r-1",
+        topology="monolith",
+        run_label="monolith",
+        question="What is the capital of France?",
+        mode="query",
+        answer="Paris.",
+        passages=[],
+        timings_ms={"embed": 3.0, "generate": 7474.0, "total": 7480.0},
+        tokens=answer_tokens(Generation("Paris.", 829, 128)),
+    )
+
+    verdict = judge_response("/query", 200, served.model_dump_json())
+
+    assert verdict.tokens == AnswerTokens(829, 128, 7474.0)

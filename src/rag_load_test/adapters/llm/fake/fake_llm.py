@@ -1,14 +1,18 @@
 """The ``fake`` LLM: echoes the last user message, after an optional latency.
 
+Its token counts are word counts: no tokenizer is loaded, and a load test of the
+fake topology only needs counts that grow with the text.
+
 Example:
     >>> await FakeLLM().generate([{"role": "user", "content": "Hi"}])
-    '[fake-llm] Hi'
+    Generation(text='[fake-llm] Hi', prompt_tokens=1, completion_tokens=2)
 """
 
 from __future__ import annotations
 
 import asyncio
 
+from ....domain.generation import Generation
 from ..base_llm import BaseLLM
 
 
@@ -24,7 +28,7 @@ class FakeLLM(BaseLLM):
     def __init__(self, latency_ms: float = 0.0) -> None:
         self.latency_ms, self.calls = latency_ms, 0
 
-    async def generate(self, messages: list[dict[str, str]]) -> str:
+    async def generate(self, messages: list[dict[str, str]]) -> Generation:
         """Echo the last user message, after ``latency_ms``; counts the calls.
 
         Args:
@@ -32,7 +36,8 @@ class FakeLLM(BaseLLM):
 
         Returns:
             ``"[fake-llm] "`` and the first 200 characters of the last user message
-            ("" when there is none).
+            ("" when there is none); as token counts, the whitespace-separated
+            words of every message's content and of the answer.
         """
         self.calls += 1
         if self.latency_ms > 0:
@@ -40,4 +45,6 @@ class FakeLLM(BaseLLM):
         user = next(
             (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
         )
-        return f"[fake-llm] {user[:200]}"
+        text = f"[fake-llm] {user[:200]}"
+        prompt_words = sum(len(m["content"].split()) for m in messages)
+        return Generation(text, prompt_words, len(text.split()))

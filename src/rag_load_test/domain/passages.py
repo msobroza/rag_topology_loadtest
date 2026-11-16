@@ -33,13 +33,24 @@ class ScoredPassage(Passage):
 
 
 class RagResult(BaseModel):
-    """Outcome of one workflow run; ``timings_ms`` has one key per stage + ``total``."""
+    """Outcome of one workflow run; ``timings_ms`` has one key per stage + ``total``.
+
+    ``tokens`` holds the answer's ``prompt`` and ``completion`` token counts, as
+    the LLM reported them; it is empty for a retrieve, and for an answer whose
+    LLM did not report both, so a reader never mistakes a missing count for 0.
+
+    Example:
+        >>> RagResult(question="q", mode="retrieve", answer=None, passages=[],
+        ...           timings_ms={}).tokens
+        {}
+    """
 
     question: str
     mode: RagMode
     answer: str | None
     passages: list[ScoredPassage]
     timings_ms: dict[str, float]
+    tokens: dict[str, int] = Field(default_factory=dict)
 
 
 def top_by_score(

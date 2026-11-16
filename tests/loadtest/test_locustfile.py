@@ -90,6 +90,15 @@ def test_every_user_waits_as_the_settings_say(monkeypatch: pytest.MonkeyPatch) -
         assert getattr(module, name).wait_time(None) == 0.5
 
 
+def test_every_user_waits_for_an_answer_as_long_as_the_settings_say(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAG_LOADTEST_REQUEST_TIMEOUT_S", "180")
+    module = _import_locustfile("locustfile_request_timeout")
+    for name in ("RagUser", "RerankUser", "EmbeddingsUser"):
+        assert getattr(module, name).network_timeout == 180.0
+
+
 def test_a_split_topology_without_endpoint_urls_imports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,6 +216,44 @@ def test_stop_listener_writes_the_target_record_beside_the_csv(
         "seen": [{"topology": "monolith", "run_label": "mono", "responses": 2}],
     }
     locustfile.write_target_record_on_stop(SimpleNamespace(parsed_options=None))
+
+
+TOKENS_BODY = (
+    '{"timings_ms": {"generate": 7474.0}, '
+    '"tokens": {"prompt": 829, "completion": 128}}'
+)
+
+
+def test_the_record_written_on_stop_counts_the_tokens_of_each_answer(
+    locustfile: ModuleType, tmp_path: Path
+) -> None:
+    plan = RequestPlan("/query", {"question": "q"}, "/query")
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, TOKENS_BODY)), plan)
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, TOKENS_BODY)), plan)
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(503, TOKENS_BODY)), plan)
+
+    options = SimpleNamespace(csv_prefix=str(tmp_path / "ovms"))
+    locustfile.write_target_record_on_stop(SimpleNamespace(parsed_options=options))
+
+    assert json.loads((tmp_path / "ovms_target.json").read_text())["tokens"] == {
+        "answers": 2,
+        "prompt": 1658,
+        "completion": 256,
+        "generate_ms": 14948.0,
+    }
+
+
+def test_a_run_whose_answers_carry_no_tokens_records_none(
+    locustfile: ModuleType, tmp_path: Path
+) -> None:
+    body = '{"timings_ms": {"retrieve": 3.0}}'
+    plan = RequestPlan("/retrieve", {"question": "q"}, "/retrieve")
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, body)), plan)
+
+    options = SimpleNamespace(csv_prefix=str(tmp_path / "mono"))
+    locustfile.write_target_record_on_stop(SimpleNamespace(parsed_options=options))
+
+    assert "tokens" not in json.loads((tmp_path / "mono_target.json").read_text())
 
 
 # --- the stats file holds the finished run ----------------------------------------

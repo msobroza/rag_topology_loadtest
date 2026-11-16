@@ -16,8 +16,9 @@ async def test_fake_llm_echoes_last_user_message_and_counts_calls() -> None:
         {"role": "user", "content": "second"},
     ]
 
-    assert await llm.generate(messages) == "[fake-llm] second"
-    assert await llm.generate([{"role": "system", "content": "x"}]) == "[fake-llm] "
+    assert (await llm.generate(messages)).text == "[fake-llm] second"
+    answer = await llm.generate([{"role": "system", "content": "x"}])
+    assert answer.text == "[fake-llm] "
     assert llm.calls == 2
 
 
@@ -27,3 +28,18 @@ async def test_fake_llm_honours_latency() -> None:
     await llm.generate([{"role": "user", "content": "hi"}])
 
     assert time.perf_counter() - start >= 0.025
+
+
+async def test_the_fake_llm_counts_words_as_tokens() -> None:
+    generation = await FakeLLM().generate(
+        [{"role": "user", "content": "How many days"}]
+    )
+    assert (
+        generation.text,
+        generation.prompt_tokens,
+        generation.completion_tokens,
+    ) == (
+        "[fake-llm] How many days",
+        3,
+        4,
+    )

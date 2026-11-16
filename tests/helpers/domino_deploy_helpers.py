@@ -132,8 +132,12 @@ def launched() -> str:
 RunMain = Callable[..., tuple[int, str, str]]
 
 
-def deployed_lines(count: int) -> str:
-    names = ["rag-embedder", "rag-reranker", "rag-workflow"][:count]
+def deployed_lines(count: int, names: list[str] | None = None) -> str:
+    """The lines ``deploy`` prints for the first ``count`` of ``names``, in order.
+
+    ``names`` defaults to split-all's three Apps, with no generator.
+    """
+    names = (names or ["rag-embedder", "rag-reranker", "rag-workflow"])[:count]
     return "".join(
         f"{name}: Running {INSTANCES_URL}/app-{n}-v1-i\n"
         for n, name in enumerate(names, 1)
