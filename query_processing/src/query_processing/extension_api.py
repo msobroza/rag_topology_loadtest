@@ -62,10 +62,12 @@ from .application.stages.base_stage import (
     StageSettings,
 )
 from .composition.composition_root import CompositionRoot
+from .config.router_settings import RouterSettings
 from .config.settings_blocks import SettingsBlock
 from .config.workflow_settings import WorkflowSettings
 from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.base_component import BaseComponent
+from .domain.component_requests import EmbedAnswer, EmbedRequest
 from .domain.component_resources import ComponentResources
 from .domain.routes import Route, RouteChoice, RouteRequest
 from .infrastructure.endpoint.served_call import ServedCallMixin
@@ -81,10 +83,13 @@ __all__ = [
     "BaseStage",
     "ComponentResources",
     "CompositionRoot",
+    "EmbedAnswer",
+    "EmbedRequest",
     "FieldTypes",
     "Route",
     "RouteChoice",
     "RouteRequest",
+    "RouterSettings",
     "ServedCallMixin",
     "SettingsBlock",
     "StageContext",

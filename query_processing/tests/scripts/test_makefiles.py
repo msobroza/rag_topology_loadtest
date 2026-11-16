@@ -86,13 +86,27 @@ def test_check_at_the_root_runs_the_toolkits_gates_then_the_use_cases_tests() ->
     assert from_root[: len(from_toolkit)] == from_toolkit
     assert from_toolkit[0] == f"{TOOLS}ruff check src tests locustfile.py"
     assert from_toolkit[-1] == f"{TOOLS}pytest"
-    # Linted with the toolkit's configuration, run from the use case's directory.
-    config = f"--config ../{TOOLKIT_ROOT.name}/pyproject.toml"
+    # The use case's source and tests, linted and type-checked with the
+    # toolkit's configuration, run from the use case's directory.
+    pyproject = f"../{TOOLKIT_ROOT.name}/pyproject.toml"
+    config = f"--config {pyproject}"
     assert from_root[len(from_toolkit) :] == [
-        f"cd {USE_CASE} && {TOOLS}ruff check {config} tests",
-        f"cd {USE_CASE} && {TOOLS}black --check {config} tests",
+        f"cd {USE_CASE} && {TOOLS}ruff check {config} src tests",
+        f"cd {USE_CASE} && {TOOLS}black --check {config} src tests",
+        f"cd {USE_CASE} && {TOOLS}pydoclint {config} src",
+        f"cd {USE_CASE} && {TOOLS}mypy --config-file {pyproject} src",
+        f"cd {USE_CASE} && {TOOLS}ty check src",
+        f"cd {USE_CASE} && {TOOLS}complexipy src --max-complexity-allowed 10 --failed",
+        f"cd {USE_CASE} && {TOOLS}deptry src",
         f"cd {USE_CASE} && {TOOLS}pytest",
     ]
+
+
+@pytest.mark.parametrize("gate", ["lint", "typecheck", "complexity", "deps"])
+def test_a_gate_run_from_the_root_also_runs_over_the_use_case(gate: str) -> None:
+    lines = dry_run(REPO_ROOT, gate, f"BIN={TOOLS}")
+
+    assert lines[-1].startswith(f"cd {USE_CASE} && {TOOLS}")
 
 
 def test_the_toolkits_makefile_keeps_only_what_needs_no_use_case() -> None:

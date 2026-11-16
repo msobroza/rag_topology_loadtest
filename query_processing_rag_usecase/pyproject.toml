@@ -2,29 +2,44 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# The RAG, the toolkit's first use case (ADR 0005): settings only. Its workflow
-# file, deploy settings example, environment example and Makefile are files of
-# this directory, where its commands run; every line of code is the toolkit's.
+# The RAG, the toolkit's first use case (ADR 0005). Its workflow file, deploy
+# settings example, environment example and Makefile are files of this
+# directory, where its commands run. Its own code, under src/, is what the
+# toolkit cannot give (ADR 0006): its kNN router and the command that trains it.
 [project]
 name = "query-processing-rag-usecase"
 version = "0.1.0"
-description = "The RAG use case of the query_processing toolkit: its workflow file, its deploy settings and its load-test settings."
+description = "The RAG use case of the query_processing toolkit: its workflow file, its deploy settings, its load-test settings and its kNN router."
 requires-python = ">=3.11"  # the version in .python-version, at the repository's root
 license = { text = "Apache-2.0" }
 # The toolkit, whose distribution is query-processing. No package index has it:
 # every install names both directories in one command, the toolkit first
 # (the root Makefile, the CI, the image, domino/app.sh).
-dependencies = ["query-processing"]
+dependencies = [
+    "query-processing",
+    # Pinned exactly: a pipeline file is refused by any other version (its
+    # manifest records the one it was trained with, spec 9.3).
+    "scikit-learn==1.9.1",
+    "joblib>=1.3",  # saves and loads the router's pipeline file
+    "pydantic>=2.7",  # the manifest and the router's settings
+]
 
-[tool.setuptools]
-packages = []  # no Python code of its own
+[project.scripts]
+qp-rag-train-router = "query_processing_rag_usecase.entrypoints.train_router:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# The tests import only what the toolkit installs (query_processing, fake_domino),
-# never the toolkit's own tests.
+# The tests import what the toolkit installs (query_processing, fake_domino)
+# and this use case's package, never the toolkit's own tests.
+pythonpath = ["src"]
 addopts = "-ra --strict-markers"
+# The toolkit's test classes (RouterContract) are coroutines.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
