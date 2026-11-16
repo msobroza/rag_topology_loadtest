@@ -65,7 +65,7 @@ from .component_settings import (
 from .endpoint_urls import missing_url_message, model_endpoint_url
 from .extensions import load_extensions
 from .prompts_file import prompts_file, prompts_file_source
-from .router_settings import check_router_routes
+from .router_settings import check_router_embedders, check_router_routes
 from .routes_file import routes_file, routes_file_name, routes_file_source
 from .searched_embedder import searched_embedder
 from .shared_settings import (
@@ -272,17 +272,20 @@ class WorkflowSettings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def check_routes_of_routers(self) -> WorkflowSettings:
-        """Fail at start-up when a router lists a route the routes file lacks.
+    def check_routers(self) -> WorkflowSettings:
+        """Fail at start-up when a router names no embedder, or a route the file lacks.
 
         Returns:
             The settings, unchanged.
 
         Raises:
-            ValueError: If a router lists a route the catalogue lacks, or two
-                routes share a name; the message names the router, the route,
-                the routes file and its routes.
+            ValueError: If a router's ``embedder`` names no embedder component
+                (the message names the value and the embedders declared), a
+                router lists a route the catalogue lacks, or two routes share a
+                name (the message names the router, the route, the routes file
+                and its routes).
         """
+        check_router_embedders(self.components)
         where = routes_file_name(routes_file())
         check_router_routes(self.components, self.routes, where)
         return self

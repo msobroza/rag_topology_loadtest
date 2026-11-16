@@ -21,6 +21,8 @@ os.environ["HF_HUB_CACHE"] = os.path.join(os.environ["HF_HOME"], "hub")
 from pathlib import Path
 
 import pytest
+from query_processing.config.workflow_settings import WorkflowSettings
+from workflow_on_fakes import all_fake_settings
 
 USE_CASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -36,3 +38,10 @@ def use_case_dir(monkeypatch: pytest.MonkeyPatch) -> Path:
         monkeypatch.delenv(name)
     monkeypatch.chdir(USE_CASE_DIR)
     return USE_CASE_DIR
+
+
+@pytest.fixture
+def all_fake(use_case_dir: Path, monkeypatch: pytest.MonkeyPatch) -> WorkflowSettings:
+    """This directory's workflow file, every component on its fake backend."""
+    del use_case_dir  # requested so the settings are read from this directory
+    return all_fake_settings(monkeypatch)

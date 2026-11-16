@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from query_processing.config.workflow_settings import WorkflowSettings
 
 TOOLS = "/tools/bin/"  # never run: printed only
 
@@ -38,7 +39,8 @@ def dry_run(directory: Path, target: str) -> list[str]:
     ("target", "command"),
     [
         ("serve", "qp-serve"),
-        ("ingest", "qp-ingest --synthetic 200"),
+        ("ingest", "qp-ingest --synthetic 200 --embedder embedder"),
+        ("train-router", "qp-rag-train-router"),
         ("calibrate", "qp-calibrate"),
         ("openvino-export", "qp-export-openvino"),
         ("deploy", "qp-deploy deploy all"),
@@ -50,6 +52,21 @@ def test_each_command_runs_here_with_no_flag(
     use_case_dir: Path, target: str, command: str
 ) -> None:
     assert dry_run(use_case_dir, target) == [f"{TOOLS}{command}"]
+
+
+def test_ingest_names_the_embedder_that_the_store_is_searched_with(
+    use_case_dir: Path,
+) -> None:
+    (command,) = dry_run(use_case_dir, "ingest")
+    settings = WorkflowSettings(_env_file=None)  # type: ignore[call-arg]
+
+    (named,) = re.findall(r" --embedder (\S+)", command)
+
+    # The file declares two embedders, so qp-ingest asks which one fills the
+    # store: the one whose vectors the retrieve stage searches with.
+    assert named == settings.searched_embedder() == "embedder"
+    with pytest.raises(ValueError, match="declares 2"):
+        settings.ingestion_embedder()
 
 
 def test_the_load_test_runs_the_toolkits_locust_file_and_writes_results_here(

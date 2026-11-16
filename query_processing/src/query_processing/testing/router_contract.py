@@ -25,9 +25,12 @@ from ..adapters.router.base_router import BaseRouter
 from ..domain.routes import RouteChoice, RouteRequest
 from .component_contract import ComponentContract
 
-# The router's settings name the embedder whose vectors it reads; the contract
-# serves the router alone, so the name is never opened.
+# The router's settings name the embedder whose vectors it reads, and the
+# settings refuse a name that is no embedder component. The contract serves
+# the router alone: the embedder is declared, on its fake backend with a
+# made-up source id, and never opened.
 _EMBEDDER = "embedder"
+_EMBEDDER_ENTRY = {"type": "embedder", "backend": "fake", "source_id": "contract/fake"}
 
 
 class RouterContract(ComponentContract):
@@ -92,10 +95,12 @@ class RouterContract(ComponentContract):
         return {"embedder": _EMBEDDER, "routes": list(self.routes())}
 
     def workflow_keys(self) -> dict[str, object]:
-        """Return a catalogue of the router's routes, as ``routes.yaml`` would give it.
+        """Return what the router's settings name: its routes, and its embedder.
 
         Returns:
-            ``routes``: each route with its name as description and utterance.
+            ``routes``: a catalogue as ``routes.yaml`` would give it, each
+            route with its name as description and utterance; ``components``:
+            the embedder the router names, on its fake backend, never opened.
 
         Example:
             >>> TestFakeRouter().workflow_keys()["routes"][0]["name"]
@@ -105,7 +110,7 @@ class RouterContract(ComponentContract):
             {"name": name, "description": name, "utterances": [name]}
             for name in self.routes()
         ]
-        return {"routes": catalogue}
+        return {"routes": catalogue, "components": {_EMBEDDER: dict(_EMBEDDER_ENTRY)}}
 
     async def test_the_route_chosen_is_one_of_its_routes(self) -> None:
         """The router chooses one of the routes it lists.

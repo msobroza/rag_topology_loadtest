@@ -6,7 +6,8 @@ with the class its implementation names (``RegisteredComponentSettings``).
 Its type's own keys are fields here, since its port cannot import the config:
 ``embedder``, the embedder component whose vectors it reads, and ``routes``,
 the names of the routes it chooses between, two at least, each one of the
-catalogue of ``routes.yaml`` (spec 8). A route the catalogue lacks is refused.
+catalogue of ``routes.yaml`` (spec 8). A route the catalogue lacks is refused,
+and so is an ``embedder`` that names no embedder component of the file.
 
 Example:
     >>> router = RouterSettings.model_validate({"type": "router", "backend": "fake",
@@ -72,6 +73,30 @@ def routes_of(
         ['self_contained', 'leans_on_history']
     """
     return {name: catalogue[name] for name in router.routes}
+
+
+def check_router_embedders(components: Mapping[str, ComponentSettings]) -> None:
+    """Refuse a router whose ``embedder`` names no embedder component.
+
+    Args:
+        components: The components of the workflow file, by name.
+
+    Raises:
+        ValueError: If a router's ``embedder`` names a component the file does
+            not declare, or one of another type; the message names the router,
+            the value and the embedders the file declares.
+
+    Example:
+        >>> check_router_embedders(settings.components)
+    """
+    embedders = [n for n, c in components.items() if c.type == "embedder"]
+    known = ", ".join(map(repr, embedders)) or "none"
+    for name, router in components.items():
+        if isinstance(router, RouterSettings) and router.embedder not in embedders:
+            raise ValueError(
+                f"router {name!r} names the embedder {router.embedder!r}, which is "
+                f"no embedder component of the workflow file (its embedders: {known})"
+            )
 
 
 def check_router_routes(

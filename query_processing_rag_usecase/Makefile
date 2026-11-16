@@ -1,9 +1,10 @@
 # query_processing_rag_usecase — the RAG use case's run targets. Every command runs
 # in this directory: it finds workflow.yaml, deploy.yaml and .env here, and what it
-# writes lands here (results/, data/, models/, ovms/models/, chroma/). The install
-# and the gates are the repository root's: make install-dev, make check there.
+# writes lands here (results/, data/, models/, ovms/models/, chroma/, the router's
+# pipeline file). The install and the gates are the repository root's: make
+# install-dev, make check there.
 .DEFAULT_GOAL := help
-.PHONY: help ingest serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino deploy-dry-run
+.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino deploy-dry-run
 
 # The toolkit, beside this directory: its Locust file, its OVMS exporter and its
 # local infrastructure.
@@ -32,8 +33,13 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
+# The workflow file declares two embedders, so qp-ingest is told which one
+# fills the store: `embedder`, whose vectors the retrieve stage searches with.
 ingest: ## Index the synthetic corpus into Elasticsearch (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
-	$(BIN)qp-ingest --synthetic 200
+	$(BIN)qp-ingest --synthetic 200 --embedder embedder
+
+train-router: ## Train the router on the utterances of routes.yaml: writes router_pipeline.joblib and its manifest (needs the router's embedder)
+	$(BIN)qp-rag-train-router
 
 serve: ## Run the FastAPI service with this workflow file and the current QP_* environment
 	$(BIN)qp-serve

@@ -8,6 +8,7 @@ value) and this directory's workflow file, and prints what it would publish.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from pathlib import Path
@@ -36,6 +37,19 @@ RUN_LABELS = {
     "split-reranker": "split-reranker+reranker=fastapi",
     "split-all": "split-all+embedder=fastapi+reranker=fastapi",
 }
+# The two site values the example shows commented, under its overrides: how an
+# LLM endpoint that imposes no schema is asked for one, and the passages this
+# site's workflow can read at all.
+STRUCTURED_OUTPUT = "    # llm: {api: {structured_output: format_instructions}}\n"
+PREFILTER = (
+    "      # prefilter:\n"
+    '      #   - {attribute: ingestion_pipeline_version, comparator: eq, value: "1"}\n'
+    "      #   - {attribute: active, comparator: eq, value: true}\n"
+)
+PREFILTER_READ = [
+    {"attribute": "ingestion_pipeline_version", "comparator": "eq", "value": "1"},
+    {"attribute": "active", "comparator": "eq", "value": True},
+]
 
 
 def example(use_case_dir: Path) -> str:
@@ -97,6 +111,47 @@ def test_a_dry_run_of_each_topology_alias_publishes_its_apps(
     assert published(out) == [f"qp-rag-{part}" for part in TOPOLOGY_APPS[alias]]
     assert f"    export QP_RUN_LABEL={RUN_LABELS[alias]}\n" in out
     assert f"    export QP_TOPOLOGY_ALIAS={alias}\n" in out
+    # No alias names the router or its embedder: both keep the backend the
+    # workflow file gives them, local, in the workflow App of every layout.
+    assert "QP_COMPONENTS__ROUTER__BACKEND" not in out
+    assert "QP_COMPONENTS__ROUTER_EMBEDDER__BACKEND" not in out
+
+
+def test_the_routers_embedder_is_loaded_from_this_sites_model_path(
+    filled_example: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = dry_run(capsys)
+
+    assert code == 0
+    # Solon's folder, whose last part is the alias the pipeline file records.
+    solon = "/domino/datasets/local/real/models/Solon-embeddings-large-0.1"
+    export = f"    export QP_COMPONENTS__ROUTER_EMBEDDER__SOURCE_ID={solon}\n"
+    assert out.count(export) == len(TOPOLOGY_APPS["split-all"])  # every App
+
+
+def uncommented(lines: str) -> str:
+    """Lines of the example, the comment sign of each taken away."""
+    return "".join(line.replace("# ", "", 1) + "\n" for line in lines.splitlines())
+
+
+def test_the_two_commented_site_values_pass_the_dry_run_once_uncommented(
+    filled_example: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = filled_example.read_text()
+    assert text.count(STRUCTURED_OUTPUT) == text.count(PREFILTER) == 1
+    for lines in (STRUCTURED_OUTPUT, PREFILTER):
+        text = text.replace(lines, uncommented(lines))
+    filled_example.write_text(text)
+
+    code, out, err = dry_run(capsys)
+
+    assert (code, err) == (0, "")
+    method = "QP_COMPONENTS__LLM__API__STRUCTURED_OUTPUT=format_instructions"
+    assert out.count(f"    export {method}\n") == len(TOPOLOGY_APPS["split-all"])
+    (prefilter,) = set(
+        re.findall(r"export QP_COMPONENTS__VECTOR_STORE__PREFILTER=(.+)", out)
+    )
+    assert json.loads(shlex.split(prefilter)[0]) == PREFILTER_READ
 
 
 def test_every_app_runs_the_toolkits_launch_script_in_this_directory(
@@ -152,8 +207,13 @@ def test_the_example_keeps_secrets_out_and_its_site_values_in_the_overrides(
     refuse_secrets(settings)  # the example holds no secret
     # The store's URL and the model paths: once, in the workflow file's shape.
     components = settings.overrides["components"]
-    assert set(components) == {"vector_store", "embedder", "reranker"}
-    assert "source_id" in components["embedder"]
-    assert "source_id" in components["reranker"]
+    assert set(components) == {
+        "vector_store",
+        "embedder",
+        "router_embedder",
+        "reranker",
+    }
+    for model in ("embedder", "router_embedder", "reranker"):
+        assert "source_id" in components[model]
     for part in TOPOLOGY_APPS["split-all"]:
         assert settings.for_app(part).settings == {}

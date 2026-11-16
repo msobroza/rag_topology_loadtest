@@ -27,11 +27,12 @@ topology: split-all
 # workflow App's process, or served, by a model server App of its own (named
 # <app_name_prefix>-<component>). The names are the workflow file's components.
 # A component an alias does not name keeps the backend the workflow file (or the
-# overrides below) gives it (here the LLM, on api). A served component is served
-# by the model-server kind of its App (`server` below), of any name; a component
-# no registered kind can serve (an LLM, today), or put on a backend its type does
-# not have (the vector store or the LLM on local), is refused before anything is
-# published. A new alias
+# overrides below) gives it (here the LLM, on api, and the router and its
+# embedder, local in the workflow App of every topology). A served component is
+# served by the model-server kind of its App (`server` below), of any name; a
+# component no registered kind can serve (an LLM, today), or put on a backend
+# its type does not have (the vector store or the LLM on local), is refused
+# before anything is published. A new alias
 # is one more row: qp-deploy publishes one App per served component, then the
 # workflow App, and writes each named component's backend and served URL into
 # the workflow App's launch script (the workflow app has no topology rule of its
@@ -136,8 +137,17 @@ apps:
 # here (to name a variant, such as a hardware tier).
 overrides:
   components:
-    # Required: the Elasticsearch cluster every workflow App queries.
-    vector_store: {elasticsearch: {url: "https://<elasticsearch host>:9200"}}
+    vector_store:
+      # Required: the Elasticsearch cluster every workflow App queries.
+      elasticsearch: {url: "https://<elasticsearch host>:9200"}
+      # The passages this site's workflow can read at all: conditions every
+      # search applies before a request's own, on fields a client cannot name.
+      # A value of the site, since which ingestion pipeline version is live
+      # differs from one site to another; the workflow file states none, and an
+      # index qp-ingest filled has neither field, so it would return nothing.
+      # prefilter:
+      #   - {attribute: ingestion_pipeline_version, comparator: eq, value: "1"}
+      #   - {attribute: active, comparator: eq, value: true}
     # The model paths (each component's source_id) are here, for every App,
     # because which App loads a model depends on the topology (the workflow
     # loads the embedder in split-reranker and both models in monolith). A
@@ -145,12 +155,22 @@ overrides:
     # its alias, the folder's last part, as the workflow App calls it.
     embedder:
       source_id: /domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0
+    # The router's embedder, which the workflow App loads in every topology.
+    # Keep the folder's last part: the router's pipeline file records the
+    # alias it was trained with, and the router refuses another.
+    router_embedder:
+      source_id: /domino/datasets/local/<dataset>/models/Solon-embeddings-large-0.1
     reranker:
       source_id: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
       # What qp-calibrate printed for it, so no App calibrates at start-up:
       # local: {threads: 2, batch_size: 1}
     # How patiently one component is called, over the shared http block below:
     # llm: {http: {timeout_s: 120}}
+    # For an LLM endpoint that imposes no schema: the rewrite's schema is then
+    # written in the messages and the answer parsed, where the default,
+    # json_schema, sends it as response_format (one llm entry holds both keys
+    # when both are set):
+    # llm: {api: {structured_output: format_instructions}}
   # Where qp-export-openvino wrote the in-process models (a model without a
   # folder there is converted in memory at every start), and how many model
   # calls run at once (torch only; openvino runs one call at a time):

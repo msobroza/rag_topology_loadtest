@@ -82,3 +82,18 @@ def write_workflow_file(
     blocks = {"components": components or fixture_components(), "graph": graph}
     path.write_text(yaml.safe_dump(blocks), encoding="utf-8")
     return path
+
+
+def write_routes_file(path: Path, names: list[str]) -> Path:
+    """Write a routes file of the routes ``names``; return it.
+
+    Each route has its name as its description and its one utterance.
+    """
+    routes = [{"name": n, "description": n, "utterances": [n]} for n in names]
+    path.write_text(yaml.safe_dump({"routes": routes}), encoding="utf-8")
+    return path
+
+
+def fake_router(embedder: str, routes: list[str]) -> dict[str, Any]:
+    """A router component's entry on its fake backend, of the type of its name."""
+    return {"backend": "fake", "embedder": embedder, "routes": routes}

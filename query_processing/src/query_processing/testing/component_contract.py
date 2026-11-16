@@ -104,11 +104,12 @@ class ComponentContract(ABC):
 
         Returns:
             No setting by default; a router gives the routes it lists, as
-            ``routes.yaml`` would.
+            ``routes.yaml`` would, and under ``components`` the embedder it
+            names, which is declared beside the component and never opened.
 
         Example:
             >>> list(TestFakeRouter().workflow_keys())
-            ['routes']
+            ['routes', 'components']
         """
         return {}
 
@@ -240,13 +241,13 @@ def _blocks(
 ) -> dict[str, Any]:
     # One component, of the type named after it, and one stage that calls it,
     # so that the composition opens it and nothing else; and the top-level
-    # settings its settings need.
+    # settings its settings need. The components those settings name, such as
+    # a router's embedder, are declared beside it, and no stage calls them.
     stage = {"call": name, "reads": [], "writes": []}
-    return {
-        **top,
-        "components": {name: {"type": name, **component}},
-        "graph": {"stages": {name: stage}},
-    }
+    declared_beside = top.get("components")
+    components = dict(declared_beside) if isinstance(declared_beside, Mapping) else {}
+    components[name] = {"type": name, **component}
+    return {**top, "components": components, "graph": {"stages": {name: stage}}}
 
 
 def _assert_survives(

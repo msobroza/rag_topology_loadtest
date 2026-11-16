@@ -4,11 +4,19 @@ This repository holds a toolkit, `query_processing`, and its first use case, a
 RAG workflow. A use case is a directory of settings, and two of its files say
 what runs and where. The RAG's workflow file,
 `query_processing_rag_usecase/workflow.yaml`, without its comments (its
-prompts are in `prompts.yaml`, beside it):
+prompts are in `prompts.yaml` and its routes in `routes.yaml`, beside it):
 
 ```yaml
+extensions: [query_processing_rag_usecase]
+local_models: {runtime: openvino}
 components:
   embedder: {backend: local, source_id: Snowflake/snowflake-arctic-embed-l-v2.0, query_prefix: "query: "}
+  router_embedder: {type: embedder, backend: local, source_id: OrdalieTech/Solon-embeddings-large-0.1, query_prefix: "query : "}
+  router:
+    backend: local
+    embedder: router_embedder
+    routes: [self_contained, leans_on_history]
+    local: {pipeline_file: router_pipeline.joblib, n_neighbors: 3, metric: cosine}
   reranker: {backend: local, source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR}
   llm:
     backend: api
@@ -17,17 +25,34 @@ components:
   vector_store:
     backend: elasticsearch
     elasticsearch: {url: "http://localhost:9200", index: rag_passages}
-    chroma: {collection: rag_passages}
+    metadata_field_info:
+      - name: source
+        type: string
+        description: The reference the passage comes from.
+        allowed_values: [A-25, AMF, CHAD, GAA, code_securite_routiere, educaloi, infoassurances]
 graph:
   stages:
+    embed_for_route: {call: router_embedder, reads: [conversational_query], writes: [routing_embedding]}
+    route:    {call: router, reads: [routing_embedding], writes: [route]}
+    rewrite:
+      type: generate
+      call: llm
+      prompt: rewrite_as_standalone
+      output_schema: standalone_query_with_filter
+      metadata_fields_of: vector_store
+      reads: [conversational_query, conversational_history]
+      writes: [standalone_query, metadata_filter]
     embed:    {call: embedder, reads: [standalone_query], writes: [query_embedding]}
     retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20, reads: [query_embedding, metadata_filter], writes: [candidates]}
     rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
     generate: {call: llm, prompt: answer_from_context, reads: [conversational_query, reranked], writes: [answer]}
   edges:
-    - [START, embed, retrieve, rerank]
+    - [embed_for_route, route]
+    - [rewrite, embed, retrieve, rerank]
     - [generate, END]
   conditional_edges:
+    - {source: START, path: has_history, reads: [conversational_history], path_map: {true: embed_for_route, false: embed}}
+    - {source: route, path: label, reads: [route], path_map: {self_contained: embed, leans_on_history: rewrite}}
     - {source: rerank, path: is_query_mode, reads: [mode], path_map: {true: generate, false: END}}
 ```
 
@@ -134,15 +159,17 @@ which [Development](#development) describes.
 
 ### First run, on fake backends
 
-No model weights, store, API key or network: the four variables put each
+No model weights, store, API key or network: the six variables put each
 component of the RAG's workflow file on its `fake` backend. The fake store is
 seeded with 200 synthetic documents as it opens, so there is nothing to ingest
-(`qp-ingest` refuses it); the fake LLM echoes the start of its prompt.
+(`qp-ingest` refuses it); the fake LLM echoes the start of its prompt; the fake
+router always chooses the first of its routes.
 
 ```bash
 cd query_processing_rag_usecase
 export QP_COMPONENTS__EMBEDDER__BACKEND=fake QP_COMPONENTS__RERANKER__BACKEND=fake \
-  QP_COMPONENTS__LLM__BACKEND=fake QP_COMPONENTS__VECTOR_STORE__BACKEND=fake
+  QP_COMPONENTS__LLM__BACKEND=fake QP_COMPONENTS__VECTOR_STORE__BACKEND=fake \
+  QP_COMPONENTS__ROUTER_EMBEDDER__BACKEND=fake QP_COMPONENTS__ROUTER__BACKEND=fake
 qp-serve --host 127.0.0.1 --port 18888    # leave it running
 ```
 
@@ -151,11 +178,11 @@ stands: the question, the mode, the fake answer and the ten passages kept):
 
 ```bash
 curl -s localhost:18888/readyz
-# {"status":"ready","checks":[{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 passages in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
+# {"status":"ready","checks":[{"name":"router_embedder","ok":true,"detail":"fake-embedder"},{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 passages in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
 curl -s -X POST localhost:18888/query -H 'Content-Type: application/json' \
   -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
-# {"request_id":"fd26bfa18f044416b2be1b4bd2b947c7","topology":null,"run_label":"embedder=fake+reranker=fake+llm=fake+vector_store=fake",...,
-#  "timings_ms":{"embed":0.08879206143319607,"retrieve":0.46491692773997784,"rerank":0.30445889569818974,"generate":0.015625031664967537,"total":5.137166939675808}}
+# {"request_id":"e1e69f34fa1844e19be2beec8510fcdf","topology":null,"run_label":"embedder=fake+router_embedder=fake+router=fake+reranker=fake+llm=fake+vector_store=fake",...,
+#  "timings_ms":{"embed_for_route":0.0,"route":0.0,"rewrite":0.0,"embed":0.2180000301450491,"retrieve":0.8875830098986626,"rerank":0.3361250273883343,"generate":0.3732079640030861,"total":9.341874858364463},"metadata_filter":[]}
 make loadtest RUN_NAME=first-run HOST=http://localhost:18888 USERS=2 SPAWN_RATE=2 RUN_TIME=5s
 make compare
 sed 's/<[^<>]*>/example/g' deploy.example.yaml > deploy.yaml
@@ -183,7 +210,7 @@ whose entry script holds:
 ```
 
 Stop `qp-serve` with Ctrl-C and delete `deploy.yaml`, which holds made-up
-values. The four variables stay set in the first shell: use a new one for the
+values. The six variables stay set in the first shell: use a new one for the
 real run.
 
 ### The real run
@@ -193,14 +220,17 @@ The models, Elasticsearch and an API key, from the use case's directory:
 ```bash
 cp .env.example .env          # set QP_COMPONENTS__LLM__API__API_KEY there, or uncomment QP_COMPONENTS__LLM__BACKEND=fake
 make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need make ovms-export first)
-make openvino-export          # once: both models from the Hugging Face Hub, converted under models/openvino
-make ingest                   # qp-ingest --synthetic 200 -> index rag_passages
+make openvino-export          # once: the two embedders and the reranker from the Hugging Face Hub, converted under models/openvino
+make ingest                   # qp-ingest --synthetic 200 --embedder embedder -> index rag_passages
+make train-router             # once: writes router_pipeline.joblib and its manifest from routes.yaml
 make serve                    # qp-serve on http://0.0.0.0:8888
 ```
 
-The calls of the first run reach it on port 8888; `make infra-down` stops the
-containers. `make ingest` embeds with the file's embedder (`qp-ingest
---embedder NAME` picks one of several) and upserts by passage id; `qp-ingest
+The router on `local` refuses to start without its pipeline file: until it is
+trained, uncomment the router's two `fake` lines of `.env`. The calls of the
+first run reach it on port 8888; `make infra-down` stops the
+containers. `make ingest` embeds with the component `embedder`, which it names
+since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
 --corpus docs.jsonl` loads a real corpus, one `{"id","title","text","metadata"}`
 object per line. The export: [In-process models on OpenVINO](#in-process-models-on-openvino).
 
@@ -1101,7 +1131,7 @@ before the app serves, with one line in the server's log.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `QP_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `qp-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
-| `QP_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+reranker=local+llm=api+vector_store=elasticsearch` for the RAG's file); `qp-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `qp-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
+| `QP_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+router_embedder=local+router=local+reranker=local+llm=api+vector_store=elasticsearch` for the RAG's file); `qp-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `qp-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
 | `QP_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory (environment only, not `.env`); with neither, a command stops, naming both places |
 | `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `QP_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `QP_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |

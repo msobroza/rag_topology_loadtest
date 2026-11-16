@@ -1,7 +1,8 @@
 """A workflow file of the router alone, every component on its fake backend.
 
-The use case's ``workflow.yaml`` declares no router yet, so the router's tests
-write their own file in ``tmp_path``: the router's embedder (Solon's alias and
+The router's tests train pipelines, and the use case's ``workflow.yaml`` names
+its pipeline file in this directory, so they write their own file in
+``tmp_path``: the router's embedder (Solon's alias and
 query prefix, on the fake backend), the router listing the two routes of this
 directory's ``routes.yaml``, and a two-stage graph that embeds then routes.
 A pipeline the tests train is written beside it, never in this directory.

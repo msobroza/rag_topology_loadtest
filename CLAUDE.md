@@ -34,7 +34,7 @@ From `query_processing_rag_usecase/`, where the commands find `workflow.yaml`,
   `deploy-dry-run`, `deploy`, ...).
 - Run the workflow app with no model weights by putting every component on its
   fake backend: `QP_COMPONENTS__<NAME>__BACKEND=fake` for `EMBEDDER`,
-  `RERANKER`, `LLM` and `VECTOR_STORE`.
+  `ROUTER_EMBEDDER`, `ROUTER`, `RERANKER`, `LLM` and `VECTOR_STORE`.
 
 ## Health Stack
 

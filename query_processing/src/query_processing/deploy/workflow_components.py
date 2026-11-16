@@ -6,9 +6,11 @@ the deploy settings are values of that file, in its shape, so it checks them
 with the workflow settings' own models: each key a setting of the block it is
 in, each component or stage named one the file declares, then the file with
 the overrides merged as the workflow app merges a variable over it. It reads
-the file the workflow App will read, and the file alone: the variables of
-this Workspace and the start-up checks of the workflow app are not the deploy
-tool's. The one module of ``deploy`` that may import the workflow settings.
+the file the workflow App will read, and the routes file a command finds here,
+since the settings check a router's routes against it, and nothing else: the
+variables of this Workspace and the start-up checks of the workflow app are
+not the deploy tool's. The one module of ``deploy`` that may import the
+workflow settings.
 
 Example:
     >>> read_workflow_components(Path("workflow.yaml"))["reranker"]
@@ -35,6 +37,7 @@ from ..config.component_settings import (
     typed_by_name,
 )
 from ..config.extensions import load_extensions
+from ..config.routes_file import routes_file, routes_file_source
 from ..config.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
     WorkflowFileNotFoundError,
@@ -341,7 +344,8 @@ def refuse_override_values(overrides: Mapping[str, object], path: Path) -> None:
     The workflow file at ``path`` is read with the overrides over it, merged
     key by key as a variable is merged over it, and checked by the workflow
     settings themselves: each value's type and range, and the checks of the
-    whole (a URL for a component called over HTTP, a valid run label).
+    whole (a URL for a component called over HTTP, a valid run label, a
+    router's routes in the routes file found here).
 
     Args:
         overrides: The ``overrides`` block, whose keys are already checked.
@@ -370,6 +374,9 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
     # The workflow settings with the overrides, given as arguments, over the
     # file at path, and nothing else: this Workspace's variables and .env are
     # not the App's. Pydantic passes every source by keyword, so the names stay.
+    # The routes file is read as well, as a command finds it here, where the
+    # App runs: the settings refuse a router's routes against its catalogue,
+    # so without it every workflow file that declares a router was refused.
     class FileWithOverrides(WorkflowSettings):
         @classmethod
         def settings_customise_sources(
@@ -381,7 +388,12 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
             file_secret_settings: PydanticBaseSettingsSource,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
             del env_settings, dotenv_settings, file_secret_settings
-            return init_settings, workflow_file_source(settings_cls, path)
+            workflow = workflow_file_source(settings_cls, path)
+            return (
+                init_settings,
+                workflow,
+                routes_file_source(settings_cls, routes_file()),
+            )
 
     return FileWithOverrides
 
