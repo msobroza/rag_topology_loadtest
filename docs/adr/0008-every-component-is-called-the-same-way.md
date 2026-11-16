@@ -20,5 +20,6 @@ Adding a component type meant edits in eleven files of six packages, and adding 
 - `served` exists for every such component type with no code: the toolkit builds the class that calls a model server and the model server's route, on the `fastapi` kind only. A use case writes a `served` class only to redefine it.
 - A mistake is refused when the class is defined, naming what to write: no `invoke`, no backend, or a backend named twice. So a use case has one implementation for each backend of a component type.
 - Two spellings fill the same registries: a keyword on the class line for a component, a decorator for the toolkit's other entries.
-- The toolkit ships a test class for each component type, which a user runs on an implementation.
+- The toolkit ships test classes a user runs on an implementation: one that fits any component type, and one for the router.
+- The embedder, the reranker, the LLM and the vector store keep their openers and their settings classes. A use case cannot yet add a backend to one of them.
 - The router is the toolkit's fifth component type and takes a query's vector. A router that reads the text would be another component type.

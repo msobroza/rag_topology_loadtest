@@ -91,12 +91,16 @@ The process that serves a use case's workflow over HTTP: `qp-serve`.
 _Avoid_: service, API, RAG app, server
 
 **Model server**:
-A process of ours that serves one model on the /v3 routes: OpenVINO Model Server or the FastAPI model server. To the workflow app it is an endpoint like any other.
+A process of ours that serves one component: a model on the /v3 routes (OpenVINO Model Server or the FastAPI model server), or a component with no outside API format on its call route (the FastAPI one only). To the workflow app it is an endpoint like any other.
 _Avoid_: inference service, OVMS app (when the FastAPI one is also meant)
 
 **/v3 routes**:
 The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings and rerank, each in an API format, and the model probe.
 _Avoid_: /v3 contract, OVMS API, model API
+
+**Call route**:
+The HTTP path a model server answers on for a component that has no outside API format: one request in, one answer out.
+_Avoid_: /v3 route (those are OpenVINO Model Server's), endpoint (that is the whole of where a component is called)
 
 **Served model**:
 A model as a model server exposes it: a source id paired with an alias.
@@ -212,7 +216,7 @@ A component that chooses, for a query, one route out of its own list. A use case
 _Avoid_: classifier, selector, dispatcher
 
 **Route**:
-One answer a router can choose: a name, what it means, and the utterances that exemplify it. An HTTP path is not called a route on its own: those are the /v3 routes.
+One answer a router can choose: a name, what it means, and the utterances that exemplify it. An HTTP path is not called a route on its own: those are the /v3 routes and the call route.
 _Avoid_: class, label, intent, category
 
 **Route choice**:
@@ -226,6 +230,14 @@ _Avoid_: example, sample, training query
 **Metadata filter**:
 The conditions a passage's metadata must meet for it to be retrieved. Each names one metadata field, and all must hold; the client can send some with a message, and a stage can add more.
 _Avoid_: filters (alone), where clause, facet
+
+**Prefilter**:
+The conditions a vector store adds to every search, before a request's own: which passages a workflow can read at all. Neither a client nor the LLM can name its fields.
+_Avoid_: default filter, base filter, and "prefilter" for a request's own conditions (those are its metadata filter)
+
+**Ingestion pipeline version**:
+Which run of ingestion wrote a passage, carried in its metadata. A vector store's prefilter keeps the passages of one.
+_Avoid_: corpus version, index version, embedder version
 
 **Mode**:
 How far a request runs through the stages: `query` runs every stage, `retrieve` stops after rerank.
