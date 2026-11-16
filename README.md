@@ -267,8 +267,8 @@ src/rag_load_test/
   loadtest/         the load-test client, with locustfile.py
     loadtest_settings.py  LoadTestSettings: every RAG_LOADTEST_* variable, the four RAG_* values a model-server request carries, Domino auth
     request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
-    response_checks.py  what to record: a response becomes a failure or STAGE rows
-    target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by rag-compare
+    response_checks.py  what to record: a response becomes a failure, or STAGE rows and its AnswerTokens
+    target_record.py  the target record (_target.json): TargetRecord and its TokenTotals, written as a run stops and read by rag-compare
     rag_compare.py  rag-compare: Locust *_stats.csv files to markdown tables
 src/fake_domino/    a stand-in for Domino 6.2's Apps API: rag-deploy's test double and what --dry-run runs.
                     It imports nothing from rag_load_test, and only deploy/rag_deploy.py imports it (both checked by
@@ -398,6 +398,7 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | `RAG_LOADTEST_TARGET` | the user class: `rag` (default), `rerank` or `embeddings` |
 | `RAG_LOADTEST_QUERY_WEIGHT` / `RAG_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3`; a whole number of 0 or more |
 | `RAG_LOADTEST_WAIT_MIN_S` / `RAG_LOADTEST_WAIT_MAX_S` | each user waits a random time in this range between requests, default `0.2` / `1.0` s |
+| `RAG_LOADTEST_REQUEST_TIMEOUT_S` | how long each user waits for an answer before Locust records a failure, default `60` s; above 0. A long answer generated on CPUs can need more |
 | `RAG_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more); any other value but unset is refused |
 | `RAG_LOADTEST_STEP_USERS` / `RAG_LOADTEST_STEP_SECONDS` | the steps of the step shape, default `5,10,20,40` / `60` |
 | `RAG_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
@@ -426,6 +427,13 @@ A run straight at a model server (`make loadtest-models`) writes
 `{"target": "rerank", "seen": []}` (or `embeddings`), since model servers send
 no such headers.
 
+When answers report their tokens (`/query`'s `tokens` holds both `prompt` and
+`completion`, and its generate stage took time), the record also adds them up:
+`"tokens": {"answers": 22, "prompt": 17446, "completion": 2516, "generate_ms": 164428.0}`.
+A run with no such answer, `/retrieve` alone for one, has no `tokens` key
+rather than a total of zeros; a record from before tokens were counted reads
+as one without them.
+
 `make compare` feeds every `results/*_stats.csv` prefix (sorted, so
 `monolith` is the baseline) to `rag-compare`, which writes one markdown table
 per endpoint and per stage: requests, failure %, RPS, p50, p95, p99 and Δp95
@@ -435,7 +443,12 @@ When a run has a target record, the intro line names the topology and run label
 it saw beside the run name, and a warning line
 flags any run that saw more than one pair, because its numbers mix
 configurations (for example an app redeployed mid-run). A run without the file
-is listed by its run name alone, as before.
+is listed by its run name alone, as before. When any run's record has tokens,
+a last section, `## Tokens`, has one row per such run: `run`, `answers`,
+`prompt tokens per answer`, `completion tokens per answer`, `tokens/s as a
+caller sees them` (completion tokens over the generate time) and `tokens/s
+served` (completion tokens per answer times the RPS of the run's `POST /query`
+row). A run without tokens has no row there.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
@@ -496,8 +509,8 @@ sittings measured (streams, batch size, order of service).
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}` |
-| `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
+| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}, tokens{prompt,completion}}`; `tokens` is `{}` when the LLM did not report both counts |
+| `POST /retrieve` | same request → same response with `answer: null` and `tokens: {}` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}` for `vector_store` (index count > 0), `embedder`, `reranker`; `503` when a check fails |
 
@@ -587,6 +600,7 @@ with a one-line usage error, not a traceback.
 | `RAG_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `RAG_LOADTEST_QUERY_WEIGHT`, `RAG_LOADTEST_RETRIEVE_WEIGHT`, `RAG_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
 | `RAG_LOADTEST_WAIT_MIN_S`, `RAG_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
+| `RAG_LOADTEST_REQUEST_TIMEOUT_S` | `60` | Locust side: how long each user waits for an answer, in seconds (Locust's `network_timeout`) |
 | `RAG_LOADTEST_STEP_USERS`, `RAG_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `RAG_LOADTEST_SHAPE=step` |
 | `RAG_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
 | `RAG_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `rag-fetch-corpus` writes, or one question per line); `RAG_LOADTEST_QUESTIONS` then does not apply |

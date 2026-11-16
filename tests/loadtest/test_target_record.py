@@ -9,9 +9,11 @@ from typing import Any
 
 import pytest
 
+from rag_load_test.loadtest.response_checks import AnswerTokens
 from rag_load_test.loadtest.target_record import (
     TargetRecord,
     TargetSighting,
+    TokenTotals,
     read_target_record,
     target_pair,
     write_target_record,
@@ -103,6 +105,61 @@ def test_a_record_from_an_earlier_run_still_reads(tmp_path: Path) -> None:
     assert [(s.topology, s.run_label, s.responses) for s in record.seen] == [
         ("monolith", "m", 3)
     ]
+
+
+def test_a_record_without_tokens_still_reads(tmp_path: Path) -> None:
+    path = tmp_path / "old_target.json"
+    path.write_text('{"target": "rag", "seen": []}')
+
+    record = read_target_record(path)
+
+    assert record is not None
+    assert record.tokens is None
+
+
+def test_totals_add_one_answer() -> None:
+    total = TokenTotals(answers=1, prompt=829, completion=128, generate_ms=7474.0)
+    assert total.plus(AnswerTokens(922, 70, 5000.0)) == TokenTotals(
+        answers=2, prompt=1751, completion=198, generate_ms=12474.0
+    )
+
+
+@pytest.mark.parametrize(
+    "tokens", [None, TokenTotals(answers=0, prompt=0, completion=0, generate_ms=0.0)]
+)
+def test_a_run_without_tokens_writes_no_tokens_key(
+    tmp_path: Path, tokens: TokenTotals | None
+) -> None:
+    write_target_record(str(tmp_path / "run"), "rag", Counter(), tokens)
+    assert "tokens" not in _read_json(tmp_path / "run_target.json")
+
+
+def test_a_run_with_tokens_writes_and_reads_them_back(tmp_path: Path) -> None:
+    tokens = TokenTotals(answers=2, prompt=1751, completion=198, generate_ms=12474.0)
+    write_target_record(str(tmp_path / "run"), "rag", Counter(), tokens)
+
+    assert _read_json(tmp_path / "run_target.json")["tokens"] == {
+        "answers": 2,
+        "prompt": 1751,
+        "completion": 198,
+        "generate_ms": 12474.0,
+    }
+    record = read_target_record(tmp_path / "run_target.json")
+    assert record is not None
+    assert record.tokens == tokens
+
+
+def test_a_negative_token_total_is_refused_naming_the_field(tmp_path: Path) -> None:
+    path = tmp_path / "bad_target.json"
+    path.write_text(
+        '{"target": "rag", "seen": [], "tokens": '
+        '{"answers": 1, "prompt": -1, "completion": 1, "generate_ms": 1.0}}'
+    )
+
+    with pytest.raises(ValueError, match="expected a target record") as caught:
+        read_target_record(path)
+
+    assert str(caught.value).startswith(f"{path}: tokens.prompt: ")
 
 
 def test_a_missing_record_reads_as_none(tmp_path: Path) -> None:

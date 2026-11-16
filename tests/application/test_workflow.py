@@ -11,6 +11,7 @@ import pytest
 from langchain_core.callbacks import AsyncCallbackHandler
 
 from rag_load_test.adapters.embedder.base_embedder import BaseEmbedder
+from rag_load_test.adapters.llm.base_llm import BaseLLM
 from rag_load_test.adapters.llm.fake.fake_llm import FakeLLM
 from rag_load_test.adapters.reranker.base_reranker import BaseReranker
 from rag_load_test.adapters.reranker.none.no_reranker import NoReranker
@@ -26,6 +27,7 @@ from rag_load_test.application.workflow import (
 )
 from rag_load_test.config.rag_settings import RagSettings
 from rag_load_test.domain.corpus import synthetic_questions
+from rag_load_test.domain.generation import Generation
 from rag_load_test.domain.passages import STAGES, Passage, ScoredPassage
 from rag_load_test.domain.prompts import RagPrompts
 from rag_load_test.domain.workflow_parameters import WorkflowParameters
@@ -105,6 +107,40 @@ async def test_retrieve_mode_skips_generation(
     assert result.timings_ms["generate"] == 0.0
     assert result.timings_ms["total"] > 0
     assert len(result.passages) == DEFAULT_TOP_K_RERANK
+
+
+async def test_a_query_reports_the_tokens_of_its_answer(
+    fake_deps: RagDependencies, parameters: WorkflowParameters
+) -> None:
+    result = await RagWorkflow(fake_deps, parameters).run(VACATION_QUESTION)
+
+    assert set(result.tokens) == {"prompt", "completion"}
+    assert result.tokens["completion"] > 0
+
+
+async def test_a_retrieve_reports_no_tokens(
+    fake_deps: RagDependencies, parameters: WorkflowParameters
+) -> None:
+    workflow = RagWorkflow(fake_deps, parameters)
+    assert (await workflow.run(VACATION_QUESTION, mode="retrieve")).tokens == {}
+
+
+class UncountedLLM(BaseLLM):
+    """An LLM whose server reports no token counts."""
+
+    model_name = "uncounted"
+
+    async def generate(self, messages: list[dict[str, str]]) -> Generation:
+        return Generation("an answer", prompt_tokens=12, completion_tokens=None)
+
+
+async def test_an_answer_without_both_counts_reports_no_tokens(
+    fake_deps: RagDependencies, parameters: WorkflowParameters
+) -> None:
+    deps = dataclasses.replace(fake_deps, llm=UncountedLLM())
+    result = await RagWorkflow(deps, parameters).run(VACATION_QUESTION)
+
+    assert (result.answer, result.tokens) == ("an answer", {})
 
 
 async def test_no_reranker_keeps_retrieval_order(

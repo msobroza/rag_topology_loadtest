@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from rag_load_test.loadtest.response_checks import ResponseVerdict, judge_response
+from rag_load_test.loadtest.response_checks import (
+    AnswerTokens,
+    ResponseVerdict,
+    judge_response,
+)
 
 # --- what to record ---
 
@@ -70,3 +74,34 @@ def test_judge_response_failure(status: int, body: str, failure: str) -> None:
     assert verdict.failure.startswith(failure)
     assert verdict.stage_rows == ()
     assert body[:200] in verdict.failure
+
+
+# --- the tokens of an answer ---
+
+
+def test_a_response_with_tokens_becomes_a_verdict_with_tokens() -> None:
+    body = '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829, "completion": 128}}'
+    assert judge_response("/query", 200, body).tokens == AnswerTokens(829, 128, 7474.0)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"timings_ms": {"generate": 7474.0}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": "many", "completion": 128}}',
+        '{"timings_ms": {}, "tokens": {"prompt": 829, "completion": 128}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 8.5, "completion": 1}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": true, "completion": 1}}',
+        '{"timings_ms": {"generate": 7474.0}, "tokens": [829, 128]}',
+        '{"timings_ms": {"generate": 0}, "tokens": {"prompt": 829, "completion": 128}}',
+    ],
+)
+def test_a_response_without_usable_tokens_has_none(body: str) -> None:
+    assert judge_response("/query", 200, body).tokens is None
+
+
+def test_a_failure_has_no_tokens() -> None:
+    body = '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829, "completion": 128}}'
+    assert judge_response("/query", 503, body).tokens is None

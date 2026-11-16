@@ -11,10 +11,12 @@ model server directly. Rerank requests carry ``RAG_TOP_K_RETRIEVE`` documents an
 sets how many distinct synthetic questions the users ask, unless
 ``RAG_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask instead (what
 ``rag-fetch-corpus`` writes, or plain text). Each user waits
-``RAG_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests;
+``RAG_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests, and waits for an
+answer at most ``RAG_LOADTEST_REQUEST_TIMEOUT_S``;
 ``RAG_LOADTEST_SHAPE=step`` steps through ``RAG_LOADTEST_STEP_USERS`` users,
-``RAG_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written
-and its statistics file is rewritten with the final numbers.
+``RAG_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written,
+with the tokens of its answers, and its statistics file is rewritten with the
+final numbers.
 """
 
 from __future__ import annotations
@@ -36,8 +38,16 @@ from rag_load_test.loadtest.request_plans import (
     plan_rag_request,
     plan_rerank_request,
 )
-from rag_load_test.loadtest.response_checks import STAGE_REQUEST_TYPE, judge_response
-from rag_load_test.loadtest.target_record import target_pair, write_target_record
+from rag_load_test.loadtest.response_checks import (
+    STAGE_REQUEST_TYPE,
+    ResponseVerdict,
+    judge_response,
+)
+from rag_load_test.loadtest.target_record import (
+    TokenTotals,
+    target_pair,
+    write_target_record,
+)
 
 SETTINGS = LoadTestSettings()
 POOL = build_request_pool(
@@ -50,12 +60,15 @@ WAIT_TIME = between(SETTINGS.wait_min_s, SETTINGS.wait_max_s)
 RNG = random.Random()
 # Responses per (topology, run label) for the target record; one process, one run.
 RESPONSES_SEEN: Counter[tuple[str, str]] = Counter()
+# The tokens of the run's answers, for the target record; one process, one run.
+TOKENS_SEEN = TokenTotals(answers=0, prompt=0, completion=0, generate_ms=0.0)
 
 
 def send(user: FastHttpUser, plan: RequestPlan) -> None:
     """POST ``plan`` and record the response as ``judge_response`` decides.
 
-    A response that names its target also counts towards the target record.
+    A response that names its target also counts towards the target record, and
+    an answer that reports its tokens towards the record's token totals.
 
     Args:
         user: The Locust user whose client sends and whose environment fires the
@@ -77,15 +90,28 @@ def send(user: FastHttpUser, plan: RequestPlan) -> None:
             resp.failure(verdict.failure)
             return
         resp.success()
-        for name, ms in verdict.stage_rows:
-            user.environment.events.request.fire(
-                request_type=STAGE_REQUEST_TYPE,
-                name=name,
-                response_time=ms,
-                response_length=0,
-                exception=None,
-                context={},
-            )
+        record_success(user, verdict)
+
+
+def record_success(user: FastHttpUser, verdict: ResponseVerdict) -> None:
+    """Fire a success's STAGE rows and add its answer's tokens to the run's total.
+
+    Args:
+        user: The Locust user whose environment fires the STAGE rows.
+        verdict: What ``judge_response`` made of the successful response.
+    """
+    global TOKENS_SEEN  # the run's total, kept beside RESPONSES_SEEN
+    if verdict.tokens is not None:
+        TOKENS_SEEN = TOKENS_SEEN.plus(verdict.tokens)
+    for name, ms in verdict.stage_rows:
+        user.environment.events.request.fire(
+            request_type=STAGE_REQUEST_TYPE,
+            name=name,
+            response_time=ms,
+            response_length=0,
+            exception=None,
+            context={},
+        )
 
 
 class RagUser(FastHttpUser):
@@ -93,6 +119,7 @@ class RagUser(FastHttpUser):
 
     abstract = SETTINGS.target != "rag"
     wait_time = WAIT_TIME
+    network_timeout = SETTINGS.request_timeout_s
 
     @task(SETTINGS.query_weight)
     def query(self) -> None:
@@ -110,6 +137,7 @@ class RerankUser(FastHttpUser):
 
     abstract = SETTINGS.target != "rerank"
     wait_time = WAIT_TIME
+    network_timeout = SETTINGS.request_timeout_s
 
     @task
     def rerank(self) -> None:
@@ -122,6 +150,7 @@ class EmbeddingsUser(FastHttpUser):
 
     abstract = SETTINGS.target != "embeddings"
     wait_time = WAIT_TIME
+    network_timeout = SETTINGS.request_timeout_s
 
     @task
     def embed(self) -> None:
@@ -157,7 +186,7 @@ def write_target_record_on_stop(environment: Any, **_kwargs: Any) -> None:
         **_kwargs: The rest of the ``test_stop`` event's arguments, unused.
     """
     csv_prefix = getattr(environment.parsed_options, "csv_prefix", None)
-    write_target_record(csv_prefix, SETTINGS.target, RESPONSES_SEEN)
+    write_target_record(csv_prefix, SETTINGS.target, RESPONSES_SEEN, TOKENS_SEEN)
 
 
 @events.test_stop.add_listener

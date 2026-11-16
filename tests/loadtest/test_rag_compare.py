@@ -16,6 +16,8 @@ from rag_load_test.loadtest.rag_compare import (
     render_markdown,
 )
 from rag_load_test.loadtest.target_record import (
+    TargetRecord,
+    TokenTotals,
     read_target_record,
     write_target_record,
 )
@@ -179,3 +181,54 @@ def test_compare_refuses_a_malformed_target_record_naming_its_file(
         compare_main([str(monolith)])
 
     assert str(caught.value).startswith(f"{record}: seen: ")
+
+
+# --- tokens ---
+
+OVMS_QUERY = (
+    ("POST", "/query", 22, 0, 0.124, 7400, 9000, 9500),
+    ("", "Aggregated", 22, 0, 0.124, 7400, 9000, 9500),
+)
+OVMS_TOKENS = TokenTotals(
+    answers=22, prompt=17446, completion=2516, generate_ms=164428.0
+)
+
+
+def _token_runs(tmp_path: Path) -> tuple[dict[str, Any], dict[str, TargetRecord]]:
+    """Two runs: ``ovms`` with a token total, ``split-all`` with a record but none."""
+    ovms = _stats_csv(tmp_path / "ovms", *OVMS_QUERY)
+    split = _stats_csv(tmp_path / "split-all", *SPLIT)
+    write_target_record(str(ovms), "rag", Counter(), OVMS_TOKENS)
+    write_target_record(str(split), "rag", Counter(), None)
+    runs = {"ovms": load_stats(ovms), "split-all": load_stats(split)}
+    records = {
+        name: read_target_record(Path(f"{prefix}_target.json"))
+        for name, prefix in (("ovms", ovms), ("split-all", split))
+    }
+    return runs, {name: r for name, r in records.items() if r is not None}
+
+
+def test_a_run_with_tokens_has_a_row_in_the_tokens_table(tmp_path: Path) -> None:
+    runs, records = _token_runs(tmp_path)
+
+    lines = render_markdown(runs, records).splitlines()
+
+    start = lines.index("## Tokens")
+    table = lines[start:]
+    assert table[2] == (
+        "| run | answers | prompt tokens per answer | completion tokens per answer "
+        "| tokens/s as a caller sees them | tokens/s served |"
+    )
+    assert "| ovms | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in table
+    assert not any(line.startswith("| split-all |") for line in table)
+
+
+def test_no_run_with_tokens_means_no_tokens_section(tmp_path: Path) -> None:
+    split = _stats_csv(tmp_path / "split-all", *SPLIT)
+    write_target_record(str(split), "rag", Counter(), None)
+    record = read_target_record(Path(f"{split}_target.json"))
+    assert record is not None
+
+    markdown = render_markdown({"split-all": load_stats(split)}, {"split-all": record})
+
+    assert "## Tokens" not in markdown

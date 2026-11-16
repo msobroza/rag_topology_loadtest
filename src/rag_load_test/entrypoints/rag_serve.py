@@ -49,7 +49,11 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    """The workflow's answer, the passages it used and the time each stage took."""
+    """The workflow's answer, the passages it used and the time each stage took.
+
+    ``tokens`` holds the answer's ``prompt`` and ``completion`` token counts;
+    it is empty for ``/retrieve`` and when the LLM did not report both.
+    """
 
     request_id: str
     topology: str
@@ -59,6 +63,7 @@ class QueryResponse(BaseModel):
     answer: str | None
     passages: list[ScoredPassage]
     timings_ms: dict[str, float]
+    tokens: dict[str, int]
 
 
 class ReadyCheck(BaseModel):
@@ -232,6 +237,7 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
         run_label=settings.run_label,
         mode=mode,
         timings_ms=result.timings_ms,
+        tokens=result.tokens,
         status=HTTPStatus.OK.value,
     )
     return QueryResponse(
@@ -251,7 +257,8 @@ async def query(body: QueryRequest, request: Request) -> QueryResponse:
         request: The HTTP request, for its request id and the app's state.
 
     Returns:
-        The answer, the passages it used and the time each stage took.
+        The answer, the passages it used, the time each stage took and the
+        answer's token counts.
     """
     return await _answer(request, body, "query")
 

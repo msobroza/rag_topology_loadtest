@@ -201,6 +201,19 @@ def test_the_new_settings_refuse_what_cannot_run(
         settings_from(monkeypatch, variables)
 
 
+def test_a_user_waits_60_seconds_unless_told_otherwise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert settings_from(monkeypatch, {}).request_timeout_s == 60.0
+    told = {"RAG_LOADTEST_REQUEST_TIMEOUT_S": "180"}
+    assert settings_from(monkeypatch, told).request_timeout_s == 180.0
+
+
+def test_a_user_that_never_waits_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="request_timeout_s"):
+        settings_from(monkeypatch, {"RAG_LOADTEST_REQUEST_TIMEOUT_S": "0"})
+
+
 def test_each_field_names_the_variable_it_is_read_from() -> None:
     assert LoadTestSettings.variable_of("target") == "RAG_LOADTEST_TARGET"
     assert LoadTestSettings.variable_of("question_count") == "RAG_LOADTEST_QUESTIONS"

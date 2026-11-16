@@ -29,7 +29,8 @@ def generation_api_format(name: str) -> BaseGenerationApiFormat:
         A fresh instance of that format.
 
     Example:
-        >>> generation_api_format("openai").answer({"choices": [{"message": {}}]})
+        >>> chat = {"choices": [{"message": {}}]}
+        >>> generation_api_format("openai").generation(chat).text
         ''
     """
     return lookup_api_format("generation", GENERATION_API_FORMATS, name)
