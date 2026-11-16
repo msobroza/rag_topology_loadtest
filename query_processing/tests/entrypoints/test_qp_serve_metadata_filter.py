@@ -144,7 +144,7 @@ def test_the_fields_declared_are_those_of_the_stores_retrieve_stages_call(
         "call": "archive",
     }
     settings = settings_factory(
-        components__archive={"type": "vector_store", **store(("topic", "integer"))},
+        components__archive={"type": "vector_store", **store(("topic", "string"))},
         components__unread={"type": "vector_store", **store(("owner", "string"))},
         components__vector_store=store(("topic", "string"), ("year", "integer")),
         graph=graph,
@@ -152,12 +152,43 @@ def test_the_fields_declared_are_those_of_the_stores_retrieve_stages_call(
 
     declared = declared_metadata_fields(settings)
 
-    # The fixture's store comes first, so its topic wins over the archive's;
-    # the store no retrieve stage calls declares nothing a request can name.
+    # Two stores declare topic alike: it is listed once, in the order of the
+    # stages; the store no retrieve stage calls declares nothing a request can name.
     assert [(f.name, f.type) for f in declared] == [
         ("topic", "string"),
         ("year", "integer"),
     ]
+
+
+def test_two_stores_that_declare_one_field_differently_are_refused_naming_both(
+    settings_factory: Callable[..., WorkflowSettings],
+) -> None:
+    topic_as = {
+        "string": {"name": "topic", "type": "string", "description": "d"},
+        "integer": {"name": "topic", "type": "integer", "description": "d"},
+    }
+    graph = fixture_graph()
+    graph["stages"]["retrieve_archive"] = {
+        **graph["stages"]["retrieve"],
+        "type": "retrieve",
+        "call": "archive",
+    }
+    archive = {"backend": "fake", "metadata_field_info": [topic_as["integer"]]}
+    settings = settings_factory(
+        components__archive={"type": "vector_store", **archive},
+        components__vector_store__metadata_field_info=[topic_as["string"]],
+        graph=graph,
+    )
+
+    with pytest.raises(ValueError, match="declare the metadata field") as refused:
+        declared_metadata_fields(settings)
+
+    message = str(refused.value)
+    assert "metadata field 'topic'" in message
+    assert "'vector_store'" in message
+    assert "'archive'" in message
+    assert "'string'" in message
+    assert "'integer'" in message
 
 
 # The synthetic corpus numbers its documents by ``seq``, a field no store declares.

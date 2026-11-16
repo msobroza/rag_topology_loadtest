@@ -53,7 +53,7 @@ class SharedResources:
     http: HttpResources  # the shared HTTP client, policy and run tokens
     local_models: LocalModelResources  # the budget, pool, files and calibration
     # The embedder that seeds a fake store: the one its searches use
-    # (WorkflowSettings.searched_embedder), else the only one declared.
+    # (config/searched_embedder.py, seeding_embedder), else the only one declared.
     open_embedder: Opener[BaseEmbedder]
 
 

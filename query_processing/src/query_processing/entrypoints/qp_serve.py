@@ -41,7 +41,6 @@ from ..composition.composition_root import (
     stage_context,
 )
 from ..composition.registered_names import check_registered_names
-from ..config.component_settings import VectorStoreSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
@@ -291,8 +290,7 @@ def declared_metadata_fields(settings: WorkflowSettings) -> list[MetadataFieldIn
     """Return the metadata fields a request's filter can name.
 
     They are those the vector stores the graph's retrieve stages call declare
-    under ``metadata_field_info``, each name once (the first declaration
-    wins), in the order of the stages.
+    under ``metadata_field_info``, each name once, in the order of the stages.
 
     Args:
         settings: The workflow settings: the graph and its components.
@@ -300,27 +298,42 @@ def declared_metadata_fields(settings: WorkflowSettings) -> list[MetadataFieldIn
     Returns:
         The declared fields.
 
+    Raises:
+        ValueError: If two stores declare one field differently; the message
+            names the field, both stores and both declarations.
+
     Example:
         >>> [f.name for f in declared_metadata_fields(settings)]
         ['topic']
     """
     # The retrieve stage type is the one that hands a request's filter to a
     # store; a plain call to a store states its own reads.
-    called = [
-        settings.components.get(stage.call)
+    stores = settings.vector_stores()
+    called = dict.fromkeys(
+        stage.call
         for name, stage in settings.graph.stages.items()
-        if stage.type_name(name) == "retrieve"
-    ]
-    declared = [
-        field
-        for component in called
-        if isinstance(component, VectorStoreSettings)
-        for field in component.metadata_field_info
-    ]
-    by_name: dict[str, MetadataFieldInfo] = {}
-    for field in declared:
-        by_name.setdefault(field.name, field)
-    return list(by_name.values())
+        if stage.type_name(name) == "retrieve" and stage.call in stores
+    )
+    by_name: dict[str, tuple[str, MetadataFieldInfo]] = {}
+    for store in called:
+        for field in stores[store].metadata_field_info:
+            _refuse_another_declaration(by_name.get(field.name), store, field)
+            by_name.setdefault(field.name, (store, field))
+    return [field for _, field in by_name.values()]
+
+
+def _refuse_another_declaration(
+    first: tuple[str, MetadataFieldInfo] | None, store: str, field: MetadataFieldInfo
+) -> None:
+    # A request's condition on the field is checked against one declaration.
+    if first is None or first[1] == field:
+        return
+    raise ValueError(
+        f"the vector stores {first[0]!r} and {store!r} declare the metadata field "
+        f"{field.name!r} differently ({first[1].model_dump()} and "
+        f"{field.model_dump()}); expected one declaration of a field a request's "
+        "filter can name"
+    )
 
 
 def _refuse_conditions_that_do_not_fit(request: Request, body: QueryRequest) -> None:

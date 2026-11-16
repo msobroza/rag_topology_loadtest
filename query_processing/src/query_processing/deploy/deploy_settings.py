@@ -31,7 +31,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from ..domain.api_endpoint import DOMINO_RUN_TOKEN
+from ..domain.api_endpoint import DOMINO_RUN_TOKEN, SERVED_BACKEND
 from ..domain.roles import WORKFLOW_APP, AppPart
 from .apps_client import DominoDeployError, WaitLimits
 from .model_server_kinds.base_model_server_kind import MODEL_SERVER_KINDS
@@ -41,7 +41,7 @@ AppKind = Literal["app", "agent"]
 # process, or behind a model server App of its own. Each is also the backend
 # the workflow App is told for the component.
 Placement = Literal["local", "served"]
-SERVED: Placement = "served"
+SERVED: Placement = SERVED_BACKEND
 DEPLOY_FILE = "deploy.yaml"  # in the working directory, unless QP_DEPLOY_FILE names one
 DEPLOY_FILE_VARIABLE = "QP_DEPLOY_FILE"
 # What serves a model server App whose block and the defaults name no kind.

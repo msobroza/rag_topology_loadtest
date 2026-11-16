@@ -56,6 +56,7 @@ from ..config.component_settings import (
 )
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.router_settings import RouterSettings, routes_of
+from ..config.searched_embedder import seeding_embedder
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.base_component import BaseComponent
 from ..domain.component_resources import ComponentResources
@@ -334,9 +335,10 @@ class CompositionRoot:
         return component
 
     async def _store_embedder(self) -> BaseEmbedder:
-        # What seeds a fake store, so its vectors are the ones queries get: the
-        # embedder its searches use, else the only one declared (spec 2.5).
-        name = self.settings.searched_embedder() or self.settings.ingestion_embedder()
+        # What seeds a fake store, so its vectors are the ones queries get
+        # (seeding_embedder), else the only one declared (spec 2.5).
+        graph, types = self.settings.graph, self.settings.component_types()
+        name = seeding_embedder(graph, types) or self.settings.ingestion_embedder()
         return await self._embedder(name)
 
     async def _embedder(self, name: str) -> BaseEmbedder:
@@ -364,9 +366,8 @@ def stage_context(settings: WorkflowSettings) -> StageContext:
         ...             stage_context(settings))
     """
     declared = {
-        name: component.metadata_field_info
-        for name, component in settings.components.items()
-        if isinstance(component, VectorStoreSettings)
+        name: store.metadata_field_info
+        for name, store in settings.vector_stores().items()
     }
     return StageContext(prompts=settings.prompts, metadata_field_info=declared)
 

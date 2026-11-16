@@ -312,6 +312,22 @@ class VectorStoreSettings(ComponentSettings):
         check_condition_shapes(prefilter, "prefilter")
         return prefilter
 
+    def kept_in(self) -> tuple[str, str] | None:
+        """Return the key of its backend's block that names where passages are kept.
+
+        Returns:
+            The key and its value; None for a backend that names nothing.
+
+        Example:
+            >>> settings.components["vector_store"].kept_in()
+            ('index', 'rag_passages')
+        """
+        if self.backend == "elasticsearch":
+            return "index", self.elasticsearch.index
+        if self.backend == "chroma":
+            return "collection", self.chroma.collection
+        return None
+
 
 # The settings class of each component type, found by the type's name: a
 # component is read with the class its type names here. The toolkit registers

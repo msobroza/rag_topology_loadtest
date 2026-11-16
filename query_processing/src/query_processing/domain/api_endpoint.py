@@ -13,10 +13,14 @@ Example:
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 # The ``api_key`` that means "send the Domino run's token", fetched per run.
 DOMINO_RUN_TOKEN = "domino"
+# The backend that calls a model server of ours, which every component type
+# has: named here for the composition and the deploy tool, which share no other
+# package.
+SERVED_BACKEND: Final = "served"
 
 # The routes our model servers answer on: OpenVINO Model Server's, which the
 # FastAPI model server copies so a client cannot tell the two apart.

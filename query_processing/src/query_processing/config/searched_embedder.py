@@ -50,6 +50,35 @@ def searched_embedder(
     return embedders.pop() if len(embedders) == 1 else None
 
 
+def seeding_embedder(
+    graph: GraphDescription, component_types: Mapping[str, str]
+) -> str | None:
+    """Return the embedder that gives a fake store the vectors of its passages.
+
+    The one its searches use (``searched_embedder``). When no ``retrieve``
+    stage reads a vector (a lexical graph), the store is searched by its
+    words alone and no vector it holds ever meets a query's: the first
+    embedder the file declares seeds it, and any other would do as well.
+
+    Args:
+        graph: The workflow file's graph.
+        component_types: Each component's type, by name, in the file's order.
+
+    Returns:
+        The embedder component's name; None when the searches read a vector
+        that no single embedder writes, or the file declares no embedder.
+
+    Example:
+        >>> seeding_embedder(lexical_graph, {"embedder": "embedder",
+        ...                                  "router_embedder": "embedder"})
+        'embedder'
+    """
+    if _searched_embeddings(graph):
+        return searched_embedder(graph, component_types)
+    embedders = [n for n, type_ in component_types.items() if type_ == "embedder"]
+    return embedders[0] if embedders else None
+
+
 def _searched_embeddings(graph: GraphDescription) -> set[str]:
     # The field each retrieve stage that searches by vector reads first: the
     # retrieve stage takes its embedding first in both modes (its

@@ -24,10 +24,9 @@ from collections.abc import Iterable
 from functools import cache
 from typing import Any
 
-from ..adapters.router.fake.fake_router import FakeRouter
-from ..adapters.router.router_api_format import RouterApiFormat
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
+from ..domain.api_endpoint import SERVED_BACKEND
 from ..domain.api_format import api_format_of
 from ..domain.base_component import BaseComponent
 from ..domain.component_resources import ComponentResources
@@ -35,12 +34,8 @@ from ..infrastructure.endpoint.open_endpoint_client import open_endpoint_client
 from ..infrastructure.endpoint.served_call import ServedCallMixin
 from .http_resources import HttpResources
 
-# The toolkit's own registered component type, the router: imported for what its
-# classes register on their class line (the fake backend, the API format), and
-# named here so the imports are kept.
-TOOLKIT_REGISTRATIONS = (FakeRouter, RouterApiFormat)
 # The backend every registered component type has, whether a class names it or not.
-SERVED = "served"
+SERVED = SERVED_BACKEND
 # The backend whose model runs in this process; a model server opens it.
 LOCAL = "local"
 ComponentType = type[BaseComponent[Any, Any]]
@@ -80,30 +75,18 @@ async def open_served(
     Args:
         name: The component's name: every error names it, and its model server
             serves it under it.
-        component: Its settings: the ``served`` block's URL and its ``http``
-            block.
+        component: Its settings: the ``served`` block's URL, which the
+            settings refuse when it is no URL, and its ``http`` block.
         http: The shared HTTP client, the default policy and the run tokens.
 
     Returns:
         The type's own ``served`` class if it names one, else the built one,
         each built with the endpoint client and the type's API format.
 
-    Raises:
-        ValueError: If the ``served`` block names no URL; the message names
-            the variable to set.
-
     Example:
         >>> await open_served("shouter", shouter_settings, http)
         <ServedShouter ...>
     """
-    url = component.served.url
-    if not url.startswith(("http://", "https://")):
-        variable = WorkflowSettings.variable_of("components", name, "served", "url")
-        raise ValueError(
-            f"component {name!r} is on 'served' and needs {variable}, the call "
-            f"route of its model server, such as http://host:8888/call/"
-            f"{component.type}; got {url!r}"
-        )
     port = component.component_type()
     endpoint_client = open_endpoint_client(
         await http.client(),

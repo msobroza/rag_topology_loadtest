@@ -24,14 +24,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..domain.api_endpoint import SERVED_BACKEND
 from ..domain.base_component import COMPONENT_TYPES
 
 # The package of the openers, beside this one in query_processing.
 OPENERS = Path(__file__).resolve().parents[1] / "composition" / "openers"
 _OPENER_INFIX = "_on_"  # <type>_on_<backend>.py
-# The backend every registered component type has: the class that calls a
-# model server of ours, built by composition/registered_components.py.
-SERVED_BACKEND = "served"
 
 
 def registered_backends(

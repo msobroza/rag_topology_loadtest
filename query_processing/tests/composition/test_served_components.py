@@ -165,13 +165,12 @@ def test_served_is_a_backend_of_every_registered_type(
     check_registered_names(served_settings(settings_factory, "shouter", SHOUTER_URL))
 
 
-async def test_a_served_component_with_no_url_is_refused_naming_the_variable(
+def test_a_served_component_with_no_url_is_refused_naming_the_variable(
     settings_factory: SettingsFactory,
 ) -> None:
-    settings = served_settings(settings_factory, "shouter", "")
-
-    with pytest.raises(RagDependencyError, match="QP_COMPONENTS__SHOUTER__SERVED__URL"):
-        await call(settings, "shouter", answering({"text": "A"}))
+    # Refused when the settings are read, before anything opens.
+    with pytest.raises(ValueError, match="QP_COMPONENTS__SHOUTER__SERVED__URL"):
+        served_settings(settings_factory, "shouter", "")
 
 
 def test_a_served_class_that_is_no_served_call_mixin_is_refused_naming_it() -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from query_processing.config.searched_embedder import seeding_embedder
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.graph_description import GraphDescription
@@ -341,3 +342,30 @@ def test_two_embedders_writing_the_searched_embedding_leave_none_searched(
         graph={"stages": {"embed_again": embed_again}},
     )
     assert settings.searched_embedder() is None
+    assert seeding_embedder(settings.graph, settings.component_types()) is None
+
+
+def test_a_lexical_graph_seeds_the_store_with_the_first_embedder_declared(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(
+        components={"router_embedder": ROUTER_EMBEDDER}, graph=rag_graph("lexical")
+    )
+    assert seeding_embedder(settings.graph, settings.component_types()) == "embedder"
+
+
+def test_a_dense_graph_seeds_the_store_with_the_embedder_its_searches_use(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(components={"router_embedder": ROUTER_EMBEDDER})
+    types = {"router_embedder": "embedder", **settings.component_types()}
+    # The router's embedder first in the file: the searches' embedder still seeds.
+    assert seeding_embedder(settings.graph, types) == "embedder"
+
+
+def test_the_vector_stores_are_listed_by_name_and_the_models_left_out(
+    settings_factory: SettingsFactory,
+) -> None:
+    archive = {"type": "vector_store", "backend": "fake"}
+    settings = settings_factory(components={"archive": archive})
+    assert list(settings.vector_stores()) == ["vector_store", "archive"]

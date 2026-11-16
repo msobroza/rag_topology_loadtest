@@ -25,7 +25,6 @@ from graph_check_fixtures import (
     check,
     graph_of,
 )
-from query_processing.application.component_types import COMPONENT_TYPES
 from query_processing.application.graph_check import (
     WorkflowGraphError,
     fields_set_before,
@@ -33,6 +32,7 @@ from query_processing.application.graph_check import (
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.workflow_state import REQUEST_FIELDS
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.base_component import COMPONENT_TYPES
 
 
 def test_a_graph_of_other_stage_types_and_edge_conditions_passes() -> None:

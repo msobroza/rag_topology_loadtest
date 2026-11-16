@@ -62,7 +62,7 @@ from .component_settings import (
     VectorStoreSettings,
     typed_by_name,
 )
-from .endpoint_urls import missing_url_message, model_endpoint_url
+from .endpoint_urls import component_endpoint_url, missing_url_message
 from .extensions import load_extensions
 from .prompts_file import prompts_file, prompts_file_source
 from .router_settings import check_router_embedders, check_router_routes
@@ -248,8 +248,9 @@ class WorkflowSettings(BaseSettings):
     def check_endpoint_urls(self) -> WorkflowSettings:
         """Fail at start-up when a component on ``served`` or ``api`` has no URL.
 
-        The URL is the one of the block named after the backend; the URL of a
-        component on another backend is not checked.
+        The URL is the one of the block named after the backend, a registered
+        type's on ``served`` included; the URL of a component on another
+        backend is not checked.
 
         Returns:
             The settings, unchanged.
@@ -259,8 +260,8 @@ class WorkflowSettings(BaseSettings):
                 start with ``http://`` or ``https://``; the message names the
                 variables, the value and an example.
         """
-        for name, component in self.model_components().items():
-            url = model_endpoint_url(component)
+        for name, component in self.components.items():
+            url = component_endpoint_url(component)
             if url is not None and not url.startswith(("http://", "https://")):
                 backend = self.variable_of("components", name, "backend")
                 url_variable = self.variable_of(
@@ -305,8 +306,8 @@ class WorkflowSettings(BaseSettings):
                 on ``chroma`` no collection; the message names the variables,
                 the workflow file's key and the value.
         """
-        for name, component in self.components.items():
-            named = _store_name(component)
+        for name, component in self.vector_stores().items():
+            named = component.kept_in()
             if named is None or named[1]:
                 continue
             key, backend = named[0], component.backend
@@ -389,6 +390,19 @@ class WorkflowSettings(BaseSettings):
         models = (EmbedderSettings, RerankerSettings, LlmSettings)
         return {n: c for n, c in self.components.items() if isinstance(c, models)}
 
+    def vector_stores(self) -> dict[str, VectorStoreSettings]:
+        """Return the components that are vector stores, by name.
+
+        Returns:
+            The vector stores of the workflow file, in its order.
+
+        Example:
+            >>> list(WorkflowSettings().vector_stores())
+            ['vector_store']
+        """
+        found = self.components.items()
+        return {n: c for n, c in found if isinstance(c, VectorStoreSettings)}
+
     def component_types(self) -> dict[str, str]:
         """Return the type of every component a stage can call, by name.
 
@@ -414,9 +428,7 @@ class WorkflowSettings(BaseSettings):
             >>> WorkflowSettings().ingestion_store()
             'vector_store'
         """
-        stores = [
-            n for n, c in self.components.items() if isinstance(c, VectorStoreSettings)
-        ]
+        stores = list(self.vector_stores())
         if len(stores) != 1:
             known = ", ".join(map(repr, stores)) or "none"
             raise ValueError(
@@ -428,8 +440,8 @@ class WorkflowSettings(BaseSettings):
     def ingestion_embedder(self, name: str | None = None) -> str:
         """Return the embedder that fills the store: the one named, else the only one.
 
-        Ingestion embeds passages, and the fake store is seeded, with one
-        embedder of the workflow file; with several, it must be named.
+        Ingestion embeds passages with one embedder of the workflow file;
+        with several, it must be named.
 
         Args:
             name: The embedder asked for; None for the only one declared.
@@ -472,15 +484,3 @@ class WorkflowSettings(BaseSettings):
             'embedder'
         """
         return searched_embedder(self.graph, self.component_types())
-
-
-def _store_name(component: Component) -> tuple[str, str] | None:
-    # A store's key that names where its passages are kept, and its value;
-    # None for a model, or for a store on a backend that names nothing.
-    if not isinstance(component, VectorStoreSettings):
-        return None
-    if component.backend == "elasticsearch":
-        return "index", component.elasticsearch.index
-    if component.backend == "chroma":
-        return "collection", component.chroma.collection
-    return None

@@ -79,6 +79,23 @@ ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # the rest of deploy reads them through it.
     "query_processing.deploy.workflow_components": {"config"},
 }
+# The named exceptions that load modules by name, as an extension is loaded,
+# from a package their own may not import: one module each, and the modules
+# it may name. Nothing else names a module of the toolkit in a string.
+LOADED_BY_NAME: dict[str, set[str]] = {
+    # The settings read the components of the toolkit's own types, so they load
+    # the five ports and the router's package (its fake backend, its API
+    # format) first; config never imports them (TOOLKIT_COMPONENT_TYPES).
+    "query_processing.config.extensions": {
+        "query_processing.adapters.embedder.base_embedder",
+        "query_processing.adapters.reranker.base_reranker",
+        "query_processing.adapters.llm.base_llm",
+        "query_processing.adapters.vector_store.base_vector_store",
+        "query_processing.adapters.router",
+    },
+}
+# A string that is the dotted name of a module of the toolkit.
+DOTTED_MODULE_NAME = re.compile(r"query_processing(\.\w+)+")
 LOCUSTFILE = TOOLKIT_ROOT / "locustfile.py"  # the load-test client's file, outside src
 
 
@@ -255,6 +272,67 @@ def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
     ]
     allowed = ", ".join(sorted(MAY_IMPORT[package]))
     assert not offending, f"{package} may import only {allowed}: {offending}"
+
+
+def forbidden_names(module: str, source: str) -> list[str]:
+    """The modules ``module`` names in a string, to load them, beyond what it may.
+
+    A module may name what its package may import, and what ``LOADED_BY_NAME``
+    gives it.
+
+    Example::
+
+        forbidden_names("query_processing.domain.passages",
+                        "X = 'query_processing.adapters.router'")
+        # ["query_processing.domain.passages:1 names query_processing.adapters.router"]
+    """
+    package = module.split(".")[1]
+    allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
+    named = LOADED_BY_NAME.get(module, set())
+    return [
+        f"{module}:{node.lineno} names {node.value}"
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and DOTTED_MODULE_NAME.fullmatch(node.value)
+        and node.value.split(".")[1] not in allowed
+        and node.value not in named
+    ]
+
+
+def test_the_name_reader_on_literal_sources() -> None:
+    router = "X = 'query_processing.adapters.router'"
+    assert forbidden_names("query_processing.domain.passages", router) == [
+        "query_processing.domain.passages:1 names query_processing.adapters.router"
+    ]
+    assert forbidden_names("query_processing.config.extensions", router) == []
+    fake = "X = 'query_processing.adapters.router.fake.fake_router'"
+    assert forbidden_names("query_processing.config.extensions", fake) != []
+    prose = '"""Loads query_processing.adapters.router first."""'
+    assert forbidden_names("query_processing.domain.passages", prose) == []
+    assert (
+        forbidden_names("query_processing.config.x", "X = 'query_processing.domain'")
+        == []
+    )
+
+
+@pytest.mark.parametrize("package", sorted(MAY_IMPORT))
+def test_each_package_loads_by_name_only_what_the_table_allows(package: str) -> None:
+    offending = [
+        offence
+        for path in sorted((PACKAGE / package).rglob("*.py"))
+        for offence in forbidden_names(
+            module_name(path), path.read_text(encoding="utf-8")
+        )
+    ]
+    assert not offending, f"{package} names modules it may not load: {offending}"
+
+
+def test_the_settings_load_the_modules_the_table_gives_them() -> None:
+    from query_processing.config.extensions import TOOLKIT_COMPONENT_TYPES
+
+    named = LOADED_BY_NAME["query_processing.config.extensions"]
+    assert set(TOOLKIT_COMPONENT_TYPES) == named
 
 
 def importers_of(top: str, exempt: Path | None = None) -> list[str]:

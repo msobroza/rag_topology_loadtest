@@ -104,13 +104,37 @@ async def test_the_fake_store_is_seeded_with_the_embedder_its_searches_use(
         components={"router_embedder": second},
         graph={"stages": {"embed_for_route": embed_for_route}},
     )
-    # Today's rule alone, the only embedder declared, refuses a file with two.
+    # Vectors of another length than the searched embedder's (16): a store
+    # seeded with them refuses a query's vector.
+    other_length = FakeEmbedder(dim=8)
+    async with CompositionRoot(settings, router_embedder=other_length) as composition:
+        deps = await composition.workflow_dependencies()
+        store = deps.by_name["vector_store"]
+        embedder = deps.by_name["embedder"]
+
+        assert isinstance(store, InMemoryVectorStore)
+        assert isinstance(embedder, FakeEmbedder)
+        assert await store.count() == 200  # the default seed size
+        found = await store.query(await embedder.embed_query("refund"), top_k=1)
+        assert len(found) == 1
+
+
+async def test_a_lexical_graph_starts_on_a_fake_store_with_two_embedders(
+    settings_factory: SettingsFactory,
+) -> None:
+    second = {"type": "embedder", "backend": "fake", "source_id": "org/router"}
+    settings = settings_factory(
+        **FAKE_BACKENDS,
+        components={"router_embedder": second},
+        graph=rag_graph("lexical"),
+    )
     async with CompositionRoot(settings) as composition:
         deps = await composition.workflow_dependencies()
         store = deps.by_name["vector_store"]
 
         assert isinstance(store, InMemoryVectorStore)
         assert await store.count() == 200  # the default seed size
+        assert await store.lexical_query("refund policy", top_k=1) != []
 
 
 async def test_ingestion_refuses_a_name_that_is_no_embedder(
