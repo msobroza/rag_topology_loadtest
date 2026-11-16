@@ -1,0 +1,13 @@
+panel,group,series,experiment,users,requests_per_s
+"Requests a second, FastAPI model server",8 vCPUs,small reranker (0.1 B parameters),v8-alone-fastapi-fp32,4,1.004
+"Requests a second, FastAPI model server",8 vCPUs,large reranker (0.6 B parameters),q8-fastapi-openvino-ir-uniform,4,0.166
+"Requests a second, FastAPI model server",16 vCPUs,small reranker (0.1 B parameters),v16-alone-fastapi-fp32,4,1.808
+"Requests a second, FastAPI model server",16 vCPUs,large reranker (0.6 B parameters),q16-fastapi-openvino-ir-uniform,4,0.326
+The large reranker on both servers,"8 vCPUs, uniform passages",FastAPI,q8-fastapi-openvino-ir-uniform,4,0.166
+The large reranker on both servers,"8 vCPUs, uniform passages",OVMS,q8-ovms-openvino-ir-uniform,4,0.164
+The large reranker on both servers,"8 vCPUs, mixed passages",FastAPI,q8-fastapi-openvino-ir-mixed,4,0.143
+The large reranker on both servers,"8 vCPUs, mixed passages",OVMS,q8-ovms-openvino-ir-mixed,4,0.112
+The large reranker on both servers,"16 vCPUs, uniform passages",FastAPI,q16-fastapi-openvino-ir-uniform,4,0.326
+The large reranker on both servers,"16 vCPUs, uniform passages",OVMS,q16-ovms-openvino-ir-uniform,4,0.331
+The large reranker on both servers,"16 vCPUs, mixed passages",FastAPI,q16-fastapi-openvino-ir-mixed,4,0.268
+The large reranker on both servers,"16 vCPUs, mixed passages",OVMS,q16-ovms-openvino-ir-mixed,4,0.213

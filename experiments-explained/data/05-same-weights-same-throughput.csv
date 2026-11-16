@@ -1,0 +1,13 @@
+group,server,experiment,users,requests_per_s
+"2 vCPUs, 32-bit",FastAPI,m1-fastapi-rerank,4,0.235
+"2 vCPUs, 32-bit",OVMS,m8-ovms-fp32-rerank,4,0.238
+"2 vCPUs, 8-bit",FastAPI,m8-fastapi-int8-rerank,4,0.362
+"2 vCPUs, 8-bit",OVMS,m1-ovms-rerank,4,0.379
+"8 vCPUs, 32-bit",FastAPI,v8-alone-fastapi-fp32,4,1.004
+"8 vCPUs, 32-bit",OVMS,v8-alone-ovms-fp32-cal4,4,0.969
+"8 vCPUs, 8-bit",FastAPI,v8-alone-fastapi-int8,4,1.553
+"8 vCPUs, 8-bit",OVMS,v8-alone-ovms-int8-cal4,4,1.567
+"16 vCPUs, 32-bit",FastAPI,v16-alone-fastapi-fp32,4,1.808
+"16 vCPUs, 32-bit",OVMS,v16-alone-ovms-fp32-cal4,4,2.071
+"16 vCPUs, 8-bit",FastAPI,v16-alone-fastapi-int8,4,3.096
+"16 vCPUs, 8-bit",OVMS,v16-alone-ovms-int8-cal4,4,3.055

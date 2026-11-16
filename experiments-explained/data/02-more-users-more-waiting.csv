@@ -1,0 +1,11 @@
+machine,experiment,users,requests_per_s,median_s,expected_wait_s
+8 vCPUs,v8-alone-fastapi-fp32,1,0.631,1,1.585
+8 vCPUs,v8-alone-fastapi-fp32,4,1.004,3.4,3.984
+8 vCPUs,v8-alone-fastapi-fp32,8,1.03,7.2,7.767
+8 vCPUs,v8-alone-fastapi-fp32,16,1.011,15,15.826
+8 vCPUs,v8-alone-fastapi-fp32,32,1.012,31,31.621
+16 vCPUs,v16-alone-fastapi-fp32,1,0.895,0.56,1.117
+16 vCPUs,v16-alone-fastapi-fp32,4,1.808,1.6,2.212
+16 vCPUs,v16-alone-fastapi-fp32,8,1.791,3.9,4.467
+16 vCPUs,v16-alone-fastapi-fp32,16,1.803,8.2,8.874
+16 vCPUs,v16-alone-fastapi-fp32,32,1.792,17,17.857

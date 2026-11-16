@@ -1,0 +1,13 @@
+panel,users,server,experiment,requests,failures,failed_percent
+reranker on 8 vCPUs,4,FastAPI,v8-e2e-fastapi-fp32,111,0,0
+reranker on 8 vCPUs,4,OVMS,v8-e2e-ovms-fp32-2streams,87,0,0
+reranker on 8 vCPUs,16,FastAPI,v8-e2e-fastapi-fp32,111,0,0
+reranker on 8 vCPUs,16,OVMS,v8-e2e-ovms-fp32-2streams,76,31,40.789
+reranker on 8 vCPUs,32,FastAPI,v8-e2e-fastapi-fp32,117,84,71.795
+reranker on 8 vCPUs,32,OVMS,v8-e2e-ovms-fp32-2streams,113,84,74.336
+reranker on 16 vCPUs,4,FastAPI,v16-e2e-fastapi-fp32,203,0,0
+reranker on 16 vCPUs,4,OVMS,v16-e2e-ovms-fp32-cal16,147,0,0
+reranker on 16 vCPUs,16,FastAPI,v16-e2e-fastapi-fp32,204,0,0
+reranker on 16 vCPUs,16,OVMS,v16-e2e-ovms-fp32-cal16,182,0,0
+reranker on 16 vCPUs,32,FastAPI,v16-e2e-fastapi-fp32,205,0,0
+reranker on 16 vCPUs,32,OVMS,v16-e2e-ovms-fp32-cal16,163,47,28.834

@@ -284,3 +284,15 @@ def test_only_rag_deploy_imports_fake_domino() -> None:
     assert (
         not offending
     ), f"only deploy/rag_deploy.py may import fake_domino: {offending}"
+
+
+def test_experiment_charts_imports_nothing_from_the_product_or_the_fake() -> None:
+    charts = PACKAGE.parent / "experiment_charts"
+    offending = [
+        f"{path.relative_to(charts.parent)}:{line} imports {module}"
+        for path in sorted(charts.rglob("*.py"))
+        for package in ("rag_load_test", "fake_domino")
+        for line, module in absolute_imports(path, package)
+    ]
+    assert charts.is_dir(), f"{charts} is where the experiment charts live"
+    assert not offending, f"experiment_charts may import neither: {offending}"

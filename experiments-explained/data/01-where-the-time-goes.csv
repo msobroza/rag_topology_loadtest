@@ -1,0 +1,7 @@
+panel,experiment,users,stage,label,median_s
+reranker on 8 vCPUs,v8-e2e-fastapi-fp32,4,/retrieve:embed,embed the question,0.17
+reranker on 8 vCPUs,v8-e2e-fastapi-fp32,4,/retrieve:retrieve,search the index,0.015
+reranker on 8 vCPUs,v8-e2e-fastapi-fp32,4,/retrieve:rerank,rerank the 20 passages,3.4
+reranker on 16 vCPUs,v16-e2e-fastapi-fp32,4,/retrieve:embed,embed the question,0.17
+reranker on 16 vCPUs,v16-e2e-fastapi-fp32,4,/retrieve:retrieve,search the index,0.008
+reranker on 16 vCPUs,v16-e2e-fastapi-fp32,4,/retrieve:rerank,rerank the 20 passages,1.5

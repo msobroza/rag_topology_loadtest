@@ -1,0 +1,20 @@
+panel,group,server,experiment,batch_size,seconds,percent_of_batch_20,users,requests_per_s
+"Time of one request, by batch size",2 vCPUs,FastAPI,m7-calibrated-fastapi-rerank,20,7.132,100,,
+"Time of one request, by batch size",2 vCPUs,FastAPI,m7-calibrated-fastapi-rerank,10,5.809,81.45,,
+"Time of one request, by batch size",2 vCPUs,FastAPI,m7-calibrated-fastapi-rerank,5,5.269,73.878,,
+"Time of one request, by batch size",2 vCPUs,FastAPI,m7-calibrated-fastapi-rerank,2,4.674,65.536,,
+"Time of one request, by batch size",2 vCPUs,FastAPI,m7-calibrated-fastapi-rerank,1,4.705,65.97,,
+"Time of one request, by batch size",8 vCPUs,FastAPI,v8-alone-fastapi-fp32,20,1.93,100,,
+"Time of one request, by batch size",8 vCPUs,FastAPI,v8-alone-fastapi-fp32,10,1.47,76.166,,
+"Time of one request, by batch size",8 vCPUs,FastAPI,v8-alone-fastapi-fp32,5,1.36,70.466,,
+"Time of one request, by batch size",8 vCPUs,FastAPI,v8-alone-fastapi-fp32,2,1.24,64.249,,
+"Time of one request, by batch size",8 vCPUs,FastAPI,v8-alone-fastapi-fp32,1,1.33,68.912,,
+"Time of one request, by batch size",16 vCPUs,FastAPI,v16-alone-fastapi-fp32,20,0.975,100,,
+"Time of one request, by batch size",16 vCPUs,FastAPI,v16-alone-fastapi-fp32,10,0.721,73.949,,
+"Time of one request, by batch size",16 vCPUs,FastAPI,v16-alone-fastapi-fp32,5,0.683,70.051,,
+"Time of one request, by batch size",16 vCPUs,FastAPI,v16-alone-fastapi-fp32,2,0.729,74.769,,
+"Time of one request, by batch size",16 vCPUs,FastAPI,v16-alone-fastapi-fp32,1,0.783,80.308,,
+"Requests a second through the whole workflow, 4 users at once",8 vCPUs,FastAPI,v8-e2e-fastapi-fp32,,,,4,0.934
+"Requests a second through the whole workflow, 4 users at once",8 vCPUs,OVMS,v8-e2e-ovms-fp32-2streams,,,,4,0.734
+"Requests a second through the whole workflow, 4 users at once",16 vCPUs,FastAPI,v16-e2e-fastapi-fp32,,,,4,1.701
+"Requests a second through the whole workflow, 4 users at once",16 vCPUs,OVMS,v16-e2e-ovms-fp32-cal16,,,,4,1.244
