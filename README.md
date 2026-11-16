@@ -1003,7 +1003,7 @@ already converted, `RAG_OVMS_GENERATION_MODEL` (`OpenVINO/Qwen3.5-2B-int4-ov` by
 default), under the name `RAG_GENERATION_API_MODEL`; `export_models.sh` plays no
 part. `app.sh` reads both from `rag-served-models` (installing the project into
 `$HOME/rag-venv` with `uv` first when the command is missing, and stopping when
-neither is there, as in the prebuilt `ovms` image) and starts `ovms --source_model <id> --model_name <name>
+neither is there) and starts `ovms --source_model <id> --model_name <name>
 --model_repository_path "$RAG_OVMS_MODELS_DIR" --task text_generation
 --target_device CPU`, after creating `$RAG_OVMS_MODELS_DIR` (it stops, naming the
 folder, when it cannot): OVMS pulls the model from the Hub into
@@ -1015,7 +1015,10 @@ calibrated. Checked on a real machine on 16 November 2026: OVMS 2026.4.1 pulled
 the default model (2.0 GB) and served it 60 s after its first start and 5 s after
 a later one, on `/v3/chat/completions`. It writes its `graph.pbtxt` again at every
 start with `--source_model`, so a changed option takes effect on files already
-pulled.
+pulled. The Role does not run on the prebuilt `ovms` image: it holds neither `uv` nor the
+project, which the Role needs to read the generator's model and options. The Role
+runs in the generic environment `rag-deploy` publishes into, with `uv`, the OVMS
+bundle (`RAG_OVMS_BUNDLE`) and `RAG_BOOTSTRAP=1`.
 
 **Known defect: OVMS does not start on the default embedder.** On a real machine
 OVMS 2026.3.1 crashes with a segmentation fault while it loads
@@ -1478,7 +1481,7 @@ one project per app and set, in Project → Settings → Environment variables:
 | `rag-monolith` | `monolith` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY` |
 | `rag-ovms-reranker` | `ovms-reranker` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
-| `rag-ovms-generator` | `ovms-generator` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed, `RAG_OVMS_GENERATION_*` to change the model or its options |
+| `rag-ovms-generator` | `ovms-generator` | the generic environment `rag-deploy` publishes into, with `uv` (not `ovms`: see "The generator is pulled, not exported") | `RAG_BOOTSTRAP=1`, `RAG_OVMS_BUNDLE`, `RAG_OVMS_MODELS_DIR` if needed, `RAG_OVMS_GENERATION_*` to change the model or its options |
 | `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
 | `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
 | `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY`, `RAG_RERANK_API_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_EMBEDDING_API_URL` for split-all), `RAG_RUN_LABEL` for a variant |
