@@ -1,4 +1,4 @@
-"""The eleven charts of ``experiments-explained/``, with the experiments they read.
+"""The thirteen charts of ``experiments-explained/``, with the experiments they read.
 
 This is the one place where experiment ids are written: a chart's module knows
 how to select and draw, the catalog says from which runs.
@@ -17,6 +17,7 @@ from .bigger_machine_more_answers_chart import (
     WeightSeries,
 )
 from .chart_selections import LabelledRun, RunPair
+from .generation_under_load_chart import GenerationUnderLoadChart
 from .larger_model_chart import LargerModelChart
 from .more_users_more_waiting_chart import MoreUsersMoreWaitingChart
 from .one_request_fills_the_machine_chart import (
@@ -25,6 +26,7 @@ from .one_request_fills_the_machine_chart import (
     ThreadTrials,
 )
 from .overload_chart import OverloadChart
+from .reading_and_writing_chart import GeneratorProbe, ReadingAndWritingChart
 from .same_weights_same_throughput_chart import SameWeightsSameThroughputChart
 from .scale_out_or_scale_up_chart import ApproachSeries, ScaleOutOrScaleUpChart
 from .small_batches_chart import BatchTrials, SmallBatchesChart
@@ -34,14 +36,14 @@ from .who_waits_how_long_chart import DumbbellPanel, ServerRun, WhoWaitsHowLongC
 
 
 def experiment_charts() -> tuple[BaseExperimentChart, ...]:
-    """Build the eleven charts, in the order the tour shows them.
+    """Build the thirteen charts, in the order the tour shows them.
 
     Returns:
-        The charts, numbered 01 to 11 by their slugs.
+        The charts, numbered 01 to 13 by their slugs.
 
     Example:
         >>> len(experiment_charts())
-        11
+        13
     """
     return (
         _where_the_time_goes(),
@@ -55,6 +57,8 @@ def experiment_charts() -> tuple[BaseExperimentChart, ...]:
         _overload(),
         _topologies(),
         _larger_model(),
+        _reading_and_writing(),
+        _generation_under_load(),
     )
 
 
@@ -246,3 +250,38 @@ def _large_reranker_servers() -> tuple[RunPair, ...]:
             "q16-ovms-openvino-ir-mixed",
         ),
     )
+
+
+def _reading_and_writing() -> ReadingAndWritingChart:
+    reading, request = "reading_781_tokens_s", "request_922_tokens_s"
+    probes = (
+        GeneratorProbe(
+            "OVMS",
+            "g16-probe-ovms-settings",
+            ("measurements", "as_shipped", reading),
+            ("measurements", "as_shipped", request),
+        ),
+        GeneratorProbe(
+            "PyTorch",
+            "g16-probe-pytorch-threads",
+            ("measurements", reading, "threads_8"),
+            ("measurements", request, "threads_8"),
+        ),
+        GeneratorProbe(
+            "vLLM",
+            "g16-probe-vllm",
+            ("measurements", reading),
+            ("measurements", request),
+        ),
+    )
+    return ReadingAndWritingChart(probes)
+
+
+def _generation_under_load() -> GenerationUnderLoadChart:
+    servers = (
+        LabelledRun("OVMS, as it ships", "g16-check-ovms"),
+        LabelledRun("OVMS, one pass", "g16-check-ovms-tuned"),
+        LabelledRun("PyTorch", "g16-check-torch"),
+        LabelledRun("vLLM", "g16-check-vllm"),
+    )
+    return GenerationUnderLoadChart(servers, users=(1, 4))

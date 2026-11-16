@@ -1,0 +1,9 @@
+server,experiment,users,served_tokens_per_s,p50_s
+"OVMS, as it ships",g16-check-ovms,1,14.1,7.9
+"OVMS, as it ships",g16-check-ovms,4,11.6,42
+"OVMS, one pass",g16-check-ovms-tuned,1,14.4,7.9
+"OVMS, one pass",g16-check-ovms-tuned,4,20.4,23
+PyTorch,g16-check-torch,1,9.3,13
+PyTorch,g16-check-torch,4,10,51
+vLLM,g16-check-vllm,1,7,19
+vLLM,g16-check-vllm,4,15.8,25

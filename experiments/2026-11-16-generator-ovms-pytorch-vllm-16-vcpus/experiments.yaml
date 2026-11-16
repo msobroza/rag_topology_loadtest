@@ -1,0 +1,350 @@
+# Sitting of 16 November 2026, 06:26 to 08:25 UTC: Qwen3.5 with 2 B parameters as the
+# generator on one machine of 16 vCPUs, under three servers. A check made before any
+# generator server is built into the product: nothing here went through the deploy tool
+# or the emulated Domino. See README.md.
+#
+# Run names: g16-check-<server>-u<users>. Runs last 3 minutes. An id that starts with
+# g16-probe- is a measurement that is not a Locust run.
+
+common:
+  code: &code >-
+    main at 2209c12. The copy of the workflow app installed on the machine was patched
+    to send max_tokens with every chat request and to note the token counts of every
+    answer; neither is in the product yet
+  machine: &machine
+    machine_type: n2-standard-16
+    vcpus: 16
+    cores: 8
+    memory_gb: 62
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+    os: Ubuntu 22.04
+    spot: false
+  hardware: &hardware
+    generator: {replicas: 1, machine: *machine}
+    workflow_app: on the generator's machine
+    locust: on the generator's machine
+    elasticsearch: none
+    workspace: none; no emulated Domino and no proxy
+  models: &models
+    openvino: OpenVINO/Qwen3.5-2B-int4-ov (OpenVINO's conversion; 4-bit weights, asymmetric, group size 128; 2.0 GB)
+    intel: Intel/Qwen3.5-2B-int4-AutoRound (4-bit weights, symmetric, group size 128; 3.1 GB)
+    original: Qwen/Qwen3.5-2B (16-bit floating point; 4.55 GB)
+  pytorch_software: &pytorch_software >-
+    PyTorch 2.15.0, transformers 5.23.0, auto-round 0.16.1 with auto-round-lib 0.16.0,
+    in a virtualenv without the project
+  workflow: &workflow
+    command: rag-serve on the generator's machine, with the patch above
+    settings:
+      RAG_TOPOLOGY: monolith
+      RAG_EMBEDDING_BACKEND: fake
+      RAG_RERANK_BACKEND: fake
+      RAG_VECTOR_STORE_BACKEND: fake
+      RAG_GENERATION_BACKEND: api
+      RAG_GENERATION_API_MODEL: qwen3.5-2b
+      RAG_GENERATION_TIMEOUT_S: 300
+      RAG_HTTP_RETRIES: 0
+    chat_request: max_tokens 128, temperature 0
+  load: &load
+    target: the workflow app, on the same machine, without a proxy
+    route: POST /query
+    command: the repository's Locust file (Locust 2.47.0), RAG_LOADTEST_RETRIEVE_WEIGHT=0
+    request: >-
+      one of the load test's 50 synthetic questions, which are 14 distinct ones; with
+      the fake store each retrieves the same 10 passages every time, so a run sends 14
+      distinct prompts of 747 to 922 tokens
+    wait_between_requests: 0.2 to 1.0 s
+    duration: 3m
+    spawn_rate: all users at once
+    users: [1, 4]
+    before_each_experiment: two answers, so that no run holds a server's first request
+  probe_prompts: &probe_prompts >-
+    six of the 14 prompts, built by the workflow with the fake components: prompt 0 has
+    829 tokens, prompt 1 922, prompt 2 781, prompt 3 747. Every request has
+    temperature 0
+  ovms_command: &ovms_command >-
+    ovms --rest_port 8888 --source_model OpenVINO/Qwen3.5-2B-int4-ov --model_name
+    qwen3.5-2b --model_repository_path <folder> --task text_generation --target_device
+    CPU
+  tokens_note: &tokens_note >-
+    answers counts every answer the generator returned during the run; at 4 users one
+    arrives after Locust has stopped counting. served_tokens_per_s is completion_tokens
+    over seconds, the time between the run's first and last statistics lines.
+
+experiments:
+  - id: g16-check-ovms
+    question: OVMS as it ships, on OpenVINO's 4-bit files.
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; OVMS started by hand
+    server:
+      software: OVMS 2026.4.1 (OpenVINO 2026.4.1), the build without Python
+      command: *ovms_command
+      weights: OpenVINO's 4-bit files
+      route: /v3/chat/completions
+      prefix_cache: on, its default
+    workflow: *workflow
+    load: *load
+    runs: [g16-check-ovms-u1, g16-check-ovms-u4]
+    measurements:
+      tokens:
+        users_1: {answers: 22, completion_tokens: 2516, completion_tokens_per_answer: 114.4, prompt_tokens_per_answer: 793, seconds: 179, served_tokens_per_s: 14.1}
+        users_4: {answers: 17, completion_tokens: 2073, completion_tokens_per_answer: 121.9, prompt_tokens_per_answer: 817, seconds: 179, served_tokens_per_s: 11.6}
+    notes:
+      - *tokens_note
+      - Answers stop before the cap on some questions (70 or 82 tokens), so they hold fewer than 128 tokens on average.
+
+  - id: g16-check-ovms-tuned
+    question: OVMS reading each prompt in one pass, the setting g16-probe-ovms-settings found.
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; OVMS started by hand
+    server:
+      software: OVMS 2026.4.1 (OpenVINO 2026.4.1), the build without Python
+      command: *ovms_command
+      options: --dynamic_split_fuse false --max_num_batched_tokens 8192
+      weights: OpenVINO's 4-bit files
+      route: /v3/chat/completions
+      prefix_cache: on, its default
+    workflow: *workflow
+    load: *load
+    runs: [g16-check-ovms-tuned-u1, g16-check-ovms-tuned-u4]
+    measurements:
+      tokens:
+        users_1: {answers: 22, completion_tokens: 2596, completion_tokens_per_answer: 118.0, prompt_tokens_per_answer: 805, seconds: 180, served_tokens_per_s: 14.4}
+        users_4: {answers: 31, completion_tokens: 3646, completion_tokens_per_answer: 117.6, prompt_tokens_per_answer: 825, seconds: 179, served_tokens_per_s: 20.4}
+    notes:
+      - *tokens_note
+
+  - id: g16-check-torch-first-script
+    question: A stand-in for a FastAPI generator on PyTorch, one generation at a time.
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; a script started by hand
+    server:
+      software: a FastAPI script of the sitting, about 60 lines, not the product's model server
+      runtime: *pytorch_software
+      weights: Intel's 4-bit files
+      route: /v3/chat/completions
+      generations_at_once: 1
+      threads: 8 asked, set once when the server starts
+    workflow: *workflow
+    load: *load
+    runs: [g16-check-torch-first-script-u1, g16-check-torch-first-script-u4]
+    measurements:
+      tokens:
+        users_1: {answers: 13, completion_tokens: 1664, completion_tokens_per_answer: 128.0, prompt_tokens_per_answer: 828, seconds: 179, served_tokens_per_s: 9.3}
+        users_4: {answers: 14, completion_tokens: 1792, completion_tokens_per_answer: 128.0, prompt_tokens_per_answer: 811, seconds: 179, served_tokens_per_s: 10.0}
+    notes:
+      - *tokens_note
+      - Run as g16-check-torch and renamed when the second script was run.
+      - >-
+        A request took 13 s, where the same model called from a script took 9.58 s on 8
+        threads and 11.43 s on 16 (g16-probe-pytorch-threads). The thread count was
+        suspected and g16-check-torch tried it.
+
+  - id: g16-check-torch
+    question: The same stand-in, with the thread count also set in the thread that generates.
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; a script started by hand
+    server:
+      software: a FastAPI script of the sitting, about 60 lines, not the product's model server
+      runtime: *pytorch_software
+      weights: Intel's 4-bit files
+      route: /v3/chat/completions
+      generations_at_once: 1
+      threads: 8 asked, set when the server starts and again in the generating thread
+    workflow: *workflow
+    load: *load
+    runs: [g16-check-torch-u1, g16-check-torch-u4]
+    measurements:
+      tokens:
+        users_1: {answers: 13, completion_tokens: 1664, completion_tokens_per_answer: 128.0, prompt_tokens_per_answer: 803, seconds: 179, served_tokens_per_s: 9.3}
+        users_4: {answers: 14, completion_tokens: 1792, completion_tokens_per_answer: 128.0, prompt_tokens_per_answer: 835, seconds: 179, served_tokens_per_s: 10.0}
+    notes:
+      - *tokens_note
+      - >-
+        The two scripts served alike. Why the server takes 13 s a request where a
+        direct call took 9.58 s was not established.
+
+  - id: g16-check-vllm
+    question: vLLM's CPU image on Intel's 4-bit files.
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; vLLM's image started by hand, in Docker
+    server:
+      software: vLLM 0.32.0, the image vllm/vllm-openai-cpu:v0.32.0-x86_64
+      options: --max-model-len 4096, VLLM_CPU_KVCACHE_SPACE=8, nothing else
+      weights: Intel's 4-bit files
+      route: /v1/chat/completions
+    workflow: *workflow
+    load: *load
+    runs: [g16-check-vllm-u1, g16-check-vllm-u4]
+    measurements:
+      tokens:
+        users_1: {answers: 11, completion_tokens: 1245, completion_tokens_per_answer: 113.2, prompt_tokens_per_answer: 809, seconds: 179, served_tokens_per_s: 7.0}
+        users_4: {answers: 27, completion_tokens: 2822, completion_tokens_per_answer: 104.5, prompt_tokens_per_answer: 806, seconds: 179, served_tokens_per_s: 15.8}
+    notes:
+      - *tokens_note
+      - >-
+        On the same weights as the PyTorch stand-in, whose answers all fill the cap,
+        vLLM's answers stop at 51 or 85 tokens on some questions. vLLM runs the 4-bit
+        layers with a kernel of its own; why the answers differ was not established.
+
+  - id: g16-probe-ovms-first-requests
+    question: Does OVMS 2026.4.1 pull and serve the model, cap an answer and report its tokens, and what does its prefix cache change?
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; requests sent straight to OVMS by a script
+    server: {software: "OVMS 2026.4.1 (OpenVINO 2026.4.1), the build without Python", command: *ovms_command}
+    prompts: *probe_prompts
+    measurements:
+      pull_and_first_start_s: 60
+      later_start_s: 5
+      model_on_disk_gb: 2.0
+      memory_gb: 3.2
+      pipeline: vision-language, continuous batching (logged at start)
+      answer: usage (prompt, completion and total tokens) and finish_reason; no reasoning text
+      unknown_model: {status: 404, error: Mediapipe graph definition with requested name is not found}
+      prefix_cache_on:
+        prompt_0_first_request_s: 9.41
+        prompt_0_again_s: 8.27
+        prompt_1_first_time_s: 8.67
+        prompt_1_cap_of_16_tokens: {seconds: 5.16, completion_tokens: 16, finish_reason: length}
+        four_at_once: {wall_s: 33.8, each_s: [33.69, 33.56, 33.8, 30.81], completion_tokens: [128, 128, 128, 67], served_tokens_per_s: 13.3}
+        four_at_once_again: {wall_s: 33.88, each_s: [33.88, 33.77, 33.68, 30.89], completion_tokens: [128, 128, 128, 67], served_tokens_per_s: 13.3}
+        prompt_0_no_cap: {seconds: 15.03, completion_tokens: 363, finish_reason: stop}
+      prefix_cache_off:
+        prompt_0_first_request_s: 9.22
+        prompt_0_again_s: 7.98
+        four_at_once: {wall_s: 34.23, each_s: [33.94, 34.03, 34.22, 31.63], completion_tokens: [128, 128, 128, 70], served_tokens_per_s: 13.3}
+        four_at_once_again: {wall_s: 32.44, each_s: [32.27, 32.44, 32.15, 29.88], completion_tokens: [128, 128, 128, 70], served_tokens_per_s: 14.0}
+    notes:
+      - Every request but two is capped at 128 tokens; the two say their cap.
+      - >-
+        The prefix cache changed nothing: a prompt sent again took 8.27 s with it and
+        7.98 s without, and the 16-token request on a prompt just read still took 5.16 s.
+      - OVMS wrote its graph again at the second start, with the cache off.
+
+  - id: g16-probe-ovms-settings
+    question: Which OVMS setting changes how fast it reads a prompt or serves four requests at once?
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; requests sent straight to OVMS by a script, one OVMS start per setting
+    server: {software: "OVMS 2026.4.1 (OpenVINO 2026.4.1), the build without Python", command: *ovms_command}
+    prompts: *probe_prompts
+    measurements:
+      as_shipped:
+        options: none
+        reading_922_tokens_s: 4.66
+        reading_781_tokens_s: 3.94
+        request_922_tokens_s: 8.56
+        request_747_tokens_s: 7.65
+        four_at_once: {wall_s: 32.94, completion_tokens: 454, served_tokens_per_s: 13.8}
+      one_pass_reading:
+        options: --dynamic_split_fuse false --max_num_batched_tokens 8192
+        reading_922_tokens_s: 4.88
+        reading_781_tokens_s: 4.09
+        request_922_tokens_s: 8.73
+        request_747_tokens_s: 7.75
+        four_at_once: {wall_s: 21.99, completion_tokens: 454, served_tokens_per_s: 20.6}
+      bigger_chunks:
+        options: --max_num_batched_tokens 8192
+        reading_922_tokens_s: 4.82
+        reading_781_tokens_s: 4.07
+        request_922_tokens_s: 8.57
+        request_747_tokens_s: 7.58
+        four_at_once: {wall_s: 24.33, completion_tokens: 454, served_tokens_per_s: 18.7}
+      multi_token_prediction:
+        options: --draft_model_path . --enable_prefix_caching false
+        reading_922_tokens_s: 4.56
+        reading_781_tokens_s: 3.88
+        request_922_tokens_s: 8.85
+        request_747_tokens_s: 8.05
+        four_at_once: {wall_s: 37.83, completion_tokens: 454, served_tokens_per_s: 12.0}
+    notes:
+      - A reading is a request capped at 1 token; a request is capped at 128 tokens and wrote all 128.
+      - Four at once are prompts 2 to 5, each capped at 128 tokens.
+      - Each setting was measured once, after one warm-up request.
+
+  - id: g16-probe-pytorch-threads
+    question: Does PyTorch run Intel's 4-bit model on a CPU, and on how many threads is one request fastest?
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; a script that loads the model and generates, no server
+    runtime: *pytorch_software
+    prompts: *probe_prompts
+    measurements:
+      load_s: 33.9
+      model_class: Qwen3_5ForCausalLM
+      layers: {four_bit: 150, floating_point: 37}
+      peak_memory_gb: 3.65
+      request_922_tokens_s: {threads_16: 11.43, threads_8: 9.58, threads_4: 12.02}
+      reading_781_tokens_s: {threads_16: 1.91, threads_8: 1.14, threads_4: 1.52}
+      request_922_tokens_under_a_threadpoolctl_limit_of_4_s: 13.07
+      four_at_once:
+        threads_4: {wall_s: 44.45, completion_tokens: 512, served_tokens_per_s: 11.5}
+        threads_2: {wall_s: 34.08, completion_tokens: 512, served_tokens_per_s: 15.0}
+      original_in_floating_point: {request_922_tokens_s: 24.6, threads: 8, layers: {four_bit: 0, floating_point: 187}}
+    notes:
+      - A reading is a generation of 1 token; a request generates 128 tokens.
+      - The 4-bit layers are auto-round-lib's CPU kernels (QuantLinearGPTQ).
+      - Four at once are four threads generating at the same time on one loaded model.
+      - PyTorch logged that the model's linear-attention routines fall back to their reference implementation.
+
+  - id: g16-probe-pytorch-in-the-project-environment
+    question: Can a PyTorch generator share the project's virtualenv?
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; the project installed with uv on Python 3.11, as the launch script installs it
+    measurements:
+      the_project_with_auto_round:
+        resolved: {transformers: 5.0.0, optimum_intel: 2.0.0}
+        outcome: neither Intel's model nor the original loads; transformers does not recognise the architecture
+      the_project_with_transformers_5_2_or_later:
+        resolved: {transformers: 5.5.4, optimum_intel: 2.2.0}
+        outcome: >-
+          Intel's model loads with no 4-bit layer (187 floating-point layers, no
+          quantization) and writes unreadable text, with no error; a request took
+          24.93 s
+      without_the_project:
+        resolved: {transformers: 5.23.0}
+        outcome: loads with its 150 4-bit layers and answers (g16-probe-pytorch-threads)
+    notes:
+      - The newest optimum-intel, which the project's OpenVINO runtime depends on, accepts transformers below 5.6 only.
+
+  - id: g16-probe-vllm
+    question: Does vLLM serve Intel's 4-bit model on a CPU, and how long does it take to start?
+    code: *code
+    hardware: *hardware
+    models: *models
+    deploy: none; vLLM's image started by hand, in Docker, requests sent straight to it by a script
+    server:
+      software: vLLM 0.32.0, the image vllm/vllm-openai-cpu:v0.32.0-x86_64
+      options: --max-model-len 4096, VLLM_CPU_KVCACHE_SPACE=8, nothing else
+    prompts: *probe_prompts
+    measurements:
+      first_attempt: not serving after 15 min, stopped
+      first_start_s: 1045
+      second_start: not serving after 19 min, stopped; the compile cache kept from the first start held 6.6 MB
+      memory_gib: 20.17
+      kernels: a CPU kernel for the 4-bit layers and one for the model's linear-attention layers (logged at start)
+      first_request_of_8_tokens_s: 24.43
+      reading_922_tokens_s: 9.37
+      reading_781_tokens_s: 7.91
+      request_922_tokens_s: 19.85
+      request_747_tokens_s: 17.95
+      four_at_once: {wall_s: 42.1, each_s: [42.1, 42.0, 42.09, 37.2], completion_tokens: 469, served_tokens_per_s: 11.1}
+    notes:
+      - vLLM compiles the model when it starts; its log says so while it does.
+      - vLLM's CPU wheels need a newer C library than Ubuntu 22.04 has, hence the image.
+      - A reading is a request capped at 1 token; a request is capped at 128 tokens and wrote all 128.

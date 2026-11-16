@@ -1,7 +1,7 @@
 # The experiments, explained
 
 A guided tour of what this repository measured, for a reader who does not know the
-domain. Eleven charts, each with one finding, how to read it and why it happens. No prior
+domain. Thirteen charts, each with one finding, how to read it and why it happens. No prior
 knowledge of search systems, model servers or load testing is assumed.
 
 The measurements themselves are in [`experiments/`](../experiments/README.md): every
@@ -33,6 +33,12 @@ numbers behind each chart is in [`data/`](data/).
    in total.
 9. **A reranker five times larger** is about six times slower, and none of the findings
    above changes.
+10. **Writing the answer with a small language model on a CPU takes 8 to 20 seconds**,
+    depending on the program that runs it. Reading the question and its passages costs
+    about as much as writing the answer.
+11. **With several users, the program that computes several answers together serves
+    more.** One setting made OVMS go from the worst to the best at 4 users. This last
+    part is a first look, on one machine.
 
 ## What is being tested
 
@@ -44,14 +50,15 @@ flowchart LR
     Q([A question]) --> E["1. Embed<br/>turn the question<br/>into numbers"]
     E --> R["2. Retrieve<br/>find 20 candidate<br/>passages in the index"]
     R --> K["3. Rerank<br/>score each of the 20<br/>against the question"]
-    K --> G["4. Generate<br/>write the answer<br/>(not measured here)"]
+    K --> G["4. Generate<br/>write the answer<br/>(findings 12 and 13)"]
 ```
 
 Stages 1 and 3 each run a machine-learning model on the CPU. The model of stage 3, the
 **reranker**, reads the question together with each candidate passage and gives the
-pair a score. It is the heavy one: 20 passages mean 20 readings. The experiments stop
-after stage 3 (the route called `/retrieve`): stage 4 calls a language model elsewhere
-and was not measured.
+pair a score. It is the heavy one: 20 passages mean 20 readings. Findings 1 to 11 stop
+after stage 3 (the route called `/retrieve`). Findings 12 and 13 are a first look at
+stage 4, where a language model writes the answer: there the first three stages were
+replaced by stand-ins that cost nothing, so that only the writing was timed.
 
 Three things were varied.
 
@@ -93,9 +100,14 @@ people.
 | Batch size | How many of the 20 passages the reranker scores in one go |
 | Stream | One request that OVMS runs at the same time as others. With 2 streams it works on 2 requests at once, each on half of the CPUs |
 | Calibration | At start, the program times itself with a few settings and keeps the fastest |
+| Token | The unit a language model reads and writes: a word or a piece of a word. 100 tokens are about 75 English words |
+| Prompt | Everything the language model is given to read before it answers: here the instructions, the 10 passages kept by the reranker and the question, about 800 tokens |
+| Tokens served a second | How many tokens of answers the system wrote each second, for all users together. The throughput of the generate stage |
+| 4-bit weights | The same rounding as 8-bit weights, taken further: each weight stored with 4 bits |
 
 Each point of a chart is one run of 2 minutes, a few dozen to 200 requests. A
-difference of a few percent between two bars is noise, not a finding.
+difference of a few percent between two bars is noise, not a finding. Findings 12 and
+13 rest on less: runs of 3 minutes that hold 11 to 30 requests, or single requests.
 
 ## What the experiments showed
 
@@ -418,6 +430,75 @@ by OpenVINO's own team, would favour OVMS. Neither did.
 Numbers: [`data/11-larger-model.csv`](data/11-larger-model.csv).
 Sitting: [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
 
+### 12. Writing the answer: reading the prompt costs as much as writing
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/12-reading-and-writing-dark.svg">
+  <img src="figures/12-reading-and-writing.svg" width="1000" alt="Left: seconds to read a prompt of 781 tokens: OVMS 3.9, PyTorch 1.1, vLLM 7.9. Right: seconds for a whole request, a prompt of 922 tokens and 128 tokens written: OVMS 8.6, PyTorch 9.6, vLLM 19.9.">
+</picture>
+
+**How to read it.** A language model answers in two steps. It first reads its prompt,
+here the question and 10 passages, about 800 tokens. Then it writes the answer, one
+token after another, 128 tokens at most here. Left: the time to read. Right: the time of
+a whole request. Three programs ran the same model, Qwen3.5 with 2 billion parameters
+and 4-bit weights, on a machine of 16 vCPUs, one request at a time: OVMS, PyTorch and
+vLLM.
+
+**What it shows.** A whole request takes 8.6 seconds on OVMS, 9.6 on PyTorch and 19.9
+on vLLM. The first two end close but get there differently: PyTorch reads the prompt
+in 1.1 seconds where OVMS needs 3.9, and OVMS then writes about twice as fast. Reading
+is about half of OVMS's request.
+
+**Why it matters.** A question to this system comes with 10 passages, so the prompt is
+long and the answer short. A program that writes fast but reads slowly loses its lead.
+No setting of OVMS changed its reading time (four were tried), so it comes from how the
+model was prepared for it, not from how it is run.
+
+The same model with its weights not rounded took 24.6 seconds under PyTorch: 4-bit
+weights are worth 2.6 times here. What they cost in answer quality was not looked at.
+
+Numbers: [`data/12-reading-and-writing.csv`](data/12-reading-and-writing.csv).
+Sitting: [a generator on 16 vCPUs](../experiments/2026-11-16-generator-ovms-pytorch-vllm-16-vcpus/README.md).
+
+### 13. With several users, answering together serves more, and one setting decides for OVMS
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/13-generation-under-load-dark.svg">
+  <img src="figures/13-generation-under-load.svg" width="1000" alt="Left: tokens served a second at 1 and 4 users: OVMS as it ships 14.1 and 11.6, OVMS in one pass 14.4 and 20.4, PyTorch 9.3 and 10.0, vLLM 7.0 and 15.8. Right: median wait in seconds at 1 and 4 users: OVMS as it ships 7.9 and 42, OVMS in one pass 7.9 and 23, PyTorch 13 and 51, vLLM 19 and 25.">
+</picture>
+
+**How to read it.** The load test of the other findings, on the whole route this time
+(`/query`), with 1 user and with 4. Left: tokens of answers written each second, for
+all users together; higher is better. Right: the median wait for an answer; lower is
+better. "OVMS, one pass" is OVMS with one setting changed. The PyTorch program here
+writes one answer at a time; OVMS and vLLM can write several together.
+
+**What it shows.** With one user OVMS is first: 14 tokens a second and 7.9 seconds a
+request, against 9 and 13 seconds for PyTorch and 7 and 19 seconds for vLLM. With 4
+users the order changes. OVMS as it ships serves less than with one user, 11.6 tokens a
+second, and a request waits 42 seconds. With the setting changed it serves 20.4, the
+most of the four, and the wait is 23 seconds. vLLM more than doubles, to 15.8. PyTorch
+stays at 10 and its users wait 51 seconds, one behind the other.
+
+**Why it happens.** Writing the next token of four answers in one go costs less than
+four separate turns, so a program that groups requests serves more. This is unlike the
+reranker of finding 7, where running several requests at once gained nothing. OVMS as
+it ships reads prompts in small pieces shared between the requests, which suits many
+short prompts; four long prompts then wait on each other. Told to read each prompt
+whole, it groups them as intended.
+
+**Why tokens and not requests.** Capped at 128 tokens, the answers were not equally
+long: always 128 on PyTorch, 114 to 122 on average on OVMS, 105 to 113 on vLLM.
+Counting requests would favour the program that writes less.
+
+**What to keep in mind.** This is a first look, on one machine that also ran the load
+test. The PyTorch program is a stand-in written for the test, and it answered in 13
+seconds where the same model called directly took 9.6. vLLM took 17 minutes to start
+and held 20 GB of memory, against one minute and 3 GB for OVMS.
+
+Numbers: [`data/13-generation-under-load.csv`](data/13-generation-under-load.csv).
+Sitting: [a generator on 16 vCPUs](../experiments/2026-11-16-generator-ovms-pytorch-vllm-16-vcpus/README.md).
+
 ## Sizing by rule of thumb
 
 The findings give three rules for a first estimate. They hold for this reranker, 20
@@ -449,6 +530,12 @@ People read the answer first. Ten such users stand for many more people.
 - Let the program calibrate itself. The batch size it finds is worth about a third of
   the time of a request.
 - Choose the topology for how it lets machines be sized and shared, not for speed.
+- For the generate stage on a CPU, count tokens served a second, not requests, and cap
+  every answer alike: programs do not write answers of the same length.
+- Of the three programs tried for it, OVMS was the fastest, once told to read each
+  prompt in one pass. Try that setting before judging it under several users.
+- Look at a program's start and its memory as well as its speed: vLLM needed 17
+  minutes and 20 GB where OVMS needed one minute and 3 GB.
 
 ## What these experiments do not say
 
@@ -457,7 +544,9 @@ People read the answer first. Ten such users stand for many more people.
   not that platform. There a program gets a share of a machine.
 - One corpus (French, 1,592 passages), two rerankers, 20 passages a request, machines
   of up to 16 vCPUs. Nothing here says what happens beyond.
-- The last stage, writing the answer, was not measured.
+- The last stage, writing the answer, was measured once, by hand on one machine, with
+  one small language model and runs of 11 to 30 requests (findings 12 and 13). Whether
+  its answers are good was not looked at.
 - The ranking quality of 8-bit weights was not measured.
 - Sittings ran on different code and machines. Figures compare inside a sitting, and
   the charts say when they combine two.
@@ -469,7 +558,7 @@ People read the answer first. Ten such users stand for many more people.
 | What | Where |
 |---|---|
 | Every run, its settings and its statistics | [`experiments/`](../experiments/README.md), one folder per sitting |
-| The technical comparison of the two model servers | [`docs/model-servers.md`](../docs/model-servers.md) |
+| The technical comparison of the two model servers, for the reranker and the embedder | [`docs/model-servers.md`](../docs/model-servers.md) |
 | The table behind each chart | [`data/`](data/), one CSV file per chart, each row with the id of its experiment |
 | The charts | [`figures/`](figures/), each in a light and a dark version |
 | The program that draws them | `src/experiment_charts/`, run by `make experiment-charts` |
