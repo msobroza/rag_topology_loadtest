@@ -15,19 +15,13 @@ from typing import ClassVar
 
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.typing import LegendLocType
 
 from .base_experiment_chart import BaseExperimentChart
-from .chart_marks import label_point, line_with_markers
+from .chart_marks import draw_users_series, finish_users_panels
 from .chart_selections import LabelledRun
 from .chart_table import ChartTable
-from .chart_theme import (
-    ChartTheme,
-    add_legend,
-    axis_labels,
-    figure_title,
-    panel_title,
-    themed_figure,
-)
+from .chart_theme import ChartTheme, figure_title, themed_figure
 from .registry_reading import ExperimentRegistry
 
 
@@ -97,7 +91,10 @@ class MoreUsersMoreWaitingChart(BaseExperimentChart):
                 "users ÷ requests a second" if index == len(machines) - 1 else None
             )
             _draw_machine((left, right), theme, runs, colour, reference)
-        _finish_panels(left, right, theme, self.users)
+        # Each legend in the corner its panel's lines leave clear.
+        places: tuple[LegendLocType, LegendLocType] = ("lower right", "upper left")
+        labels = tuple(str(machine) for machine in machines)
+        finish_users_panels((left, right), theme, self.users, places, labels)
         return figure
 
 
@@ -108,39 +105,12 @@ def _draw_machine(
     colour: str,
     reference: str | None,
 ) -> None:
-    left, right = panels
-    positions = runs.numbers("users")
-    label = str(runs.column("machine")[0])
-    line_with_markers(
-        left, theme, (positions, runs.numbers("requests_per_s")), colour, label
-    )
-    line_with_markers(
-        right, theme, (positions, runs.numbers("median_s")), colour, label
-    )
-    right.plot(
-        positions,
+    draw_users_series(panels, theme, runs, colour, str(runs.column("machine")[0]))
+    panels[1].plot(
+        runs.numbers("users"),
         runs.numbers("expected_wait_s"),
         color=theme.reference,
         linewidth=1.0,
         label=reference,
         zorder=1,  # under the measured line
     )
-    end = (positions[-1], runs.numbers("median_s")[-1])
-    label_point(right, theme, end, label)
-
-
-def _finish_panels(
-    left: Axes, right: Axes, theme: ChartTheme, users: tuple[int, ...]
-) -> None:
-    # Linear in users, so a wait that grows with the queue draws as a straight line;
-    # the room on the right holds the labels at the ends of the lines.
-    left.set_xticks(users, [str(count) for count in users])
-    left.set_xlim(0, users[-1] * 1.25)
-    left.set_ylim(bottom=0)
-    right.set_ylim(bottom=0)
-    panel_title(left, theme, "Requests answered a second")
-    panel_title(right, theme, "Median wait for an answer")
-    axis_labels(left, theme, "users at once", "requests a second")
-    axis_labels(right, theme, "users at once", "seconds")
-    add_legend(left, theme, "lower right")
-    add_legend(right, theme, "upper left")

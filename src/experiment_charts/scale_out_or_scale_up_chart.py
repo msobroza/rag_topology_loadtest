@@ -1,13 +1,12 @@
-"""Chart 4: more machines of 2 vCPUs, or one bigger machine.
+"""Chart 4: eight reranker vCPUs as four machines of 2 vCPUs or as one of 8.
 
-Left, requests a second through the whole workflow with default settings, for
-reranker capacity spread over small machines or held by one machine of 8 vCPUs.
-Right, the median time of a request when it is the only one, by the size of the
-reranker's machine: a request is served on one machine, so only a bigger machine
-makes it faster.
+One sitting measured both like for like: the same split topology, the same
+FastAPI model server and settings, the same users, only the reranker's machines
+differ. Left, requests a second through the whole workflow; right, the median
+wait, both against users at once.
 
 Example:
-    >>> ScaleOutOrScaleUpChart(throughput, latency, approaches).table(registry)
+    >>> ScaleOutOrScaleUpChart(series, users, approaches).table(registry)
 """
 
 from __future__ import annotations
@@ -15,53 +14,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.patches import Patch
+from matplotlib.typing import LegendLocType
 
 from .base_experiment_chart import BaseExperimentChart
-from .chart_marks import label_bars, rate_text, seconds_text
-from .chart_table import Cell, ChartTable
-from .chart_theme import (
-    ChartTheme,
-    axis_labels,
-    figure_title,
-    panel_title,
-    themed_figure,
-)
+from .chart_marks import draw_users_series, finish_users_panels
+from .chart_table import ChartTable
+from .chart_theme import ChartTheme, figure_title, themed_figure
 from .registry_reading import ExperimentRegistry
 
 
 @dataclass(frozen=True)
-class ApproachBar:
-    """One bar: its label, its approach, its run and the machines running a reranker."""
+class ApproachSeries:
+    """One line: its label, its approach, its experiment and the reranker machines."""
 
-    label: str  # one line, e.g. "2 machines of 2 vCPUs"
+    label: str  # e.g. "4 machines of 2 vCPUs"
     approach: str
     experiment: str
-    users: int
     machines: int
     vcpus_each: int
 
 
 @dataclass(frozen=True)
 class ScaleOutOrScaleUpChart(BaseExperimentChart):
-    """Bars coloured by approach: throughput (left), a lone request's time (right)."""
+    """Throughput and median wait against users, one line per approach."""
 
-    throughput_bars: tuple[ApproachBar, ...]
-    latency_bars: tuple[ApproachBar, ...]
+    series: tuple[ApproachSeries, ...]
+    users: tuple[int, ...]
     approaches: tuple[str, str]  # scaling out first, then scaling up
     slug: ClassVar[str] = "04-scale-out-or-scale-up"
-    title: ClassVar[str] = "More machines, or a bigger machine"
-    throughput_panel: ClassVar[str] = (
-        "Requests a second through the whole workflow, default settings, "
-        "8 to 10 users at once"
-    )
-    latency_panel: ClassVar[str] = (
-        "Median time of a request when it is the only one, by the reranker's machine"
-    )
+    title: ClassVar[str] = "Eight reranker vCPUs as four machines or as one"
     columns: ClassVar[tuple[str, ...]] = (
-        "panel",
         "label",
         "approach",
         "experiment",
@@ -70,35 +53,36 @@ class ScaleOutOrScaleUpChart(BaseExperimentChart):
         "vcpus_each",
         "reranker_vcpus_total",
         "requests_per_s",
-        "requests_per_s_per_reranker_vcpu",
         "median_s",
+        "p95_s",
     )
 
     def table(self, registry: ExperimentRegistry) -> ChartTable:
-        """Each bar's route row; a cell that does not apply is empty.
+        """Each series' route row at each user count.
 
         Args:
             registry: The experiment registry.
 
         Returns:
-            One row per bar, the throughput panel's first.
+            One row per series and user count, the scale-out series first.
 
         Example:
-            >>> chart.table(registry).column("requests_per_s")[:3]
-            (0.336, 0.649, 0.652)
+            >>> chart.table(registry).column("requests_per_s")[:2]
+            (0.18, 0.377)
         """
-        rows: list[tuple[Cell, ...]] = []
-        for bar in self.throughput_bars:
-            rate = registry.route_row(bar.experiment, bar.users).requests_per_s
-            total = bar.machines * bar.vcpus_each
-            rows.append((*_head(self.throughput_panel, bar), rate, rate / total, ""))
-        for bar in self.latency_bars:
-            median = registry.route_row(bar.experiment, bar.users).p50_ms / 1000
-            rows.append((*_head(self.latency_panel, bar), "", "", median))
+        rows = []
+        for line in self.series:
+            total = line.machines * line.vcpus_each
+            head = (line.label, line.approach, line.experiment)
+            for users in self.users:
+                route = registry.route_row(line.experiment, users)
+                waits = (route.p50_ms / 1000, route.p95_ms / 1000)
+                machines = (line.machines, line.vcpus_each, total)
+                rows.append((*head, users, *machines, route.requests_per_s, *waits))
         return ChartTable(self.columns, tuple(rows))
 
     def draw(self, table: ChartTable, theme: ChartTheme) -> Figure:
-        """Two panels of three bars, every value printed, one legend for both.
+        """Two panels sharing a linear axis of users, coloured by approach.
 
         Args:
             table: What ``table`` returned.
@@ -110,61 +94,15 @@ class ScaleOutOrScaleUpChart(BaseExperimentChart):
         Example:
             >>> chart.draw(chart.table(registry), dark_theme())
         """
-        figure, (left, right) = themed_figure(theme, panels=2)
+        figure, (left, right) = themed_figure(theme, panels=2, share_x=True)
         figure_title(figure, theme, self.title)
         colours = dict(zip(self.approaches, theme.ordered_steps(2), strict=True))
-        throughput = table.rows_where("panel", self.throughput_panel)
-        _draw_bars(left, theme, throughput, "requests_per_s", colours)
-        latency = table.rows_where("panel", self.latency_panel)
-        _draw_bars(right, theme, latency, "median_s", colours)
-        panel_title(left, theme, self.throughput_panel)
-        panel_title(right, theme, self.latency_panel)
-        axis_labels(left, theme, "", "requests a second")
-        axis_labels(right, theme, "", "seconds")
-        figure.legend(
-            handles=[
-                Patch(color=colours[name], label=name) for name in self.approaches
-            ],
-            loc="outside lower center",
-            ncols=2,
-            frameon=False,
-            labelcolor=theme.ink,
-            fontsize=theme.text_size,
-        )
+        labels = tuple(str(label) for label in table.distinct("label"))
+        for label in labels:
+            runs = table.rows_where("label", label)
+            colour = colours[str(runs.column("approach")[0])]
+            draw_users_series((left, right), theme, runs, colour, label)
+        # Each legend in the corner its panel's lines leave clear.
+        places: tuple[LegendLocType, LegendLocType] = ("lower right", "upper left")
+        finish_users_panels((left, right), theme, self.users, places, labels)
         return figure
-
-
-def _head(panel: str, bar: ApproachBar) -> tuple[Cell, ...]:
-    run = (panel, bar.label, bar.approach, bar.experiment, bar.users)
-    return (*run, bar.machines, bar.vcpus_each, bar.machines * bar.vcpus_each)
-
-
-def _draw_bars(
-    axes: Axes,
-    theme: ChartTheme,
-    panel: ChartTable,
-    value_column: str,
-    colours: dict[str, str],
-) -> None:
-    positions = range(len(panel.rows))
-    values = panel.numbers(value_column)
-    bar_colours = [colours[str(approach)] for approach in panel.column("approach")]
-    bars = axes.bar(positions, values, 0.5, color=bar_colours, linewidth=0)
-    is_rate = value_column == "requests_per_s"
-    texts = [rate_text(value) if is_rate else seconds_text(value) for value in values]
-    label_bars(axes, theme, bars, texts)
-    axes.set_xticks(positions, _tick_labels(panel, with_total=is_rate))
-    axes.set_ylim(0, max(values) * 1.15)  # room for the value above the highest bar
-
-
-def _tick_labels(panel: ChartTable, with_total: bool) -> list[str]:
-    # "2 machines of 2 vCPUs" reads on two lines; the throughput panel adds the
-    # vCPUs in all, the measure the bars are compared on.
-    labels = [str(label).replace(" of ", "\nof ") for label in panel.column("label")]
-    if not with_total:
-        return labels
-    totals = panel.column("reranker_vcpus_total")
-    return [
-        f"{label}\n({total} vCPUs in all)"
-        for label, total in zip(labels, totals, strict=True)
-    ]

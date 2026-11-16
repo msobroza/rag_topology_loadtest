@@ -1,0 +1,351 @@
+# Sitting of 15 November 2026 from 22:40 UTC to 01:30 UTC the next day: 8 reranker vCPUs
+# as four machines of 2 vCPUs (scale out) or as one machine of 8 vCPUs (scale up), on the
+# same code and the same settings. See README.md.
+#
+# Each deploy is the file the phase script wrote with mkdeploy.py from the Workspace's
+# deploy.yaml. Before every layout the emulated Domino was restarted (it then holds no
+# App) and the App of every pool machine was stopped.
+
+common:
+  code: &code branch main at commit 8fe562f on every machine (pull requests 16, 17 and 18 merged)
+  workspace: &workspace {machine_type: n2-standard-4, vcpus: 4, spot: false}
+  elasticsearch: &elasticsearch {machine_type: n2-standard-2, vcpus: 2, spot: true}
+  small_machine: &small_machine
+    machine_type: n2-highmem-2
+    vcpus: 2
+    cores: 1
+    memory_gb: 15
+    hardware_tier: cpu-2
+    spot: true
+    cpu: Intel Xeon 2.80 GHz, stepping 7, with AVX-512 VNNI
+  big_machine: &big_machine
+    machine_type: n2-standard-8
+    vcpus: 8
+    cores: 4
+    memory_gb: 31
+    hardware_tier: cpu-8
+    spot: true
+    cpu: Intel Xeon 2.80 GHz, stepping 7, with AVX-512 VNNI
+  hardware_split_out: &hardware_split_out
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 2, machine: *small_machine, embedder: in its process}
+    reranker: {replicas: 4, machine: *small_machine}
+    reranker_vcpus_total: 8
+    idle: the 8-vCPU machine
+  hardware_split_up: &hardware_split_up
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 2, machine: *small_machine, embedder: in its process}
+    reranker: {replicas: 1, machine: *big_machine}
+    reranker_vcpus_total: 8
+    idle: four 2-vCPU machines
+  hardware_mono_out: &hardware_mono_out
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 4, machine: *small_machine, embedder: in its process, reranker: in its process}
+    reranker_vcpus_total: 8
+    idle: two 2-vCPU machines and the 8-vCPU machine
+  hardware_mono_up: &hardware_mono_up
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 1, machine: *big_machine, embedder: in its process, reranker: in its process}
+    reranker_vcpus_total: 8
+    idle: the six 2-vCPU machines
+  deploy_defaults: &deploy_defaults
+    # deploy.yaml as the Workspace's startup script wrote it.
+    environment_id: emulation-environment
+    hardware_tier_id: cpu-2
+    settings:
+      RAG_ES_URL: the Elasticsearch machine (address not recorded here)
+      RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino
+      RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models
+  ovms_settings: &ovms_settings
+    # 32-bit weights exported by each machine on its first start into a folder of their
+    # own; the calibration budget raised so that the whole search runs.
+    RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models-fp32
+    RAG_CALIBRATION_BUDGET_S: 300
+  end_to_end: &end_to_end
+    target: the workflow App through the emulated Domino's proxy, balancing rule round-robin
+    route: POST /retrieve only (RAG_LOADTEST_QUERY_WEIGHT=0)
+    command: make -C emulation loadtest
+    duration: 2m
+    spawn_rate: 5
+    passages: the corpus's, 20 candidates from the index per request, 137 to 816 characters
+  rerank_through_proxy: &rerank_through_proxy
+    target: the reranker App through the emulated Domino's proxy, balancing rule round-robin
+    route: POST /v3/rerank
+    command: make loadtest-models TARGET=rerank, HOST the App's URL on the proxy, RAG_LOADTEST_BEARER_TOKEN the run token
+    duration: 2m
+    spawn_rate: 5
+    passages: the load test's 20 synthetic passages per request, 303 to 380 characters
+  # Seconds for one request of a corpus-like sample, timed by each small machine at start
+  # (the stage_calibrated line of its log). Three machines out of four are about a
+  # quarter slower than the fourth, on the same machine type and the same CPU.
+  small_rerankers_calibration: &small_rerankers_calibration
+    chosen: batch size 2 on three machines and 1 on the fourth, 2 threads on all
+    seconds_one_batch_of_20: [8.365, 8.402, 8.375, 6.784]
+    seconds_at_chosen_batch_size: [5.493, 5.524, 5.508, 4.508]
+    search: 6 candidates in 64 to 79 s on each machine, one timed round each
+  big_reranker_calibration: &big_reranker_calibration
+    chosen: {threads: 8, batch_size: 2, seconds_per_request: 1.196}
+    trials_on_8_threads: {batch_20: 1.884, batch_10: 1.435, batch_5: 1.38, batch_2: 1.196, batch_1: 1.353}
+    trials_at_batch_2: {threads_4: 1.272, threads_2: 2.449}
+  small_ovms_calibration: &small_ovms_calibration
+    requests_in_flight: 4
+    chosen: {streams: 1, threads: 2}
+    # Each machine's three candidates: 1 stream on 2 threads, 2 streams on 2 threads,
+    # 1 stream on 1 thread.
+    trials_seconds_for_4_at_once_by_machine:
+      - {streams_1_threads_2: 34.959, streams_2_threads_2: 35.857, streams_1_threads_1: 37.108}
+      - {streams_1_threads_2: 28.804, streams_2_threads_2: 30.134, streams_1_threads_1: 29.794}
+      - {streams_1_threads_2: 34.441, streams_2_threads_2: 35.496, streams_1_threads_1: 36.82}
+      - {streams_1_threads_2: 35.302, streams_2_threads_2: 36.055, streams_1_threads_1: 36.847}
+    search: 3 candidates in 184 to 223 s on each machine, one timed round each
+  big_ovms_calibration: &big_ovms_calibration
+    requests_in_flight: 4
+    chosen: {streams: 4, threads: 8}
+    trials_seconds_for_4_at_once:
+      {streams_1_threads_8: 7.238, streams_2_threads_8: 7.351, streams_4_threads_8: 7.2,
+       streams_8_threads_8: 7.747, streams_4_threads_4: 7.567}
+    search: 5 candidates in 79 s, one timed round each; the first three are within 2% of each other
+
+experiments:
+  # --- The FastAPI model server ---------------------------------------------------------
+  - id: s8-out-split-fastapi
+    question: End to end, how much do four reranker replicas of 2 vCPUs serve, FastAPI model server, calibrated?
+    code: *code
+    hardware: *hardware_split_out
+    deploy: &deploy_out_fastapi
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_RUN_LABEL: s8-out-split-fastapi}
+        reranker:
+          autoscaling: {min_replicas: 4, max_replicas: 4}
+      deploy_target: deploy (152 s)
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *small_rerankers_calibration
+    run_label: s8-out-split-fastapi
+    load: {<<: *end_to_end, users: [1, 2, 4, 8, 16]}
+    runs: [s8-out-split-fastapi-u1, s8-out-split-fastapi-u2, s8-out-split-fastapi-u4,
+           s8-out-split-fastapi-u8, s8-out-split-fastapi-u16]
+    notes:
+      - Eight small rerank requests through the proxy, each on a new connection, reached every replica twice.
+
+  - id: s8-out-split-fastapi-r2
+    question: Does a second run at 8 users give the same figure?
+    code: *code
+    hardware: *hardware_split_out
+    deploy: *deploy_out_fastapi
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *small_rerankers_calibration
+    run_label: s8-out-split-fastapi
+    load: {<<: *end_to_end, users: [8]}
+    runs: [s8-out-split-fastapi-r2-u8]
+
+  - id: s8-out-rerank-fastapi
+    question: Without the workflow, how much do the four replicas serve through the proxy?
+    code: *code
+    hardware: *hardware_split_out
+    deploy: *deploy_out_fastapi
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *small_rerankers_calibration
+    load: {<<: *rerank_through_proxy, users: [1, 4, 16]}
+    runs: [s8-out-rerank-fastapi-u1, s8-out-rerank-fastapi-u4, s8-out-rerank-fastapi-u16]
+
+  - id: s8-up-split-fastapi
+    question: End to end, how much does one reranker of 8 vCPUs serve, FastAPI model server, calibrated?
+    code: *code
+    hardware: *hardware_split_up
+    deploy: &deploy_up_fastapi
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_RUN_LABEL: s8-up-split-fastapi}
+        reranker:
+          hardware_tier_id: cpu-8
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+      deploy_target: deploy (82 s)
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *big_reranker_calibration
+    run_label: s8-up-split-fastapi
+    load: {<<: *end_to_end, users: [1, 2, 4, 8, 16]}
+    runs: [s8-up-split-fastapi-u1, s8-up-split-fastapi-u2, s8-up-split-fastapi-u4,
+           s8-up-split-fastapi-u8, s8-up-split-fastapi-u16]
+
+  - id: s8-up-split-fastapi-r2
+    question: Does a second run at 8 users give the same figure?
+    code: *code
+    hardware: *hardware_split_up
+    deploy: *deploy_up_fastapi
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *big_reranker_calibration
+    run_label: s8-up-split-fastapi
+    load: {<<: *end_to_end, users: [8]}
+    runs: [s8-up-split-fastapi-r2-u8]
+
+  - id: s8-up-rerank-fastapi
+    question: Without the workflow, how much does the one reranker serve through the proxy?
+    code: *code
+    hardware: *hardware_split_up
+    deploy: *deploy_up_fastapi
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *big_reranker_calibration
+    load: {<<: *rerank_through_proxy, users: [1, 4, 16]}
+    runs: [s8-up-rerank-fastapi-u1, s8-up-rerank-fastapi-u4, s8-up-rerank-fastapi-u16]
+
+  # --- OVMS -----------------------------------------------------------------------------
+  - id: s8-out-split-ovms
+    question: End to end, how much do four OVMS replicas of 2 vCPUs serve, calibrated?
+    code: *code
+    hardware: *hardware_split_out
+    deploy: &deploy_out_ovms
+      topology: split-reranker
+      model_server: ovms
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_RUN_LABEL: s8-out-split-ovms}
+        reranker:
+          autoscaling: {min_replicas: 4, max_replicas: 4}
+          settings: *ovms_settings
+      deploy_target: deploy (532 s, with each machine's export and calibration)
+    server: {weights: "fp32, exported at each machine's first start", streams: 1, threads: 2}
+    calibration: *small_ovms_calibration
+    run_label: s8-out-split-ovms
+    load: {<<: *end_to_end, users: [1, 2, 4, 8, 16]}
+    runs: [s8-out-split-ovms-u1, s8-out-split-ovms-u2, s8-out-split-ovms-u4,
+           s8-out-split-ovms-u8, s8-out-split-ovms-u16]
+    notes:
+      - The 27 failures at 16 users are the proxy's 30-second limit on /retrieve.
+
+  - id: s8-out-rerank-ovms
+    question: Without the workflow, how much do the four OVMS replicas serve through the proxy?
+    code: *code
+    hardware: *hardware_split_out
+    deploy: *deploy_out_ovms
+    server: {weights: "fp32, exported at each machine's first start", streams: 1, threads: 2}
+    calibration: *small_ovms_calibration
+    load: {<<: *rerank_through_proxy, users: [1, 4, 16]}
+    runs: [s8-out-rerank-ovms-u1, s8-out-rerank-ovms-u4, s8-out-rerank-ovms-u16]
+    notes:
+      - The 18 failures at 16 users are the proxy's 30-second limit on the reranker App.
+
+  - id: s8-up-split-ovms
+    question: End to end, how much does one OVMS of 8 vCPUs serve, calibrated?
+    code: *code
+    hardware: *hardware_split_up
+    deploy: &deploy_up_ovms
+      topology: split-reranker
+      model_server: ovms
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_RUN_LABEL: s8-up-split-ovms}
+        reranker:
+          hardware_tier_id: cpu-8
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+          settings: *ovms_settings
+      deploy_target: deploy (354 s, with the machine's export and calibration)
+    server: {weights: "fp32, exported at the machine's first start", streams: 4, threads: 8}
+    calibration: *big_ovms_calibration
+    run_label: s8-up-split-ovms
+    load: {<<: *end_to_end, users: [1, 2, 4, 8, 16]}
+    runs: [s8-up-split-ovms-u1, s8-up-split-ovms-u2, s8-up-split-ovms-u4,
+           s8-up-split-ovms-u8, s8-up-split-ovms-u16]
+    notes:
+      - The 21 failures at 16 users are the proxy's 30-second limit on /retrieve.
+
+  - id: s8-up-rerank-ovms
+    question: Without the workflow, how much does the one OVMS serve through the proxy?
+    code: *code
+    hardware: *hardware_split_up
+    deploy: *deploy_up_ovms
+    server: {weights: "fp32, exported at the machine's first start", streams: 4, threads: 8}
+    calibration: *big_ovms_calibration
+    load: {<<: *rerank_through_proxy, users: [1, 4, 16]}
+    runs: [s8-up-rerank-ovms-u1, s8-up-rerank-ovms-u4, s8-up-rerank-ovms-u16]
+    notes:
+      - The 2 failures at 16 users are the proxy's 30-second limit on the reranker App.
+
+  # --- The monolith ---------------------------------------------------------------------
+  - id: s8-out-mono
+    question: End to end, how much do four monolith replicas of 2 vCPUs serve, calibrated?
+    code: *code
+    hardware: *hardware_mono_out
+    deploy: &deploy_out_mono
+      topology: monolith
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          autoscaling: {min_replicas: 4, max_replicas: 4}
+          settings: {RAG_RUN_LABEL: s8-out-mono}
+      deploy_target: deploy (129 s)
+    server: {weights: fp32, runtime: openvino}
+    calibration:
+      rerank_chosen: batch size 2 on three machines and 1 on the fourth, 2 threads on all
+      rerank_seconds_one_batch_of_20: [8.099, 8.346, 8.338, 6.735]
+      rerank_seconds_at_chosen_batch_size: [5.501, 5.432, 5.446, 4.391]
+      embed_chosen: {threads: 1, batch_size: 64}
+    run_label: s8-out-mono
+    load: {<<: *end_to_end, users: [1, 2, 4, 8, 16]}
+    runs: [s8-out-mono-u1, s8-out-mono-u2, s8-out-mono-u4, s8-out-mono-u8, s8-out-mono-u16]
+    notes:
+      - Both models share a replica's process, one model call at a time. From 8 users the embed stage waits behind reranks (3.0 s at the median at 8 users, 0.23 s at 4).
+
+  - id: s8-out-mono-r2
+    question: Does a second run at 8 users give the same figure?
+    code: *code
+    hardware: *hardware_mono_out
+    deploy: *deploy_out_mono
+    server: {weights: fp32, runtime: openvino}
+    run_label: s8-out-mono
+    load: {<<: *end_to_end, users: [8]}
+    runs: [s8-out-mono-r2-u8]
+
+  - id: s8-up-mono
+    question: End to end, how much does one monolith replica of 8 vCPUs serve, calibrated?
+    code: *code
+    hardware: *hardware_mono_up
+    deploy: &deploy_up_mono
+      topology: monolith
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          hardware_tier_id: cpu-8
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+          settings: {RAG_RUN_LABEL: s8-up-mono}
+      deploy_target: deploy (58 s)
+    server: {weights: fp32, runtime: openvino}
+    calibration:
+      rerank_chosen: {threads: 8, batch_size: 2, seconds_per_request: 1.168}
+      rerank_trials_on_8_threads: {batch_20: 1.737, batch_10: 1.391, batch_5: 1.317, batch_2: 1.168, batch_1: 1.287}
+      rerank_trials_at_batch_2: {threads_4: 1.325, threads_2: 2.364}
+      embed_chosen: {threads: 4, batch_size: 64}
+      embed_trials_seconds: {threads_8: 0.113, threads_4: 0.048, threads_2: 0.084, threads_1: 0.158}
+    run_label: s8-up-mono
+    load: {<<: *end_to_end, users: [1, 2, 4, 8, 16]}
+    runs: [s8-up-mono-u1, s8-up-mono-u2, s8-up-mono-u4, s8-up-mono-u8, s8-up-mono-u16]
+    notes:
+      - Both models share the process, one model call at a time. From 2 users the embed stage waits behind reranks (0.62 s at the median at 2 users, 1.7 s at 4, 3.8 s at 8).
+
+  - id: s8-up-mono-r2
+    question: Does a second run at 8 users give the same figure?
+    code: *code
+    hardware: *hardware_mono_up
+    deploy: *deploy_up_mono
+    server: {weights: fp32, runtime: openvino}
+    run_label: s8-up-mono
+    load: {<<: *end_to_end, users: [8]}
+    runs: [s8-up-mono-r2-u8]

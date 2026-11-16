@@ -19,8 +19,9 @@ numbers behind each chart is in [`data/`](data/).
 3. **A bigger machine serves about in proportion.** One request costs about 8 seconds
    of one virtual CPU, whatever the machine. Storing the model in 8 bits instead of 32
    brings that to about 5.
-4. **More machines or one bigger machine give the same answers a second** for the
-   same total of CPUs. Only the bigger machine makes each answer faster.
+4. **More machines or one bigger machine serve about the same once full** (0.87 and
+   0.94 requests a second for the same 8 CPUs). Before that the bigger machine answers
+   three to four times sooner.
 5. **The two model servers compared, OVMS and FastAPI, serve the same amount** once
    they run the same model file. The lead OVMS showed at first was its smaller file.
 6. **They differ in who waits.** FastAPI serves requests in arrival order, so everyone
@@ -176,56 +177,58 @@ Sittings: [OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovm
 for 2 vCPUs, [the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md)
 for 8 and 16.
 
-### 4. More machines or a bigger machine: the same answers a second, not the same speed
+### 4. More machines or a bigger machine: about the same answers a second, not the same speed
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/04-scale-out-or-scale-up-dark.svg">
-  <img src="figures/04-scale-out-or-scale-up.svg" width="1000" alt="Left: requests a second through the whole workflow. Two machines of 2 vCPUs serve 0.34, four machines of 2 vCPUs serve 0.65, and one machine of 8 vCPUs serves 0.65. Right: median time of a request when it is the only one: 3.6 seconds on a machine of 2 vCPUs, 1.0 on 8 vCPUs, 0.56 on 16 vCPUs.">
+  <img src="figures/04-scale-out-or-scale-up.svg" width="1000" alt="Two line charts against users at once, from 1 to 16, for 8 reranker vCPUs as four machines of 2 vCPUs and as one machine of 8 vCPUs. Left: requests a second rise to 0.87 on four machines and to 0.94 on one. Right: the median wait is 4.8 seconds on four machines up to 4 users, then 8.4 and 18 seconds; on one machine it is 1.3 seconds for one user, 3.5 for four, 7.9 for eight and 16 for sixteen.">
 </picture>
 
 **How to read it.** There are two ways to give the reranker more CPUs. Scaling out
 (also called horizontal scaling) adds machines of the same size, each with its own copy
 of the reranker, and shares the requests out between them. Scaling up (vertical
-scaling) replaces the machine with a bigger one. Left: the requests a second of three
-layouts. Right: how long one request takes when nobody else is asking, by the size of
-the machine that reranks it.
+scaling) replaces the machine with a bigger one. Here the reranker has 8 vCPUs both
+times, as four machines of 2 or as one machine of 8, on the same code and the same
+settings. Left: the answers given each second as users are added. Right: how long each
+user waits.
 
-**What it shows.** Left: two machines of 2 vCPUs serve 0.34 requests a second and four
-serve 0.65: twice the machines, twice the answers. One machine of 8 vCPUs, the same
-total as the four, serves the same 0.65. Right: a request that arrives alone takes
-3.6 seconds on a machine of 2 vCPUs, 1.0 on 8 and 0.56 on 16.
+**What it shows.** Once full, the two serve about the same: 0.87 requests a second on
+the four machines, 0.94 on the one. Before that they differ a lot. One user waits
+1.3 seconds on the big machine and 4.8 seconds on the small ones. On the small machines
+the wait stays at 4.8 seconds up to 4 users and only then grows. On the big machine it
+grows from the second user on.
 
-**Why.** One request is reranked by one machine. With more machines, more requests are
-worked on at the same time, but each still gets 2 vCPUs, so none is ever answered in
-less than 3.6 seconds. A bigger machine puts all its CPUs on each request (finding 7):
-each one is faster, and the machine gets through as many of them as the small machines
-together.
+**Why.** One request is reranked by one machine. With four machines, up to four users
+each have a machine to themselves: nobody queues, but nobody is served faster than a
+machine of 2 vCPUs can, about 4.8 seconds. The big machine puts all 8 vCPUs on each
+request (finding 7), so a request takes about a quarter of the time. Its users queue
+behind each other instead, and the queue takes back what the speed gave: at 4 users the
+two waits nearly meet (3.5 and 4.7 seconds), and beyond that they grow together.
 
-**What follows.**
+**What else that sitting showed.**
 
-- For capacity, count the reranker's CPUs in total. Either way they give about the
-  same requests a second. With calibration the small machines were a little ahead for
-  each CPU: one request cost 7.7 vCPU-seconds on two machines of 2 vCPUs, 8.6 on one
-  machine of 8 and 9.4 on one of 16.
-- For the speed of each answer while the system is not full, only scaling up helps.
-  With two machines of 2 vCPUs, one user waits 4.0 seconds and two users wait
-  4.1 seconds each: the second machine serves the second user, and neither is faster.
-- Scaling out needs the requests to be shared out evenly. When the proxy picked a
-  machine at random for each connection, half of the requests failed at 8 users.
-  Taking the machines in turn lost none.
-- The comparison of the two model servers came out the same on small machines and on
-  big ones (findings 5 to 9).
+- The gap once full, 7%, is no larger than the difference between machines. Three of
+  the four small machines were a fifth to a quarter slower than the fourth, although
+  they are the same type with the same CPU. The result says "about the same", not "the
+  big machine wins".
+- Waits are less even on several machines. At 8 users the slowest 1 request in 20
+  waited 14 seconds on the four machines and 8.6 on the one. Requests are dealt out in
+  turn, so a slower machine builds a longer queue.
+- OVMS and the monolith gave the same picture. Once full: 0.65 against 0.76 requests a
+  second for OVMS, 0.81 against 0.89 for the monolith. For one user: 6.2 against
+  3.0 seconds, and 4.9 against 1.1.
+- Scaling out needs the requests shared out evenly. In an earlier sitting a proxy rule
+  that picked a machine at random for each connection lost half of the requests at
+  8 users, where dealing them out in turn lost none.
 
-**A caution.** No sitting was designed for this comparison. The left panel puts
-together runs of two sittings, on different code, at 8 users for the small machines and
-10 for the big one, all with the default settings of the time. All three were full, so
-the number of users does not change the requests a second (finding 2). The figures
-with calibration come from the two sittings of 15 November.
+**Not measured.** What happens when a machine is lost. During the set-up of this
+sitting the cloud took one small machine back. With several machines that costs a
+share of the capacity; with one it costs all of it.
 
 Numbers: [`data/04-scale-out-or-scale-up.csv`](data/04-scale-out-or-scale-up.csv).
-Sittings: [the baseline of three topologies](../experiments/2026-11-14-baseline-three-topologies-fastapi-8-vcpus/README.md),
-[OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovms-against-fastapi-equal-hardware/README.md),
-[the reranker scaled up](../experiments/2026-11-15-reranker-scaled-up-8-and-16-vcpus/README.md).
+Sittings: [scale out against scale up](../experiments/2026-11-15-scale-out-against-scale-up-8-vcpus/README.md),
+and [OVMS against FastAPI on equal hardware](../experiments/2026-11-15-ovms-against-fastapi-equal-hardware/README.md)
+for the proxy rule.
 
 ### 5. The two model servers serve the same amount on the same weights
 
@@ -458,8 +461,8 @@ People read the answer first. Ten such users stand for many more people.
 - The ranking quality of 8-bit weights was not measured.
 - Sittings ran on different code and machines. Figures compare inside a sitting, and
   the charts say when they combine two.
-- No sitting compared more machines with a bigger machine on the same code and the
-  same settings: finding 4 puts together runs of three sittings.
+- More machines were compared with a bigger machine in one sitting, at 8 vCPUs in
+  total, with small machines that were not equally fast.
 
 ## Where everything is
 

@@ -224,7 +224,10 @@ A reading of the results above, not a measurement.
 - **The FastAPI model server** for these rerankers on machines of up to 8 cores. It
   serves as much as OVMS on the same weights, more on passages of mixed length, and
   under overload it loses fewer requests. It scales with the cores of one instance
-  (0.28, 1.0 and 1.8 requests a second on 2, 8 and 16 vCPUs) and with replicas.
+  (0.28, 1.0 and 1.8 requests a second on 2, 8 and 16 vCPUs) and with replicas: end to
+  end, four replicas of 2 vCPUs served 0.87 requests a second where one instance of
+  8 vCPUs served 0.94, and a lone request took 4.8 s on the replicas against 1.3 s on
+  the one instance (the sitting on scale out against scale up, in `experiments/`).
 - **OVMS** when its own features are needed: model versions, configuration changes
   at run time, metrics, gRPC, or batching for text generation. Its streams are worth
   trying again where one request cannot use every core.
@@ -242,7 +245,7 @@ A reading of the results above, not a measurement.
 ## Where the runs are
 
 Every run behind these figures, with its settings and its statistics, is registered in
-`experiments/` (the two sittings of 15 November 2026).
+`experiments/` (the sittings of 15 November 2026).
 
 ## Pages read
 

@@ -26,7 +26,7 @@ from .one_request_fills_the_machine_chart import (
 )
 from .overload_chart import OverloadChart
 from .same_weights_same_throughput_chart import SameWeightsSameThroughputChart
-from .scale_out_or_scale_up_chart import ApproachBar, ScaleOutOrScaleUpChart
+from .scale_out_or_scale_up_chart import ApproachSeries, ScaleOutOrScaleUpChart
 from .small_batches_chart import BatchTrials, SmallBatchesChart
 from .topologies_chart import TopologiesChart, TopologyBar, TopologyPanel
 from .where_the_time_goes_chart import WhereTheTimeGoesChart
@@ -96,18 +96,11 @@ def _bigger_machine_more_answers() -> BiggerMachineMoreAnswersChart:
 
 def _scale_out_or_scale_up() -> ScaleOutOrScaleUpChart:
     out, up = "machines of 2 vCPUs", "one bigger machine"
-    throughput = (
-        ApproachBar("2 machines of 2 vCPUs", out, "m2-split-reranker", 8, 2, 2),
-        ApproachBar("4 machines of 2 vCPUs", out, "m2-monolith", 8, 4, 2),
-        ApproachBar("1 machine of 8 vCPUs", up, "pr8-monolith", 10, 1, 8),
+    series = (
+        ApproachSeries("4 machines of 2 vCPUs", out, "s8-out-split-fastapi", 4, 2),
+        ApproachSeries("1 machine of 8 vCPUs", up, "s8-up-split-fastapi", 1, 8),
     )
-    # One request at a time is served on one machine, whatever the replicas.
-    latency = (
-        ApproachBar("2 vCPUs", out, "m7-calibrated-fastapi-rerank", 1, 1, 2),
-        ApproachBar("8 vCPUs", up, "v8-alone-fastapi-fp32", 1, 1, 8),
-        ApproachBar("16 vCPUs", up, "v16-alone-fastapi-fp32", 1, 1, 16),
-    )
-    return ScaleOutOrScaleUpChart(throughput, latency, (out, up))
+    return ScaleOutOrScaleUpChart(series, (1, 2, 4, 8, 16), (out, up))
 
 
 def _same_weights_same_throughput() -> SameWeightsSameThroughputChart:

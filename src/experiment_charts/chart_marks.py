@@ -1,5 +1,7 @@
 """Marks several charts draw: grouped bars, lines with markers, value labels.
 
+And the two panels of a series against users at once (charts 2 and 4).
+
 Each takes the theme, so a mark looks the same in every chart: lines 2 px wide,
 markers ringed in the surface colour, thin bars with a gap, text in ink.
 
@@ -15,10 +17,11 @@ from collections.abc import Mapping, Sequence
 
 from matplotlib.axes import Axes
 from matplotlib.container import BarContainer
+from matplotlib.typing import LegendLocType
 
 from .chart_selections import SERVERS
 from .chart_table import ChartTable
-from .chart_theme import ChartTheme
+from .chart_theme import ChartTheme, add_legend, axis_labels, panel_title
 
 
 def table_bars(
@@ -224,3 +227,70 @@ def server_colours(theme: ChartTheme) -> dict[str, str]:
         '#eb6834'
     """
     return {server: theme.server_colour(server) for server in SERVERS}
+
+
+def draw_users_series(
+    panels: tuple[Axes, Axes],
+    theme: ChartTheme,
+    runs: ChartTable,
+    colour: str,
+    label: str,
+) -> None:
+    """Draw one series against users at once: throughput left, median wait right.
+
+    The right panel's line gets its label at its end, so the reader need not look
+    up the legend there.
+
+    Args:
+        panels: The left and the right panel.
+        theme: The theme to apply.
+        runs: The series' rows, with ``users``, ``requests_per_s`` and ``median_s``.
+        colour: The series' colour.
+        label: Its name, in the legend and at the end of the right line.
+
+    Example:
+        >>> draw_users_series((left, right), theme, runs, theme.steps[0], "8 vCPUs")
+    """
+    left, right = panels
+    users = runs.numbers("users")
+    rates, medians = runs.numbers("requests_per_s"), runs.numbers("median_s")
+    line_with_markers(left, theme, (users, rates), colour, label)
+    line_with_markers(right, theme, (users, medians), colour, label)
+    label_point(right, theme, (users[-1], medians[-1]), label)
+
+
+def finish_users_panels(
+    panels: tuple[Axes, Axes],
+    theme: ChartTheme,
+    users: tuple[int, ...],
+    legend_places: tuple[LegendLocType, LegendLocType],
+    end_labels: tuple[str, ...],
+) -> None:
+    """Title, label and scale the two panels ``draw_users_series`` drew on.
+
+    Args:
+        panels: The left and the right panel, sharing their x axis.
+        theme: The theme to apply.
+        users: The user counts, ticks of the linear x axis.
+        legend_places: Where each panel's legend goes, clear of its lines.
+        end_labels: The labels drawn at the ends of the right panel's lines.
+
+    Example:
+        >>> places = ("lower right", "upper left")
+        >>> finish_users_panels((left, right), theme, (1, 4, 16), places, ("8 vCPUs",))
+    """
+    left, right = panels
+    # Linear in users, so a wait that grows with the queue draws as a straight line.
+    # The room on the right holds the labels at the ends of the lines: it grows with
+    # the longest of them, or a long label would run off the figure.
+    longest = max(len(label) for label in end_labels)
+    left.set_xticks(users, [str(count) for count in users])
+    left.set_xlim(0, users[-1] * (1.1 + 0.018 * longest))
+    for each, title, y_label, place in (
+        (left, "Requests answered a second", "requests a second", legend_places[0]),
+        (right, "Median wait for an answer", "seconds", legend_places[1]),
+    ):
+        each.set_ylim(bottom=0)
+        panel_title(each, theme, title)
+        axis_labels(each, theme, "users at once", y_label)
+        add_legend(each, theme, place)
