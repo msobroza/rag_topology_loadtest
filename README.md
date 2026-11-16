@@ -388,7 +388,7 @@ The toolkit is three applications over one shared domain. The domain
    the package that holds the entries imports all of its modules from its
    `__init__.py` (`import_package_modules`), so a new entry is one new module
    and no table is edited. The registry is in `domain/` because every package
-   that registers something may import the domain. Five kinds of entry today:
+   that registers something may import the domain. Six kinds of entry today:
    an API format (each component's `api/` directory holds its formats, one
    module each, and its registry sits beside the formats' base class:
    `RERANK_API_FORMATS` in `base_rerank_api_format.py`), a stage type
@@ -397,10 +397,15 @@ The toolkit is three applications over one shared domain. The domain
    `EDGE_CONDITIONS` in `edge_condition.py`), a backend opener
    (`composition/openers/`, one module each, and the registry of each
    component type's openers sits beside what an opener is given:
-   `RERANKER_OPENERS` in `component_openers.py`) and a model-server kind
+   `RERANKER_OPENERS` in `component_openers.py`), a model-server kind
    (`deploy/model_server_kinds/`, one module each, `MODEL_SERVER_KINDS` in
    `base_model_server_kind.py`, and one launch script each in
-   `domino/model_servers/`). A stage type and an edge
+   `domino/model_servers/`) and a component type's settings class, which a
+   component is read with (`COMPONENT_TYPE_SETTINGS` in
+   `config/component_settings.py`; the four types of the toolkit keep their
+   classes in that module and register them there by call, since the
+   decorator's return type would hide their fields from the type checkers;
+   an unknown type is refused, listing the known ones). A stage type and an edge
    condition call only ports, so they are in the application; the description
    of a graph is in the domain, which both the settings that write it and the
    application that builds it may import. A model-server kind is what the

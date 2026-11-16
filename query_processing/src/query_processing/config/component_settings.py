@@ -2,7 +2,9 @@
 
 A component is named. Its type is the port it is used through (``embedder``,
 ``reranker``, ``llm``, ``vector_store``) and defaults to its name, so two
-components of one type take two names and state ``type``. It states its
+components of one type take two names and state ``type``. It is read with
+the settings class its type names in ``COMPONENT_TYPE_SETTINGS``, and a type
+with no class there is refused, listing the known types. It states its
 backend, which picks its opener; the openers registered in ``composition/``
 know which backends exist, and refuse any other. A model component has a
 source id (the weights) and an alias (the name a model server serves it
@@ -29,9 +31,17 @@ from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainValidator,
+    SerializeAsAny,
+    model_validator,
+)
 
 from ..domain.api_endpoint import ApiEndpoint
+from ..domain.registry import Registry
 from ..domain.standard_formats import STANDARD_API_FORMATS
 
 
@@ -352,8 +362,49 @@ class VectorStoreSettings(ComponentSettings):
     fake: FakeStoreSettings = Field(default_factory=FakeStoreSettings)
 
 
-# A component of the workflow file, its settings chosen by its type.
-Component = Annotated[ModelComponent | VectorStoreSettings, Field(discriminator="type")]
+# The settings class of each component type, found by the type's name: a
+# component is read with the class its type names here. The toolkit registers
+# the class of a type of its own here, since a port cannot import the config.
+COMPONENT_TYPE_SETTINGS: Registry[type[ComponentSettings]] = Registry("component type")
+# Registered by call, not as a decorator: the decorator returns the registry's
+# entry type, which would hide each class's own fields from the type checkers.
+COMPONENT_TYPE_SETTINGS.register("embedder")(EmbedderSettings)
+COMPONENT_TYPE_SETTINGS.register("reranker")(RerankerSettings)
+COMPONENT_TYPE_SETTINGS.register("llm")(LlmSettings)
+COMPONENT_TYPE_SETTINGS.register("vector_store")(VectorStoreSettings)
+
+
+def read_component(entry: object) -> ComponentSettings:
+    """Read a component's entry with the settings class its type names.
+
+    Args:
+        entry: The entry as read, its ``type`` already given (``typed_by_name``),
+            or settings already read.
+
+    Returns:
+        The component's settings, of the class registered for its type.
+
+    Raises:
+        ValueError: If the entry is no mapping, or its type is unknown.
+
+    Example:
+        >>> read_component({"type": "llm", "backend": "fake"}).backend
+        'fake'
+    """
+    if isinstance(entry, ComponentSettings):
+        return entry
+    if not isinstance(entry, Mapping):
+        raise ValueError(
+            f"a component's entry is {entry!r}; expected a mapping of its keys, "
+            "such as {backend: fake}"
+        )
+    settings_class = COMPONENT_TYPE_SETTINGS.get(str(entry.get("type")))
+    return settings_class.model_validate(entry)
+
+
+# A component of the workflow file, read with the settings class of its type.
+# Dumped with the keys of that class, not only those of ComponentSettings.
+Component = Annotated[SerializeAsAny[ComponentSettings], PlainValidator(read_component)]
 
 
 def alias_of(source_id: str) -> str:

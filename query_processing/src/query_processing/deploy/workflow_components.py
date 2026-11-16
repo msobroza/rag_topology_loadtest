@@ -29,7 +29,11 @@ from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
-from ..config.component_settings import typed_by_name
+from ..config.component_settings import (
+    COMPONENT_TYPE_SETTINGS,
+    Component,
+    typed_by_name,
+)
 from ..config.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
     WorkflowFileNotFoundError,
@@ -41,9 +45,6 @@ from .apps_client import DominoDeployError
 from .deploy_settings import deploy_file
 
 Place = tuple[str, ...]  # a value's path under overrides, its levels in order
-# Where pydantic puts a component's type in an error's location:
-# ("components", <name>, <type>, ...), the union of the types being tagged.
-_UNION_TAG = 2
 
 
 @dataclass(frozen=True)
@@ -264,14 +265,16 @@ def _refuse_undeclared_names(
 def _entry_model(
     annotation: object, name: str, declared: object
 ) -> type[BaseModel] | None:
-    # A component's settings are a union of one model per type, told apart by
-    # its type, which defaults to its name as in the workflow settings.
-    models = _models_in(annotation)
-    if len(models) == 1:
-        return models[0]
+    if annotation != Component:
+        models = _models_in(annotation)
+        return models[0] if len(models) == 1 else None
+    # A component's settings class is found by its type, which defaults to its
+    # name as in the workflow settings.
     entry = typed_by_name({name: declared})
-    tag = _get(_get(entry, name), "type")
-    return next((m for m in models if m.model_fields["type"].default == tag), None)
+    try:
+        return COMPONENT_TYPE_SETTINGS.get(str(_get(_get(entry, name), "type")))
+    except ValueError:  # an unknown type is the settings' to refuse
+        return None
 
 
 def _models_in(annotation: object) -> list[type[BaseModel]]:
@@ -383,10 +386,6 @@ def _first_error(exc: ValueError) -> str:
         return str(exc)
     error = exc.errors()[0]
     loc = list(error["loc"])
-    # pydantic puts a tagged union's tag in the location, after the
-    # component's name: components.llm.llm.http is components.llm.http.
-    if loc[:1] == ["components"]:
-        del loc[_UNION_TAG : _UNION_TAG + 1]
     if not loc:  # a check of the whole names its variables itself
         return str(error["msg"])
     got = error["input"]
