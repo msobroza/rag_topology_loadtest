@@ -211,6 +211,13 @@ class RagSettings(BaseSettings):
     ovms_threads: int = Field(default=0, ge=0)
     # How long one OVMS start may take to answer before calibration fails.
     ovms_start_timeout_s: float = Field(default=120.0, gt=0)
+    # The generator an ovms-generator App pulls from the Hub, already converted
+    # by OpenVINO, and serves as generation_api_model; no export of ours.
+    ovms_generation_model: str = "OpenVINO/Qwen3.5-2B-int4-ov"
+    # OVMS's own --dynamic_split_fuse and --max_num_batched_tokens (0 = left to
+    # OVMS, 256 tokens per step).
+    ovms_generation_dynamic_split_fuse: bool = True
+    ovms_generation_max_batched_tokens: int = Field(default=0, ge=0)
 
     # --- HTTP and Domino -------------------------------------------------------------
     http_timeout_s: float = Field(default=30.0, gt=0)

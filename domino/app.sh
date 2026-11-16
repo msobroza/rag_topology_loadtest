@@ -8,6 +8,9 @@
 #   ovms-embedder     OpenVINO Model Server serving the embedder (config_embedder.json)
 #                     (both exported in RAG_OVMS_MODELS_DIR, /mnt/data/ovms-models by
 #                     default, and served from a folder of the App's own; see below)
+#   ovms-generator    OpenVINO Model Server serving the generator, which OVMS pulls
+#                     from the Hugging Face Hub itself into RAG_OVMS_MODELS_DIR (no
+#                     export; see "The generator" below)
 #   fastapi-reranker / fastapi-embedder   the same models behind rag-model-server
 #                     (same /v3 routes and formats as OVMS) for the FastAPI-vs-OVMS experiment
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
@@ -21,23 +24,25 @@
 # the prebuilt `rag` / `ovms` images already have it all.
 #
 # Models are provisioned on the App's own disk the first time it starts without
-# them, then reused. An OVMS role whose config is missing from RAG_OVMS_MODELS_DIR
-# runs ovms/export_models.sh there (it exports both models; needs uv and the Hub):
-# the exporter's pinned requirements go into a virtualenv of their own
-# ($HOME/ovms-exporter-venv) so they cannot downgrade the project's packages, and
-# the project is uv-installed into $HOME/rag-venv first when `rag-served-models`
-# is not on PATH (the OVMS roles' bootstrap installs no project). The in-process
-# models (monolith, workflow, fastapi-*) export themselves into
-# RAG_OPENVINO_MODELS_DIR on their first start (RAG_LOCAL_MODEL_RUNTIME=openvino).
+# them, then reused. An ovms-reranker / ovms-embedder role whose config is missing
+# from RAG_OVMS_MODELS_DIR runs ovms/export_models.sh there (it exports both
+# models; needs uv and the Hub): the exporter's pinned requirements go into a
+# virtualenv of their own ($HOME/ovms-exporter-venv) so they cannot downgrade the
+# project's packages, and the project is uv-installed into $HOME/rag-venv first
+# when `rag-served-models` is not on PATH (the OVMS roles' bootstrap installs no
+# project). The in-process models (monolith, workflow, fastapi-*) export
+# themselves into RAG_OPENVINO_MODELS_DIR on their first start
+# (RAG_LOCAL_MODEL_RUNTIME=openvino).
 #
 # RAG_OPENVINO_WEIGHT_FORMAT (fp32, the default, or int8) is what both exports
 # store the weights as. An OVMS models folder holds one export, of one weight
 # format, recorded in its weight-format file (a folder without one holds int8).
-# An OVMS role whose folder holds another format stops before OVMS starts: set
-# RAG_OPENVINO_WEIGHT_FORMAT to the format found, or point RAG_OVMS_MODELS_DIR
-# at another folder, where the asked format is exported on first start.
+# An exported OVMS role whose folder holds another format stops before OVMS
+# starts: set RAG_OPENVINO_WEIGHT_FORMAT to the format found, or point
+# RAG_OVMS_MODELS_DIR at another folder, where the asked format is exported on
+# first start.
 #
-# An OVMS role then starts ovms on the config `rag-ovms-config` prints: it
+# An exported OVMS role then starts ovms on the config `rag-ovms-config` prints: it
 # calibrates OVMS's streams and threads left at 0 by RAG_OVMS_NUM_STREAMS and
 # RAG_OVMS_THREADS (one ovms start per candidate), and writes, in a fresh
 # temporary folder, the export's config and graph with the choice; the export
@@ -45,6 +50,16 @@
 # uv-installed into $HOME/rag-venv first; without uv the export's own config is
 # served as exported (one stream, no calibration), which a pinned RAG_OVMS_* refuses.
 # Pin both variables (rag-calibrate --ovms-models prints them) to skip calibration.
+#
+# The generator: ovms-generator evaluates `rag-served-models` for
+# GENERATOR_SOURCE_MODEL (RAG_OVMS_GENERATION_MODEL), GENERATOR_MODEL_NAME
+# (RAG_GENERATION_API_MODEL, the name the workflow asks for),
+# GENERATOR_DYNAMIC_SPLIT_FUSE and GENERATOR_MAX_BATCHED_TOKENS
+# (RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE / _MAX_BATCHED_TOKENS, OVMS's own
+# --dynamic_split_fuse and --max_num_batched_tokens; the latter left out when 0),
+# installing the project into $HOME/rag-venv first with uv when the command is
+# missing; with neither it stops. OVMS pulls the model on its first start and
+# reuses it after; nothing is calibrated, and the weight-format record is not read.
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedding and
 # rerank backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
@@ -115,14 +130,48 @@ serve_ovms() {
   fi
   # set -e stops the App when the substitution fails (die only ends the subshell).
   config=$(ovms_serving_config "$part" "$config")
+  run_ovms --config_path "$config"
+}
+
+# serve_ovms_generator: serve the generator OVMS pulls from the Hub itself into
+# $MODELS_DIR (no export of ours); rag-served-models names it and its options.
+serve_ovms_generator() {
+  command -v ovms >/dev/null 2>&1 \
+    || die "'ovms' binary not on PATH; use the environment built from domino/Dockerfile --target ovms"
+  if ! command -v rag-served-models >/dev/null 2>&1; then
+    command -v uv >/dev/null 2>&1 \
+      || die "'rag-served-models' is not on PATH and 'uv' is not there to install this project; install the project, or uv"
+    install_project "$HOME/rag-venv" . >&2
+  fi
+  # Assigned first so a failing command stops the App (eval "$(...)" would hide it).
+  local served_models
+  served_models=$(rag-served-models)
+  eval "$served_models"
+  # A rag-served-models older than the generator's settings prints none of it.
+  [ -n "${GENERATOR_SOURCE_MODEL:-}" ] \
+    || die "rag-served-models printed no GENERATOR_SOURCE_MODEL; reinstall this project so the command is current"
+  local args=(--source_model "$GENERATOR_SOURCE_MODEL"
+    --model_name "$GENERATOR_MODEL_NAME" --model_repository_path "$MODELS_DIR"
+    --task text_generation --target_device CPU
+    --dynamic_split_fuse "$GENERATOR_DYNAMIC_SPLIT_FUSE")
+  # Empty when the setting is 0: OVMS keeps its own default.
+  if [ -n "$GENERATOR_MAX_BATCHED_TOKENS" ]; then
+    args+=(--max_num_batched_tokens "$GENERATOR_MAX_BATCHED_TOKENS")
+  fi
+  run_ovms "${args[@]}"
+}
+
+# run_ovms <ovms argument>...: start ovms with them on 0.0.0.0:8888, or behind
+# nginx on the prefix proxy (RAG_OVMS_PREFIX_PROXY=1).
+run_ovms() {
   if [ "${RAG_OVMS_PREFIX_PROXY:-}" != 1 ]; then
-    exec ovms --rest_port 8888 --config_path "$config"
+    exec ovms --rest_port 8888 "$@"
   fi
   command -v nginx >/dev/null 2>&1 \
     || die "RAG_OVMS_PREFIX_PROXY=1 needs nginx (installed by domino/Dockerfile --target ovms)"
   local conf=/tmp/ovms-proxy.conf
   render_proxy_config "$conf"
-  ovms --rest_bind_address 127.0.0.1 --rest_port "$OVMS_UPSTREAM_PORT" --config_path "$config" &
+  ovms --rest_bind_address 127.0.0.1 --rest_port "$OVMS_UPSTREAM_PORT" "$@" &
   local ovms_pid=$!
   nginx -c "$conf" -g 'daemon off;' &
   local nginx_pid=$!
@@ -232,7 +281,8 @@ case "$ROLE" in
   workflow) serve_workflow_app split-reranker split-reranker split-all ;;
   ovms-reranker) serve_ovms reranker ;;
   ovms-embedder) serve_ovms embedder ;;
+  ovms-generator) serve_ovms_generator ;;
   fastapi-reranker) serve_fastapi_model reranker ;;
   fastapi-embedder) serve_fastapi_model embedder ;;
-  *) die "unknown RAG_ROLE '$ROLE'; expected monolith, workflow, ovms-reranker, ovms-embedder, fastapi-reranker or fastapi-embedder" ;;
+  *) die "unknown RAG_ROLE '$ROLE'; expected monolith, workflow, ovms-reranker, ovms-embedder, ovms-generator, fastapi-reranker or fastapi-embedder" ;;
 esac

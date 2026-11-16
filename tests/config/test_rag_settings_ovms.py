@@ -71,3 +71,17 @@ def test_streams_are_checked_against_threads_only_when_both_are_pinned(
     s = settings_factory(ovms_num_streams=streams, ovms_threads=threads)
 
     assert (s.ovms_num_streams, s.ovms_threads) == (streams, threads)
+
+
+def test_the_generator_ovms_serves_is_openvinos_own_conversion() -> None:
+    settings = RagSettings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.ovms_generation_model == "OpenVINO/Qwen3.5-2B-int4-ov"
+    assert settings.ovms_generation_dynamic_split_fuse is True
+    assert settings.ovms_generation_max_batched_tokens == 0
+
+
+def test_a_negative_batched_token_count_is_refused(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError):
+        settings_factory(ovms_generation_max_batched_tokens=-1)

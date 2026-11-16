@@ -7,9 +7,11 @@
 #   rag   for the RAG apps (RAG_ROLE=monolith | workflow) and for Workspaces that
 #         run Locust: this package with the [loadtest,domino] extras, both HF
 #         models pre-downloaded, HF_HUB_OFFLINE=1.
-#   ovms  for the OVMS apps (RAG_ROLE=ovms-reranker | ovms-embedder): the ovms
-#         binary tarball pinned in ovms/versions.env, unpacked under /opt/ovms,
-#         plus nginx for the optional prefix proxy (RAG_OVMS_PREFIX_PROXY=1).
+#   ovms  for the OVMS apps (RAG_ROLE=ovms-reranker | ovms-embedder |
+#         ovms-generator): the ovms binary tarball pinned in ovms/versions.env,
+#         unpacked under /opt/ovms, plus nginx for the optional prefix proxy
+#         (RAG_OVMS_PREFIX_PROXY=1). No model is baked in: the generator is pulled
+#         from the Hub by OVMS itself on the App's first start.
 #
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's

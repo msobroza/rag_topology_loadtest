@@ -589,6 +589,9 @@ with a one-line usage error, not a traceback.
 | `RAG_OVMS_NUM_STREAMS` | `0` | an OVMS App: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
 | `RAG_OVMS_THREADS` | `0` | an OVMS App: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
 | `RAG_OVMS_START_TIMEOUT_S` | `120` | how long one OVMS start may take to answer before its calibration fails (> 0) |
+| `RAG_OVMS_GENERATION_MODEL` | `OpenVINO/Qwen3.5-2B-int4-ov` | an `ovms-generator` App: the Hugging Face id OVMS pulls, already converted by OpenVINO, and serves as `RAG_GENERATION_API_MODEL` |
+| `RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE` | `true` | an `ovms-generator` App: OVMS's `--dynamic_split_fuse` |
+| `RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS` | `0` | an `ovms-generator` App: OVMS's `--max_num_batched_tokens`; `0` = the flag is left out and OVMS keeps its own (256) (>= 0) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
 | `RAG_HTTP_RETRIES` | `2` | endpoint retries (embedding, rerank and generation) on transport errors, 5xx, 429, and 401 when the key is `domino`; hardware-tier lookup retries on transport errors |
@@ -983,8 +986,8 @@ compose with `--env-file`:
 
 | Key | Value |
 | --- | --- |
-| `OVMS_VERSION` / `OVMS_IMAGE` | `2026.3.1` / `openvino/model_server:2026.3.1` |
-| `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
+| `OVMS_VERSION` / `OVMS_IMAGE` | `2026.4.1` / `openvino/model_server:2026.4.1` |
+| `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.4.1_python_off.tar.gz` from the GitHub release `v2026.4.1` (Domino `ovms` image) |
 
 The served models (source id and alias) are pinned once, by the `RagSettings`
 defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
@@ -993,6 +996,25 @@ defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL
 `rag-served-models` prints them, `RAG_*` overrides included, as shell
 assignments (`RERANKER_SOURCE_MODEL=...`) for `export_models.sh`; the `rag`
 Domino image reads the source ids from the installed package.
+
+**The generator is pulled, not exported.** An `ovms-generator` App
+(`RAG_ROLE=ovms-generator`) serves a language model that OpenVINO publishes
+already converted, `RAG_OVMS_GENERATION_MODEL` (`OpenVINO/Qwen3.5-2B-int4-ov` by
+default), under the name `RAG_GENERATION_API_MODEL`; `export_models.sh` plays no
+part. `app.sh` reads both from `rag-served-models` (installing the project into
+`$HOME/rag-venv` with `uv` first when the command is missing, and stopping when
+neither is there, as in the prebuilt `ovms` image) and starts `ovms --source_model <id> --model_name <name>
+--model_repository_path "$RAG_OVMS_MODELS_DIR" --task text_generation
+--target_device CPU`: OVMS pulls the model from the Hub into
+`$RAG_OVMS_MODELS_DIR/<id>` on its first start and reuses it after. Its two
+options are OVMS's own `--dynamic_split_fuse`
+(`RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE`) and `--max_num_batched_tokens`
+(`RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS`, left out at `0`). Nothing is
+calibrated. Checked on a real machine on 16 November 2026: OVMS 2026.4.1 pulled
+the default model (2.0 GB) and served it 60 s after its first start and 5 s after
+a later one, on `/v3/chat/completions`. It writes its `graph.pbtxt` again at every
+start with `--source_model`, so a changed option takes effect on files already
+pulled.
 
 **Known defect: OVMS does not start on the default embedder.** On a real machine
 OVMS 2026.3.1 crashes with a segmentation fault while it loads
@@ -1455,6 +1477,7 @@ one project per app and set, in Project → Settings → Environment variables:
 | `rag-monolith` | `monolith` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY` |
 | `rag-ovms-reranker` | `ovms-reranker` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `ovms-embedder` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed |
+| `rag-ovms-generator` | `ovms-generator` | `ovms` | `RAG_OVMS_MODELS_DIR` if needed, `RAG_OVMS_GENERATION_*` to change the model or its options |
 | `rag-fastapi-reranker` | `fastapi-reranker` | `rag` | none |
 | `rag-fastapi-embedder` | `fastapi-embedder` | `rag` | none |
 | `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY`, `RAG_RERANK_API_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_EMBEDDING_API_URL` for split-all), `RAG_RUN_LABEL` for a variant |
