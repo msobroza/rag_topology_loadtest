@@ -1,4 +1,4 @@
-"""The import rule, read from the source with ``ast``: what each of the nine
+"""The import rule, read from the source with ``ast``: what each of the ten
 packages of ``query_processing`` may import (the table in the README's "Where a file
 goes"). And the mock rule: ``fake_domino`` imports nothing from ``query_processing``,
 and only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
@@ -49,6 +49,21 @@ MAY_IMPORT: dict[str, set[str]] = {
     },
     "deploy": {"deploy", "domain"},
     "loadtest": {"loadtest", "domain"},
+    # The tests the toolkit ships (``ComponentContract``): they serve a user's
+    # component as the toolkit does, so they may import every package, and no
+    # package imports them; extension_api offers them to a use case.
+    "testing": {
+        "testing",
+        "domain",
+        "application",
+        "config",
+        "adapters",
+        "infrastructure",
+        "composition",
+        "entrypoints",
+        "deploy",
+        "loadtest",
+    },
 }
 # A port: adapters/<component>/base_<component>.py. The application depends on
 # the ports and on nothing else of the adapters; a port imports only the domain.
@@ -241,20 +256,37 @@ def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
     assert not offending, f"{package} may import only {allowed}: {offending}"
 
 
-def test_no_package_of_the_toolkit_imports_the_extension_api() -> None:
-    # extension_api may import every package: it is what a use case imports,
-    # and the toolkit never depends on what it offers a use case.
-    offending = [
+def importers_of(top: str, exempt: Path) -> list[str]:
+    """Each import of ``query_processing.<top>`` from outside it, ``exempt`` aside.
+
+    Example::
+
+        importers_of("testing", EXTENSION_API)   # [] when the rule holds
+    """
+    return [
         f"{module_name(path)}:{line} imports {imported}"
         for path in sorted(PACKAGE.rglob("*.py"))
-        if path != EXTENSION_API
+        if path != exempt and PACKAGE / top not in path.parents
         for line, imported in imported_product_modules(
             importer_name(path), path.read_text(encoding="utf-8")
         )
-        if imported.split(".")[1] == EXTENSION_API.stem
+        if imported.split(".")[1] == top
     ]
+
+
+def test_no_package_of_the_toolkit_imports_the_extension_api() -> None:
+    # extension_api may import every package: it is what a use case imports,
+    # and the toolkit never depends on what it offers a use case.
+    offending = importers_of(EXTENSION_API.stem, EXTENSION_API)
     assert EXTENSION_API.is_file(), f"{EXTENSION_API} is what a use case imports"
     assert not offending, f"no package may import extension_api: {offending}"
+
+
+def test_no_package_of_the_toolkit_imports_the_tests_it_ships() -> None:
+    # extension_api offers them to a use case; the toolkit never runs them.
+    offending = importers_of("testing", EXTENSION_API)
+    assert (PACKAGE / "testing" / "__init__.py").is_file()
+    assert not offending, f"only extension_api may import testing: {offending}"
 
 
 def test_the_ports_import_only_the_domain() -> None:

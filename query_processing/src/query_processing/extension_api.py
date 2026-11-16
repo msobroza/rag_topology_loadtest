@@ -32,6 +32,9 @@ mirrors its request and its answer. A use case redefines the format by
 registering a ``BaseApiFormat`` under the type's name, and the served class by
 naming ``backend="served"`` on a subclass of ``ServedCallMixin`` and the type.
 
+A use case tests an implementation by subclassing ``ComponentContract`` and
+writing ``make_component`` and ``make_request``.
+
 Example:
     >>> from query_processing.extension_api import BaseComponent, SettingsBlock
     >>> class BaseShouter(BaseComponent[ShoutRequest, Shouted],
@@ -53,6 +56,7 @@ from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.base_component import BaseComponent
 from .domain.component_resources import ComponentResources
 from .infrastructure.endpoint.served_call import ServedCallMixin
+from .testing.component_contract import ComponentContract
 
 __all__ = [
     "COMPONENT_API_FORMATS",
@@ -61,6 +65,7 @@ __all__ = [
     "BaseApiFormat",
     "BaseComponent",
     "BaseStage",
+    "ComponentContract",
     "ComponentResources",
     "CompositionRoot",
     "ServedCallMixin",

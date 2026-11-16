@@ -344,6 +344,7 @@ The toolkit is three applications over one shared domain. The domain
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
    | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003) |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
+   | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, and `extension_api` offers it to a use case |
 
 2. **Commands.** A command lives in its own application, in a module named
    exactly after it with hyphens as underscores: the RAG system's six in
@@ -602,6 +603,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
+    testing/          the tests the toolkit ships, which a user runs on a component of their own; extension_api exports them, no package imports them
+      component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)
