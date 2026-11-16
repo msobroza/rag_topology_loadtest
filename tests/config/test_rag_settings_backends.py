@@ -171,6 +171,7 @@ def test_settings_field_set_is_pinned() -> None:
         "generation_api_model",
         "generation_api_url",
         "generation_backend",
+        "generation_max_tokens",
         "generation_temperature",
         "generation_timeout_s",
         "http_backoff_s",

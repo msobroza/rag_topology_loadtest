@@ -143,6 +143,7 @@ class RagSettings(BaseSettings):
     generation_api_key: str = ""  # as embedding_api_key
     generation_api_model: str = "gpt-4o-mini"
     generation_temperature: float = Field(default=0.0, ge=0, le=2)
+    generation_max_tokens: int = Field(default=0, ge=0)  # 0 = not sent
     # An answer takes longer than a model-server call, so generation has its own
     # timeout; retries and backoff are the shared http_retries / http_backoff_s.
     generation_timeout_s: float = Field(default=120.0, gt=0)

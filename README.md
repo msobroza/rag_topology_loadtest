@@ -137,6 +137,7 @@ src/rag_load_test/
     passages.py     Passage, ScoredPassage, RagResult, STAGES, top_by_score
     api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the API format names, the model servers' routes
     standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat
+    generation.py   Generation: an answer's text and the token counts its endpoint reported
     errors.py       RagDependencyError, describe_error
     prompts.py      RagPrompts: system prompt + user template -> chat messages
     workflow_parameters.py  WorkflowParameters: retrieval mode, top-k sizes, query prefix and prompts for one workflow
@@ -546,6 +547,7 @@ with a one-line usage error, not a traceback.
 | `RAG_GENERATION_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY`; `rag-serve --domino` never changes it |
 | `RAG_GENERATION_API_MODEL` | `gpt-4o-mini` | the model name sent |
 | `RAG_GENERATION_TEMPERATURE` | `0` | sampling temperature, 0 to 2 |
+| `RAG_GENERATION_MAX_TOKENS` | `0` | cap on the tokens of each answer, sent as `max_tokens` (>= 0); 0 sends no cap, so the server's own limit applies |
 | `RAG_GENERATION_TIMEOUT_S` | `120` | timeout of one generation request (> 0); an answer takes longer than a model-server call. Retries and backoff are `RAG_HTTP_RETRIES` / `RAG_HTTP_BACKOFF_S` |
 | **Everything else** | | |
 | `RAG_LOCAL_MODEL_RUNTIME` | `openvino` | what runs the in-process models: `openvino` \| `torch` |

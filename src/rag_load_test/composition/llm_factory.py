@@ -22,7 +22,7 @@ class LLMFactory(BasePortFactory[BaseLLM]):
     """The LLM of each Backend: ``api`` or ``fake``.
 
     Args:
-        settings: The generation Backend, endpoint, timeout and temperature.
+        settings: The generation Backend, endpoint, timeout, temperature and cap.
         scope: Opens the LLM once.
         http: The shared HTTP client, for the ``api`` Backend.
         supplied: A ready-made LLM, used as given; None to build one.
@@ -74,6 +74,7 @@ class LLMFactory(BasePortFactory[BaseLLM]):
             tokens=self._http.run_tokens,
             policy=policy,
             temperature=settings.generation_temperature,
+            max_tokens=settings.generation_max_tokens,
         )
 
     async def _fake(self) -> BaseLLM:

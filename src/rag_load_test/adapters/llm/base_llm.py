@@ -9,12 +9,14 @@ application depends on it, and on nothing else of the adapters.
 
 Example:
     >>> class MyLLM(BaseLLM):
-    ...     async def generate(self, messages): return "..."
+    ...     async def generate(self, messages): return Generation("...")
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+
+from ...domain.generation import Generation
 
 
 class BaseLLM(ABC):
@@ -23,12 +25,12 @@ class BaseLLM(ABC):
     model_name: str
 
     @abstractmethod
-    async def generate(self, messages: list[dict[str, str]]) -> str:
+    async def generate(self, messages: list[dict[str, str]]) -> Generation:
         """Answer a conversation.
 
         Args:
             messages: OpenAI-style messages, each with ``role`` and ``content``.
 
         Returns:
-            The model's answer text.
+            The model's answer text, with the token counts the model reported.
         """
