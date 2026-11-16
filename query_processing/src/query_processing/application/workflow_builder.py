@@ -23,7 +23,7 @@ Example:
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Hashable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Hashable, Mapping
 from typing import Any, Protocol
 
 from langgraph.graph import END as LANGGRAPH_END
@@ -39,6 +39,7 @@ from ..domain.graph_description import (
     StageDescription,
 )
 from ..domain.registry import Registry
+from .edge_check import edge_name
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
 from .graph_check import WorkflowGraphError
 from .stage_binding import bind_call, stage_fields, stage_type_of
@@ -118,38 +119,76 @@ def build_workflow(
     for source, target in graph.edge_pairs():
         builder.add_edge(langgraph_name(source), langgraph_name(target))
     for edge in graph.conditional_edges:
-        asked = asked_of_state(edge_conditions.get(edge.path), edge.reads)
+        asked = asked_of_state(edge_conditions.get(edge.path), edge)
         source = langgraph_name(edge.source)
         builder.add_conditional_edges(source, asked, path_map(edge))
     return CompiledWorkflow(builder.compile(), stage_names=list(graph.stages))
 
 
 def asked_of_state(
-    condition: EdgeCondition, reads: Sequence[str]
+    condition: EdgeCondition, edge: ConditionalEdge
 ) -> Callable[[WorkflowState], bool | str]:
-    """Return the edge condition asked of the state: the values of ``reads``, in order.
+    """Return the edge condition asked of the state, its answer checked for a row.
 
-    The function keeps the edge condition's name: LangGraph names the branch
-    after it, and Domino tracing fails on a step with no name.
+    The condition is handed the values of the edge's ``reads``, in order. The
+    function keeps the edge condition's name: LangGraph names the branch
+    after it, and Domino tracing fails on a step with no name. An answer the
+    edge has no row for is refused here: LangGraph would fail on it with a bare
+    ``KeyError``.
 
     Args:
         condition: The registered edge condition.
-        reads: The fields its conditional edge reads, in the order it takes them.
+        edge: Its conditional edge: the fields it reads, in the order the
+            condition takes them, and the answers it has a row for.
 
     Returns:
         A function of the workflow state, named as ``condition`` is.
 
+    Raises:
+        WorkflowGraphError: When asked, the condition answers what the edge
+            has no row for (see ``answer_with_a_row``).
+
     Example:
-        >>> asked_of_state(is_query_mode, ["mode"])({"mode": "retrieve"})
+        >>> asked_of_state(is_query_mode, edge)({"mode": "retrieve"})
         False
     """
-    fields = tuple(reads)
+    fields = tuple(edge.reads)
 
     def ask(state: WorkflowState) -> bool | str:
-        return condition(*(state[field] for field in fields))
+        return answer_with_a_row(edge, condition(*(state[field] for field in fields)))
 
     ask.__name__ = ask.__qualname__ = getattr(condition, "__name__", "edge_condition")
     return ask
+
+
+def answer_with_a_row(edge: ConditionalEdge, answer: object) -> bool | str:
+    """Return an edge condition's answer when its edge has a row for it.
+
+    Args:
+        edge: The conditional edge that asked.
+        answer: What its edge condition answered.
+
+    Returns:
+        ``answer``, a key of the edge's ``path_map``.
+
+    Raises:
+        WorkflowGraphError: The edge has no row for ``answer``: a fault of the
+            use case's edge condition, not of a model or a service. The message
+            names the edge's source, the condition, the answer and its type,
+            and the answers the edge has a row for.
+
+    Example:
+        >>> answer_with_a_row(edge, True)
+        True
+    """
+    # A bool or a str only: 1 is equal to True, and would take True's row.
+    if isinstance(answer, bool | str) and answer in edge.path_map:
+        return answer
+    raise WorkflowGraphError(
+        f"{edge_name(edge)}: the edge condition answered {answer!r} "
+        f"({type(answer).__name__}), which the edge has no row for (expected "
+        f"one of {list(edge.path_map)!r})"
+    )
 
 
 def open_stage(

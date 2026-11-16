@@ -534,8 +534,9 @@ The start-up checks and the graph builder read what a stage type declares, or
 what a plain call's component takes and gives, so neither changes. A
 component type of the toolkit's own is one abstract class in
 `adapters/<component>/base_<component>.py`, as the router's is, with its
-request and its answer in the domain, and its import in
-`application/component_types.py`, so that the start-up checks find it
+request and its answer in the domain, and its module named in
+`TOOLKIT_COMPONENT_TYPES` in `config/extensions.py`, which every command
+imports before the extensions, so that the start-up checks find it
 registered. Its implementations sit beside it, one directory per backend
 (rule 4), and a settings class of the type's own keys is registered in
 `COMPONENT_TYPE_SETTINGS` in `config/component_settings.py`, as the router's

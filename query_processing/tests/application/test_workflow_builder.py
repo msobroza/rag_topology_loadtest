@@ -137,6 +137,12 @@ def is_a_question(conversational_query: str) -> bool:
     return conversational_query.endswith("?")
 
 
+@FIXTURE_EDGE_CONDITIONS.register("says_maybe")
+def says_maybe(conversational_query: str) -> bool:
+    """States ``-> bool``, which start-up checks, and answers a str all the same."""
+    return "maybe"  # type: ignore[return-value]
+
+
 FIXTURE_EDGE_CONDITIONS.register("label")(label)
 
 DRAFT_LISTS = {"reads": ["conversational_query"], "writes": ["answer"]}
@@ -279,8 +285,21 @@ async def test_a_conditional_edge_can_start_at_start(
     assert final.get("answer") == answer
 
 
+async def test_an_answer_its_edge_has_no_row_for_fails_naming_the_edge() -> None:
+    maybe = {**FIXTURE_GRAPH["conditional_edges"][0], "path": "says_maybe"}
+    workflow = fixture_workflow(FakeScribe(), conditional_edges=[maybe])
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        await workflow.run("who?")
+
+    message = str(refused.value)
+    for named in ("'draft'", "says_maybe", "'maybe'", "str", "True", "False"):
+        assert named in message, message
+
+
 def test_asked_of_state_hands_the_values_read_and_keeps_the_name() -> None:
-    asked = asked_of_state(is_a_question, ["standalone_query"])
+    edge = {**FIXTURE_GRAPH["conditional_edges"][0], "reads": ["standalone_query"]}
+    asked = asked_of_state(is_a_question, ConditionalEdge.model_validate(edge))
 
     assert asked.__name__ == "is_a_question"
     assert asked({"standalone_query": "who?", "conversational_query": "hi"}) is True
