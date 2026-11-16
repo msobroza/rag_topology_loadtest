@@ -1,6 +1,6 @@
 # The router's pipeline trained on Solon, and the app on its real backends
 
-Sitting of 16 November 2026, 19:31 to about 20:20 UTC. Registered the same day from the
+Sitting of 16 November 2026, 19:31 to 20:42 UTC, when the three machines were deleted. Registered the same day from the
 sitting's notes. It holds no Locust run: every entry is a measurement taken once, by
 hand, and `results.csv` is empty.
 
@@ -48,6 +48,7 @@ the Terraform refuses a pool of zero machines.
 | `t-probe-messages` | Twelve messages written for the check, not of the corpus | 8 of 8 that lean on a history routed `leans_on_history`, 4 of 4 that stand alone routed `self_contained` |
 | `t-app-start-real-backends` | `qp-serve` on every component's own backend, then one message on `/retrieve` | `/readyz` 200 after about 125 s; the message took 3220 ms |
 | `t-three-paths-llm-fake` | The same app with the LLM on `fake`, one request on `/query` per conversation path | 2796 ms (first message), 2319 ms (leans on its history), 2737 ms (stands alone) |
+| `t-real-llm-requests` | The app started again with every component on its real backend, then three requests on `/query`: a first message, a message that leans on its history, a follow-up in a conversation that names a source | Each answered HTTP 503 `llm_unavailable`, whose detail names the endpoint and its own answer, HTTP 401 "Incorrect API key provided"; no LLM answered |
 
 ## What it showed
 
@@ -66,12 +67,17 @@ the Terraform refuses a pool of zero machines.
 - The routing stages add about 0.15 to 0.3 s to a message that has a conversational
   history: `embed_for_route` 294 ms and `route` 14 ms on one request, 133 ms and 3 ms on
   the other.
+- An LLM endpoint that refuses the key gives the client a 503 that names the endpoint,
+  on the first message as on the routed ones, and not a 500. The app's log holds one
+  `rag_request` line with status 503 for each request, and no traceback.
 
 ## Limits
 
 - One run of each measurement; the timings are single requests, not a load test.
-- No LLM endpoint was called: the rewrite on a real LLM, with the schema narrowed to the
-  store's fields, is not checked by this sitting.
+- The LLM endpoint was called three times and refused the key each time: the value of the
+  Project environment variable for the LLM's key was not a bare key. No LLM answered and
+  nothing was generated, so the rewrite on a real LLM, with the schema narrowed to the
+  store's fields, is still not checked by this sitting.
 - No App was published through the emulated Domino: the app ran on the Workspace itself.
 - The Project environment variable that holds the LLM's key still had the name the code
   before the toolkit reads; this branch reads `QP_COMPONENTS__LLM__API__API_KEY`. It was

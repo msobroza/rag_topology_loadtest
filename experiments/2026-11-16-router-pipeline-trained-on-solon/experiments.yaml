@@ -1,4 +1,4 @@
-# Sitting of 16 November 2026, 19:31 to about 20:20 UTC: the RAG's router pipeline trained
+# Sitting of 16 November 2026, 19:31 to 20:42 UTC: the RAG's router pipeline trained
 # on Solon's vectors with make train-router, then the workflow app started on its real
 # backends with it. No Locust run: every entry is a measurement, taken once, by hand,
 # on the Workspace. See README.md.
@@ -162,3 +162,30 @@ experiments:
       - The first message has no routing stage; the message that stands alone has no rewrite.
       - The message that stands alone is an utterance of the training set.
       - One request each.
+
+  - id: t-real-llm-requests
+    question: What does the client get with every component on its real backend, the LLM on its endpoint?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      how: the app of t-app-start-real-backends started again, every component on the backend the workflow file states, after the measurements above
+    measurements:
+      index: *index
+      readyz: about 110 s after the start
+      route: /query
+      requests:
+        - path: a first message
+          answer: 'HTTP 503, {"error": "llm_unavailable"}'
+        - path: a message that leans on its history
+          answer: 'HTTP 503, {"error": "llm_unavailable"}'
+        - path: a follow-up in a conversation that names a source
+          answer: 'HTTP 503, {"error": "llm_unavailable"}'
+      detail: names the endpoint and the endpoint's own answer, HTTP 401 "Incorrect API key provided"
+      log: three rag_request lines with status 503, no traceback
+      llm_answered: none; nothing was generated
+    notes:
+      - Asked by the owner after the measurements above.
+      - The value of the Project environment variable for the LLM's key was not a bare key, so the endpoint refused it.
+      - An LLM endpoint that refuses the key gives the client a 503 that names the endpoint, on the first message as on the routed ones, and not a 500.
+      - "Still not checked: the rewrite on a real LLM, with the schema narrowed to the store's fields."
