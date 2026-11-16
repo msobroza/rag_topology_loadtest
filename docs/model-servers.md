@@ -41,6 +41,7 @@ stream count should not exceed the cores.
 | Calibration | Streams and threads, for `RAG_CALIBRATION_USERS` requests in flight | Threads and batch size, on one request |
 | Batch size of a rerank request | The whole request, 20 passages: its rerank endpoint has no such setting | `RAG_RERANK_BATCH_SIZE`, calibrated |
 | More load | More streams, or more replicas | More replicas |
+| Unit-length embeddings | `RAG_EMBEDDING_NORMALIZE`, written into the embedder's graph at export and when the App starts | The same setting, passed to the in-process embedder |
 
 Compare the two on the same weight format: see "Experiment 2" in the README.
 

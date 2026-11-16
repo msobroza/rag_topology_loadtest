@@ -154,7 +154,25 @@ class BaseOvmsStage(BaseServedStage, Generic[A]):
             PosixPath('/tmp/ovms-serving/config_reranker.json')
         """
         plugin_config = ovms_plugin_config(tuning)
-        return write_ovms_serving_folder(self._export, self.serving_dir, plugin_config)
+        return write_ovms_serving_folder(
+            self._export,
+            self.serving_dir,
+            plugin_config,
+            normalize_embeddings=self.normalize_embeddings(),
+        )
+
+    def normalize_embeddings(self) -> bool | None:
+        """Return what the graph's ``normalize_embeddings`` is written with.
+
+        Returns:
+            ``None``: the graph is left as exported (a reranker's has no such
+            option).
+
+        Example:
+            >>> rerank_stage.normalize_embeddings() is None
+            True
+        """
+        return None
 
     async def serve_sample(self) -> None:
         """Send ``calibration_users`` sample requests at once; return when all answer.
@@ -242,6 +260,19 @@ class OvmsEmbedStage(BaseOvmsStage[ApiEmbedder]):
     """Embed on OVMS: one question with the query prefix, as ``EmbedStage``'s."""
 
     stage = "embed"
+
+    def normalize_embeddings(self) -> bool:
+        """Return ``RAG_EMBEDDING_NORMALIZE``, as the in-process embedder reads it.
+
+        Returns:
+            Whether OVMS returns unit-length vectors, whatever the export holds
+            (the exporter writes ``true`` unless told otherwise).
+
+        Example:
+            >>> embed_stage.normalize_embeddings()  # RAG_EMBEDDING_NORMALIZE unset
+            False
+        """
+        return self._settings.embedding_normalize
 
     def _adapter_at(self, origin: str, policy: HttpPolicy) -> ApiEmbedder:
         settings = self._settings

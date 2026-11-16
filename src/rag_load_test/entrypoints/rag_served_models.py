@@ -1,9 +1,10 @@
 """``rag-served-models``: print the served models as shell assignments.
 
 The ``RagSettings`` defaults are the one pin for the served models (a source id and
-an alias each) and for the weight format they are exported at.
-``ovms/export_models.sh`` evaluates this command's output instead of repeating the
-four names, and exports at the format it prints.
+an alias each), for the weight format they are exported at and for whether the
+embedder normalises its vectors. ``ovms/export_models.sh`` evaluates this
+command's output instead of repeating the four names, exports at the format it
+prints and writes the embedder's graph with the normalisation it prints.
 
 Example:
     >>> eval "$(rag-served-models)"
@@ -25,12 +26,14 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
 
     Args:
         settings: Source of the reranker and embedder source ids and served
-            aliases, and of the OpenVINO weight format.
+            aliases, of the OpenVINO weight format and of the embedder's
+            normalisation.
 
     Returns:
-        Five lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
+        Six lines, in order: ``RERANKER_SOURCE_MODEL``, ``RERANKER_MODEL_NAME``,
         ``EMBEDDER_SOURCE_MODEL``, ``EMBEDDER_MODEL_NAME``,
-        ``OPENVINO_WEIGHT_FORMAT``.
+        ``OPENVINO_WEIGHT_FORMAT``, ``EMBEDDING_NORMALIZE`` (``true`` or
+        ``false``, as the shell script compares it).
 
     Example:
         >>> served_model_assignments(RagSettings())[0]
@@ -42,6 +45,7 @@ def served_model_assignments(settings: RagSettings) -> list[str]:
         "EMBEDDER_SOURCE_MODEL": settings.embedding_model,
         "EMBEDDER_MODEL_NAME": settings.embedding_api_model,
         "OPENVINO_WEIGHT_FORMAT": settings.openvino_weight_format,
+        "EMBEDDING_NORMALIZE": "true" if settings.embedding_normalize else "false",
     }
     return [f"{name}={shlex.quote(value)}" for name, value in values.items()]
 
@@ -57,14 +61,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         The exit status, 0, after printing the assignments one per line.
 
     Example:
-        >>> main([])  # prints RERANKER_SOURCE_MODEL=<source id>, then four more
+        >>> main([])  # prints RERANKER_SOURCE_MODEL=<source id>, then five more
         0
     """
     parser = argparse.ArgumentParser(
         prog="rag-served-models",
-        description="Print the served models (source id and alias) and the "
-        "OpenVINO weight format as shell assignments, for eval in "
-        "ovms/export_models.sh.",
+        description="Print the served models (source id and alias), the "
+        "OpenVINO weight format and the embedder's normalisation as shell "
+        "assignments, for eval in ovms/export_models.sh.",
     )
     parser.parse_args(argv)
     print("\n".join(served_model_assignments(RagSettings())))

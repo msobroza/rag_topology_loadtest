@@ -8,7 +8,9 @@ serving folder is the App's own and holds:
   ``config_embedder.json``), whose ``base_path`` names ``<alias>`` relative to
   the config file, so it resolves here;
 - ``<alias>/``, a symlink to every entry of the export's ``<alias>/`` but
-  ``graph.pbtxt``, which is written with the plugin config given. The graph's
+  ``graph.pbtxt``, which is written with the plugin config given and, for an
+  embedder, with the ``normalize_embeddings`` given (``None`` keeps what the
+  export holds; a reranker's graph has no such option). The graph's
   ``models_path: "./"`` is relative to the graph's folder, so it finds the
   linked model files.
 
@@ -29,7 +31,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import NamedTuple
 
-from .ovms_graph import graph_with_plugin_config
+from .ovms_graph import graph_with_normalize_embeddings, graph_with_plugin_config
 
 GRAPH_FILE = "graph.pbtxt"  # the name OVMS's exporter gives every graph
 
@@ -49,7 +51,11 @@ class OvmsExport(NamedTuple):
 
 
 def write_ovms_serving_folder(
-    export: OvmsExport, serving_dir: Path, plugin_config: Mapping[str, str]
+    export: OvmsExport,
+    serving_dir: Path,
+    plugin_config: Mapping[str, str],
+    *,
+    normalize_embeddings: bool | None = None,
 ) -> Path:
     """Build in ``serving_dir`` what OVMS serves ``export`` from, its graph rewritten.
 
@@ -57,6 +63,8 @@ def write_ovms_serving_folder(
         export: Where the exporter wrote the model, read only.
         serving_dir: A folder of the App's own; created when missing.
         plugin_config: The properties the graph's ``plugin_config`` holds.
+        normalize_embeddings: The value of the graph's ``normalize_embeddings``
+            line; ``None`` leaves it as exported (a reranker's graph has none).
 
     Returns:
         The config file to start OVMS with (``--config_path``).
@@ -65,7 +73,8 @@ def write_ovms_serving_folder(
         FileNotFoundError: If the export's graph or config file is missing; the
             message names the path and ``ovms/export_models.sh``.
         ValueError: If the export's graph has not exactly one ``plugin_config``
-            line.
+            line, or, when ``normalize_embeddings`` is a bool, not exactly one
+            ``normalize_embeddings`` line.
 
     Example:
         >>> write_ovms_serving_folder(export, Path("/tmp/s"), {"NUM_STREAMS": "1"})
@@ -80,6 +89,10 @@ def write_ovms_serving_folder(
     text = graph_with_plugin_config(
         graph.read_text(encoding="utf-8"), plugin_config, source=str(graph)
     )
+    if normalize_embeddings is not None:
+        text = graph_with_normalize_embeddings(
+            text, normalize_embeddings, source=str(graph)
+        )
     (model_dir / GRAPH_FILE).write_text(text, encoding="utf-8")
     served_config = serving_dir / export.config_file
     shutil.copyfile(config, served_config)

@@ -116,6 +116,9 @@ class OvmsCalibration:
         )
         report = await self._search(stage, part, streams, threads)
         config = stage.write_folder(report.chosen)
+        normalize = stage.normalize_embeddings()
+        # Only the embedder's graph has the option: the reranker's event is as before.
+        graph = {} if normalize is None else {"normalize_embeddings": normalize}
         log_json(
             event="ovms_serving_config",
             part=part,
@@ -123,6 +126,7 @@ class OvmsCalibration:
             threads=report.chosen.threads,
             calibrated=bool(report.trials),
             config=str(config),
+            **graph,
         )
         return config
 

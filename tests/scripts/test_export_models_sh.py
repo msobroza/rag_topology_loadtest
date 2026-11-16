@@ -25,6 +25,7 @@ RERANKER_MODEL_NAME='custom rerank'
 EMBEDDER_SOURCE_MODEL=org/custom-embed
 EMBEDDER_MODEL_NAME=custom-embed
 OPENVINO_WEIGHT_FORMAT=fp32
+EMBEDDING_NORMALIZE=false
 """
 
 
@@ -64,11 +65,13 @@ def run_export(tmp_path: Path, bin_dir: Path) -> subprocess.CompletedProcess[str
     )
 
 
-def served_models_fake(bin_dir: Path, weight_format: str = "fp32") -> None:
+def served_models_fake(
+    bin_dir: Path, weight_format: str = "fp32", normalize: str = "false"
+) -> None:
     """A ``rag-served-models`` printing FAKE_SERVED_MODELS at ``weight_format``."""
     output = FAKE_SERVED_MODELS.replace(
         "OPENVINO_WEIGHT_FORMAT=fp32", f"OPENVINO_WEIGHT_FORMAT={weight_format}"
-    )
+    ).replace("EMBEDDING_NORMALIZE=false", f"EMBEDDING_NORMALIZE={normalize}")
     write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{output}EOF\n")
 
 
@@ -189,3 +192,37 @@ def test_a_rag_served_models_without_the_weight_format_says_to_reinstall(
     assert "OPENVINO_WEIGHT_FORMAT" in result.stderr
     assert "make install" in result.stderr
     assert calls(tmp_path, "python") == []
+
+
+@pytest.mark.parametrize(("normalize", "skipped"), [("false", True), ("true", False)])
+def test_the_embedder_export_skips_normalization_only_when_asked(
+    tmp_path: Path, bin_dir: Path, normalize: str, skipped: bool
+) -> None:
+    served_models_fake(bin_dir, normalize=normalize)
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert ("<--skip_normalize>" in export_call(tmp_path, "embeddings_ov")) == skipped
+    assert "<--skip_normalize>" not in export_call(tmp_path, "rerank_ov")
+    assert f"normalize_embeddings {normalize}" in result.stdout
+
+
+def test_no_normalization_is_hard_coded() -> None:
+    text = EXPORT_SH.read_text()
+    assert "EMBEDDING_NORMALIZE=" not in text
+    assert "--skip_normalize \\" not in text  # passed only through the variable
+
+
+def test_a_rag_served_models_without_the_normalization_says_to_reinstall(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    older = FAKE_SERVED_MODELS.replace("EMBEDDING_NORMALIZE=false\n", "")
+    write_fake(bin_dir, "rag-served-models", f"cat <<'EOF'\n{older}EOF\n")
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 1
+    assert "EMBEDDING_NORMALIZE" in result.stderr
+    assert "make install" in result.stderr
+    assert (calls(tmp_path, "curl"), calls(tmp_path, "python")) == ([], [])

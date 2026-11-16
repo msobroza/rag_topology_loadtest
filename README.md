@@ -529,7 +529,7 @@ with a one-line usage error, not a traceback.
 | `RAG_EMBEDDING_API_MODEL` | `snowflake-arctic-embed-l-v2.0` | the model name sent to the endpoint; our model servers serve `RAG_EMBEDDING_MODEL` under this name |
 | `RAG_EMBEDDING_BATCH_SIZE` | `64` | texts per call, in process or per endpoint request (>= 1) |
 | `RAG_EMBEDDING_THREADS` | `0` | native (OpenMP/BLAS) threads one in-process embed call may use; `0` = calibrated at start-up, up to the budget's share |
-| `RAG_EMBEDDING_NORMALIZE` | `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. It does not change OVMS: its own export normalises on its side (the exporter's default) |
+| `RAG_EMBEDDING_NORMALIZE` | `false` | scale each vector the embedder returns to unit length, in-process (`local`) or on OVMS; off is safe because every store compares vectors by cosine, which ignores their length. For OVMS the value is written into the embedder's graph: by `ovms/export_models.sh` at export, and again when an OVMS App starts, so an App follows the setting whatever its export held |
 | **Rerank** | | |
 | `RAG_RERANK_BACKEND` | from the topology | `local` \| `api` \| `fake` \| `none`; `api`, `fake` and `none` (or the topology's own value) may override it |
 | `RAG_RERANK_MODEL` | `antoinelouis/crossencoder-camembert-base-mmarcoFR` | the `local` model (a Hugging Face id or a folder); also what our model servers load |
@@ -987,7 +987,11 @@ separate environment, which it needs: the exporter pins its own
 sentence-transformers and OpenVINO versions and would downgrade this project's),
 then runs `rerank_ov` and `embeddings_ov --pooling CLS`
 with `--weight-format` set to `RAG_OPENVINO_WEIGHT_FORMAT` (`fp32` by default,
-or `int8`). The result is `config_reranker.json`, `config_embedder.json`, one
+or `int8`). `embeddings_ov` also gets `--skip_normalize` unless
+`RAG_EMBEDDING_NORMALIZE` is on, so the embedder's graph normalises only when the
+setting says so; OVMS's exporter normalises by default. Docker compose serves the
+export as it is, so export again after changing that setting; an OVMS App writes
+the value into its own copy of the graph each time it starts. The result is `config_reranker.json`, `config_embedder.json`, one
 directory per model and a one-line `weight-format` file, written last; the
 configs reference the model directories relatively, so the tree can be mounted
 anywhere.

@@ -25,6 +25,7 @@ def test_assignments_pair_each_source_id_with_its_alias(
         rerank_model="org/rerank",
         rerank_api_model="rerank",
         openvino_weight_format="int8",
+        embedding_normalize=True,
     )
 
     assert served_model_assignments(settings) == [
@@ -33,6 +34,7 @@ def test_assignments_pair_each_source_id_with_its_alias(
         "EMBEDDER_SOURCE_MODEL=org/embed",
         "EMBEDDER_MODEL_NAME=embed",
         "OPENVINO_WEIGHT_FORMAT=int8",
+        "EMBEDDING_NORMALIZE=true",
     ]
 
 
@@ -56,6 +58,7 @@ def test_rag_served_models_prints_the_settings_defaults(
         "EMBEDDER_SOURCE_MODEL=Snowflake/snowflake-arctic-embed-l-v2.0",
         "EMBEDDER_MODEL_NAME=snowflake-arctic-embed-l-v2.0",
         "OPENVINO_WEIGHT_FORMAT=fp32",
+        "EMBEDDING_NORMALIZE=false",
     ]
 
 
@@ -67,6 +70,7 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
     monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; rm -rf $HOME")
     monkeypatch.setenv("RAG_EMBEDDING_MODEL", "org/embed v2")
     monkeypatch.setenv("RAG_EMBEDDING_API_MODEL", "embed")
+    monkeypatch.setenv("RAG_EMBEDDING_NORMALIZE", "true")
 
     assert main([]) == 0
 
@@ -76,6 +80,7 @@ def test_rag_served_models_honours_overrides_and_quotes_for_eval(
         "EMBEDDER_SOURCE_MODEL='org/embed v2'",
         "EMBEDDER_MODEL_NAME=embed",
         "OPENVINO_WEIGHT_FORMAT=fp32",
+        "EMBEDDING_NORMALIZE=true",
     ]
 
 
@@ -85,7 +90,11 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
 ) -> None:
     monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; echo pwned")
     main([])
-    script = 'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
+    script = (
+        'eval "$1"; '
+        'printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL" '
+        '"$EMBEDDING_NORMALIZE"'
+    )
 
     result = subprocess.run(
         ["bash", "-c", script, "bash", capsys.readouterr().out],
@@ -98,6 +107,7 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     assert result.stdout.splitlines() == [
         "it's; echo pwned",
         "Snowflake/snowflake-arctic-embed-l-v2.0",
+        "false",
     ]
 
 

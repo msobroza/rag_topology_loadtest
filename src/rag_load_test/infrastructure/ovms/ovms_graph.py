@@ -1,4 +1,4 @@
-"""An OVMS graph's ``plugin_config``: what it holds for a tuning, and rewriting it.
+"""An OVMS graph's ``plugin_config`` and ``normalize_embeddings``, and rewriting them.
 
 OVMS's exporter (``ovms/export_models.sh`` runs it) writes one ``graph.pbtxt``
 per model, holding exactly one line such as::
@@ -8,7 +8,9 @@ per model, holding exactly one line such as::
 OVMS reads it once, when it starts. A malformed JSON there makes OVMS log a
 parsing error and silently run its defaults, so what is written is always
 ``json.dumps`` of string values. No ``PERFORMANCE_HINT`` is set: OVMS refuses
-it together with ``NUM_STREAMS``. Pure functions: no file is read here.
+it together with ``NUM_STREAMS``. An embedder's graph also holds exactly one
+``normalize_embeddings: true,`` (or ``false,``) line; a reranker's holds none.
+Pure functions: no file is read here.
 
 Example:
     >>> config = ovms_plugin_config(StageTuning(threads=2, batch_size=20, streams=2))
@@ -28,6 +30,12 @@ from ..openvino_cpu_properties import openvino_cpu_properties
 # whatever follows it (a comma), on one line.
 _PLUGIN_CONFIG_LINE = re.compile(
     r"^(?P<head>[ \t]*plugin_config:[ \t]*')(?P<json>[^'\n]*)(?P<tail>'[^\n]*)$",
+    re.MULTILINE,
+)
+# The line's head up to the value, the value, then whatever follows it (a comma).
+_NORMALIZE_LINE = re.compile(
+    r"^(?P<head>[ \t]*normalize_embeddings:[ \t]*)"
+    r"(?P<value>true|false)(?P<tail>[^\n]*)$",
     re.MULTILINE,
 )
 
@@ -93,5 +101,39 @@ def graph_with_plugin_config(
         )
     written = json.dumps(dict(plugin_config))
     return _PLUGIN_CONFIG_LINE.sub(
+        lambda line: line["head"] + written + line["tail"], graph_text
+    )
+
+
+def graph_with_normalize_embeddings(
+    graph_text: str, normalize: bool, *, source: str
+) -> str:
+    """Return ``graph_text`` with ``normalize`` in its ``normalize_embeddings`` line.
+
+    Args:
+        graph_text: The exporter's ``graph.pbtxt`` of an embedder.
+        normalize: Whether OVMS returns unit-length vectors.
+        source: Where ``graph_text`` came from, for the error.
+
+    Returns:
+        The same text, only the line's ``true`` or ``false`` replaced.
+
+    Raises:
+        ValueError: If the graph has no ``normalize_embeddings`` line, or
+            several; the message says how many and names ``source``.
+
+    Example:
+        >>> line = "  normalize_embeddings: true,"
+        >>> print(graph_with_normalize_embeddings(line, False, source="g"))
+          normalize_embeddings: false,
+    """
+    found = len(_NORMALIZE_LINE.findall(graph_text))
+    if found != 1:
+        raise ValueError(
+            f"{source}: expected exactly one normalize_embeddings: true|false "
+            f"line, as OVMS's exporter writes for an embedder, found {found}"
+        )
+    written = "true" if normalize else "false"
+    return _NORMALIZE_LINE.sub(
         lambda line: line["head"] + written + line["tail"], graph_text
     )

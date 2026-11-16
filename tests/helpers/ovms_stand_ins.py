@@ -2,8 +2,8 @@
 
 ``write_ovms_stand_in`` writes an ``ovms`` that takes the real binary's options
 (``--rest_bind_address``, ``--rest_port``, ``--config_path``), finds the graph
-the config names, records its argv, its ``plugin_config`` and the files beside
-the graph as one JSON line, then does what ``behaviour`` says:
+the config names, records its argv, its ``plugin_config``, the values of its
+``normalize_embeddings`` lines and the files beside the graph as one JSON line, then does what ``behaviour`` says:
 
 - ``answers``: serves ``/v3/rerank`` (Cohere's shape) and ``/v3/embeddings``
   (OpenAI's) for the alias the config names (404 for another model). It holds
@@ -14,7 +14,8 @@ the graph as one JSON line, then does what ``behaviour`` says:
 - ``stubborn``: answers, but ignores SIGTERM, so only a kill stops it.
 
 ``write_ovms_export`` writes ``config_<part>.json`` and ``<alias>/`` with a
-``graph.pbtxt`` holding the exporter's one ``plugin_config`` line.
+``graph.pbtxt`` holding the exporter's one ``plugin_config`` line and, for an
+embedder, its one ``normalize_embeddings: true,`` line (``exported_graph``).
 
 Example::
 
@@ -43,6 +44,8 @@ node {
   }
 }
 """
+# What the exporter adds to an embedder's options by default (no --skip_normalize).
+NORMALIZE_LINE = "      normalize_embeddings: true,\n"
 MODEL_FILES = ("openvino_model.xml", "openvino_model.bin", "tokenizer.json")
 
 _SCRIPT = """#!%(python)s
@@ -62,6 +65,7 @@ folder = config_path.parent / model["base_path"]
 graph = (folder / "graph.pbtxt").read_text()
 plugin = json.loads(re.search(r"plugin_config: '([^']*)'", graph).group(1))
 line = {"argv": sys.argv[1:], "plugin_config": plugin,
+        "normalize": re.findall(r"normalize_embeddings: (\\w+)", graph),
         "files": sorted(p.name for p in folder.iterdir())}
 with open(RECORD, "a") as record:
     record.write(json.dumps(line) + "\\n")
@@ -132,22 +136,26 @@ def write_ovms_stand_in(
 
 
 def ovms_starts(record: Path) -> list[dict[str, object]]:
-    """Every start of the stand-in, in order: argv, plugin_config, files."""
+    """Every start of the stand-in, in order: argv, plugin_config, normalize, files."""
     if not record.exists():
         return []
     return [json.loads(line) for line in record.read_text().splitlines()]
 
 
+def exported_graph(part: str, alias: str) -> str:
+    """The ``graph.pbtxt`` the exporter writes for ``part``, by default."""
+    if part == "reranker":
+        return GRAPH_TEMPLATE % {"alias": alias, "calculator": "RerankCalculatorOV"}
+    graph = GRAPH_TEMPLATE % {"alias": alias, "calculator": "EmbeddingsCalculatorOV"}
+    plugin_line = '      plugin_config: \'{"NUM_STREAMS": "1" }\',\n'
+    return graph.replace(plugin_line, plugin_line + NORMALIZE_LINE)
+
+
 def write_ovms_export(models_dir: Path, part: str, alias: str) -> Path:
     """Write one model's export as OVMS's exporter lays it out; return its folder."""
-    calculator = (
-        "RerankCalculatorOV" if part == "reranker" else "EmbeddingsCalculatorOV"
-    )
     folder = models_dir / alias
     folder.mkdir(parents=True)
-    (folder / "graph.pbtxt").write_text(
-        GRAPH_TEMPLATE % {"alias": alias, "calculator": calculator}
-    )
+    (folder / "graph.pbtxt").write_text(exported_graph(part, alias))
     for name in MODEL_FILES:
         (folder / name).write_text(f"{name} of {alias}")
     config = {"model_config_list": [{"config": {"name": alias, "base_path": alias}}]}

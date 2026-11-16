@@ -96,3 +96,61 @@ def test_a_missing_export_names_the_path_and_the_exporter(tmp_path: Path) -> Non
     message = str(raised.value)
     assert str(tmp_path / "empty" / "emb" / "graph.pbtxt") in message
     assert "ovms/export_models.sh" in message
+
+
+# --- normalize_embeddings ------------------------------------------------------------
+
+
+@pytest.fixture
+def embedder_export(tmp_path: Path) -> OvmsExport:
+    models = tmp_path / "models"
+    write_ovms_export(models, "embedder", "emb")
+    return OvmsExport(models, "config_embedder.json", "emb")
+
+
+def served_normalize_lines(serving: Path, alias: str) -> list[str]:
+    graph = (serving / alias / "graph.pbtxt").read_text()
+    return [line.strip() for line in graph.splitlines() if "normalize_" in line]
+
+
+@pytest.mark.parametrize(
+    ("normalize", "expected"),
+    [
+        (False, ["normalize_embeddings: false,"]),
+        (True, ["normalize_embeddings: true,"]),
+        (None, ["normalize_embeddings: true,"]),  # as exported
+    ],
+)
+def test_the_embedder_graph_is_served_with_the_normalization_asked(
+    embedder_export: OvmsExport,
+    tmp_path: Path,
+    normalize: bool | None,
+    expected: list[str],
+) -> None:
+    serving = tmp_path / "serving"
+    write_ovms_serving_folder(
+        embedder_export, serving, CONFIG, normalize_embeddings=normalize
+    )
+
+    assert served_normalize_lines(serving, "emb") == expected
+    assert served_normalize_lines(embedder_export.models_dir, "emb") == [
+        "normalize_embeddings: true,"
+    ]  # the export is untouched
+
+
+def test_a_reranker_graph_is_served_as_today_without_normalization(
+    export: OvmsExport, tmp_path: Path
+) -> None:
+    serving = tmp_path / "serving"
+    write_ovms_serving_folder(export, serving, CONFIG, normalize_embeddings=None)
+
+    assert served_normalize_lines(serving, "rr") == []
+
+
+def test_a_normalization_on_a_graph_without_the_line_is_refused(
+    export: OvmsExport, tmp_path: Path
+) -> None:
+    with pytest.raises(ValueError, match=r"rr/graph\.pbtxt: .*found 0"):
+        write_ovms_serving_folder(
+            export, tmp_path / "serving", CONFIG, normalize_embeddings=False
+        )

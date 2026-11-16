@@ -9,6 +9,11 @@
 # before the format was recorded, always at int8. The script refuses to export
 # into a folder that holds another weight format.
 #
+# Whether the embedder returns unit-length vectors is RAG_EMBEDDING_NORMALIZE, the
+# setting the in-process embedder reads, printed by rag-served-models as
+# EMBEDDING_NORMALIZE. The exporter normalises unless told --skip_normalize, and
+# rewrites the embedder's graph on every run, so an export served as it is agrees.
+#
 # Usage: ovms/export_models.sh [MODELS_DIR]      (default: ovms/models)
 # Needs: HF Hub access to download the source models; a Python with pip; this
 # package installed (`make install`) so `rag-served-models` is on PATH.
@@ -32,6 +37,15 @@ eval "$SERVED_MODELS"
 if [ -z "${OPENVINO_WEIGHT_FORMAT:-}" ]; then
   echo "export_models.sh: rag-served-models printed no OPENVINO_WEIGHT_FORMAT; reinstall this package (make install) so the command is current" >&2
   exit 1
+fi
+# A rag-served-models older than the embedder's normalisation prints none.
+if [ -z "${EMBEDDING_NORMALIZE:-}" ]; then
+  echo "export_models.sh: rag-served-models printed no EMBEDDING_NORMALIZE; reinstall this package (make install) so the command is current" >&2
+  exit 1
+fi
+NORMALIZE_ARGS=()
+if [ "$EMBEDDING_NORMALIZE" = false ]; then
+  NORMALIZE_ARGS=(--skip_normalize)
 fi
 
 MODELS_DIR=${1:-$HERE/models}
@@ -88,7 +102,8 @@ fetch_if_missing requirements.txt
   --pooling CLS \
   --weight-format "$OPENVINO_WEIGHT_FORMAT" \
   --config_file_path "$MODELS_DIR/config_embedder.json" \
-  --model_repository_path "$MODELS_DIR"
+  --model_repository_path "$MODELS_DIR" \
+  ${NORMALIZE_ARGS[@]+"${NORMALIZE_ARGS[@]}"}
 
 # Written last: a folder records its weight format only once both configs exist.
 echo "$OPENVINO_WEIGHT_FORMAT" > "$WEIGHT_FORMAT_FILE"
@@ -96,3 +111,4 @@ echo "$OPENVINO_WEIGHT_FORMAT" > "$WEIGHT_FORMAT_FILE"
 echo "export_models.sh: reranker config -> $MODELS_DIR/config_reranker.json"
 echo "export_models.sh: embedder config -> $MODELS_DIR/config_embedder.json"
 echo "export_models.sh: weight format $OPENVINO_WEIGHT_FORMAT -> $WEIGHT_FORMAT_FILE"
+echo "export_models.sh: embedder normalize_embeddings $EMBEDDING_NORMALIZE -> $MODELS_DIR/$EMBEDDER_MODEL_NAME/graph.pbtxt"

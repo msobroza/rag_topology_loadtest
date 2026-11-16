@@ -97,6 +97,12 @@ def graph_plugin_config(config: Path) -> dict[str, str]:
     return dict(json.loads(found))
 
 
+def graph_normalize(config: Path) -> list[str]:
+    model = json.loads(config.read_text())["model_config_list"][0]["config"]
+    graph = (config.parent / model["base_path"] / "graph.pbtxt").read_text()
+    return re.findall(r"normalize_embeddings: (\w+)", graph)
+
+
 def logged(caplog: pytest.LogCaptureFixture, event: str) -> list[dict[str, object]]:
     lines = [json.loads(record.message) for record in caplog.records]
     return [line for line in lines if line["event"] == event]
@@ -126,8 +132,13 @@ async def test_start_up_calibrates_then_writes_the_folder_for_the_choice(
     assert config == serving / f"config_{part}.json"
     starts = ovms_starts(record)
     assert [start["plugin_config"] for start in starts[:2]] == ALL_ON_2_CPUS
+    # RAG_EMBEDDING_NORMALIZE unset: every embedder candidate served unnormalised.
+    served = ["false"] if part == "embedder" else []
+    assert all(start["normalize"] == served for start in starts)
+    assert graph_normalize(config) == served
     [line] = logged(caplog, "ovms_serving_config")
     assert line["calibrated"] is True
+    assert line.get("normalize_embeddings") == (False if served else None)
     assert graph_plugin_config(config) == {
         "NUM_STREAMS": str(line["streams"]),
         "INFERENCE_NUM_THREADS": str(line["threads"]),
@@ -164,6 +175,47 @@ async def test_both_pinned_starts_nothing(
         "calibrated": False,
     }
     assert line["config"] == str(config)
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+async def test_the_embedder_is_served_with_the_normalize_setting(
+    settings_factory: SettingsFactory,
+    models: Path,
+    record: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    normalize: bool,
+) -> None:
+    settings = two_cpus(settings_factory, ovms_threads=2, embedding_normalize=normalize)
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        config = await serving_config(settings, "embedder", models, tmp_path / "s")
+
+    expected = ["true" if normalize else "false"]
+    assert [start["normalize"] for start in ovms_starts(record)] == [expected] * 2
+    assert graph_normalize(config) == expected
+    [line] = logged(caplog, "ovms_serving_config")
+    assert line["normalize_embeddings"] is normalize
+
+
+async def test_the_reranker_graph_and_event_carry_no_normalization(
+    settings_factory: SettingsFactory,
+    models: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = two_cpus(
+        settings_factory, ovms_num_streams=2, ovms_threads=2, embedding_normalize=True
+    )
+    with caplog.at_level("INFO", logger="rag_load_test"):
+        config = await serving_config(settings, "reranker", models, tmp_path / "s")
+
+    exported = (models / settings.rerank_api_model / "graph.pbtxt").read_text()
+    served = (config.parent / settings.rerank_api_model / "graph.pbtxt").read_text()
+    assert served.replace(json.dumps(ALL_ON_2_CPUS[1]), '{"NUM_STREAMS": "1" }') == (
+        exported
+    )
+    [line] = logged(caplog, "ovms_serving_config")
+    assert "normalize_embeddings" not in line
 
 
 async def test_one_pinned_parameter_searches_only_the_other(
