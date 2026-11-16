@@ -21,3 +21,16 @@ those on the PATH otherwise.
 - deadcode: make deadcode
 - deps: make deps
 - test: make test
+
+## Defensive patterns
+
+Every network call has a timeout and bounded retries. Beyond that default this
+project uses one further pattern:
+
+- Backoff between the retries of an HTTP call: the wait doubles from
+  `http_backoff_s`. Timeout, retries and backoff come from the settings
+  (`http_timeout_s`, `http_retries`, `http_backoff_s`); a new call reuses them and
+  adds no constant of its own.
+
+No circuit breaker, no rate limit, no graceful degradation: add none unless the
+owner asks for one.
