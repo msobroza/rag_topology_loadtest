@@ -527,10 +527,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           no_reranker.py  NoReranker: retrieval order kept
       llm/            the LLM of the generation component
         base_llm.py   BaseLLM, the port
-        api/          backends: served and api; importing it imports every module, so each format registers itself
+        api/          backends: served and api; importing it imports every module, so each format and structured output method registers itself
           api_llm.py  ApiLLM, and open_api_llm: the LLM of one endpoint
           base_generation_api_format.py  BaseGenerationApiFormat, GENERATION_API_FORMATS: the formats by name
           openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
+          base_structured_output_method.py  BaseStructuredOutputMethod, STRUCTURED_OUTPUT_METHODS: how a schema reaches the endpoint, by name
+          json_schema_method.py  json_schema: the schema as OpenAI's response_format (the default)
+          format_instructions_method.py  format_instructions: the schema in the messages, LangChain core's parser reads the answer
         fake/         backend: fake
           fake_llm.py  FakeLLM: an echo
       router/         the router

@@ -1,12 +1,14 @@
 """BaseLLM over an HTTP endpoint that speaks a generation API format.
 
-Under an output schema the schema goes to the endpoint as OpenAI's
-``response_format``, the messages unchanged, and an answer the schema does not
-accept is asked again, within the retries of the component's policy (spec 5).
+Under an output schema the schema goes to the endpoint the way the component's
+structured output method says (OpenAI's ``response_format``, or an instruction
+in the messages), and an answer the schema does not accept is asked again,
+within the retries of the component's policy (spec 5).
 
 Example:
     >>> llm = ApiLLM(endpoint_client, GENERATION_API_FORMATS.get("openai")(),
-    ...              temperature=0.0, retries=2)
+    ...              temperature=0.0, retries=2,
+    ...              structured_output=JsonSchemaMethod())
     >>> answer = await llm.generate(messages, output_schema=Verdict)
 """
 
@@ -26,6 +28,11 @@ from ....infrastructure.http.http_policy import HttpPolicy
 from ....infrastructure.http.json_post import describe_malformed
 from ..base_llm import BaseLLM
 from .base_generation_api_format import GENERATION_API_FORMATS, BaseGenerationApiFormat
+from .base_structured_output_method import (
+    STRUCTURED_OUTPUT_METHODS,
+    BaseStructuredOutputMethod,
+    PreparedRequest,
+)
 
 
 class ApiLLM(BaseLLM):
@@ -37,10 +44,12 @@ class ApiLLM(BaseLLM):
         temperature: The sampling temperature sent with every request.
         retries: How many times an answer that does not match its output
             schema is asked again; the component's policy gives it.
+        structured_output: How an output schema reaches the endpoint and how
+            the answer's JSON object is read back.
 
     Example:
-        >>> llm = ApiLLM(endpoint_client, OpenAIChatFormat(),
-        ...              temperature=0.0, retries=2)
+        >>> llm = ApiLLM(endpoint_client, OpenAIChatFormat(), temperature=0.0,
+        ...              retries=2, structured_output=JsonSchemaMethod())
         >>> await llm.generate([{"role": "user", "content": "Hi"}])
         'Hello!'
     """
@@ -52,9 +61,11 @@ class ApiLLM(BaseLLM):
         *,
         temperature: float,
         retries: int,
+        structured_output: BaseStructuredOutputMethod,
     ) -> None:
         self._endpoint_client, self._api_format = endpoint_client, api_format
         self._temperature, self._retries = temperature, retries
+        self._structured_output = structured_output
         self.model_name = endpoint_client.endpoint.model
 
     async def generate(
@@ -66,8 +77,8 @@ class ApiLLM(BaseLLM):
 
         Args:
             messages: OpenAI-style messages, each with ``role`` and ``content``.
-            output_schema: The pydantic model the answer must follow, sent as
-                ``response_format``; None for free text.
+            output_schema: The pydantic model the answer must follow, sent the
+                way the structured output method says; None for free text.
 
         Returns:
             The model's answer text; "" when the answer carries no content.
@@ -84,14 +95,15 @@ class ApiLLM(BaseLLM):
             '{"ok": true}'
         """
         if output_schema is None:
-            return await self._answer(messages, None)
+            return await self._answer(PreparedRequest(messages, None))
         return await self._answer_matching(messages, output_schema)
 
-    async def _answer(
-        self, messages: list[dict[str, str]], response_format: dict[str, object] | None
-    ) -> str:
+    async def _answer(self, prepared: PreparedRequest) -> str:
         body = self._api_format.request_body(
-            self.model_name, messages, self._temperature, response_format
+            self.model_name,
+            prepared.messages,
+            self._temperature,
+            prepared.response_format,
         )
         answer = await self._endpoint_client.post(body)
         try:
@@ -103,12 +115,13 @@ class ApiLLM(BaseLLM):
         self, messages: list[dict[str, str]], schema: type[BaseModel]
     ) -> str:
         # Asked once, then once per retry, until an answer matches.
-        response_format = json_schema_response_format(schema)
+        method = self._structured_output
+        prepared = method.prepare(messages, schema)
         for _ in range(self._retries):
-            text = json_text(await self._answer(messages, response_format))
+            text = method.json_text(await self._answer(prepared))
             if _mismatch(schema, text) is None:
                 return text
-        text = json_text(await self._answer(messages, response_format))
+        text = method.json_text(await self._answer(prepared))
         mismatch = _mismatch(schema, text)
         if mismatch is not None:
             raise self._unmatched(schema, text, mismatch)
@@ -128,47 +141,6 @@ class ApiLLM(BaseLLM):
         )
 
 
-def json_schema_response_format(schema: type[BaseModel]) -> dict[str, object]:
-    """Return OpenAI's ``response_format`` that asks for one instance of ``schema``.
-
-    Args:
-        schema: The pydantic model the answer must follow.
-
-    Returns:
-        ``{"type": "json_schema", "json_schema": {name, schema, strict}}``,
-        named after the model, strict.
-
-    Example:
-        >>> json_schema_response_format(Verdict)["json_schema"]["name"]
-        'Verdict'
-    """
-    json_schema = {
-        "name": schema.__name__,
-        "schema": schema.model_json_schema(),
-        "strict": True,
-    }
-    return {"type": "json_schema", "json_schema": json_schema}
-
-
-def json_text(answer: str) -> str:
-    """Return the JSON object of an answer to a ``response_format`` request.
-
-    The endpoint imposed the schema, so the answer is the object itself, with
-    perhaps blank space around it.
-
-    Args:
-        answer: The answer text.
-
-    Returns:
-        The text stripped of surrounding blank space.
-
-    Example:
-        >>> json_text('  {"ok": true} ')
-        '{"ok": true}'
-    """
-    return answer.strip()
-
-
 def _mismatch(schema: type[BaseModel], text: str) -> ValidationError | None:
     # Why the schema refuses the text, or None when it accepts it.
     try:
@@ -185,6 +157,7 @@ def open_api_llm(
     tokens: RunTokenSource,
     policy: HttpPolicy,
     temperature: float,
+    structured_output: str,
 ) -> ApiLLM:
     """Build the LLM of one generation endpoint.
 
@@ -195,21 +168,30 @@ def open_api_llm(
         policy: Timeout, retries and backoff of every call; its retries also
             bound how many times an answer off its schema is asked again.
         temperature: The sampling temperature sent with every request.
+        structured_output: The name of the structured output method that
+            takes an output schema to the endpoint.
 
     Returns:
         The LLM.
 
     Raises:
-        ValueError: If ``endpoint.api_format`` names no generation API format.
+        ValueError: If ``endpoint.api_format`` names no generation API format,
+            or ``structured_output`` no structured output method; the message
+            lists the known names.
 
     Example:
         >>> open_api_llm(client, endpoint, tokens=tokens, policy=policy,
-        ...              temperature=0.0)
+        ...              temperature=0.0, structured_output="json_schema")
     """
     api_format = GENERATION_API_FORMATS.get(endpoint.api_format)()
+    method = STRUCTURED_OUTPUT_METHODS.get(structured_output)()
     endpoint_client = open_endpoint_client(
         client, endpoint, component="llm", tokens=tokens, policy=policy
     )
     return ApiLLM(
-        endpoint_client, api_format, temperature=temperature, retries=policy.retries
+        endpoint_client,
+        api_format,
+        temperature=temperature,
+        retries=policy.retries,
+        structured_output=method,
     )

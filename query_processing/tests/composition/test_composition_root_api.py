@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -198,6 +199,50 @@ async def test_the_api_llm_calls_its_endpoint_with_its_own_timeout(
 
     expected_body = {"model": "llama-3", "messages": messages, "temperature": 0.7}
     assert routes.sent() == [(CHAT_URL, expected_body, "Bearer sk-key", 90.0)]
+
+
+class Verdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+
+
+@pytest.mark.parametrize("backend", ["api", "served"])
+@pytest.mark.parametrize(
+    ("method", "sends_a_response_format", "instructions"),
+    [("json_schema", True, 0), ("format_instructions", False, 1)],
+)
+async def test_the_llm_takes_a_schema_the_way_its_block_names(
+    settings_factory: SettingsFactory,
+    backend: str,
+    method: str,
+    sends_a_response_format: bool,
+    instructions: int,
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def answer_ok(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        content = '```json\n{"ok": true}\n```' if instructions else '{"ok": true}'
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": content}}]}
+        )
+
+    block = {"url": CHAT_URL, "structured_output": method}
+    settings = settings_factory(
+        **(FAKE_BACKENDS | {"components__llm__backend": backend}),
+        components={"llm": {"alias": "llama-3", backend: block}},
+    )
+    async with CompositionRoot(
+        settings, transport=httpx.MockTransport(answer_ok)
+    ) as composition:
+        llm = (await composition.workflow_dependencies()).by_name["llm"]
+        messages = [{"role": "user", "content": "Is it ok?"}]
+        answer = await llm.generate(messages, output_schema=Verdict)
+
+    assert json.loads(answer) == {"ok": True}
+    [body] = sent
+    assert ("response_format" in body) is sends_a_response_format
+    assert len(body["messages"]) == 1 + instructions  # type: ignore[arg-type]
 
 
 async def test_an_llm_that_sets_no_retries_keeps_the_default(

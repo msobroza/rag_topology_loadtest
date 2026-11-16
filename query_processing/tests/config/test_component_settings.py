@@ -244,6 +244,17 @@ def test_any_backend_name_is_kept_for_the_openers_to_refuse(
     assert settings.components["embedder"].backend == "gpu"
 
 
+def test_an_llm_sends_a_schema_as_json_schema_unless_its_block_says(
+    settings_factory: SettingsFactory,
+) -> None:
+    # Any name is kept: the registry of methods refuses an unknown one.
+    settings = settings_factory(components__llm__served__structured_output="grammar")
+    llm = settings.components["llm"]
+
+    assert llm.api.structured_output == "json_schema"
+    assert llm.served.structured_output == "grammar"
+
+
 def test_the_calibration_request_reads_no_stages_setting(
     settings_factory: SettingsFactory,
 ) -> None:

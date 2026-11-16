@@ -1,9 +1,10 @@
-"""An unknown backend or API format, refused before a command opens anything.
+"""An unknown registered name, refused before a command opens anything.
 
-The openers and the API formats register themselves, in packages the settings
-may not import, so the settings cannot refuse an unknown name. A component's
-opener would refuse it, but only when that component opens, which can be after
-another model has loaded. So each command that opens components calls
+A backend, an API format or a structured output method. The openers, the API
+formats and the structured output methods register themselves, in packages the
+settings may not import, so the settings cannot refuse an unknown name. A
+component's opener would refuse it, but only when that component opens, which
+can be after another model has loaded. So each command that opens components calls
 ``check_registered_names`` while it reads its settings, and reports a refusal
 as a usage error, as it reports any other settings mistake.
 
@@ -18,8 +19,9 @@ from typing import Any
 
 from ..adapters.embedder.api.base_embedding_api_format import EMBEDDING_API_FORMATS
 from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
+from ..adapters.llm.api.base_structured_output_method import STRUCTURED_OUTPUT_METHODS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
-from ..config.component_settings import ComponentSettings
+from ..config.component_settings import ComponentSettings, LlmSettings
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.registry import Registry
@@ -35,10 +37,11 @@ _API_FORMATS_BY_TYPE: dict[str, Registry[Any]] = {
 
 
 def check_registered_names(settings: WorkflowSettings) -> None:
-    """Refuse a backend that has no opener, or an API format nobody registered.
+    """Refuse a backend, API format or structured output method nobody registered.
 
     Every component is checked, whether the command opens it or not, the
-    vector store included, and every model's ``api`` block, whatever the
+    vector store included, every model's ``api`` block, and an LLM's
+    ``structured_output`` in its ``api`` and ``served`` blocks, whatever the
     component's backend.
 
     Args:
@@ -61,6 +64,17 @@ def check_registered_names(settings: WorkflowSettings) -> None:
     for name, model in settings.model_components().items():
         api_format = variable_of("components", name, "api", "api_format")
         _check(_API_FORMATS_BY_TYPE[model.type].get, model.api.api_format, api_format)
+        if isinstance(model, LlmSettings):
+            _check_structured_output(name, model)
+
+
+def _check_structured_output(name: str, llm: LlmSettings) -> None:
+    # Both blocks, whatever the backend, as an api block's format is.
+    for block_name, block in (("api", llm.api), ("served", llm.served)):
+        variable = WorkflowSettings.variable_of(
+            "components", name, block_name, "structured_output"
+        )
+        _check(STRUCTURED_OUTPUT_METHODS.get, block.structured_output, variable)
 
 
 def _known_backends(component: ComponentSettings) -> Callable[[str], object]:

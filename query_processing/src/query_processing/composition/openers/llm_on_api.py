@@ -44,7 +44,8 @@ async def open_llm_at(
 
     Args:
         endpoint: The route, its API format, its key and the model name sent.
-        block: The block of the component's backend, for the temperature sent.
+        block: The block of the component's backend, for the temperature sent
+            and the structured output method.
         component: The LLM, for how patiently it is called.
         shared: The shared HTTP client, the default policy and the run tokens.
 
@@ -61,4 +62,5 @@ async def open_llm_at(
         tokens=http.run_tokens,
         policy=http.policy_of(component),
         temperature=block.temperature,
+        structured_output=block.structured_output,
     )

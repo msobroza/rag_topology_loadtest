@@ -49,6 +49,22 @@ def test_an_unknown_api_format_is_refused_whatever_the_backend(
         check_registered_names(settings)
 
 
+@pytest.mark.parametrize("block", ["api", "served"])
+def test_an_unknown_structured_output_method_is_refused_whatever_the_backend(
+    settings_factory: SettingsFactory, block: str
+) -> None:
+    path = f"components__llm__{block}__structured_output"
+    settings = settings_factory(**FAKE_BACKENDS | {path: "grammar"})
+    message = (
+        f"QP_COMPONENTS__LLM__{block.upper()}__STRUCTURED_OUTPUT: unknown "
+        "structured output method 'grammar' "
+        "(expected one of: 'format_instructions', 'json_schema')"
+    )
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        check_registered_names(settings)
+
+
 @pytest.mark.parametrize(
     ("component", "known"),
     [

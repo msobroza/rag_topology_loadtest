@@ -227,7 +227,10 @@ PREFILTER = [
 SITE_OVERRIDES: dict[str, object] = {
     "http": {"timeout_s": 45, "retries": 0, "backoff_s": 0.5},
     "components": {
-        "llm": {"http": {"timeout_s": 90.5}},  # the file's is 120
+        "llm": {
+            "http": {"timeout_s": 90.5},  # the file's is 120
+            "api": {"structured_output": "format_instructions"},
+        },
         "vector_store": {
             "elasticsearch": {"url": "https://es.site:9200/?a=b&c d"},
             "prefilter": PREFILTER,  # its fields need not be declared
@@ -259,6 +262,7 @@ def test_every_app_reads_each_override_back_to_its_value_over_the_file(
     assert settings.http == DefaultHttpSettings(timeout_s=45, retries=0, backoff_s=0.5)
     components = settings.components
     assert components["llm"].http.timeout_s == 90.5
+    assert components["llm"].api.structured_output == "format_instructions"
     url = components["vector_store"].elasticsearch.url
     assert url == "https://es.site:9200/?a=b&c d"
     assert components["embedder"].query_prefix == "passage: "

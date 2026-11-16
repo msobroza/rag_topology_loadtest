@@ -116,13 +116,18 @@ class RerankerEndpointSettings(EndpointSettings):
 
 
 class LlmServedSettings(ServedSettings):
-    """The LLM's ``served`` block: a route, and the temperature sent."""
+    """The LLM's ``served`` block: a route, a temperature, how a schema is sent."""
 
     temperature: float = Field(default=0.0, ge=0, le=2)
+    # A structured output method registered in adapters/llm/api/:
+    # "json_schema" sends OpenAI's response_format, "format_instructions"
+    # writes the schema in the messages, for an endpoint that imposes none.
+    # Refused, like api_format, before a command opens anything.
+    structured_output: str = "json_schema"
 
 
 class LlmEndpointSettings(EndpointSettings, LlmServedSettings):
-    """The LLM's ``api`` block: an endpoint, and the temperature sent."""
+    """The LLM's ``api`` block: an endpoint, a temperature, how a schema is sent."""
 
     api_format: str = STANDARD_API_FORMATS["llm"]
 

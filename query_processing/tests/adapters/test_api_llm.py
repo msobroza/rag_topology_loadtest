@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import AsyncIterator
 
 import httpx
@@ -10,6 +12,13 @@ from pydantic import BaseModel, ConfigDict
 
 from model_api_fakes import HttpClients, ScriptedRoute, endpoint_client
 from query_processing.adapters.llm.api.api_llm import ApiLLM
+from query_processing.adapters.llm.api.base_structured_output_method import (
+    STRUCTURED_OUTPUT_METHODS,
+)
+from query_processing.adapters.llm.api.format_instructions_method import (
+    FormatInstructionsMethod,
+)
+from query_processing.adapters.llm.api.json_schema_method import JsonSchemaMethod
 from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
 from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.domain.api_endpoint import ApiEndpoint
@@ -37,11 +46,18 @@ def make(
     *script: httpx.Response | Exception,
     temperature: float = 0.0,
     retries: int = 2,
+    structured_output: str = "json_schema",
 ) -> tuple[ApiLLM, ScriptedRoute]:
     route = ScriptedRoute(*script)
     endpoint = ApiEndpoint(url=URL, api_format="openai", api_key="k1", model=MODEL)
     client = endpoint_client(clients.over(route), endpoint, component="llm")
-    llm = ApiLLM(client, OpenAIChatFormat(), temperature=temperature, retries=retries)
+    llm = ApiLLM(
+        client,
+        OpenAIChatFormat(),
+        temperature=temperature,
+        retries=retries,
+        structured_output=STRUCTURED_OUTPUT_METHODS.get(structured_output)(),
+    )
     return llm, route
 
 
@@ -166,3 +182,84 @@ async def test_with_no_retries_an_answer_that_does_not_match_is_asked_once(
     with pytest.raises(RagDependencyError, match="'no'"):
         await llm.generate(MESSAGES, output_schema=Verdict)
     assert len(route.requests) == 1
+
+
+# --- an endpoint that imposes no schema ----------------------------------------------
+
+
+async def test_format_instructions_writes_the_schema_in_the_messages(
+    clients: HttpClients,
+) -> None:
+    fenced = '```json\n{"ok": true}\n```'
+    llm, route = make(
+        clients, completion(fenced), structured_output="format_instructions"
+    )
+
+    answer = await llm.generate(MESSAGES, output_schema=Verdict)
+    assert json.loads(answer) == {"ok": True}
+    [request] = route.requests
+    assert "response_format" not in request.json
+    sent = request.json["messages"]
+    assert sent[:-1] == MESSAGES
+    assert sent[-1]["role"] == "user"
+    assert '"ok"' in sent[-1]["content"]
+
+
+async def test_format_instructions_leave_free_text_alone(
+    clients: HttpClients,
+) -> None:
+    llm, route = make(
+        clients, completion("Paris."), structured_output="format_instructions"
+    )
+
+    assert await llm.generate(MESSAGES) == "Paris."
+    [request] = route.requests
+    assert request.json == {"model": MODEL, "messages": MESSAGES, "temperature": 0.0}
+
+
+async def test_an_object_with_text_around_it_is_asked_again(
+    clients: HttpClients,
+) -> None:
+    answers = ['Sure: {"ok": true}. Anything else?', '```\n{"ok": false}\n```']
+    llm, route = make(
+        clients, *map(completion, answers), structured_output="format_instructions"
+    )
+
+    answer = await llm.generate(MESSAGES, output_schema=Verdict)
+    assert json.loads(answer) == {"ok": False}
+    assert len(route.requests) == 2
+
+
+@pytest.mark.parametrize(
+    "answer",
+    # A truncated object is not completed into one the schema would accept.
+    ["I cannot answer that.", '```json\n{"ok": true\n```'],
+    ids=["prose", "truncated"],
+)
+async def test_under_format_instructions_no_match_fails_showing_the_text(
+    clients: HttpClients, answer: str
+) -> None:
+    llm, route = make(
+        clients,
+        completion(answer),
+        retries=0,
+        structured_output="format_instructions",
+    )
+
+    with pytest.raises(RagDependencyError) as info:
+        await llm.generate(MESSAGES, output_schema=Verdict)
+    assert repr(answer) in info.value.detail
+    assert len(route.requests) == 1
+
+
+def test_each_method_is_one_registered_class_and_another_is_refused() -> None:
+    assert STRUCTURED_OUTPUT_METHODS.names() == ("format_instructions", "json_schema")
+    assert STRUCTURED_OUTPUT_METHODS.get("json_schema") is JsonSchemaMethod
+    found = STRUCTURED_OUTPUT_METHODS.get("format_instructions")
+    assert found is FormatInstructionsMethod
+    message = (
+        "unknown structured output method 'grammar' "
+        "(expected one of: 'format_instructions', 'json_schema')"
+    )
+    with pytest.raises(ValueError, match=re.escape(message)):
+        STRUCTURED_OUTPUT_METHODS.get("grammar")

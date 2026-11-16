@@ -237,6 +237,16 @@ def test_a_prefilter_override_on_undeclared_fields_passes() -> None:
     refuse_override_values(overrides, FIXTURE_WORKFLOW)
 
 
+@pytest.mark.parametrize("block", ["api", "served"])
+def test_an_override_of_the_llms_structured_output_passes(block: str) -> None:
+    overrides = {
+        "components": {"llm": {block: {"structured_output": "format_instructions"}}}
+    }
+
+    refuse_unknown_override_keys(overrides, FIXTURE_WORKFLOW)
+    refuse_override_values(overrides, FIXTURE_WORKFLOW)
+
+
 def test_a_prefilter_override_of_the_wrong_shape_is_refused() -> None:
     overrides = prefilter_override(
         {"attribute": "version", "comparator": "in", "value": []}
