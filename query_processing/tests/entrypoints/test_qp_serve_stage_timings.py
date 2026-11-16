@@ -26,9 +26,9 @@ TODAY = ["embed", "retrieve", "rerank", "generate", "total"]
 
 
 def encode_graph() -> GraphDescription:
-    """Today's graph with its embed stage named ``encode``; its type stays embed."""
+    """Today's graph with its embed stage named ``encode``, a plain call all the same."""
     today = rag_graph()
-    encode = today.stages["embed"].model_copy(update={"type": "embed"})
+    encode = today.stages["embed"]
     others = {name: s for name, s in today.stages.items() if name != "embed"}
     edges = [[START, "encode", "retrieve", "rerank"], ["generate", END]]
     return today.model_copy(

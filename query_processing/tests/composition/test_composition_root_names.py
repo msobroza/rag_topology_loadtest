@@ -42,7 +42,12 @@ async def test_two_components_of_one_type_open_as_two(
 ) -> None:
     coarse = {"type": "reranker", "backend": "none", "source_id": "org/coarse"}
     # Merged into the fixture's graph: one more stage, calling the second reranker.
-    rerank_coarse = {"type": "rerank", "call": "coarse", "top_k": 15}
+    rerank_coarse = {
+        "call": "coarse",
+        "top_k": 15,
+        "reads": ["standalone_query", "candidates"],
+        "writes": ["reranked"],
+    }
     settings = settings_factory(
         **FAKE_BACKENDS,
         components={"coarse": coarse},

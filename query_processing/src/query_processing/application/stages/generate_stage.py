@@ -2,7 +2,9 @@
 
 Example:
     >>> stage = GenerateStage(llm, GenerateSettings(system_prompt="Cite [n].",
-    ...                       user_prompt="Context: {context} Q: {question}"))
+    ...                       user_prompt="Context: {context} Q: {question}"),
+    ...                       StageFields(("conversational_query", "reranked"),
+    ...                                   ("answer",)))
     >>> await stage.run({"conversational_query": "vacation days?", "reranked": kept})
     {'answer': '...'}
 """
@@ -12,9 +14,22 @@ from __future__ import annotations
 from pydantic import model_validator
 
 from ...adapters.llm.base_llm import BaseLLM
+from ...domain.passages import ScoredPassage
 from ...domain.prompts import RagPrompts
 from ..workflow_state import WorkflowState
-from .base_stage import STAGE_TYPES, BaseStage, StageSettings
+from .base_stage import (
+    STAGE_TYPES,
+    BaseStage,
+    FieldTypes,
+    StageFields,
+    StageSettings,
+    fields_in_order,
+)
+
+# What the stage reads, in order (the question asked, then the passages it is
+# answered from), and what it writes (the answer's text), each with its type.
+GENERATE_READ_TYPES = {"question": str, "passages": list[ScoredPassage]}
+GENERATE_WRITE_TYPES = {"answer": str}
 
 
 class GenerateSettings(StageSettings):
@@ -46,37 +61,65 @@ class GenerateSettings(StageSettings):
 
 @STAGE_TYPES.register("generate")
 class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
-    """Answer what the user asked, from the reranked passages.
+    """Answer what the user asked, from the passages kept.
 
     Args:
         component: The LLM.
         settings: The two prompts, a user template its settings already
             checked.
+        fields: The question and the passages it reads, and the one field the
+            answer goes to.
     """
 
     component_type = BaseLLM
     settings_type = GenerateSettings
-    reads = frozenset({"conversational_query", "reranked"})
-    writes = frozenset({"answer"})
 
-    def __init__(self, component: BaseLLM, settings: GenerateSettings) -> None:
-        super().__init__(component, settings)
+    def __init__(
+        self, component: BaseLLM, settings: GenerateSettings, fields: StageFields
+    ) -> None:
+        super().__init__(component, settings, fields)
         self._prompts = RagPrompts(
             system=settings.system_prompt, user=settings.user_prompt
         )
 
-    async def run(self, state: WorkflowState) -> WorkflowState:
-        """Ask the LLM about ``conversational_query`` with the ``reranked`` passages.
+    @classmethod
+    def check_fields(
+        cls, settings: GenerateSettings, fields: StageFields
+    ) -> FieldTypes:
+        """Return the types of what a generate stage reads and writes.
 
         Args:
-            state: The workflow state; its conversational query and reranked
-                passages are read.
+            settings: The stage's settings, which change nothing here.
+            fields: The question and the passages, in that order; then the one
+                field the answer goes to.
 
         Returns:
-            ``answer``.
+            Each field's type.
+
+        Raises:
+            ValueError: ``reads`` does not list two fields, or ``writes`` one.
+
+        Example:
+            >>> GenerateStage.check_fields(settings, StageFields(
+            ...     ("conversational_query", "reranked"), ("answer",))).writes
+            {'answer': <class 'str'>}
         """
-        # What the user asked, as asked: the standalone query is what is searched.
-        messages = self._prompts.messages(
-            state["conversational_query"], state["reranked"]
+        del settings  # the prompts do not change which fields it reads
+        expecting = "the generate stage"
+        return FieldTypes(
+            fields_in_order("reads", fields.reads, GENERATE_READ_TYPES, expecting),
+            fields_in_order("writes", fields.writes, GENERATE_WRITE_TYPES, expecting),
         )
-        return {"answer": await self.component.generate(messages)}
+
+    async def run(self, state: WorkflowState) -> WorkflowState:
+        """Ask the LLM the question with the passages its ``reads`` name.
+
+        Args:
+            state: The workflow state; the two fields of ``reads`` are read.
+
+        Returns:
+            The field of ``writes``: the answer.
+        """
+        question, passages = self.read_fields(state)
+        messages = self._prompts.messages(question, passages)
+        return self.write_field(await self.component.generate(messages))

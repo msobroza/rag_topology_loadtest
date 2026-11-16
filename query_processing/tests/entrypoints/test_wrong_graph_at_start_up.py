@@ -37,7 +37,7 @@ from rag_graphs import fixture_graph, rag_graph, write_workflow_file
 from workflow_fakes import DenseOnlyStore
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
-STAGE_TYPES = "'embed', 'generate', 'rerank', 'retrieve'"
+STAGE_TYPES = "'generate', 'retrieve'"
 COMPONENTS = "'embedder', 'llm', 'reranker', 'vector_store'"
 Graph = dict[str, Any]
 
@@ -76,7 +76,7 @@ def start_on(graph: Graph, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> i
 
 
 def unknown_stage_type(graph: Graph) -> None:
-    graph["stages"]["rerank"]["type"] = "rerankk"
+    graph["stages"]["retrieve"]["type"] = "retrievee"
 
 
 def missing_component(graph: Graph) -> None:
@@ -84,7 +84,28 @@ def missing_component(graph: Graph) -> None:
 
 
 def component_of_the_wrong_type(graph: Graph) -> None:
+    graph["stages"]["retrieve"]["call"] = "llm"
+
+
+def plain_call_of_the_wrong_component(graph: Graph) -> None:
+    # A plain call is bound to its component's request: the LLM takes no top_k.
     graph["stages"]["rerank"]["call"] = "llm"
+
+
+def stage_without_its_reads(graph: Graph) -> None:
+    del graph["stages"]["rerank"]["reads"]
+
+
+def stage_without_its_writes(graph: Graph) -> None:
+    del graph["stages"]["generate"]["writes"]
+
+
+def hybrid_retrieval_reading_its_vector_only(graph: Graph) -> None:
+    graph["stages"]["retrieve"]["retrieval_mode"] = "hybrid"
+
+
+def generate_writing_two_fields(graph: Graph) -> None:
+    graph["stages"]["generate"]["writes"] = ["answer", "draft"]
 
 
 def dense_retrieval_with_no_embed_stage(graph: Graph) -> None:
@@ -142,6 +163,10 @@ def no_edge_from_start(graph: Graph) -> None:
 
 
 def unknown_key_in_a_stage(graph: Graph) -> None:
+    graph["stages"]["retrieve"]["top_n"] = 3
+
+
+def unknown_key_in_a_plain_call(graph: Graph) -> None:
     graph["stages"]["rerank"]["top_n"] = 3
 
 
@@ -165,8 +190,8 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     "an unknown stage type": (
         unknown_stage_type,
         [
-            "stage 'rerank'",
-            f"unknown stage type 'rerankk' (expected one of: {STAGE_TYPES})",
+            "stage 'retrieve'",
+            f"unknown stage type 'retrievee' (expected one of: {STAGE_TYPES})",
         ],
     ),
     "a missing component": (
@@ -175,7 +200,40 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     ),
     "a component of the wrong type": (
         component_of_the_wrong_type,
-        ["stage 'rerank' calls 'llm', a component of type 'llm'", "of type 'reranker'"],
+        [
+            "stage 'retrieve' calls 'llm', a component of type 'llm'",
+            "of type 'vector_store'",
+        ],
+    ),
+    "a plain call of the wrong component": (
+        plain_call_of_the_wrong_component,
+        [
+            "stage 'rerank': llm takes (messages: ",
+            "key 'top_k' names no attribute of the request",
+        ],
+    ),
+    "a stage without its reads": (
+        stage_without_its_reads,
+        ["graph.stages.rerank.reads", "Field required"],
+    ),
+    "a stage without its writes": (
+        stage_without_its_writes,
+        ["graph.stages.generate.writes", "Field required"],
+    ),
+    "a hybrid retrieval that reads its vector only": (
+        hybrid_retrieval_reading_its_vector_only,
+        [
+            "stage 'retrieve': the retrieve stage in retrieval_mode 'hybrid' "
+            "reads 2 fields, for "
+            "embedding: list[float], text: str (got reads ['query_embedding'])"
+        ],
+    ),
+    "a generate stage that writes two fields": (
+        generate_writing_two_fields,
+        [
+            "stage 'generate': the generate stage writes 1 field, for "
+            "answer: str (got writes ['answer', 'draft'])"
+        ],
     ),
     "dense retrieval with no embed stage": (
         dense_retrieval_with_no_embed_stage,
@@ -220,7 +278,11 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     "no edge from START": (no_edge_from_start, ["no edge from START"]),
     "an unknown key in a stage": (
         unknown_key_in_a_stage,
-        ["stage 'rerank'", "top_n: Extra inputs are not permitted", "'top_k'"],
+        ["stage 'retrieve'", "top_n: Extra inputs are not permitted", "'top_k'"],
+    ),
+    "an unknown key in a plain call": (
+        unknown_key_in_a_plain_call,
+        ["stage 'rerank': reranker takes", "key 'top_n' names no attribute"],
     ),
     "a plain call whose reads do not fill its request": (
         plain_call_reading_too_little,

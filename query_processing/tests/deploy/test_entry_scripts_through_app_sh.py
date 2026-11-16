@@ -35,7 +35,6 @@ from launch_script_stand_ins import (
     started_env,
     started_in,
 )
-from query_processing.application.stages.base_stage import STAGE_TYPES
 from query_processing.config.shared_settings import DefaultHttpSettings
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
@@ -45,6 +44,7 @@ from query_processing.deploy.model_server_kinds.base_model_server_kind import (
 )
 from query_processing.deploy.publish import LaunchPaths, entry_script
 from query_processing.deploy.topology_alias import resolve_topology
+from query_processing.domain.component_requests import RerankRequest
 
 APP_URLS = {
     "embedder": "https://domino.test/apps/e1",
@@ -255,7 +255,8 @@ def test_every_app_reads_each_override_back_to_its_value_over_the_file(
     assert components["embedder"].query_prefix == "passage: "
     assert (settings.domino.tracing, settings.local_models.cpus) == (False, 1.5)
     assert settings.graph.edges == SITE_OVERRIDES["graph"]["edges"]  # type: ignore[index]
-    # A stage's own settings are its stage type's, which reads the text back.
+    # A plain call's keys fill its component's request, which reads the text back.
     rerank = settings.graph.stages["rerank"].stage_settings
-    assert STAGE_TYPES.get("rerank").settings_type.model_validate(rerank).top_k == 5
+    request = RerankRequest.model_validate({"query": "q", "passages": [], **rerank})
+    assert request.top_k == 5
     assert settings.run_label == "site-a"

@@ -15,10 +15,31 @@ from query_processing.domain.graph_description import (
 # are booleans.
 SPEC_GRAPH = {
     "stages": {
-        "embed": {"call": "embedder"},
-        "retrieve": {"call": "vector_store", "retrieval_mode": "dense", "top_k": 20},
-        "rerank": {"call": "reranker", "top_k": 10},
-        "generate": {"call": "llm", "system_prompt": "s", "user_prompt": "u"},
+        "embed": {
+            "call": "embedder",
+            "reads": ["standalone_query"],
+            "writes": ["query_embedding"],
+        },
+        "retrieve": {
+            "call": "vector_store",
+            "retrieval_mode": "dense",
+            "top_k": 20,
+            "reads": ["query_embedding"],
+            "writes": ["candidates"],
+        },
+        "rerank": {
+            "call": "reranker",
+            "top_k": 10,
+            "reads": ["standalone_query", "candidates"],
+            "writes": ["reranked"],
+        },
+        "generate": {
+            "call": "llm",
+            "system_prompt": "s",
+            "user_prompt": "u",
+            "reads": ["conversational_query", "reranked"],
+            "writes": ["answer"],
+        },
     },
     "edges": [["START", "embed", "retrieve", "rerank"], ["generate", "END"]],
     "conditional_edges": [
@@ -43,11 +64,27 @@ def test_each_chain_is_one_edge_per_pair_of_neighbours() -> None:
 
 
 def test_a_stage_type_defaults_to_the_stage_name() -> None:
-    assert StageDescription(call="embedder").type_name("embed") == "embed"
-    assert StageDescription(type="embed", call="e").type_name("first") == "embed"
+    lists = {"reads": ["a"], "writes": ["b"]}
+
+    assert StageDescription(call="llm", **lists).type_name("generate") == "generate"
+    assert StageDescription(type="generate", call="e", **lists).type_name("first") == (
+        "generate"
+    )
 
 
-def test_every_key_besides_type_and_call_is_a_setting_of_the_stage() -> None:
+@pytest.mark.parametrize("missing", ["reads", "writes"])
+def test_a_stage_states_both_its_lists(missing: str) -> None:
+    stages = {name: dict(stage) for name, stage in SPEC_GRAPH["stages"].items()}
+    del stages["rerank"][missing]
+
+    with pytest.raises(ValidationError) as refused:
+        GraphDescription.model_validate({**SPEC_GRAPH, "stages": stages})
+
+    [error] = refused.value.errors()
+    assert (error["loc"], error["type"]) == (("stages", "rerank", missing), "missing")
+
+
+def test_every_key_besides_type_call_and_the_lists_is_a_setting_of_the_stage() -> None:
     graph = GraphDescription.model_validate(SPEC_GRAPH)
 
     assert graph.stages["retrieve"].call == "vector_store"

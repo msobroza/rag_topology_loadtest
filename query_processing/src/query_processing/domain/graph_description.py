@@ -2,11 +2,11 @@
 
 The shape is the ``graph`` block of the workflow file, in LangGraph's own names
 (ADR 0004). Stages are keyed by name; each names the component it calls with
-``call``, and may state the workflow state fields it reads and writes with
+``call``, and states the workflow state fields it reads and writes with
 ``reads`` and ``writes``. A stage is an instance of the stage type ``type``
-names, which defaults to the stage's name; a stage that states both lists and
-is of no stage type is a plain call. Every other key is a setting of the stage,
-which its stage type, or for a plain call its component's request, takes. Plain
+names, else of the stage type of its own name, else a plain call. Every other
+key is a setting of the stage, which its stage type, or for a plain call its
+component's request, takes. Plain
 edges are chains of stage names, ``START`` and ``END`` reserved. A conditional
 edge has a ``source``, a ``path`` that names a registered edge condition, and a
 ``path_map`` from true and false to a stage or ``END``.
@@ -17,7 +17,9 @@ domain and neither may import the other.
 
 Example:
     >>> graph = GraphDescription.model_validate({
-    ...     "stages": {"retrieve": {"call": "vector_store", "top_k": 20}},
+    ...     "stages": {"retrieve": {"call": "vector_store", "top_k": 20,
+    ...                             "reads": ["query_embedding"],
+    ...                             "writes": ["candidates"]}},
     ...     "edges": [["START", "retrieve", "END"]],
     ... })
     >>> graph.edge_pairs()
@@ -49,10 +51,9 @@ class StageDescription(BaseModel):
     type: str | None = None  # None = the stage's own name
     call: str
     # The workflow state fields the stage reads and writes, in the order its
-    # component's request and answer take them. Optional until every workflow
-    # file states them.
-    reads: list[str] | None = None
-    writes: list[str] | None = None
+    # component's request and answer, or its stage type, take them.
+    reads: list[str]
+    writes: list[str]
 
     def type_name(self, stage: str) -> str:
         """Return the name of the stage type this stage is an instance of.
@@ -64,8 +65,9 @@ class StageDescription(BaseModel):
             ``type`` when it is given, else ``stage``.
 
         Example:
-            >>> StageDescription(call="embedder").type_name("embed")
-            'embed'
+            >>> StageDescription(call="llm", reads=["a"], writes=["b"]).type_name(
+            ...     "generate")
+            'generate'
         """
         return self.type or stage
 
@@ -75,7 +77,9 @@ class StageDescription(BaseModel):
 
         Example:
             >>> StageDescription.model_validate(
-            ...     {"call": "reranker", "top_k": 10, "reads": ["candidates"]}
+            ...     {"call": "reranker", "top_k": 10,
+            ...      "reads": ["standalone_query", "candidates"],
+            ...      "writes": ["reranked"]}
             ... ).stage_settings
             {'top_k': 10}
         """
@@ -105,7 +109,9 @@ class GraphDescription(BaseModel):
 
     Example:
         >>> GraphDescription.model_validate({
-        ...     "stages": {"rerank": {"call": "reranker", "top_k": 10}},
+        ...     "stages": {"rerank": {"call": "reranker", "top_k": 10,
+        ...                           "reads": ["standalone_query", "candidates"],
+        ...                           "writes": ["reranked"]}},
         ...     "edges": [["START", "rerank"]],
         ...     "conditional_edges": [{
         ...         "source": "rerank", "path": "is_query_mode",

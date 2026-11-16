@@ -126,6 +126,13 @@ def test_the_file_pins_the_rags_graph_its_sizes_and_its_prompts(
         "rerank": "reranker",
         "generate": "llm",
     }
+    lists = {name: (s.reads, s.writes) for name, s in graph.stages.items()}
+    assert lists == {
+        "embed": (["standalone_query"], ["query_embedding"]),
+        "retrieve": (["query_embedding"], ["candidates"]),
+        "rerank": (["standalone_query", "candidates"], ["reranked"]),
+        "generate": (["conversational_query", "reranked"], ["answer"]),
+    }
     assert graph.edge_pairs() == [
         ("START", "embed"),
         ("embed", "retrieve"),

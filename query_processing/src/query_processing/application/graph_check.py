@@ -1,11 +1,11 @@
 """``check_graph``: a workflow graph that cannot run, refused before it is built.
 
 The checks know no stage type, no component and no edge condition. They read
-what each stage type declares (the port of the component it calls, its
-settings, and the workflow state fields it reads and writes), what each plain
-call states (its ``reads`` and ``writes``, bound to its component's request and
-answer by ``bind_call``), the declared
-components with their types, and the registered edge conditions. All of it is
+the ``reads`` and ``writes`` every stage states, checked by its stage type's
+``check_fields`` or, for a plain call, bound to its component's request and
+answer by ``bind_call``; what each stage type declares (the port of the
+component it calls and its settings); the declared components with their
+types; and the registered edge conditions. All of it is
 in the workflow file and the settings, so ``qp-serve`` runs them before any
 component opens, and a refusal names what is wrong and what was expected. What
 only an opened component shows, a store that ranks no text under a lexical
@@ -63,7 +63,7 @@ class WorkflowGraphError(ValueError):
 
 
 class DeclaredFields(NamedTuple):
-    """The workflow state fields one stage reads and writes, as its stage type says."""
+    """The workflow state fields one stage reads and writes, as it states them."""
 
     reads: frozenset[str]
     writes: frozenset[str]
@@ -89,8 +89,9 @@ def check_graph(
 
     Raises:
         WorkflowGraphError: A stage has a reserved name, an unknown stage type,
-            settings its stage type refuses, or calls a missing component or one
-            of the wrong type; an edge names no stage; a conditional edge names
+            settings or lists its stage type refuses, lists that do not bind to
+            the component a plain call calls, or calls a missing component or
+            one of the wrong type; an edge names no stage; a conditional edge names
             an unknown edge condition, lacks its true or false target, or repeats
             an edge condition on one source; nothing leaves START; or a stage
             reads a field that is not sure to be set when it runs.
@@ -162,11 +163,12 @@ def _declared_fields(
         return _plain_call_fields(name, stage, components, component_types)
     settings = _stage_settings(name, stage, stage_type)
     _check_call(name, stage, stage_type, components, component_types)
-    declared = DeclaredFields(
-        stage_type.fields_read(settings), stage_type.fields_written(settings)
-    )
-    _check_stated_lists(name, stage, declared)
-    return declared
+    fields = stage_fields(stage)
+    try:
+        stage_type.check_fields(settings, fields)
+    except ValueError as exc:  # it shows the lists its stage type expects
+        raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
+    return DeclaredFields(frozenset(fields.reads), frozenset(fields.writes))
 
 
 def _stage_type(
@@ -194,22 +196,6 @@ def _plain_call_fields(
     except ValueError as exc:
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
     return DeclaredFields(frozenset(fields.reads), frozenset(fields.writes))
-
-
-def _check_stated_lists(
-    name: str, stage: StageDescription, declared: DeclaredFields
-) -> None:
-    # A stage of a stage type may state its lists: they must be the fields its
-    # stage type declares, and are otherwise unused.
-    stated = {"reads": stage.reads, "writes": stage.writes}
-    expected = {"reads": declared.reads, "writes": declared.writes}
-    for which, fields in stated.items():
-        if fields is not None and frozenset(fields) != expected[which]:
-            raise WorkflowGraphError(
-                f"stage {name!r} states {which} {sorted(fields)}, but its stage "
-                f"type {stage.type_name(name)!r} {which} "
-                f"{sorted(expected[which])} (expected those fields, or no {which})"
-            )
 
 
 def _stage_settings(

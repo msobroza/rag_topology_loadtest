@@ -198,7 +198,9 @@ def test_overrides_of_declared_names_and_known_keys_pass(tmp_path: Path) -> None
         "components:\n"
         "  rr: {type: reranker, backend: local, source_id: org/r}\n"
         "graph:\n"
-        "  stages: {rerank: {call: rr, top_k: 5}}\n"
+        "  stages:\n"
+        "    rerank: {call: rr, top_k: 5, reads: [standalone_query, candidates],\n"
+        "             writes: [reranked]}\n"
         "  edges: [[START, rerank, END]]\n",
     )
     overrides = {

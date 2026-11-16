@@ -55,22 +55,35 @@ components:
       collection: rag_passages
 
 graph:
-  # Each stage is an instance of the stage type of its name, unless `type`
-  # names another, and calls the component that `call` names. Every other key
-  # is a setting of the stage.
+  # Each stage calls the component that `call` names, and states the workflow
+  # state fields it reads and writes. It is an instance of the stage type
+  # `type` names, else of the stage type of its name (retrieve, generate),
+  # else a plain call: a key that names a request attribute fills it, reads
+  # fill the other attributes in order, and writes take the answer's.
   stages:
     embed:
       call: embedder
+      reads: [standalone_query]
+      writes: [query_embedding]
     retrieve:
       call: vector_store
       # dense | lexical | hybrid; a lexical workflow has no embed stage
       retrieval_mode: dense
       top_k: 20 # candidates from the store
+      # [query_embedding] for dense, [standalone_query] for lexical,
+      # [query_embedding, standalone_query] for hybrid
+      reads: [query_embedding]
+      writes: [candidates]
     rerank:
       call: reranker
       top_k: 10 # passages kept and sent to the LLM
+      reads: [standalone_query, candidates]
+      writes: [reranked]
     generate:
       call: llm
+      # what the user asked, then the passages; the answer
+      reads: [conversational_query, reranked]
+      writes: [answer]
       system_prompt: >-
         You answer questions using only the numbered context passages.
         Cite passages as [n]. If the context is insufficient, say so.

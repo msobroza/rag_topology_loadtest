@@ -73,19 +73,21 @@ def test_a_stage_is_of_its_type_else_of_its_name_else_a_plain_call() -> None:
         {"call": "embedder", "reads": ["a"], "writes": ["b"]}
     )
     typed = StageDescription.model_validate(
+        {"type": "retrieve", "call": "vector_store", "reads": ["a"], "writes": ["b"]}
+    )
+
+    assert stage_type_of("embed", plain, STAGE_TYPES) is None
+    assert stage_type_of("retrieve", plain, STAGE_TYPES) is STAGE_TYPES.get("retrieve")
+    assert stage_type_of("first", typed, STAGE_TYPES) is STAGE_TYPES.get("retrieve")
+
+
+def test_a_type_that_names_no_stage_type_is_refused_naming_the_known_ones() -> None:
+    misnamed = StageDescription.model_validate(
         {"type": "rerank", "call": "reranker", "reads": ["a"], "writes": ["b"]}
     )
 
-    assert stage_type_of("embed_twice", plain, STAGE_TYPES) is None
-    assert stage_type_of("embed", plain, STAGE_TYPES) is STAGE_TYPES.get("embed")
-    assert stage_type_of("first", typed, STAGE_TYPES) is STAGE_TYPES.get("rerank")
-
-
-def test_a_stage_of_no_type_without_both_lists_is_refused() -> None:
-    half = StageDescription.model_validate({"call": "embedder", "reads": ["a"]})
-
-    with pytest.raises(ValueError, match=r"unknown stage type 'embed_twice'.*plain"):
-        stage_type_of("embed_twice", half, STAGE_TYPES)
+    with pytest.raises(ValueError, match=r"'rerank' \(expected one of: 'generate'"):
+        stage_type_of("rerank", misnamed, STAGE_TYPES)
 
 
 def test_the_lists_are_no_setting_of_the_stage() -> None:

@@ -20,10 +20,10 @@ components:
     chroma: {collection: rag_passages}
 graph:
   stages:
-    embed:    {call: embedder}
-    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20}
-    rerank:   {call: reranker, top_k: 10}
-    generate: {call: llm, system_prompt: "…", user_prompt: "…"}
+    embed:    {call: embedder, reads: [standalone_query], writes: [query_embedding]}
+    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20, reads: [query_embedding], writes: [candidates]}
+    rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
+    generate: {call: llm, system_prompt: "…", user_prompt: "…", reads: [conversational_query, reranked], writes: [answer]}
   edges:
     - [START, embed, retrieve, rerank]
     - [generate, END]
@@ -53,8 +53,9 @@ The workflow file declares the components, each with its backend (`local` in
 the process that calls it, `served` by a model server of ours, `api` at an
 endpoint we do not run, `fake`, `none` for a reranker, or the vector store's
 product), and the graph:
-stages, each an instance of a registered stage type that calls the component it
-names, linked by edges and by conditional edges that ask a registered edge
+stages, each calling the component it names and stating the workflow state
+fields it reads and writes, a plain call or an instance of a registered stage
+type, linked by edges and by conditional edges that ask a registered edge
 condition. The deploy file chooses a topology by its topology alias (a row that
 puts each component it names `local` or `served`), says how each App runs on
 Domino, and holds this site's values under `overrides`, in the workflow file's
@@ -239,7 +240,7 @@ Start from a copy of the RAG's:
 
 | File | What it states |
 | --- | --- |
-| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`. Each stage the component it `call`s and the settings its stage type requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's two prompts. No API key. |
+| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`. Each stage the component it `call`s, its `reads` and `writes`, and the settings its stage type or its component's request requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's two prompts. No API key. |
 | `deploy.example.yaml` | Its own `app_name_prefix`, so that its Apps can share a Domino project with the RAG's; its `topology_alias` table over its own components, and `topology`; `defaults.environment_id`; a block of `apps` per App part; this site's `overrides`. Copied to the git-ignored `deploy.yaml`. |
 | `pyproject.toml` | A distribution of its own that depends on `query-processing`, with `packages = []`, which `domino/app.sh` installs with the toolkit. |
 | `.env.example` | The API keys, by their paths; `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a load test straight at a reranker. |
@@ -260,8 +261,8 @@ components:
   vector_store: {backend: fake}
 graph:
   stages:
-    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20}
-    rerank: {call: reranker, top_k: 3}
+    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query], writes: [candidates]}
+    rerank: {call: reranker, top_k: 3, reads: [standalone_query, candidates], writes: [reranked]}
   edges:
     - [START, retrieve, rerank, END]
 ```
@@ -288,7 +289,7 @@ also gets its line in [the tree](#the-tree) and a test.
 
 | A new | Its module | Registered with | A test that adds one |
 | --- | --- | --- | --- |
-| stage type | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type`, `settings_type`, `reads` and `writes` (fields of the one `WorkflowState`) and defines `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
+| stage type, for a stage that does more than call its component | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type` and `settings_type`, and defines `check_fields` (the lists of fields it can use, with their types) and `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
 | edge condition | `application/edge_conditions/<name>.py`: a function of the `WorkflowState` that returns a bool | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
 | backend | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
 | API format | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
@@ -465,9 +466,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
         base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, StageFields, FieldTypes, STAGE_TYPES
         call_stage.py  CallStage: a plain call, of no stage type: its request built from its keys and reads, its answer written to its writes
-        embed_stage.py  EmbedStage: the standalone query's vector, from the embedder
         retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
-        rerank_stage.py  RerankStage: the candidates the reranker scores best
         generate_stage.py  GenerateStage: the answer to the conversational query, from the LLM
       edge_conditions/  the edge conditions (rule 6); importing it imports every module
         edge_condition.py  EdgeCondition: a function of the workflow state that returns a bool; EDGE_CONDITIONS
@@ -810,7 +809,20 @@ A component can take any name. Its type is the port it is used through,
 `embedder`, `reranker`, `llm` or `vector_store`, and defaults to its name, so a
 second component of one type names it: `coarse: {type: reranker, backend:
 local, source_id: ...}`, which a second rerank stage calls with `call:
-coarse`. The vector store is a component like the models: its backend is named
+coarse`.
+
+Every stage states `reads` and `writes`, the workflow state fields it reads and
+writes. A stage is of the stage type its `type` names, else of the stage type
+of its own name (`retrieve` and `generate`), else a plain call, which only calls
+its component: a key of the stage that names an attribute of the component's
+request fills it, such as `top_k: 10`; `reads` fill the other attributes in
+order; and `writes` take the answer's attributes in order, and can stop early.
+The RAG's `embed` and `rerank` stages are plain calls. A `retrieve` stage reads
+`[query_embedding]` for `dense`, `[standalone_query]` for `lexical` and both,
+in that order, for `hybrid`, and writes one field; a `generate` stage reads the
+question, then the passages, and writes one field.
+
+The vector store is a component like the models: its backend is named
 after its product, `elasticsearch` or `chroma`, or is `fake`, each with its
 block, and `qp-ingest` fills the one the file declares.
 
@@ -898,7 +910,8 @@ QP_LOCAL_MODELS__RUNTIME=torch QP_LOCAL_MODELS__CPUS=4 make serve
 | Stage | Setting | In the RAG's file | Meaning |
 | --- | --- | --- | --- |
 | every stage | `call` | | the component it calls: `embedder`, `vector_store`, `reranker` or `llm` |
-| every stage | `type` | not written: the stage's name | the stage type it is an instance of |
+| every stage | `type` | not written: the stage's name | the stage type it is an instance of; a stage of no stage type is a plain call |
+| every stage | `reads`, `writes` | each stage's | the workflow state fields it reads and writes, in the order its stage type or its component takes and gives them; required |
 | `retrieve` | `retrieval_mode` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` when the graph is built |
 | `retrieve` | `top_k` | `20` | candidates from the vector store (>= 1) |
 | `retrieve` | `rrf_k` | not written: `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
@@ -922,8 +935,8 @@ holds one.
 Sources win in this order: constructor arguments, environment variables, `.env`,
 the workflow file, then the defaults of the code. A top-level key of the file
 that is no setting, and a key a stage or the graph does not know, are refused at
-start-up with the key named, as is a stage without `call`. A stage type checks
-only its own settings, so nothing checks any more that the rerank stage's `top_k`
+start-up with the key named, as is a stage without `call`, `reads` or `writes`.
+A stage checks only its own settings, so nothing checks any more that the rerank stage's `top_k`
 stays within the retrieve stage's: above it, the reranker keeps every candidate,
 and a reranker endpoint is asked for a `top_n` above the documents it is sent.
 
@@ -934,9 +947,9 @@ the same (ingestion still embeds the passages, with the embedder):
 components: {…}
 graph:
   stages:
-    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20}
-    rerank:   {call: reranker, top_k: 10}
-    generate: {call: llm, system_prompt: "…", user_prompt: "…"}
+    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query], writes: [candidates]}
+    rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
+    generate: {call: llm, system_prompt: "…", user_prompt: "…", reads: [conversational_query, reranked], writes: [answer]}
   edges:
     - [START, retrieve, rerank]
     - [generate, END]
@@ -944,21 +957,28 @@ graph:
     - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
 ```
 
-`QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the RAG's file
+`QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` with
+`QP_GRAPH__STAGES__RETRIEVE__READS='["standalone_query"]'` over the RAG's file
 is accepted too, but its embed stage then embeds every question for nothing.
+The mode alone is not enough: the retrieve stage would read the query's vector
+as its words.
 
 ### What start-up refuses in a graph
 
 `qp-serve` checks the graph as it reads its settings, before any component
 opens, and refuses one that cannot run with a usage error naming what is wrong
 and what was expected (`application/graph_check.py`). The checks know no
-particular stage: they read what each stage type declares, which is the type of
-component it calls, its own settings, and the workflow state fields it reads
-and writes (the retrieve stage reads what its retrieval mode needs). They
-refuse:
+particular stage: they read the `reads` and `writes` each stage states, and
+what each stage type declares, which is the type of component it calls, its own
+settings, and the lists it can use (the retrieve stage reads what its retrieval
+mode needs). They refuse:
 
-- a stage of an unknown stage type, naming the known ones;
-- a stage whose settings its stage type refuses, naming the settings it has;
+- a stage whose `type` names no stage type, naming the known ones;
+- a stage whose settings or lists its stage type refuses, naming what it
+  expects;
+- a plain call whose keys and `reads` do not fill its component's request
+  exactly once, or whose `writes` list more fields than its answer has, showing
+  what the component takes and gives;
 - a stage whose `call` names no component, naming the components, or a
   component of another type than its stage type calls, naming that type;
 - a stage named `START`, `END` or `total`: `total` is the key of the whole

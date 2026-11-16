@@ -1,19 +1,24 @@
 """The retrieve stage type: candidates from the vector store, by its retrieval mode.
 
-The stage builds a ``SearchRequest`` from the state: the query's vector, the
-words of the standalone query, its retrieval mode and its ``top_k``. The store's
-``ainvoke`` searches by that mode, and fuses a hybrid search. Lexical and hybrid
-need a store that ranks text: the store's own ``BaseLexicalSearch``, refused when
-the stage is built if it has none.
+The stage builds a ``SearchRequest`` from the fields its ``reads`` names, in
+order: the query's vector for ``dense``, its words for ``lexical``, both for
+``hybrid``. Its retrieval mode and ``top_k`` complete the request. The store's
+``ainvoke`` searches by that mode, and fuses a hybrid search; the passages found
+go to the one field its ``writes`` names. Lexical and hybrid need a store that
+ranks text: the store's own ``BaseLexicalSearch``, refused when the stage is
+built if it has none.
 
 Example:
     >>> stage = RetrieveStage(
-    ...     store, RetrieveSettings(retrieval_mode="hybrid", top_k=20))
+    ...     store, RetrieveSettings(retrieval_mode="hybrid", top_k=20),
+    ...     StageFields(("query_embedding", "standalone_query"), ("candidates",)))
     >>> await stage.run({"query_embedding": vector, "standalone_query": "vacation"})
     {'candidates': [...]}
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from pydantic import Field
 
@@ -22,16 +27,27 @@ from ...adapters.vector_store.base_vector_store import (
     required_lexical_search,
 )
 from ...domain.component_requests import SearchRequest
+from ...domain.passages import ScoredPassage
 from ...domain.retrieval_mode import RetrievalMode
 from ..workflow_state import WorkflowState
-from .base_stage import STAGE_TYPES, BaseStage, StageSettings
+from .base_stage import (
+    STAGE_TYPES,
+    BaseStage,
+    FieldTypes,
+    StageFields,
+    StageSettings,
+    fields_in_order,
+)
 
-# What each retrieval mode reads of the state: a vector, words, or both.
-READS_BY_RETRIEVAL_MODE: dict[RetrievalMode, frozenset[str]] = {
-    "dense": frozenset({"query_embedding"}),
-    "lexical": frozenset({"standalone_query"}),
-    "hybrid": frozenset({"query_embedding", "standalone_query"}),
+# What each retrieval mode reads of the state, in order: the search request's
+# attributes its reads fill, each with its type.
+READS_BY_RETRIEVAL_MODE: dict[RetrievalMode, dict[str, Any]] = {
+    "dense": {"embedding": list[float]},
+    "lexical": {"text": str},
+    "hybrid": {"embedding": list[float], "text": str},
 }
+# What it writes: the passages found.
+RETRIEVE_WRITE_TYPES = {"candidates": list[ScoredPassage]}
 
 
 class RetrieveSettings(StageSettings):
@@ -58,19 +74,23 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             hybrid retrieval.
         settings: The retrieval mode, the number of candidates and the fusion's
             rank constant.
+        fields: What its retrieval mode reads, and the one field it writes.
 
     Raises:
-        ValueError: The retrieval mode is ``lexical`` or ``hybrid`` and the
-            store ranks no text.
+        ValueError: The lists do not fit the retrieval mode, or the retrieval
+            mode is ``lexical`` or ``hybrid`` and the store ranks no text.
     """
 
     component_type = BaseVectorStore
     settings_type = RetrieveSettings
-    writes = frozenset({"candidates"})
 
-    def __init__(self, component: BaseVectorStore, settings: RetrieveSettings) -> None:
-        super().__init__(component, settings)
-        self.reads = self.fields_read(settings)
+    def __init__(
+        self,
+        component: BaseVectorStore,
+        settings: RetrieveSettings,
+        fields: StageFields,
+    ) -> None:
+        super().__init__(component, settings, fields)
         # Checked here as well as in the store's ainvoke, so a lexical or hybrid
         # workflow over a store that ranks no text fails at start-up, not on its
         # first request.
@@ -78,21 +98,36 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             required_lexical_search(component, settings.retrieval_mode)
 
     @classmethod
-    def fields_read(cls, settings: RetrieveSettings) -> frozenset[str]:
-        """Return what a retrieve stage reads: what its retrieval mode needs.
+    def check_fields(
+        cls, settings: RetrieveSettings, fields: StageFields
+    ) -> FieldTypes:
+        """Return the types of what a retrieve stage reads and writes by its mode.
 
         Args:
             settings: The stage's settings; only the retrieval mode is read.
+            fields: The query's vector, its words, or both, in that order; then
+                the one field the candidates go to.
 
         Returns:
-            The query's vector, its words, or both.
+            Each field's type.
+
+        Raises:
+            ValueError: ``reads`` does not list what the retrieval mode needs,
+                or ``writes`` does not list one field.
 
         Example:
-            >>> RetrieveStage.fields_read(RetrieveSettings(retrieval_mode="dense",
-            ...                                            top_k=20))
-            frozenset({'query_embedding'})
+            >>> RetrieveStage.check_fields(
+            ...     RetrieveSettings(retrieval_mode="lexical", top_k=20),
+            ...     StageFields(("standalone_query",), ("candidates",))).reads
+            {'standalone_query': <class 'str'>}
         """
-        return READS_BY_RETRIEVAL_MODE[settings.retrieval_mode]
+        mode = settings.retrieval_mode
+        expecting = f"the retrieve stage in retrieval_mode {mode!r}"
+        reads = READS_BY_RETRIEVAL_MODE[mode]
+        return FieldTypes(
+            fields_in_order("reads", fields.reads, reads, expecting),
+            fields_in_order("writes", fields.writes, RETRIEVE_WRITE_TYPES, expecting),
+        )
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         """Search the store.
@@ -101,13 +136,13 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             state: The workflow state; the fields of ``reads`` are read.
 
         Returns:
-            ``candidates``: at most ``top_k`` passages, best first.
+            The field of ``writes``: at most ``top_k`` passages, best first.
         """
+        attributes = READS_BY_RETRIEVAL_MODE[self.settings.retrieval_mode]
         request = SearchRequest(
-            embedding=state.get("query_embedding"),
-            text=state.get("standalone_query"),
+            **dict(zip(attributes, self.read_fields(state), strict=True)),
             top_k=self.settings.top_k,
             retrieval_mode=self.settings.retrieval_mode,
             rrf_k=self.settings.rrf_k,
         )
-        return {"candidates": (await self.component.ainvoke(request)).passages}
+        return self.write_field((await self.component.ainvoke(request)).passages)

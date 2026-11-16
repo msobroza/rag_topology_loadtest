@@ -2,9 +2,9 @@
 
 The builder knows no stage, no component and no edge condition. Each stage is an
 instance of the stage type its description names, built with the component its
-``call`` names and its own settings, or, when it is of no stage type and states
-``reads`` and ``writes``, a plain call bound by them; each is timed under its
-name; the workflow's
+``call`` names, its own settings and its ``reads`` and ``writes``, or, when it is
+of no stage type, a plain call bound by them; each is timed under its name; the
+workflow's
 results are keyed by those names, in the description's order. Each chain of
 plain edges becomes one LangGraph edge per pair, the reserved ``START`` and
 ``END`` becoming LangGraph's own. Each conditional edge asks the edge condition
@@ -127,20 +127,21 @@ def open_stage(
         stage_types: Where the stage's type is found.
 
     Returns:
-        The stage: of its stage type, or a plain call when it is of none and
-        states ``reads`` and ``writes``.
+        The stage: of its stage type, or a plain call when it is of none.
 
     Raises:
-        WorkflowGraphError: The stage is of no stage type and no plain call,
-            its settings do not fit its stage type, its stage type refuses the
+        WorkflowGraphError: Its ``type`` names no stage type, its settings or
+            lists do not fit its stage type, its stage type refuses the
             component, or a plain call's keys and lists do not bind to its
             component; the message names the stage.
 
     Example:
-        >>> open_stage("rerank", StageDescription.model_validate(
-        ...     {"call": "reranker", "top_k": 10}), components, STAGE_TYPES)
-        <RerankStage ...>
-        >>> open_stage("embed_query", StageDescription.model_validate(
+        >>> open_stage("retrieve", StageDescription.model_validate(
+        ...     {"call": "vector_store", "retrieval_mode": "dense", "top_k": 20,
+        ...      "reads": ["query_embedding"], "writes": ["candidates"]}),
+        ...     components, STAGE_TYPES)
+        <RetrieveStage ...>
+        >>> open_stage("embed", StageDescription.model_validate(
         ...     {"call": "embedder", "reads": ["standalone_query"],
         ...      "writes": ["query_embedding"]}), components, STAGE_TYPES)
         <CallStage ...>
@@ -151,7 +152,7 @@ def open_stage(
         if stage_type is None:
             return open_call(description, component)
         settings = stage_type.settings_type.model_validate(description.stage_settings)
-        return stage_type(component, settings)
+        return stage_type(component, settings, stage_fields(description))
     except ValueError as exc:
         # A refusal, so qp-serve reports it as one line, not as a crash.
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc

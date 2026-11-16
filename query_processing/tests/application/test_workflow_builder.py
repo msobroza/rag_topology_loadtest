@@ -17,7 +17,13 @@ import pytest
 from echo_components import Upper
 from query_processing.application.edge_conditions.edge_condition import EdgeCondition
 from query_processing.application.graph_check import WorkflowGraphError
-from query_processing.application.stages.base_stage import BaseStage, StageSettings
+from query_processing.application.stages.base_stage import (
+    BaseStage,
+    FieldTypes,
+    StageFields,
+    StageSettings,
+    fields_in_order,
+)
 from query_processing.application.stages.call_stage import CallStage
 from query_processing.application.workflow import CompiledWorkflow
 from query_processing.application.workflow_builder import (
@@ -60,12 +66,23 @@ class NoSettings(StageSettings):
     pass
 
 
+def one_field_each(stage_type: str, fields: StageFields) -> FieldTypes:
+    """What both fixture stage types accept: one field read, one written."""
+    one = {"text": str}
+    return FieldTypes(
+        fields_in_order("reads", fields.reads, one, f"the {stage_type} stage"),
+        fields_in_order("writes", fields.writes, one, f"the {stage_type} stage"),
+    )
+
+
 @FIXTURE_STAGE_TYPES.register("copy")
 class CopyStage(BaseStage[FakeScribe, SuffixSettings]):
     component_type = FakeScribe
     settings_type = SuffixSettings
-    reads = frozenset({"conversational_query"})
-    writes = frozenset({"answer"})
+
+    @classmethod
+    def check_fields(cls, settings: SuffixSettings, fields: StageFields) -> FieldTypes:
+        return one_field_each("copy", fields)
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         text = state["conversational_query"] + self.settings.suffix
@@ -76,8 +93,10 @@ class CopyStage(BaseStage[FakeScribe, SuffixSettings]):
 class ShoutStage(BaseStage[FakeScribe, NoSettings]):
     component_type = FakeScribe
     settings_type = NoSettings
-    reads = frozenset({"answer"})
-    writes = frozenset({"answer"})
+
+    @classmethod
+    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
+        return one_field_each("shout", fields)
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         return {"answer": await self.component.write(str(state["answer"]).upper())}
@@ -88,10 +107,12 @@ def is_a_question(state: WorkflowState) -> bool:
     return state["conversational_query"].endswith("?")
 
 
+DRAFT_LISTS = {"reads": ["conversational_query"], "writes": ["answer"]}
+SHOUT = {"call": "scribe", "reads": ["answer"], "writes": ["answer"]}
 FIXTURE_GRAPH = {
     "stages": {
-        "draft": {"type": "copy", "call": "scribe", "suffix": "!"},
-        "shout": {"call": "scribe"},  # its type is its name
+        "draft": {"type": "copy", "call": "scribe", "suffix": "!", **DRAFT_LISTS},
+        "shout": SHOUT,  # its type is its name
     },
     "edges": [["START", "draft"], ["shout", "END"]],
     "conditional_edges": [
@@ -160,7 +181,7 @@ async def test_the_result_times_every_stage_of_the_graph_by_name_then_the_total(
 
 
 async def test_the_result_lists_the_stages_in_the_order_the_description_gives() -> None:
-    stages = {"shout": {"call": "scribe"}, **FIXTURE_GRAPH["stages"]}
+    stages = {"shout": SHOUT, **FIXTURE_GRAPH["stages"]}
 
     result = await fixture_workflow(FakeScribe(), stages=stages).run("who?")
 
@@ -188,7 +209,7 @@ def test_a_longer_chain_is_one_edge_per_pair() -> None:
 
 
 def test_a_setting_its_stage_type_does_not_know_is_refused_naming_it() -> None:
-    misspelt = {"type": "copy", "call": "scribe", "suffix": "!", "sufix": "!"}
+    misspelt = {**FIXTURE_GRAPH["stages"]["draft"], "sufix": "!"}
     stages = {**FIXTURE_GRAPH["stages"], "draft": misspelt}
 
     with pytest.raises(ValueError, match="sufix"):
@@ -239,17 +260,31 @@ def test_open_stage_builds_a_plain_call_bound_by_its_lists() -> None:
 def test_open_stage_builds_the_stage_type_its_description_names() -> None:
     scribe = FakeScribe()
     description = StageDescription.model_validate(
-        {"type": "copy", "call": "scribe", "suffix": "?"}
+        {"type": "copy", "call": "scribe", "suffix": "?", **DRAFT_LISTS}
     )
 
     stage = open_stage("draft", description, {"scribe": scribe}, FIXTURE_STAGE_TYPES)
 
     assert isinstance(stage, CopyStage)
     assert (stage.component, stage.settings) == (scribe, SuffixSettings(suffix="?"))
+    assert stage.fields == StageFields(("conversational_query",), ("answer",))
+
+
+def test_open_stage_refuses_lists_its_stage_type_cannot_use() -> None:
+    description = StageDescription.model_validate({**SHOUT, "writes": []})
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        open_stage("shout", description, {"scribe": FakeScribe()}, FIXTURE_STAGE_TYPES)
+
+    assert str(refused.value) == (
+        "stage 'shout': the shout stage writes 1 field, for text: str (got writes [])"
+    )
 
 
 async def test_timed_adds_the_stage_wall_time_under_its_name_to_its_update() -> None:
-    stage = ShoutStage(FakeScribe(), NoSettings())
+    stage = ShoutStage(
+        FakeScribe(), NoSettings(), StageFields(("answer",), ("answer",))
+    )
 
     update = await timed("loud", stage)({"answer": "hi"})
 

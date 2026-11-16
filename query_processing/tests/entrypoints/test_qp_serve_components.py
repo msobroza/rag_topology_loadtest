@@ -41,7 +41,8 @@ COARSE_URL, FINE_URL = "http://coarse.test/v3/rerank", "http://fine.test/v3/rera
 def two_rerank_stages() -> dict[str, Any]:
     """The fixture's graph with a coarse rerank stage before its rerank stage."""
     graph = fixture_graph()
-    graph["stages"]["rerank_coarse"] = {"type": "rerank", "call": "coarse", "top_k": 15}
+    graph["stages"]["rerank_coarse"] = {**graph["stages"]["rerank"], "call": "coarse"}
+    graph["stages"]["rerank_coarse"]["top_k"] = 15
     graph["edges"][0] = ["START", "embed", "retrieve", "rerank_coarse", "rerank"]
     return graph
 

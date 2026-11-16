@@ -36,12 +36,23 @@ TIMING_KEYS = {"embed", "retrieve", "rerank", "generate", "total"}
 LEXICAL_WORKFLOW = """
 graph:
   stages:
-    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20}
-    rerank: {call: reranker, top_k: 10}
+    retrieve:
+      call: vector_store
+      retrieval_mode: lexical
+      top_k: 20
+      reads: [standalone_query]
+      writes: [candidates]
+    rerank:
+      call: reranker
+      top_k: 10
+      reads: [standalone_query, candidates]
+      writes: [reranked]
     generate:
       call: llm
       system_prompt: Answer from the numbered passages only.
       user_prompt: "Context: {context} Question: {question}"
+      reads: [conversational_query, reranked]
+      writes: [answer]
   edges:
     - [START, retrieve, rerank]
     - [generate, END]
@@ -146,16 +157,15 @@ def test_a_stage_named_otherwise_is_an_instance_of_the_type_it_names(
     settings_factory: SettingsFactory, no_named_file: Path
 ) -> None:
     graph = fixture_graph()
-    graph["stages"]["keep_best"] = {"type": "rerank", "call": "reranker", "top_k": 4}
-    del graph["stages"]["rerank"]
-    graph["edges"][0] = ["START", "embed", "retrieve", "keep_best"]
-    graph["conditional_edges"][0]["source"] = "keep_best"
+    graph["stages"]["search"] = {**graph["stages"].pop("retrieve"), "type": "retrieve"}
+    graph["stages"]["search"]["top_k"] = 4
+    graph["edges"][0] = ["START", "embed", "search", "rerank"]
     write_workflow_file(no_named_file / "workflow.yaml", graph)
     reranker = RecordingReranker()
 
     body = ask(settings_factory(**FAKE_BACKENDS), reranker=reranker)
 
-    assert reranker.calls == [(QUESTION, 20, 4)]
+    assert reranker.calls == [(QUESTION, 4, 10)]
     assert len(body["passages"]) == 4
 
 
@@ -321,6 +331,8 @@ def test_a_lexical_retrieve_stage_after_an_embed_stage_runs_it_for_nothing(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE", "lexical")
+    # The retrieve stage reads what its retrieval mode needs: words, not a vector.
+    monkeypatch.setenv("QP_GRAPH__STAGES__RETRIEVE__READS", '["standalone_query"]')
     store, embedder = ScriptedStore(["a"], ["z"]), RecordingEmbedder()
 
     ask(settings_factory(**FAKE_BACKENDS), vector_store=store, embedder=embedder)

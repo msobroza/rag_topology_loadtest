@@ -32,15 +32,23 @@ graph:
   stages:
     embed:
       call: embedder
+      reads: [standalone_query]
+      writes: [query_embedding]
     retrieve:
       call: vector_store
       retrieval_mode: dense
       top_k: 20
+      reads: [query_embedding]
+      writes: [candidates]
     rerank:
       call: reranker
       top_k: 10
+      reads: [standalone_query, candidates]
+      writes: [reranked]
     generate:
       call: llm
+      reads: [conversational_query, reranked]
+      writes: [answer]
       system_prompt: Answer from the numbered fixture passages only.
       user_prompt: |-
         Context:

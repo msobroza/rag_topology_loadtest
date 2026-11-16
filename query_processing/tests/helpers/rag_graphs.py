@@ -4,7 +4,7 @@ The toolkit ships no workflow file and its tests read no use case's: they run
 on ``fixture_workflow.yaml``, beside this module, a four-stage retrieval graph
 over made-up models, so a test names only what it changes. A lexical graph has
 no embed stage, as a lexical workflow file has none: its first chain starts at
-retrieve. A test hands the graph to the settings as ``graph=``, which replaces
+retrieve. The retrieve stage reads what its retrieval mode needs. A test hands the graph to the settings as ``graph=``, which replaces
 the file's whole graph.
 
 Example::
@@ -31,6 +31,12 @@ STAGE_SETTING = {
     "system_prompt": ("generate", "system_prompt"),
     "user_prompt": ("generate", "user_prompt"),
 }
+# What the retrieve stage reads in each retrieval mode: a vector, words, or both.
+RETRIEVE_READS = {
+    "dense": ["query_embedding"],
+    "lexical": ["standalone_query"],
+    "hybrid": ["query_embedding", "standalone_query"],
+}
 
 
 def fixture_graph() -> dict[str, Any]:
@@ -41,12 +47,13 @@ def fixture_graph() -> dict[str, Any]:
 def rag_graph(retrieval_mode: str = "dense", **changes: object) -> GraphDescription:
     """The fixture's graph, its retrieve stage in ``retrieval_mode``, with ``changes``.
 
-    ``changes`` are keywords of ``STAGE_SETTING``. A lexical graph has no embed
-    stage.
+    ``changes`` are keywords of ``STAGE_SETTING``. The retrieve stage reads
+    what ``retrieval_mode`` needs, and a lexical graph has no embed stage.
     """
     graph = fixture_graph()
     stages = graph["stages"]
     stages["retrieve"]["retrieval_mode"] = retrieval_mode
+    stages["retrieve"]["reads"] = RETRIEVE_READS[retrieval_mode]
     for keyword, value in changes.items():
         stage, key = STAGE_SETTING[keyword]
         stages[stage][key] = value

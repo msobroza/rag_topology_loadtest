@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from echo_components import Echo, EchoRequest
 from query_processing.application.component_types import COMPONENT_TYPES
@@ -24,8 +25,11 @@ from query_processing.application.graph_check import (
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.stages.base_stage import (
     BaseStage,
+    FieldTypes,
+    StageFields,
     StageSettings,
     StageTypes,
+    fields_in_order,
 )
 from query_processing.application.workflow_state import REQUEST_FIELDS, WorkflowState
 from query_processing.config.workflow_settings import WorkflowSettings
@@ -55,7 +59,17 @@ class NoSettings(StageSettings):
 
 
 class FixtureStage(BaseStage[Any, NoSettings]):
+    """A stage type that reads one field and writes one, whatever their names."""
+
     settings_type = NoSettings
+
+    @classmethod
+    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
+        one = {"text": Any}
+        return FieldTypes(
+            fields_in_order("reads", fields.reads, one, f"the {cls.__name__}"),
+            fields_in_order("writes", fields.writes, one, f"the {cls.__name__}"),
+        )
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         return {}
@@ -63,20 +77,14 @@ class FixtureStage(BaseStage[Any, NoSettings]):
 
 class DraftStage(FixtureStage):
     component_type = FakeScribe
-    reads = frozenset({"conversational_query"})
-    writes = frozenset({"draft"})
 
 
 class PolishStage(FixtureStage):
     component_type = FakeScribe
-    reads = frozenset({"draft"})
-    writes = frozenset({"answer"})
 
 
 class JudgeStage(FixtureStage):
     component_type = FakeJudge
-    reads = frozenset({"draft"})
-    writes = frozenset({"verdict"})
 
 
 FIXTURE_STAGE_TYPES: StageTypes = Registry("stage type")
@@ -120,10 +128,10 @@ def check(graph: GraphDescription, components: dict[str, str] = COMPONENTS) -> N
     )
 
 
-DRAFT = {"call": "pen"}
-POLISH = {"call": "pen"}
-JUDGE = {"call": "jury"}
-ANOTHER_DRAFT = {"type": "draft", "call": "pen"}
+DRAFT = {"call": "pen", "reads": ["conversational_query"], "writes": ["draft"]}
+POLISH = {"call": "pen", "reads": ["draft"], "writes": ["answer"]}
+JUDGE = {"call": "jury", "reads": ["draft"], "writes": ["verdict"]}
+ANOTHER_DRAFT = {**DRAFT, "type": "draft"}
 
 
 def test_a_graph_of_other_stage_types_and_edge_conditions_passes() -> None:
@@ -223,7 +231,7 @@ def test_fields_set_before_each_stage_follow_every_path_to_it() -> None:
             "draft": DRAFT,
             "polish": POLISH,
             "judge": JUDGE,
-            "unreached": {"type": "polish", "call": "pen"},
+            "unreached": {**POLISH, "type": "polish"},
         },
         [["START", "draft", "polish", "judge", "END"]],
     )
@@ -271,7 +279,7 @@ def test_a_call_of_a_type_no_declared_component_has_is_refused_saying_so() -> No
 
 
 def test_a_stage_type_with_no_settings_says_it_expects_none() -> None:
-    graph = graph_of({"draft": {"call": "pen", "tone": "dry"}}, [["START", "draft"]])
+    graph = graph_of({"draft": {**DRAFT, "tone": "dry"}}, [["START", "draft"]])
 
     with pytest.raises(WorkflowGraphError, match=r"tone: .*\(expected no settings\)"):
         check(graph)
@@ -367,23 +375,27 @@ def test_a_plain_call_whose_lists_do_not_fill_its_request_is_refused() -> None:
     )
 
 
-def test_a_stage_of_no_stage_type_that_states_one_list_only_is_refused() -> None:
-    shout = {"call": "voice", "reads": ["conversational_query"]}
-    graph = graph_of({"shout": shout}, [["START", "shout", "END"]])
+@pytest.mark.parametrize("missing", ["reads", "writes"])
+def test_a_stage_without_one_of_its_lists_is_refused_naming_the_stage(
+    missing: str,
+) -> None:
+    shout = {"call": "voice", "reads": ["conversational_query"], "writes": ["draft"]}
+    del shout[missing]
 
-    with pytest.raises(WorkflowGraphError, match="stage 'shout': unknown stage type"):
-        check(graph, WITH_VOICE)
+    with pytest.raises(ValidationError) as refused:
+        graph_of({"shout": shout}, [["START", "shout", "END"]])
+
+    [error] = refused.value.errors()
+    assert (error["loc"], error["type"]) == (("stages", "shout", missing), "missing")
 
 
-def test_a_stage_of_a_stage_type_may_state_the_lists_its_type_declares() -> None:
-    stated = {**DRAFT, "reads": ["conversational_query"], "writes": ["draft"]}
-    misstated = {**DRAFT, "reads": ["standalone_query"]}
+def test_a_stage_of_a_stage_type_states_the_lists_its_type_can_use() -> None:
+    misstated = {**DRAFT, "reads": ["conversational_query", "standalone_query"]}
 
-    check(graph_of({"draft": stated}, [["START", "draft", "END"]]))
     with pytest.raises(WorkflowGraphError) as refused:
         check(graph_of({"draft": misstated}, [["START", "draft", "END"]]))
 
     assert str(refused.value) == (
-        "stage 'draft' states reads ['standalone_query'], but its stage type "
-        "'draft' reads ['conversational_query'] (expected those fields, or no reads)"
+        "stage 'draft': the DraftStage reads 1 field, for text: Any "
+        "(got reads ['conversational_query', 'standalone_query'])"
     )

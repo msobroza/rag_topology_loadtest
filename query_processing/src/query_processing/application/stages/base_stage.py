@@ -1,27 +1,34 @@
 """The base of every stage type, and ``STAGE_TYPES``, the registry they register in.
 
-A stage is one step of the workflow graph. It is an instance of a stage type,
-built with the component it calls and its own settings. A stage type declares
-what a check needs to know about it without knowing the stage: the type of
-component it calls (a port), its settings (a model that refuses an unknown key),
-and the workflow state fields it reads and writes.
+A stage is one step of the workflow graph. A stage that only calls its
+component is a plain call and needs no stage type; a stage type is for one that
+does more. A stage of a stage type is built with the component it calls, its
+own settings and the workflow state fields the workflow file says it reads and
+writes. A stage type declares what a check needs to know about it without
+building a stage: the type of component it calls (a port), its settings (a
+model that refuses an unknown key), and which lists of fields it can use.
 
 Example:
-    >>> @STAGE_TYPES.register("rerank")
-    ... class RerankStage(BaseStage[BaseReranker, RerankSettings]): ...
-    >>> STAGE_TYPES.get("rerank")
-    <class 'RerankStage'>
+    >>> @STAGE_TYPES.register("retrieve")
+    ... class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]): ...
+    >>> STAGE_TYPES.get("retrieve")
+    <class 'RetrieveStage'>
 """
 
 from __future__ import annotations
 
 import abc
-from typing import Any, ClassVar, Generic, NamedTuple, TypeVar
+import re
+from collections.abc import Mapping
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict
 
 from ...domain.registry import Registry
 from ..workflow_state import WorkflowState
+
+# A dotted module path in front of a class name, as str() of a generic shows it.
+_MODULE_PATH = re.compile(r"\b(?:\w+\.)+(\w+)")
 
 
 class StageSettings(BaseModel):
@@ -65,58 +72,51 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
     """A stage type: what one stage does with the component it calls.
 
     A stage type sets ``component_type`` and ``settings_type`` on its class, and
-    ``reads`` and ``writes`` there too, unless its settings change them: then it
-    overrides ``fields_read`` or ``fields_written`` (the retrieve stage reads
-    what its retrieval mode needs). The start-up checks ask those two of the
-    class and the settings, so they need no component and build no stage.
+    says in ``check_fields`` which lists of fields it can use. The start-up
+    checks ask those of the class, the settings and the lists, so they need no
+    component and build no stage.
 
     Args:
         component: The component the stage calls, an instance of
             ``component_type``.
         settings: The stage's own settings, an instance of ``settings_type``.
+        fields: The fields the stage reads and writes, as its stage states them.
+
+    Raises:
+        ValueError: The stage type cannot use those fields with those settings.
     """
 
     component_type: ClassVar[type[Any]]  # the port of the component it calls
     settings_type: ClassVar[type[StageSettings]]
-    reads: frozenset[str]  # the workflow state fields it reads
-    writes: frozenset[str]  # and those it writes
 
-    def __init__(self, component: ComponentT, settings: SettingsT) -> None:
-        self.component, self.settings = component, settings
+    def __init__(
+        self, component: ComponentT, settings: SettingsT, fields: StageFields
+    ) -> None:
+        self.field_types = type(self).check_fields(settings, fields)
+        self.component, self.settings, self.fields = component, settings, fields
 
     @classmethod
-    def fields_read(cls, settings: SettingsT) -> frozenset[str]:
-        """Return the workflow state fields a stage of this type reads.
+    @abc.abstractmethod
+    def check_fields(cls, settings: SettingsT, fields: StageFields) -> FieldTypes:
+        """Return the type of each field a stage of this type reads and writes.
 
         Args:
             settings: The stage's own settings, which may change what it reads.
+            fields: The fields the stage states it reads and writes, in order.
 
         Returns:
-            ``reads``, unless the stage type overrides this.
+            The type of each field read and written.
+
+        Raises:
+            ValueError: The stage type cannot use those lists with those
+                settings; the message shows what it expects.
 
         Example:
-            >>> RerankStage.fields_read(RerankSettings(top_k=10))
-            frozenset({'standalone_query', 'candidates'})
+            >>> RetrieveStage.check_fields(
+            ...     RetrieveSettings(retrieval_mode="dense", top_k=20),
+            ...     StageFields(("query_embedding",), ("candidates",))).reads
+            {'query_embedding': list[float]}
         """
-        del settings  # what most stage types read does not depend on them
-        return cls.reads
-
-    @classmethod
-    def fields_written(cls, settings: SettingsT) -> frozenset[str]:
-        """Return the workflow state fields a stage of this type writes.
-
-        Args:
-            settings: The stage's own settings, which may change what it writes.
-
-        Returns:
-            ``writes``, unless the stage type overrides this.
-
-        Example:
-            >>> EmbedStage.fields_written(EmbedSettings())
-            frozenset({'query_embedding'})
-        """
-        del settings  # what most stage types write does not depend on them
-        return cls.writes
 
     @abc.abstractmethod
     async def run(self, state: WorkflowState) -> WorkflowState:
@@ -129,6 +129,107 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             The fields the stage writes, the update LangGraph merges into the
             state.
         """
+
+    def read_fields(self, state: WorkflowState) -> list[Any]:
+        """Return the values of the fields the stage reads, in its ``reads`` order.
+
+        Args:
+            state: The workflow state so far.
+
+        Returns:
+            One value per field of ``reads``.
+
+        Example:
+            >>> question, passages = stage.read_fields(state)
+        """
+        read = cast(dict[str, Any], state)
+        return [read[field] for field in self.fields.reads]
+
+    def write_field(self, value: object) -> WorkflowState:
+        """Return the update that writes ``value`` to the stage's one written field.
+
+        Args:
+            value: What the stage produced.
+
+        Returns:
+            The update LangGraph merges into the state.
+
+        Example:
+            >>> stage.write_field("the answer")
+            {'answer': 'the answer'}
+        """
+        (written,) = self.fields.writes  # check_fields allows one field only
+        update: dict[str, Any] = {written: value}
+        return cast(WorkflowState, update)
+
+
+def field_count(count: int) -> str:
+    """Return a number of fields as a refusal says it.
+
+    Args:
+        count: How many fields.
+
+    Returns:
+        ``1 field`` or ``<count> fields``.
+
+    Example:
+        >>> field_count(2)
+        '2 fields'
+    """
+    return f"{count} field" if count == 1 else f"{count} fields"
+
+
+def fields_in_order(
+    which: Literal["reads", "writes"],
+    stated: tuple[str, ...],
+    expected: Mapping[str, Any],
+    expecting: str,
+) -> dict[str, Any]:
+    """Pair the fields a stage states with what its stage type expects, in order.
+
+    Args:
+        which: ``reads`` or ``writes``, as the workflow file names the list.
+        stated: The fields the stage states, in order.
+        expected: What the stage type takes or gives in their place, each with
+            its type, in order.
+        expecting: Who expects them, the start of the refusal's message.
+
+    Returns:
+        Each stated field with the type of what it stands for.
+
+    Raises:
+        ValueError: The stage states more or fewer fields than expected.
+
+    Example:
+        >>> fields_in_order("writes", ("found",), {"candidates": list[str]},
+        ...                 "the retrieve stage")
+        {'found': list[str]}
+    """
+    if len(stated) != len(expected):
+        count = field_count(len(expected))
+        wanted = ", ".join(f"{name}: {type_name(t)}" for name, t in expected.items())
+        raise ValueError(
+            f"{expecting} {which} {count}, for {wanted} (got {which} {list(stated)})"
+        )
+    return dict(zip(stated, expected.values(), strict=True))
+
+
+def type_name(annotation: object) -> str:
+    """Return a type as a workflow file's author reads it, without module paths.
+
+    Args:
+        annotation: A class or a generic alias.
+
+    Returns:
+        Its name, such as ``str`` or ``list[ScoredPassage]``.
+
+    Example:
+        >>> type_name(list[ScoredPassage])
+        'list[ScoredPassage]'
+    """
+    if isinstance(annotation, type) and not getattr(annotation, "__args__", None):
+        return annotation.__name__
+    return _MODULE_PATH.sub(r"\1", str(annotation))
 
 
 StageTypes = Registry[type[BaseStage[Any, Any]]]
