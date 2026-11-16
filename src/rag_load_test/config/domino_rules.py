@@ -12,8 +12,9 @@ def apply_domino_rules(settings: RagSettings) -> RagSettings:
     On Domino a model server is another App, and App-to-App calls need the run's
     token. So for embedding and for rerank, when the backend is ``api`` and the
     key was not set explicitly, the key becomes ``domino``. The generation key is
-    never touched: a generation endpoint is not one of our Apps. The input is not
-    mutated.
+    never touched: a generation endpoint may be a vendor's, and when it is our
+    generator App, ``rag-deploy`` exports ``RAG_GENERATION_API_KEY=domino`` itself.
+    The input is not mutated.
 
     Args:
         settings: The settings to make fit.

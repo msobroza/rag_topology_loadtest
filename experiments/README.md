@@ -37,7 +37,7 @@ share; they parse to the full settings. Each entry has:
 | `id` | The run-name prefix, or a name for a measurement that is not a run. |
 | `question` | One line. |
 | `hardware` | Machine type, vCPUs and replicas of each App part, Elasticsearch and the Workspace. |
-| `deploy` | What `deploy.yaml` held: `topology`, `model_server`, and per App `hardware_tier_id`, `autoscaling` and `settings`. Never a host, URL or address. |
+| `deploy` | What `deploy.yaml` held: `topology`, `model_server`, `generator_server`, and per App `hardware_tier_id`, `autoscaling` and `settings`. Never a host, URL or address. |
 | `load` | The Locust target, the route, the user counts, the duration, which passages. |
 | `calibration` | What calibration chose and its trials, when the notes give them. |
 | `runs` | The run names. Each is in `results.csv`. |

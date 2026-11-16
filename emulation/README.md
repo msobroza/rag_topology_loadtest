@@ -170,7 +170,10 @@ commands as `domino/app.sh`, so an App's own install only reads uv's cache.
 The emulated Domino's proxy waits `forward_timeout_seconds` for an App's answer (30 by
 default, its `--forward-timeout`). A sitting on the generate stage raises it in
 `terraform.tfvars` before `apply`: a generated answer can take longer than 30 s, and
-the proxy then answers `502` in its place.
+the proxy then answers `502` in its place. On a standing emulation `apply` alone
+does not change it: the emulated Domino's unit is rewritten only when the
+Workspace's startup script runs again (reboot the Workspace machine, or run its
+startup script, as in "The 8-hour self-deletion and Terraform's state" below).
 
 From Cloud Shell, `make -C emulation tunnel-domino` forwards `localhost:8899` to
 the emulated Domino (Swagger at `/docs`, via Cloud Shell's web preview) and

@@ -432,7 +432,8 @@ When answers report their tokens (`/query`'s `tokens` holds both `prompt` and
 `"tokens": {"answers": 22, "prompt": 17446, "completion": 2516, "generate_ms": 164428.0}`.
 A run with no such answer, `/retrieve` alone for one, has no `tokens` key
 rather than a total of zeros; a record from before tokens were counted reads
-as one without them.
+as one without them. With `RAG_GENERATION_BACKEND=fake` the counts are words of
+the echo, not tokens of a model, so its token figures say nothing of a server.
 
 `make compare` feeds every `results/*_stats.csv` prefix (sorted, so
 `monolith` is the baseline) to `rag-compare`, which writes one markdown table
@@ -555,7 +556,7 @@ with a one-line usage error, not a traceback.
 | `RAG_RERANK_BATCH_SIZE` | `0` | passages per batch for the in-process cross-encoder; `0` = calibrated at start-up, up to `RAG_TOP_K_RETRIEVE` |
 | `RAG_RERANK_THREADS` | `0` | native threads one in-process rerank call may use; `0` = calibrated at start-up, up to the budget's share |
 | **Generation** | | |
-| `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network) |
+| `RAG_GENERATION_BACKEND` | `api` | `api` \| `fake` (echoes the question, no network; its `tokens` are words of the echo, not tokens of a model) |
 | `RAG_GENERATION_API_URL` | `https://api.openai.com/v1/chat/completions` | the full route of the endpoint |
 | `RAG_GENERATION_API_FORMAT` | `openai` | the request and response shapes the route speaks |
 | `RAG_GENERATION_API_KEY` | `` | as `RAG_EMBEDDING_API_KEY`; `rag-serve --domino` never changes it |
@@ -990,6 +991,13 @@ compose with `--env-file`:
 | `OVMS_VERSION` / `OVMS_IMAGE` | `2026.4.1` / `openvino/model_server:2026.4.1` |
 | `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.4.1_python_off.tar.gz` from the GitHub release `v2026.4.1` (Domino `ovms` image) |
 
+The pin is 2026.4.1 since the generator, and it moved for every OVMS App. That
+version was run on a machine for the generator only, by hand. The reranker's and
+the embedder's OVMS at 2026.4.1 have not been run, nor the exporter fetched at
+that tag (`export_models.sh` fetches `export_model.py` from `v${OVMS_VERSION}`),
+so reranker and embedder figures taken after the move do not compare with those
+of 15 November 2026 without a re-run.
+
 The served models (source id and alias) are pinned once, by the `RagSettings`
 defaults in `config/rag_settings.py` (`RAG_RERANK_MODEL` / `RAG_RERANK_API_MODEL` =
 `antoinelouis/crossencoder-camembert-base-mmarcoFR` / `crossencoder-camembert-base-mmarcoFR`, `RAG_EMBEDDING_MODEL` /
@@ -1013,20 +1021,24 @@ options are OVMS's own `--dynamic_split_fuse`
 (`RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE`, passed only as `false`, left out at
 `true`) and `--max_num_batched_tokens` (`RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS`,
 left out at `0`), so with the defaults the command is the one above. Nothing is
-calibrated. Checked on a real machine on 16 November 2026: OVMS 2026.4.1 pulled
-the default model (2.0 GB) and served it 60 s after its first start and 5 s after
-a later one, on `/v3/chat/completions`. It writes its `graph.pbtxt` again at every
-start with `--source_model`, so a changed option takes effect on files already
+calibrated. Checked by hand on a real machine on 16 November 2026, the bare
+`ovms` command alone: OVMS 2026.4.1 pulled the default model (2.0 GB) and served
+it 60 s after its first start and 5 s after a later one, on
+`/v3/chat/completions`. The 60 s is OVMS alone; an App's first start adds the
+bootstrap's `apt-get` and the install of the project. The Role,
+`rag-served-models` on an App and the deploy have not run on a machine. It
+writes its `graph.pbtxt` again at every start with `--source_model`, so a changed option takes effect on files already
 pulled. The Role does not run on the prebuilt `ovms` image: it holds neither `uv` nor the
 project, which the Role needs to read the generator's model and options. The Role
 runs in the generic environment `rag-deploy` publishes into, with `uv`, the OVMS
 bundle (`RAG_OVMS_BUNDLE`) and `RAG_BOOTSTRAP=1`.
 
 **Known defect: OVMS does not start on the default embedder.** On a real machine
-OVMS 2026.3.1 crashes with a segmentation fault while it loads
-`snowflake-arctic-embed-l-v2.0`, on the export exactly as written, so an
-`ovms-embedder` App fails at start (the check of 16 November 2026 in
-`experiments/`; the cause is not established). OVMS serves the reranker without
+OVMS 2026.3.1, the pin at the time, crashed with a segmentation fault while it
+loaded `snowflake-arctic-embed-l-v2.0`, on the export exactly as written, so an
+`ovms-embedder` App failed at start (the check of 16 November 2026 in
+`experiments/`; the cause is not established). It has not been tried again at
+2026.4.1, the pin now. OVMS serves the reranker without
 trouble. Until this is fixed, serve the embedder with the FastAPI model server or
 in the workflow's process.
 
@@ -1350,7 +1362,34 @@ settings name. `make deploy-workflow` with a generator asked for but not deploye
 stops and says to run `make deploy-generator`. The model and its two OVMS options
 are the `RAG_OVMS_GENERATION_*` settings (see "The generator is pulled, not
 exported"); `RAG_GENERATION_API_MODEL` in `defaults.settings` names it alike for
-both Apps.
+both Apps. The workflow App's `/readyz` does not check the generator, so `make
+status` can report it ready while OVMS is still pulling the model on the
+generator App's first start; a run started then records failed requests.
+
+**The waits on the path of a generation.** A `/query` that generates passes
+these waits, in order:
+
+| Wait | Default | Set by |
+| --- | --- | --- |
+| The load-test user | 60 s | `RAG_LOADTEST_REQUEST_TIMEOUT_S` |
+| Domino's proxy, twice (to the workflow App, then to the generator App) | Domino's own | not a setting of this project |
+| One generation call of the workflow App | 120 s | `RAG_GENERATION_TIMEOUT_S` |
+| Attempts of that call | 3 (2 retries), 0.2 s then 0.4 s between | `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` |
+| nginx in front of OVMS, with `RAG_OVMS_PREFIX_PROXY=1` | 300 s | `proxy_read_timeout` in `domino/ovms-proxy.conf`, not a setting |
+
+With the defaults, a generation that outlasts the call's timeout or a proxy's
+wait is sent again, up to three attempts: a timeout is a transport error and a
+proxy that gave up answers a 5xx, and both are retried. No log line records a
+retry that succeeded, and when an attempt succeeds the time of every attempt is
+counted as one slow generate stage, which `tokens/s as a caller sees them`
+divides by. The user, who is not retried, has left at 60 s, while the workflow
+App may keep the generation going for three attempts of 120 s. A run that
+measures the generate stage therefore sets `RAG_HTTP_RETRIES` to `0` on the
+workflow App (the setting is shared: that App's embedding and rerank calls and
+its hardware-tier lookup lose their retries too), and raises the user's
+patience (`RAG_LOADTEST_REQUEST_TIMEOUT_S`) together with
+`RAG_GENERATION_TIMEOUT_S`, so the user does not leave a generation the
+workflow App still waits for.
 
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
@@ -1511,7 +1550,13 @@ one project per app and set, in Project → Settings → Environment variables:
 | `rag-workflow` | `workflow` | `rag` | `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_GENERATION_API_KEY`, `RAG_RERANK_API_URL` (+ `RAG_TOPOLOGY=split-all`, `RAG_EMBEDDING_API_URL` for split-all), `RAG_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `RAG_DOMINO_TRACING` identical across projects
-(unset, or `true` everywhere).
+(unset, or `true` everywhere). With a `rag-ovms-generator` project made by hand, the
+project of the App that generates (`rag-workflow` or `rag-monolith`) must hold what
+`rag-deploy` would export: `RAG_GENERATION_BACKEND=api`, `RAG_GENERATION_API_URL`
+(the generator App's URL plus `/v3/chat/completions`),
+`RAG_GENERATION_API_KEY=domino` in place of the vendor key the table lists (else
+that key is sent to the generator App), and `RAG_GENERATION_API_MODEL` set to the
+same name in both projects.
 
 **3. OVMS models Dataset (once, OVMS projects only).** In `rag-ovms-reranker`
 create a Dataset `ovms-models`, open a Workspace with the `rag` environment and run:

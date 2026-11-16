@@ -110,3 +110,11 @@ apps:
   #     # At true and 0, the defaults, app.sh leaves both flags out.
   #     RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE: false
   #     RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS: 8192
+  # A run that measures the generate stage: in the workflow block's settings, no
+  # retry (a generation sent again is timed as one slow generate stage; the
+  # setting also covers its embedding and rerank calls), and a generation timeout
+  # raised together with the load test's RAG_LOADTEST_REQUEST_TIMEOUT_S (README,
+  # "The waits on the path of a generation"):
+  #   settings:
+  #     RAG_HTTP_RETRIES: "0"
+  #     RAG_GENERATION_TIMEOUT_S: "300"

@@ -81,7 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run against an in-process fake Domino: nothing is sent to Domino",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    parts = list(get_args(AppPart))  # embedder, reranker, workflow
+    parts = list(get_args(AppPart))  # embedder, reranker, generator, workflow
     commands.add_parser("deploy").add_argument("target", choices=["all", *parts])
     commands.add_parser("status")
     commands.add_parser("url").add_argument("part", choices=parts)
