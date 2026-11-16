@@ -12,15 +12,21 @@ import pytest
 
 from graph_check_fixtures import (
     CLASSIFY,
+    COMPONENTS,
     DRAFT,
+    FIXTURE_COMPONENT_TYPES,
+    FIXTURE_STAGE_TYPES,
+    JUDGE,
     POLISH,
     asking,
     check,
     graph_of,
 )
 from query_processing.application.edge_check import field_labels
-from query_processing.application.graph_check import WorkflowGraphError
-from query_processing.application.stages.base_stage import FieldTypes
+from query_processing.application.edge_conditions.edge_condition import EdgeCondition
+from query_processing.application.graph_check import WorkflowGraphError, check_graph
+from query_processing.application.stages.base_stage import FieldTypes, StageContext
+from query_processing.domain.registry import Registry
 
 
 def graph_with_label_edge(**edge: Any) -> Any:
@@ -128,3 +134,70 @@ def test_two_writers_that_declare_other_labels_for_one_field_are_refused() -> No
 
     with pytest.raises(WorkflowGraphError, match="the same labels"):
         field_labels(fields)
+
+
+def test_a_writer_that_declares_no_labels_for_a_labelled_field_is_refused() -> None:
+    fields = {
+        "a": FieldTypes({}, {"kind": str}, {"kind": ("question", "statement")}),
+        "b": FieldTypes({}, {"kind": str}),
+    }
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        field_labels(fields)
+
+    assert str(refused.value) == (
+        "'kind' is written with the labels 'question', 'statement' by 'a' and "
+        "with no labels by 'b' (expected every writer of a field to declare the "
+        "same labels)"
+    )
+
+
+def test_a_labelled_field_the_request_provides_is_refused() -> None:
+    fields = {"a": FieldTypes({}, {"mode": str}, {"mode": ("query",)})}
+
+    with pytest.raises(WorkflowGraphError, match="with no labels by the request"):
+        field_labels(fields)
+
+
+def unanswering(conversational_query):  # type: ignore[no-untyped-def]
+    return conversational_query
+
+
+def test_an_edge_condition_that_states_no_answer_is_refused_at_start_up() -> None:
+    conditions: Registry[EdgeCondition] = Registry("edge condition")
+    conditions.register("unanswering")(unanswering)
+    edge = asking("draft", "unanswering", {True: "polish", False: "END"})
+    graph = graph_of({"draft": DRAFT, "polish": POLISH}, [["START", "draft"]], [edge])
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check_graph(
+            graph,
+            COMPONENTS,
+            StageContext(),
+            component_types=FIXTURE_COMPONENT_TYPES,
+            stage_types=FIXTURE_STAGE_TYPES,
+            edge_conditions=conditions,
+        )
+
+    assert str(refused.value).startswith(
+        "conditional edge from 'draft' on 'unanswering': the edge condition "
+        "'unanswering' states no return type (expected -> bool"
+    )
+
+
+def test_an_edge_reads_a_field_only_as_the_type_its_condition_takes() -> None:
+    edge = {**asking("draft", "is_question", {True: "polish", False: "END"})}
+    edge["reads"] = ["verdict"]  # a bool, where is_question takes a str
+    stages = {"draft": DRAFT, "judge": JUDGE, "polish": POLISH}
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(
+            graph_of(
+                stages, [["START", "draft", "judge"]], [edge | {"source": "judge"}]
+            )
+        )
+
+    assert str(refused.value) == (
+        "conditional edge from 'judge' on 'is_question' reads 'verdict' as str, "
+        "but 'judge' writes it as bool (expected a field written as str)"
+    )

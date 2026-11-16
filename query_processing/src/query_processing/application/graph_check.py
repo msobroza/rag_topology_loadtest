@@ -19,10 +19,11 @@ does (ADR 0007), and is held to the same rule at the end of its source; the
 checks of the edges themselves are in ``edge_check``.
 
 The type rules (spec 3.4): a field's type is that of what writes it, the
-request or a stage, and two writers that disagree are refused; a stage reads a
-field only as the type it is written; and a field a stage writes is read by a
-stage, an edge or the response, else it is likely a typo. A type of ``Any`` is not
-compared.
+request or a stage, and two writers that disagree are refused; a stage and the
+response read a field only as the type it is written (an attribute that
+accepts ``None`` reads its other type), and an edge as its edge condition's
+parameter is annotated; and a field a stage writes is read by a stage, an edge
+or the response, else it is likely a typo. A type of ``Any`` is not compared.
 
 Example:
     >>> check_graph(settings.graph, settings.component_types(),
@@ -31,7 +32,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ValidationError
@@ -46,7 +47,14 @@ from ..domain.graph_description import (
 from ..domain.passages import TOTAL_TIMING_KEY
 from ..domain.registry import Registry
 from .component_types import COMPONENT_TYPES
-from .edge_check import check_edges, edge_name, field_labels, links, quoted
+from .edge_check import (
+    check_edges,
+    edge_name,
+    edge_read_types,
+    field_labels,
+    links,
+    quoted,
+)
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
 from .stage_binding import bind_call, stage_fields, stage_type_of
 from .stages.base_stage import (
@@ -59,8 +67,13 @@ from .stages.base_stage import (
     type_name,
 )
 from .state_fields import WorkflowGraphError as WorkflowGraphError
-from .state_fields import WrittenField, written_fields
-from .workflow_state import REQUEST_FIELDS, RESPONSE_FIELDS
+from .state_fields import (
+    WrittenField,
+    annotation_accepts,
+    type_fits,
+    written_fields,
+)
+from .workflow_state import REQUEST_FIELDS, RESPONSE_FIELD_TYPES, RESPONSE_FIELDS
 
 # A stage named like one of these could not be told from it.
 _RESERVED_STAGE_NAMES = {
@@ -86,10 +99,13 @@ class _Declared(NamedTuple):
 
 
 class _Read(NamedTuple):
-    # One field a stage reads, with the type it takes.
-    stage: str
+    # One field a stage, an edge or the response reads, with the type it takes;
+    # `reader` names it as a refusal does, and `fits` says whether a type
+    # written fits that taken.
+    reader: str
     field: str
     takes: Any
+    fits: Callable[[Any, Any], bool] = type_fits
 
 
 def check_graph(  # noqa: PLR0913 - three of them are the tests' seams
@@ -142,7 +158,7 @@ def check_graph(  # noqa: PLR0913 - three of them are the tests' seams
     }
     check_edges(graph, edge_conditions, field_labels(fields))
     _check_fields_read(graph, fields)
-    _check_read_types(fields)
+    _check_read_types(graph, fields, edge_conditions)
     _check_fields_unread(graph, fields)
 
 
@@ -364,27 +380,46 @@ def _unset_field_message(
     )
 
 
-def _check_read_types(fields: Mapping[str, FieldTypes]) -> None:
+def _check_read_types(
+    graph: GraphDescription,
+    fields: Mapping[str, FieldTypes],
+    edge_conditions: Registry[EdgeCondition],
+) -> None:
     # A field's type is its writers' (written_fields refuses two that
-    # disagree); a type of Any on either side is not compared.
+    # disagree); a stage or the response takes it as the attribute it fills
+    # does, an edge as its edge condition's parameter is annotated.
     written = written_fields(fields)
-    for read in _reads(fields):
+    for read in _reads(graph, fields, edge_conditions):
         given = written.get(read.field, WrittenField(Any, ""))
-        if Any in (read.takes, given.type) or read.takes == given.type:
+        if read.fits(given.type, read.takes):
             continue
         raise WorkflowGraphError(
-            f"stage {read.stage!r} reads {read.field!r} as {type_name(read.takes)}, "
+            f"{read.reader} reads {read.field!r} as {type_name(read.takes)}, "
             f"but {given.writer} writes it as {type_name(given.type)} "
             f"(expected a field written as {type_name(read.takes)})"
         )
 
 
-def _reads(fields: Mapping[str, FieldTypes]) -> list[_Read]:
-    return [
-        _Read(stage, field, takes)
+def _reads(
+    graph: GraphDescription,
+    fields: Mapping[str, FieldTypes],
+    edge_conditions: Registry[EdgeCondition],
+) -> list[_Read]:
+    stages = [
+        _Read(f"stage {stage!r}", field, takes)
         for stage, declared in fields.items()
         for field, takes in declared.reads.items()
     ]
+    edges = [
+        _Read(edge_name(edge), field, takes, annotation_accepts)
+        for edge in graph.conditional_edges
+        for field, takes in edge_read_types(edge, edge_conditions).items()
+    ]
+    response = [
+        _Read("the response", field, takes)
+        for field, takes in RESPONSE_FIELD_TYPES.items()
+    ]
+    return [*stages, *edges, *response]
 
 
 def _check_fields_unread(

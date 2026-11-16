@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, get_type_hints
+import collections.abc
+from typing import Any, Literal, Optional, get_type_hints
 
 import pytest
 from langgraph.graph import END, START, StateGraph
@@ -11,8 +12,10 @@ from query_processing.application.stages.base_stage import FieldTypes
 from query_processing.application.state_fields import (
     WorkflowGraphError,
     add_conditions,
+    annotation_accepts,
     field_types_of,
     state_type,
+    type_fits,
 )
 from query_processing.application.workflow_state import (
     METADATA_FILTER_FIELD,
@@ -20,6 +23,7 @@ from query_processing.application.workflow_state import (
     initial_state,
     merge_timings,
 )
+from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.metadata_filter import MetadataCondition
 
 
@@ -70,6 +74,55 @@ def test_a_stage_that_rewrites_a_request_field_must_keep_its_type() -> None:
 
     with pytest.raises(WorkflowGraphError, match="as str by the request and as"):
         field_types_of(stages)
+
+
+@pytest.mark.parametrize(
+    ("given", "takes"),
+    [
+        (list[float], list[float]),
+        (list[float], list[float] | None),  # an attribute that accepts None
+        (str, Optional[str]),  # noqa: UP045 - the older spelling of the same
+        (str, Any),
+        (Any, int),
+    ],
+)
+def test_an_attribute_takes_a_field_of_its_type_or_of_a_member_of_its_union(
+    given: Any, takes: Any
+) -> None:
+    assert type_fits(given, takes)
+    assert annotation_accepts(given, takes)
+
+
+@pytest.mark.parametrize(
+    ("given", "takes"),
+    [
+        (str, int),
+        (list[float], list[str]),
+        (str | None, str),  # None would reach a reader that cannot take it
+        (list[HistoryMessage], str),
+        (Literal["query"], int),
+        (list[float], str | None),
+    ],
+)
+def test_a_field_fits_no_reader_of_another_type(given: Any, takes: Any) -> None:
+    assert not type_fits(given, takes)
+    assert not annotation_accepts(given, takes)
+
+
+@pytest.mark.parametrize(
+    ("given", "annotation"),
+    [
+        (list[HistoryMessage], collections.abc.Sequence[object]),
+        (Literal["query", "retrieve"], str),
+        (bool, object),
+        (Literal["query"], str | None),
+    ],
+)
+def test_an_annotation_also_takes_a_field_of_a_narrower_type(
+    given: Any, annotation: Any
+) -> None:
+    assert annotation_accepts(given, annotation)
+    assert not type_fits(given, annotation)  # an attribute takes its own type
 
 
 ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")

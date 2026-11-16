@@ -16,7 +16,18 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Any, NamedTuple, TypedDict, cast
+from types import UnionType
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    NamedTuple,
+    TypedDict,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+)
 
 from ..domain.metadata_filter import MetadataCondition
 from .stages.base_stage import FieldTypes, type_name
@@ -29,6 +40,8 @@ from .workflow_state import (
 
 # Who writes the request's fields, as a refusal names it.
 REQUEST_WRITER = "the request"
+# The origins of a union: ``X | None`` and ``Optional[X]`` are told apart.
+_UNIONS = (Union, UnionType)
 
 
 class WorkflowGraphError(ValueError):
@@ -108,6 +121,83 @@ def _agreed(field: str, first: WrittenField | None, then: WrittenField) -> Writt
         f"as {type_name(then.type)} by {then.writer} (expected every writer of a "
         "field to write one type)"
     )
+
+
+def type_fits(given: Any, takes: Any) -> bool:
+    """Whether a stage or the response can read a field written as ``given``.
+
+    A request or a result attribute takes a field of its own type, or of one
+    member of its union: an attribute that accepts ``None`` reads a field of
+    its other type. ``Any`` on either side is not compared. A written union
+    fits only an attribute of that very union, never a wider one.
+
+    Args:
+        given: The type the field's writer writes.
+        takes: The type of the attribute the field fills.
+
+    Returns:
+        True when ``given`` is ``takes`` or a member of it.
+
+    Example:
+        >>> type_fits(list[float], list[float] | None)
+        True
+    """
+    if Any in (given, takes) or given == takes:
+        return True
+    return get_origin(takes) in _UNIONS and given in get_args(takes)
+
+
+def annotation_accepts(given: Any, annotation: Any) -> bool:
+    """Whether a function's parameter, as annotated, takes a field written as ``given``.
+
+    An edge condition is a plain function, so its annotation may be wider
+    than the field: ``object``, ``Sequence[object]`` for a list, ``str`` for
+    a ``Literal`` of strings, or a union of which one member accepts it. A
+    field that may hold ``None`` fits only an annotation that takes ``None``.
+
+    Args:
+        given: The type the field's writer writes.
+        annotation: The parameter's annotation.
+
+    Returns:
+        True when every value of ``given`` is a value of ``annotation``.
+
+    Example:
+        >>> annotation_accepts(list[HistoryMessage], Sequence[object])
+        True
+    """
+    if type_fits(given, annotation) or annotation is object:
+        return True
+    if get_origin(given) in _UNIONS:
+        return all(annotation_accepts(m, annotation) for m in get_args(given))
+    if get_origin(annotation) in _UNIONS:
+        return any(annotation_accepts(given, m) for m in get_args(annotation))
+    if get_origin(given) is Literal:
+        return _literal_accepted(get_args(given), annotation)
+    return _class_accepts(given, annotation)
+
+
+def _literal_accepted(values: tuple[Any, ...], annotation: Any) -> bool:
+    # Literal["query", "retrieve"] is accepted by str: each value is one.
+    if not isinstance(annotation, type):
+        return False
+    return all(isinstance(value, annotation) for value in values)
+
+
+def _class_accepts(given: Any, annotation: Any) -> bool:
+    # A class, or a generic such as list[float], and what it holds.
+    given_class = get_origin(given) or given
+    taken_class = get_origin(annotation) or annotation
+    if not (isinstance(given_class, type) and isinstance(taken_class, type)):
+        return False
+    if not issubclass(given_class, taken_class):
+        return False
+    given_args, taken_args = get_args(given), get_args(annotation)
+    if not taken_args:
+        return True
+    if len(given_args) != len(taken_args):
+        return False
+    return all(map(annotation_accepts, given_args, taken_args))
 
 
 def state_type(field_types: Mapping[str, Any]) -> type[Any]:

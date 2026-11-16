@@ -84,6 +84,24 @@ def prompt_variables(prompt: Prompt) -> frozenset[str]:
     return frozenset(variables)
 
 
+def prompt_placeholders(prompt: Prompt) -> frozenset[str]:
+    """Return the fields a prompt's placeholders splice, each a list of messages.
+
+    Args:
+        prompt: The prompt's messages and placeholders.
+
+    Returns:
+        The field each placeholder names.
+
+    Example:
+        >>> prompt_placeholders([PromptPlaceholder(placeholder="history")])
+        frozenset({'history'})
+    """
+    return frozenset(
+        entry.placeholder for entry in prompt if isinstance(entry, PromptPlaceholder)
+    )
+
+
 def render_prompt(
     prompt: Prompt, variables: Mapping[str, object]
 ) -> list[dict[str, str]]:

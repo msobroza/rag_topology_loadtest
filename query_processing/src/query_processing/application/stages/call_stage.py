@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...domain.base_component import BaseComponent
+from ...domain.errors import RagDependencyError
 from ..workflow_state import WorkflowState
 
 if TYPE_CHECKING:  # the binding is built in application, which imports stages
@@ -53,6 +54,11 @@ class CallStage:
         Returns:
             The fields of the binding's writes, each an attribute of the answer.
 
+        Raises:
+            RagDependencyError: The component answers a value outside the
+                labels a field written declares, such as a route its router
+                does not list; a label edge would have no row for it.
+
         Example:
             >>> await CallStage(Upper(), binding).run({"message": "ab"})
             {'shout': 'AB', 'size': 2}
@@ -62,7 +68,20 @@ class CallStage:
             **{attr: state[field] for attr, field in self.binding.from_reads.items()},
         )
         answer = await self.component.ainvoke(request)
-        return {
+        written = {
             field: getattr(answer, attr)
             for field, attr in self.binding.to_writes.items()
         }
+        self._check_labels(written)
+        return written
+
+    def _check_labels(self, written: WorkflowState) -> None:
+        for field, labels in self.field_types.labels.items():
+            if written[field] in labels:
+                continue
+            listed = ", ".join(repr(label) for label in labels)
+            raise RagDependencyError(
+                self.component.component_type_name,
+                f"answered {written[field]!r} for {field!r} (expected one of the "
+                f"labels of {field!r}: {listed})",
+            )

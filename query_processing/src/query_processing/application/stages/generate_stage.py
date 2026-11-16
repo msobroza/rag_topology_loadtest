@@ -31,8 +31,8 @@ from ...domain.errors import RagDependencyError
 from ...domain.metadata_filter import MetadataFieldInfo
 from ...domain.prompts import Prompt
 from ..output_schemas import OUTPUT_SCHEMAS, narrowed_to
-from ..prompt_rendering import prompt_variables, render_prompt
-from ..workflow_state import WorkflowState
+from ..prompt_rendering import prompt_placeholders, prompt_variables, render_prompt
+from ..workflow_state import MESSAGES_TYPE, WorkflowState
 from .base_stage import (
     STAGE_TYPES,
     BaseStage,
@@ -105,7 +105,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
             context: The prompts, by name, and each vector store's fields.
 
         Returns:
-            ``Any`` for each field read, which a template takes as it is;
+            ``Any`` for each field read, which a template takes as it is, or
+            a list of messages for one a placeholder splices;
             ``str`` for the one written, or under a schema the type of each of
             its fields.
 
@@ -136,9 +137,10 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
             )
         if settings.output_schema is not None:  # narrowing fails at start-up
             _asked_schema(_named_schema(settings.output_schema), field_info)
-        return FieldTypes(
-            dict.fromkeys(fields.reads, Any), _write_types(settings, fields.writes)
-        )
+        # A placeholder splices messages; a template takes any value as it is.
+        spliced = prompt_placeholders(prompt)
+        reads = {f: MESSAGES_TYPE if f in spliced else Any for f in fields.reads}
+        return FieldTypes(reads, _write_types(settings, fields.writes))
 
     async def run(self, state: WorkflowState) -> WorkflowState:
         """Ask the LLM its prompt, rendered from the fields its ``reads`` names.

@@ -21,7 +21,7 @@ from typing import Any
 
 from ..domain.conversation import HistoryMessage
 from ..domain.metadata_filter import MetadataCondition
-from ..domain.passages import RagMode
+from ..domain.passages import RagMode, ScoredPassage
 
 # What one request carries from stage to stage, by field name: a stage reads
 # the values its reads name and returns the fields it writes, the update
@@ -37,20 +37,27 @@ METADATA_FILTER_FIELD = "metadata_filter"
 # The earlier turns the request carries: a prompt's placeholder splices them.
 CONVERSATIONAL_HISTORY_FIELD = "conversational_history"
 
+# The type of a field of messages, which a prompt's placeholder splices.
+MESSAGES_TYPE: Any = list[HistoryMessage]
+
 # The fields the request writes before the first stage runs, with their types.
 REQUEST_FIELD_TYPES: dict[str, Any] = {
     "conversational_query": str,  # the user's message as sent in this turn
     "standalone_query": str,  # the same request made self-contained; searched
     # The earlier turns, as the client sent them; the workflow keeps none.
-    CONVERSATIONAL_HISTORY_FIELD: list[HistoryMessage],
+    CONVERSATIONAL_HISTORY_FIELD: MESSAGES_TYPE,
     "mode": RagMode,
     METADATA_FILTER_FIELD: list[MetadataCondition],
 }
 
-# The fields the response reads: names fixed in the toolkit, as the wire's are.
-RESPONSE_FIELDS: frozenset[str] = frozenset(
-    {"answer", "reranked", METADATA_FILTER_FIELD}
-)
+# The fields the response reads, with the types of the result's attributes they
+# fill: names fixed in the toolkit, as the wire's are.
+RESPONSE_FIELD_TYPES: dict[str, Any] = {
+    "answer": str | None,  # none when the run ends before an answer
+    "reranked": list[ScoredPassage],  # the result's passages
+    METADATA_FILTER_FIELD: list[MetadataCondition],
+}
+RESPONSE_FIELDS: frozenset[str] = frozenset(RESPONSE_FIELD_TYPES)
 
 
 def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:

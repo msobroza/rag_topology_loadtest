@@ -5,9 +5,10 @@ edge starts where a plain edge may, names a registered edge condition, reads one
 field for each parameter of it, and has one row of ``path_map`` for each answer
 it can give, each leading where a plain edge may: a yes-or-no edge condition a
 ``true`` and a ``false`` row, and a label edge (ADR 0007) one row for each label
-the writer of the one field it reads declares. An edge condition is asked once
-per source. Whether the fields an edge reads are set when it is asked is the
-field rule of ``graph_check``.
+the writer of the one field it reads declares, and every other writer of that
+field declares the same. An edge condition states ``-> bool`` or ``-> str``,
+and is asked once per source. Whether the fields an edge reads are set when it
+is asked is the field rule of ``graph_check``.
 
 Example:
     >>> check_edges(graph, edge_conditions, labels={"route": ("self_contained",)})
@@ -17,18 +18,19 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Iterable, Mapping
+from typing import Any, cast
 
 from ..domain.graph_description import END, START, ConditionalEdge, GraphDescription
 from ..domain.registry import Registry
-from .edge_conditions.edge_condition import EdgeCondition, answers_with_label
-from .stages.base_stage import FieldTypes, field_count
-from .state_fields import WorkflowGraphError
-
-# The kinds of parameter a field's value can be handed to, by position.
-_POSITIONAL = (
-    inspect.Parameter.POSITIONAL_ONLY,
-    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+from .edge_conditions.edge_condition import (
+    POSITIONAL_PARAMETERS,
+    EdgeCondition,
+    answers_with_label,
+    taken_types,
 )
+from .stages.base_stage import FieldTypes, field_count
+from .state_fields import REQUEST_WRITER, WorkflowGraphError
+from .workflow_state import REQUEST_FIELDS
 
 
 def check_edges(
@@ -62,7 +64,11 @@ def check_edges(
 
 
 def field_labels(fields: Mapping[str, FieldTypes]) -> dict[str, tuple[str, ...]]:
-    """Return the labels each field can take, as the stages that write it declare.
+    """Return the labels each field can take, as every writer of it declares.
+
+    A field one writer declares labels for is refused when another writer, a
+    stage or the request, declares none or others: a label edge that reads it
+    would meet a value it has no row for.
 
     Args:
         fields: What each stage reads and writes, by stage name.
@@ -71,28 +77,69 @@ def field_labels(fields: Mapping[str, FieldTypes]) -> dict[str, tuple[str, ...]]
         The labels of each field a stage declares some for.
 
     Raises:
-        WorkflowGraphError: Two stages declare other labels for one field.
+        WorkflowGraphError: Two writers of one field, the request included,
+            declare other labels for it, or one declares none.
 
     Example:
         >>> field_labels({"route": FieldTypes({}, {"route": str},
         ...                                   {"route": ("self_contained",)})})
         {'route': ('self_contained',)}
     """
-    declared = [
-        (stage, field, given)
+    labelled = {field for types in fields.values() for field in types.labels}
+    return {field: _agreed_labels(field, fields) for field in sorted(labelled)}
+
+
+def edge_read_types(
+    edge: ConditionalEdge, edge_conditions: Registry[EdgeCondition]
+) -> dict[str, Any]:
+    """Return the type each field a conditional edge reads is taken as.
+
+    Args:
+        edge: A conditional edge whose edge condition is registered.
+        edge_conditions: Where its ``path`` is found.
+
+    Returns:
+        Each field of ``reads`` with the annotation of the parameter it is
+        handed to, ``Any`` where there is none.
+
+    Raises:
+        WorkflowGraphError: The edge condition's annotations cannot be read.
+
+    Example:
+        >>> edge_read_types(rerank_edge, EDGE_CONDITIONS)
+        {'mode': <class 'str'>}
+    """
+    try:
+        taken = taken_types(edge_conditions.get(edge.path))
+    except ValueError as exc:  # it says what to write
+        raise WorkflowGraphError(f"{edge_name(edge)}: {exc}") from exc
+    # Past the positional parameters, a field goes to *args: not compared.
+    padded = [*taken, *[Any] * len(edge.reads)]
+    return dict(zip(edge.reads, padded, strict=False))
+
+
+def _agreed_labels(field: str, fields: Mapping[str, FieldTypes]) -> tuple[str, ...]:
+    # The labels every writer of a labelled field declares; None for none.
+    writers = [
+        (repr(stage), types.labels.get(field))
         for stage, types in fields.items()
-        for field, given in types.labels.items()
+        if field in types.writes or field in types.labels
     ]
-    first: dict[str, tuple[str, tuple[str, ...]]] = {}
-    for stage, field, given in declared:
-        writer, labels = first.setdefault(field, (stage, given))
-        if set(labels) != set(given):
+    if field in REQUEST_FIELDS:
+        writers.insert(0, (REQUEST_WRITER, None))
+    first_writer, first = writers[0]
+    for writer, given in writers[1:]:
+        if first is None or given is None or set(first) != set(given):
             raise WorkflowGraphError(
-                f"{field!r} takes the labels {quoted(labels)} by {writer!r} and "
-                f"{quoted(given)} by {stage!r} (expected every writer of a field "
-                "to declare the same labels)"
+                f"{field!r} is written with {_labels_said(first)} by {first_writer} "
+                f"and with {_labels_said(given)} by {writer} (expected every "
+                "writer of a field to declare the same labels)"
             )
-    return {field: labels for field, (_, labels) in first.items()}
+    return cast(tuple[str, ...], first)  # one writer at least declares them
+
+
+def _labels_said(labels: tuple[str, ...] | None) -> str:
+    return "no labels" if labels is None else f"the labels {quoted(labels)}"
 
 
 def links(graph: GraphDescription) -> list[tuple[str, str]]:
@@ -198,7 +245,7 @@ def _check_conditional_edge(
     except ValueError as exc:  # the registry names the known edge conditions
         raise WorkflowGraphError(f"{where}: {exc}") from exc
     _check_reads_fill(edge, condition)
-    if answers_with_label(condition):
+    if _answers_with_label(edge, condition):
         _check_label_rows(edge, labels)
     else:
         _check_yes_no_rows(edge)
@@ -206,12 +253,19 @@ def _check_conditional_edge(
         _check_target(graph, target, f"the {_said(answer)} answer of the {where}")
 
 
+def _answers_with_label(edge: ConditionalEdge, condition: EdgeCondition) -> bool:
+    try:
+        return answers_with_label(condition)
+    except ValueError as exc:  # it says what to write
+        raise WorkflowGraphError(f"{edge_name(edge)}: {exc}") from exc
+
+
 def _check_reads_fill(edge: ConditionalEdge, condition: EdgeCondition) -> None:
     # The values of reads are handed to the edge condition by position.
     parameters = inspect.signature(condition).parameters.values()
     if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
         return
-    takes = [p.name for p in parameters if p.kind in _POSITIONAL]
+    takes = [p.name for p in parameters if p.kind in POSITIONAL_PARAMETERS]
     if len(takes) != len(edge.reads):
         raise WorkflowGraphError(
             f"{edge_name(edge)} reads {field_count(len(edge.reads))} "
