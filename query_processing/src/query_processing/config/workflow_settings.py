@@ -61,6 +61,7 @@ from .component_settings import (
     typed_by_name,
 )
 from .extensions import load_extensions
+from .searched_embedder import searched_embedder
 from .shared_settings import (
     CalibrationSettings,
     DefaultHttpSettings,
@@ -436,6 +437,19 @@ class WorkflowSettings(BaseSettings):
                 "one, with qp-ingest --embedder"
             )
         return name or embedders[0]
+
+    def searched_embedder(self) -> str | None:
+        """Return the embedder whose vectors the store is searched with, if one.
+
+        Returns:
+            The embedder called by the stage that writes what a ``retrieve``
+            stage reads; None when no stage does, or several embedders do.
+
+        Example:
+            >>> WorkflowSettings().searched_embedder()
+            'embedder'
+        """
+        return searched_embedder(self.graph, self.component_types())
 
     def _missing_url_message(
         self, name: str, component: ModelComponent, url: str

@@ -89,6 +89,30 @@ async def test_ingestion_embeds_with_the_embedder_named_when_there_are_two(
     assert isinstance(embedder, FakeEmbedder)
 
 
+async def test_the_fake_store_is_seeded_with_the_embedder_its_searches_use(
+    settings_factory: SettingsFactory,
+) -> None:
+    second = {"type": "embedder", "backend": "fake", "source_id": "org/router"}
+    # A second embedder, for a stage whose vectors the store is not searched with.
+    embed_for_route = {
+        "call": "router_embedder",
+        "reads": ["conversational_query"],
+        "writes": ["routing_embedding"],
+    }
+    settings = settings_factory(
+        **FAKE_BACKENDS,
+        components={"router_embedder": second},
+        graph={"stages": {"embed_for_route": embed_for_route}},
+    )
+    # Today's rule alone, the only embedder declared, refuses a file with two.
+    async with CompositionRoot(settings) as composition:
+        deps = await composition.workflow_dependencies()
+        store = deps.by_name["vector_store"]
+
+        assert isinstance(store, InMemoryVectorStore)
+        assert await store.count() == 200  # the default seed size
+
+
 async def test_ingestion_refuses_a_name_that_is_no_embedder(
     fake_settings: WorkflowSettings,
 ) -> None:

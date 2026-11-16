@@ -10,7 +10,8 @@ from pydantic import ValidationError
 
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
-from rag_graphs import fixture_graph, write_workflow_file
+from query_processing.domain.graph_description import GraphDescription
+from rag_graphs import fixture_graph, rag_graph, write_workflow_file
 
 SettingsFactory = Callable[..., WorkflowSettings]
 SYSTEM_PROMPT = "Answer from the numbered fixture passages only."  # the fixture's
@@ -280,3 +281,64 @@ def test_each_value_names_the_variable_it_is_read_from() -> None:
 def test_a_field_that_does_not_exist_names_no_variable() -> None:
     with pytest.raises(ValueError, match="'rerank_threads'"):
         WorkflowSettings.variable_of("rerank_threads")
+
+
+# --- the embedder a store's searches use -----------------------------------------
+
+# A second embedder, called by a stage the retrieve stage does not read from.
+ROUTER_EMBEDDER = {"type": "embedder", "backend": "fake", "source_id": "org/router"}
+
+
+def test_with_two_embedders_the_searched_one_is_read_from_the_graph(
+    settings_factory: SettingsFactory,
+) -> None:
+    embed_for_route = {
+        "call": "router_embedder",
+        "reads": ["conversational_query"],
+        "writes": ["routing_embedding"],
+    }
+    settings = settings_factory(
+        components={"router_embedder": ROUTER_EMBEDDER},
+        graph={"stages": {"embed_for_route": embed_for_route}},
+    )
+    assert settings.searched_embedder() == "embedder"
+
+
+def test_a_lexical_graph_has_no_searched_embedder(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(graph=rag_graph("lexical"))
+    assert settings.searched_embedder() is None
+
+
+def test_a_hybrid_graph_searches_with_the_embedder_it_reads_first(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(graph=rag_graph("hybrid"))
+    assert settings.searched_embedder() == "embedder"
+
+
+def test_a_retrieve_stage_named_otherwise_is_found_by_its_type(
+    settings_factory: SettingsFactory,
+) -> None:
+    graph = fixture_graph()
+    graph["stages"]["search"] = {**graph["stages"].pop("retrieve"), "type": "retrieve"}
+    # A description, not a dict: it replaces the file's graph, retrieve included.
+    settings = settings_factory(graph=GraphDescription.model_validate(graph))
+    assert list(settings.graph.stages) == ["embed", "rerank", "generate", "search"]
+    assert settings.searched_embedder() == "embedder"
+
+
+def test_two_embedders_writing_the_searched_embedding_leave_none_searched(
+    settings_factory: SettingsFactory,
+) -> None:
+    embed_again = {
+        "call": "router_embedder",
+        "reads": ["standalone_query"],
+        "writes": ["query_embedding"],
+    }
+    settings = settings_factory(
+        components={"router_embedder": ROUTER_EMBEDDER},
+        graph={"stages": {"embed_again": embed_again}},
+    )
+    assert settings.searched_embedder() is None

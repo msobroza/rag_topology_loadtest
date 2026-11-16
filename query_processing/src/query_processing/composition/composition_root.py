@@ -322,8 +322,10 @@ class CompositionRoot:
         return component
 
     async def _store_embedder(self) -> BaseEmbedder:
-        # What seeds a fake store, so its vectors are the ones queries get.
-        return await self._embedder(self.settings.ingestion_embedder())
+        # What seeds a fake store, so its vectors are the ones queries get: the
+        # embedder its searches use, else the only one declared (spec 2.5).
+        name = self.settings.searched_embedder() or self.settings.ingestion_embedder()
+        return await self._embedder(name)
 
     async def _embedder(self, name: str) -> BaseEmbedder:
         component = self._typed(name, EmbedderSettings)
