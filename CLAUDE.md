@@ -34,3 +34,8 @@ project uses one further pattern:
 
 No circuit breaker, no rate limit, no graceful degradation: add none unless the
 owner asks for one.
+
+## The tests /verify runs
+
+`.gstack/pregate.json` names the command for the tests a change selects: pytest
+from `.venv/bin` when a `.venv` exists here, as every `make` target does.
