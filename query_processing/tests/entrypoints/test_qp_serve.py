@@ -33,6 +33,7 @@ RESPONSE_FIELDS = {
     "answer",
     "passages",
     "timings_ms",
+    "metadata_filter",
 }
 
 

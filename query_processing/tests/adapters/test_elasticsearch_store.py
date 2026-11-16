@@ -17,6 +17,7 @@ from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store im
     ElasticsearchVectorStore,
 )
 from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import Passage
 
 INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
@@ -196,6 +197,21 @@ async def test_es_lexical_query_is_a_match_query_on_the_text_field() -> None:
 async def test_es_lexical_query_without_a_match_is_empty() -> None:
     fake = FakeLangChainStore()
     assert await plain_store(fake).lexical_query("x", 5) == []
+
+
+async def test_es_refuses_a_metadata_filter_it_cannot_apply_yet() -> None:
+    # Until Elasticsearch has its translator, a filter fails rather than being
+    # ignored: no client gets passages its conditions would drop.
+    fake = FakeLangChainStore()
+    conditions = [MetadataCondition(attribute="topic", comparator="eq", value="hr")]
+
+    with pytest.raises(RagDependencyError, match="elasticsearch") as dense:
+        await plain_store(fake).query([0.5, 0.5], 2, conditions)
+    with pytest.raises(RagDependencyError, match="elasticsearch"):
+        await plain_store(fake).lexical_query("x", 2, conditions)
+
+    assert (dense.value.component, dense.value.target) == ("vector_store", INDEX)
+    assert fake.search_calls == fake.lexical_calls == []
 
 
 @pytest.mark.parametrize(("exists", "expected"), [(False, 0), (True, 17)])

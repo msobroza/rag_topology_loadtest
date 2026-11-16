@@ -18,8 +18,9 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ....domain.errors import RagDependencyError
+from ....domain.metadata_filter import MetadataCondition
 from ....domain.passages import MetadataValue, Passage, ScoredPassage
-from ..base_vector_store import BaseVectorStore
+from ..base_vector_store import BaseVectorStore, refuse_metadata_filter
 
 # Cosine distance, so ``1 - distance`` is the cosine similarity ``query`` reports.
 _COSINE_SPACE = {"hnsw": {"space": "cosine"}}
@@ -96,18 +97,26 @@ class ChromaVectorStore(BaseVectorStore):
         await self._call(replace)
 
     async def query(
-        self, embedding: Sequence[float], top_k: int
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredPassage]:
         """Find the passages nearest to a vector.
 
         Args:
             embedding: The query vector.
             top_k: How many passages to return at most.
+            metadata_filter: Must be empty: no translator to Chroma yet.
 
         Returns:
             The nearest passages, nearest first, with the cosine similarity
             (``1 - cosine distance``, higher is nearer) as ``retrieval_score``.
+
+        Raises:
+            RagDependencyError: ``metadata_filter`` has a condition.
         """
+        refuse_metadata_filter("chroma", self._name, metadata_filter)
         if top_k <= 0:
             return []
         found = await self._call(

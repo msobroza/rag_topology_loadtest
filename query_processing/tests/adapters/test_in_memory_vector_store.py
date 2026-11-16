@@ -8,7 +8,10 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
     distinct_words,
 )
+from query_processing.domain.component_requests import SearchRequest
+from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import Passage
+from query_processing.domain.retrieval_mode import RetrievalMode
 
 
 async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> None:
@@ -109,3 +112,59 @@ async def test_in_memory_store_rejects_mismatched_lengths() -> None:
         await InMemoryVectorStore().upsert(
             [Passage(id="a", text="a"), Passage(id="b", text="b")], [[1.0]]
         )
+
+
+TOPICS = {"pay-1": "pay", "leave-1": "leave", "pay-2": "pay", "untagged": None}
+
+
+async def store_with_topics() -> InMemoryVectorStore:
+    """A store of four passages on vacation pay, three of them with a topic."""
+    store = InMemoryVectorStore()
+    passages = [
+        Passage(id=pid, text="vacation pay", metadata={"topic": topic} if topic else {})
+        for pid, topic in TOPICS.items()
+    ]
+    await store.upsert(passages, [[1.0, 0.0]] * len(passages))
+    return store
+
+
+@pytest.mark.parametrize("retrieval_mode", ["dense", "lexical", "hybrid"])
+async def test_a_search_returns_only_the_passages_that_meet_every_condition(
+    retrieval_mode: RetrievalMode,
+) -> None:
+    store = await store_with_topics()
+
+    answer = await store.ainvoke(
+        SearchRequest(
+            embedding=[1.0, 0.0],
+            text="vacation",
+            top_k=5,
+            retrieval_mode=retrieval_mode,
+            rrf_k=60,
+            metadata_filter=[
+                MetadataCondition(attribute="topic", comparator="eq", value="pay")
+            ],
+        )
+    )
+
+    assert sorted(p.id for p in answer.passages) == ["pay-1", "pay-2"]
+
+
+async def test_the_filter_applies_before_top_k() -> None:
+    store = await store_with_topics()
+    leave = [MetadataCondition(attribute="topic", comparator="eq", value="leave")]
+
+    dense = await store.query([1.0, 0.0], top_k=1, metadata_filter=leave)
+    lexical = await store.lexical_query("vacation", top_k=1, metadata_filter=leave)
+
+    assert [p.id for p in dense] == [p.id for p in lexical] == ["leave-1"]
+
+
+async def test_a_search_without_conditions_filters_nothing() -> None:
+    store = await store_with_topics()
+
+    answer = await store.ainvoke(
+        SearchRequest(embedding=[1.0, 0.0], top_k=5, retrieval_mode="dense")
+    )
+
+    assert len(answer.passages) == len(TOPICS)

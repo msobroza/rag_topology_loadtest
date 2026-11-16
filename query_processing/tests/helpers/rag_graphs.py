@@ -31,11 +31,12 @@ STAGE_SETTING = {
     "system_prompt": ("generate", "system_prompt"),
     "user_prompt": ("generate", "user_prompt"),
 }
-# What the retrieve stage reads in each retrieval mode: a vector, words, or both.
+# What the retrieve stage reads in each retrieval mode: a vector, words, or both,
+# then the metadata filter.
 RETRIEVE_READS = {
-    "dense": ["query_embedding"],
-    "lexical": ["standalone_query"],
-    "hybrid": ["query_embedding", "standalone_query"],
+    "dense": ["query_embedding", "metadata_filter"],
+    "lexical": ["standalone_query", "metadata_filter"],
+    "hybrid": ["query_embedding", "standalone_query", "metadata_filter"],
 }
 
 

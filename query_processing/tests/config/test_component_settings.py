@@ -358,7 +358,9 @@ def test_a_block_the_vector_store_does_not_have_is_refused_naming_its_keys(
 
     message = str(refused.value)
     assert "the 'vector_store' component type has no 'qdrant'" in message
-    assert "(backend, chroma, elasticsearch, fake, type)" in message
+    assert (
+        "(backend, chroma, elasticsearch, fake, metadata_field_info, type)" in message
+    )
 
 
 def test_a_vector_store_of_another_name_states_its_type(

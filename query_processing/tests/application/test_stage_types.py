@@ -29,6 +29,7 @@ from query_processing.application.stages.retrieve_stage import (
 )
 from query_processing.application.state_fields import field_types_of, state_type
 from query_processing.application.workflow_builder import open_stage
+from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import ScoredPassage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored
@@ -39,7 +40,13 @@ RAG_STAGE_TYPES = {
 }
 # The user's message and the self-contained request made of it differ here, so
 # each stage shows which one it reads.
-ASKED = {"conversational_query": "and in May?", "standalone_query": "vacation in May"}
+ASKED = {
+    "conversational_query": "and in May?",
+    "standalone_query": "vacation in May",
+    "metadata_filter": [],
+}
+ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
+FILTER_TYPE = list[MetadataCondition]
 GENERATE_FIELDS = StageFields(("conversational_query", "reranked"), ("answer",))
 TEMPLATE = {"system_prompt": "s", "user_prompt": "{question}|{context}"}
 
@@ -81,9 +88,13 @@ async def test_each_rag_stage_reads_and_writes_fields_of_the_workflow_state(
 @pytest.mark.parametrize(
     ("mode", "reads", "types"),
     [
-        ("dense", ("query_embedding",), [list[float]]),
-        ("lexical", ("standalone_query",), [str]),
-        ("hybrid", ("query_embedding", "standalone_query"), [list[float], str]),
+        ("dense", ("query_embedding", "metadata_filter"), [list[float], FILTER_TYPE]),
+        ("lexical", ("standalone_query", "metadata_filter"), [str, FILTER_TYPE]),
+        (
+            "hybrid",
+            ("query_embedding", "standalone_query", "metadata_filter"),
+            [list[float], str, FILTER_TYPE],
+        ),
     ],
 )
 def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
@@ -103,14 +114,14 @@ def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
     [
         (
             "dense",
-            StageFields(("query_embedding", "standalone_query"), ("candidates",)),
-            "the retrieve stage in retrieval_mode 'dense' reads 1 field, for "
-            "embedding: list[float] "
-            "(got reads ['query_embedding', 'standalone_query'])",
+            StageFields(("query_embedding",), ("candidates",)),
+            "the retrieve stage in retrieval_mode 'dense' reads 2 fields, for "
+            "embedding: list[float], metadata_filter: list[MetadataCondition] "
+            "(got reads ['query_embedding'])",
         ),
         (
             "lexical",
-            StageFields(("standalone_query",), ()),
+            StageFields(("standalone_query", "metadata_filter"), ()),
             "the retrieve stage in retrieval_mode 'lexical' writes 1 field, for "
             "candidates: "
             "list[ScoredPassage] (got writes [])",
@@ -122,7 +133,7 @@ def test_the_retrieve_stage_refuses_lists_its_retrieval_mode_cannot_use(
 ) -> None:
     settings = RetrieveSettings(retrieval_mode=mode, top_k=5, rrf_k=60)
 
-    with pytest.raises(ValueError, match="1 field, for") as refused:
+    with pytest.raises(ValueError, match=r"fields?, for") as refused:
         RetrieveStage.check_fields(settings, fields)
 
     assert str(refused.value) == said
@@ -165,7 +176,7 @@ def test_a_stage_type_refuses_a_setting_it_does_not_know(
 async def test_the_retrieve_stage_reads_the_fields_its_lists_name() -> None:
     store = ScriptedStore([], ["a"])
     lexical = RetrieveSettings(retrieval_mode="lexical", top_k=3, rrf_k=60)
-    fields = StageFields(("rewritten",), ("found",))
+    fields = StageFields(("rewritten", "metadata_filter"), ("found",))
 
     update = await RetrieveStage(store, lexical, fields).run(
         {**ASKED, "rewritten": "days off in May"}
@@ -178,15 +189,18 @@ async def test_the_retrieve_stage_reads_the_fields_its_lists_name() -> None:
 async def test_the_retrieve_stage_hands_a_hybrid_search_its_vector_and_words() -> None:
     store = ScriptedStore(["b", "a"], ["a"])
     hybrid = RetrieveSettings(retrieval_mode="hybrid", top_k=2, rrf_k=60)
-    fields = StageFields(("query_embedding", "standalone_query"), ("candidates",))
+    fields = StageFields(
+        ("query_embedding", "standalone_query", "metadata_filter"), ("candidates",)
+    )
 
     update = await RetrieveStage(store, hybrid, fields).run(
-        {**ASKED, "query_embedding": [1.0, 0.0]}
+        {**ASKED, "query_embedding": [1.0, 0.0], "metadata_filter": [ON_PAY]}
     )
 
     assert sorted(call[0] for call in store.calls) == ["dense", "lexical"]
     assert ("lexical", "vacation in May", 2) in store.calls
     assert update["candidates"][0].id == "a"  # in both rankings, so fused first
+    assert store.filters == [[ON_PAY], [ON_PAY]]  # both legs meet the filter
 
 
 async def test_the_generate_stage_answers_what_the_user_asked() -> None:

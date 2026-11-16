@@ -27,7 +27,7 @@ from http import HTTPStatus
 from typing import Any, Literal
 
 import uvicorn
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -37,8 +37,14 @@ from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
+from ..config.component_settings import VectorStoreSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.errors import RagDependencyError
+from ..domain.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+    check_conditions,
+)
 from ..domain.passages import RagMode, ScoredPassage
 from ..infrastructure.json_log import log_json
 
@@ -46,9 +52,14 @@ logger = logging.getLogger("query_processing")
 
 
 class QueryRequest(BaseModel):
-    """The question to answer, 1 to 2000 characters."""
+    """The question to answer, 1 to 2000 characters, and the conditions to meet.
+
+    ``metadata_filter`` is optional: every passage retrieved meets all its
+    conditions, each checked against the fields the vector stores declare.
+    """
 
     question: str = Field(min_length=1, max_length=2000)
+    metadata_filter: list[MetadataCondition] = Field(default_factory=list)
 
 
 class QueryResponse(BaseModel):
@@ -63,6 +74,8 @@ class QueryResponse(BaseModel):
     answer: str | None
     passages: list[ScoredPassage]
     timings_ms: dict[str, float]
+    # The conditions applied: the client's, then those the stages added.
+    metadata_filter: list[MetadataCondition]
 
 
 class ReadyCheck(BaseModel):
@@ -164,6 +177,7 @@ def create_app(composition: CompositionRoot) -> FastAPI:
         lifespan=_lifespan,
     )
     app.state.composition = composition
+    app.state.metadata_fields = declared_metadata_fields(composition.settings)
     app.middleware("http")(_stamp_headers)
     app.add_middleware(GraphRefusalInOneLine)
     app.exception_handler(RagDependencyError)(_dependency_error)
@@ -277,9 +291,57 @@ async def _dependency_error(request: Request, exc: RagDependencyError) -> JSONRe
     return JSONResponse(status_code=status, content=body)
 
 
+def declared_metadata_fields(settings: WorkflowSettings) -> list[MetadataFieldInfo]:
+    """Return the metadata fields a request's filter can name.
+
+    They are those the vector stores the graph's retrieve stages call declare
+    under ``metadata_field_info``, each name once (the first declaration
+    wins), in the order of the stages.
+
+    Args:
+        settings: The workflow settings: the graph and its components.
+
+    Returns:
+        The declared fields.
+
+    Example:
+        >>> [f.name for f in declared_metadata_fields(settings)]
+        ['topic']
+    """
+    # The retrieve stage type is the one that hands a request's filter to a
+    # store; a plain call to a store states its own reads.
+    called = [
+        settings.components.get(stage.call)
+        for name, stage in settings.graph.stages.items()
+        if stage.type_name(name) == "retrieve"
+    ]
+    declared = [
+        field
+        for component in called
+        if isinstance(component, VectorStoreSettings)
+        for field in component.metadata_field_info
+    ]
+    by_name: dict[str, MetadataFieldInfo] = {}
+    for field in declared:
+        by_name.setdefault(field.name, field)
+    return list(by_name.values())
+
+
+def _refuse_conditions_that_do_not_fit(request: Request, body: QueryRequest) -> None:
+    # A condition the declared fields do not allow is the client's mistake: a
+    # 422 whose detail names it, as for a body of the wrong shape.
+    try:
+        check_conditions(body.metadata_filter, request.app.state.metadata_fields)
+    except ValueError as exc:
+        raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
 async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryResponse:
     settings = _settings(request)
-    result = await request.app.state.run(body.question, mode=mode)
+    _refuse_conditions_that_do_not_fit(request, body)
+    result = await request.app.state.run(
+        body.question, mode=mode, metadata_filter=body.metadata_filter
+    )
     log_json(
         event="rag_request",
         request_id=request.state.request_id,

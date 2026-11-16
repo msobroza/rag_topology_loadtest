@@ -21,7 +21,7 @@ components:
 graph:
   stages:
     embed:    {call: embedder, reads: [standalone_query], writes: [query_embedding]}
-    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20, reads: [query_embedding], writes: [candidates]}
+    retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20, reads: [query_embedding, metadata_filter], writes: [candidates]}
     rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
     generate: {call: llm, system_prompt: "…", user_prompt: "…", reads: [conversational_query, reranked], writes: [answer]}
   edges:
@@ -261,7 +261,7 @@ components:
   vector_store: {backend: fake}
 graph:
   stages:
-    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query], writes: [candidates]}
+    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query, metadata_filter], writes: [candidates]}
     rerank: {call: reranker, top_k: 3, reads: [standalone_query, candidates], writes: [reranked]}
   edges:
     - [START, retrieve, rerank, END]
@@ -447,6 +447,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
       api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
       component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
+      metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
       prompts.py      RagPrompts: system prompt + user template -> chat messages
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
       retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
@@ -521,12 +522,14 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           fake_llm.py  FakeLLM: an echo
       vector_store/   the vector store
         base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
+        base_metadata_filter_translator.py  BaseMetadataFilterTranslator, the port that turns a metadata filter into a store's own
         elasticsearch/  backend: elasticsearch
           elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
         chroma/       backend: chroma
           chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
         fake/         backend: fake
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
+          in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
@@ -958,7 +961,7 @@ the same (ingestion still embeds the passages, with the embedder):
 components: {…}
 graph:
   stages:
-    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query], writes: [candidates]}
+    retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query, metadata_filter], writes: [candidates]}
     rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
     generate: {call: llm, system_prompt: "…", user_prompt: "…", reads: [conversational_query, reranked], writes: [answer]}
   edges:
@@ -970,7 +973,7 @@ graph:
 
 `QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the RAG's file is
 refused at start-up: the retrieve stage would read the query's vector as its
-words. With `QP_GRAPH__STAGES__RETRIEVE__READS='["standalone_query"]'` too it is
+words. With `QP_GRAPH__STAGES__RETRIEVE__READS='["standalone_query", "metadata_filter"]'` too it is
 refused still, since the embed stage would write a vector that nothing reads.
 
 ### What start-up refuses in a graph

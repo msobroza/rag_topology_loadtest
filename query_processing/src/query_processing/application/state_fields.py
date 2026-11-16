@@ -4,7 +4,8 @@ A field exists because the request or a stage writes it, and its type is the
 type of what writes it (spec 3.2). Two writers that disagree on a field's type
 are refused; a writer of type ``Any`` is not compared. LangGraph is handed a
 ``TypedDict`` of those fields, built at run time, which always holds
-``timings_ms`` with its reducer.
+``timings_ms`` with its reducer. ``metadata_filter`` accumulates: a stage
+that writes it adds conditions and never removes the client's.
 
 Example:
     >>> types = field_types_of({"embed": FieldTypes(
@@ -14,11 +15,17 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, NamedTuple, TypedDict, cast
 
+from ..domain.metadata_filter import MetadataCondition
 from .stages.base_stage import FieldTypes, type_name
-from .workflow_state import REQUEST_FIELD_TYPES, TIMINGS_FIELD, merge_timings
+from .workflow_state import (
+    METADATA_FILTER_FIELD,
+    REQUEST_FIELD_TYPES,
+    TIMINGS_FIELD,
+    merge_timings,
+)
 
 # Who writes the request's fields, as a refusal names it.
 REQUEST_WRITER = "the request"
@@ -111,7 +118,8 @@ def state_type(field_types: Mapping[str, Any]) -> type[Any]:
 
     Returns:
         A ``TypedDict`` in which no field is required: a field is set when its
-        writer has run.
+        writer has run. ``metadata_filter`` and ``timings_ms`` are always
+        there, with their reducers.
 
     Example:
         >>> get_type_hints(state_type({"draft": str}))["draft"]
@@ -119,9 +127,33 @@ def state_type(field_types: Mapping[str, Any]) -> type[Any]:
     """
     fields = {
         **field_types,
+        METADATA_FILTER_FIELD: Annotated[list[MetadataCondition], add_conditions],
         TIMINGS_FIELD: Annotated[dict[str, float], merge_timings],
     }
     # The functional form, since the fields are known only at run time; mypy
     # types only a literal dict there.
     make_typed_dict = cast(Any, TypedDict)
     return cast(type[Any], make_typed_dict("WorkflowState", fields, total=False))
+
+
+def add_conditions(
+    left: Sequence[MetadataCondition], right: Sequence[MetadataCondition]
+) -> list[MetadataCondition]:
+    """Add a stage's conditions to the metadata filter; the field's LangGraph reducer.
+
+    Args:
+        left: The conditions so far, the client's first.
+        right: The conditions a stage writes.
+
+    Returns:
+        ``left``, then each condition of ``right`` it does not hold yet.
+
+    Example:
+        >>> add_conditions([on_pay], [on_pay, not_on_leave])
+        [on_pay, not_on_leave]
+    """
+    added = list(left)
+    for condition in right:
+        if condition not in added:
+            added.append(condition)
+    return added

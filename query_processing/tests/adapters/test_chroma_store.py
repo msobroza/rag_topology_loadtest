@@ -10,6 +10,7 @@ import pytest
 
 from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import Passage
 
 COLLECTION = "passages_under_test"  # any name: the adapter must use the one given
@@ -64,6 +65,20 @@ async def test_chroma_query_is_nearest_first_with_cosine_similarity(
     assert hits[0].metadata == {"topic": "hr"}
     assert hits[1].metadata == {"n": 3}
     assert all(h.rerank_score is None for h in hits)
+
+
+async def test_chroma_refuses_a_metadata_filter_it_cannot_apply_yet(
+    tmp_path: Path,
+) -> None:
+    # Until Chroma has its translator, a filter fails rather than being ignored.
+    store = await open_store(tmp_path)
+    await store.upsert(PASSAGES, VECTORS)
+    conditions = [MetadataCondition(attribute="topic", comparator="eq", value="hr")]
+
+    with pytest.raises(RagDependencyError, match="chroma") as info:
+        await store.query([1.0, 0.0], 3, conditions)
+
+    assert (info.value.component, info.value.target) == ("vector_store", COLLECTION)
 
 
 async def test_chroma_ready_reports_count_and_collection(tmp_path: Path) -> None:

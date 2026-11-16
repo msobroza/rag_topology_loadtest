@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from query_processing.application.workflow_state import initial_state, merge_timings
+from query_processing.domain.metadata_filter import MetadataCondition
+
+ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
 
 
 def test_the_question_is_both_queries_and_the_history_is_empty() -> None:
@@ -11,8 +14,15 @@ def test_the_question_is_both_queries_and_the_history_is_empty() -> None:
         "standalone_query": "vacation days?",
         "history": [],
         "mode": "retrieve",
+        "metadata_filter": [],
         "timings_ms": {},
     }
+
+
+def test_the_clients_conditions_start_the_metadata_filter() -> None:
+    state = initial_state("vacation days?", "query", metadata_filter=(ON_PAY,))
+
+    assert state["metadata_filter"] == [ON_PAY]
 
 
 def test_merge_timings_merges_dicts_right_wins() -> None:

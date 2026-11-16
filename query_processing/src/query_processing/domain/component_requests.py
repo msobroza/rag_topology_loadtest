@@ -19,6 +19,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .metadata_filter import MetadataCondition
 from .passages import ScoredPassage
 from .retrieval_mode import RetrievalMode
 
@@ -70,6 +71,8 @@ class SearchRequest(_FrozenStrictModel):
 
     ``dense`` needs ``embedding``, ``lexical`` needs ``text``, and ``hybrid``
     needs both and ``rrf_k``, the rank constant of reciprocal rank fusion.
+    ``metadata_filter`` keeps only the passages that meet all its conditions;
+    empty, it filters nothing.
     """
 
     embedding: list[float] | None = None
@@ -77,6 +80,7 @@ class SearchRequest(_FrozenStrictModel):
     top_k: int = Field(ge=1)
     retrieval_mode: RetrievalMode
     rrf_k: int | None = Field(default=None, ge=1)
+    metadata_filter: list[MetadataCondition] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _has_what_its_mode_needs(self) -> Self:

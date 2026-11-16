@@ -19,8 +19,9 @@ from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
+from ..domain.metadata_filter import MetadataCondition
 from ..domain.passages import TOTAL_TIMING_KEY, RagMode, RagResult
-from .workflow_state import initial_state
+from .workflow_state import METADATA_FILTER_FIELD, initial_state
 
 
 class CompiledWorkflow:
@@ -40,30 +41,40 @@ class CompiledWorkflow:
         self.graph = graph
         self.stage_names = tuple(stage_names)
 
-    async def run(self, question: str, *, mode: RagMode = "query") -> RagResult:
+    async def run(
+        self,
+        question: str,
+        *,
+        mode: RagMode = "query",
+        metadata_filter: Sequence[MetadataCondition] = (),
+    ) -> RagResult:
         """Invoke the graph once.
 
         Args:
             question: The question to answer.
             mode: ``query`` runs every stage; ``retrieve`` stops after reranking
                 and leaves ``answer`` None.
+            metadata_filter: The client's conditions, which every search meets.
 
         Returns:
             The result; ``timings_ms`` is ``stage_timings`` of what the stages
-            recorded and the wall time around the whole graph.
+            recorded and the wall time around the whole graph, and
+            ``metadata_filter`` the conditions applied, the client's first.
 
         Example:
             >>> (await workflow.run("vacation days?", mode="retrieve")).answer is None
             True
         """
         started = time.perf_counter()
-        final = await self.graph.ainvoke(initial_state(question, mode))
+        state = initial_state(question, mode, metadata_filter=metadata_filter)
+        final = await self.graph.ainvoke(state)
         total_ms = (time.perf_counter() - started) * 1000
         return RagResult(
             question=question,
             mode=mode,
             answer=final.get("answer") if mode == "query" else None,
             passages=final.get("reranked", []),
+            metadata_filter=final.get(METADATA_FILTER_FIELD, []),
             timings_ms=stage_timings(self.stage_names, final["timings_ms"], total_ms),
         )
 

@@ -71,8 +71,9 @@ graph:
       retrieval_mode: dense
       top_k: 20 # candidates from the store
       # [query_embedding] for dense, [standalone_query] for lexical,
-      # [query_embedding, standalone_query] for hybrid
-      reads: [query_embedding]
+      # [query_embedding, standalone_query] for hybrid; then metadata_filter,
+      # the request's conditions every passage found meets
+      reads: [query_embedding, metadata_filter]
       writes: [candidates]
     rerank:
       call: reranker

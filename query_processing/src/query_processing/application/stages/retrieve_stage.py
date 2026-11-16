@@ -2,8 +2,9 @@
 
 The stage builds a ``SearchRequest`` from the fields its ``reads`` names, in
 order: the query's vector for ``dense``, its words for ``lexical``, both for
-``hybrid``. Its retrieval mode and ``top_k`` complete the request. The store's
-``ainvoke`` searches by that mode, and fuses a hybrid search; the passages found
+``hybrid``, then the metadata filter every passage found must meet. Its
+retrieval mode and ``top_k`` complete the request. The store's ``ainvoke``
+searches by that mode, and fuses a hybrid search; the passages found
 go to the one field its ``writes`` names. Lexical and hybrid need a store that
 ranks text: the store's own ``BaseLexicalSearch``, refused when the stage is
 built if it has none.
@@ -11,8 +12,10 @@ built if it has none.
 Example:
     >>> stage = RetrieveStage(
     ...     store, RetrieveSettings(retrieval_mode="hybrid", top_k=20),
-    ...     StageFields(("query_embedding", "standalone_query"), ("candidates",)))
-    >>> await stage.run({"query_embedding": vector, "standalone_query": "vacation"})
+    ...     StageFields(("query_embedding", "standalone_query", "metadata_filter"),
+    ...                 ("candidates",)))
+    >>> await stage.run({"query_embedding": vector, "standalone_query": "vacation",
+    ...                  "metadata_filter": []})
     {'candidates': [...]}
 """
 
@@ -27,6 +30,7 @@ from ...adapters.vector_store.base_vector_store import (
     required_lexical_search,
 )
 from ...domain.component_requests import SearchRequest
+from ...domain.metadata_filter import MetadataCondition
 from ...domain.passages import ScoredPassage
 from ...domain.retrieval_mode import RetrievalMode
 from ..workflow_state import WorkflowState
@@ -39,12 +43,14 @@ from .base_stage import (
     fields_in_order,
 )
 
+# What every retrieval mode reads last: the conditions a passage must meet.
+_FILTER_READ = {"metadata_filter": list[MetadataCondition]}
 # What each retrieval mode reads of the state, in order: the search request's
 # attributes its reads fill, each with its type.
 READS_BY_RETRIEVAL_MODE: dict[RetrievalMode, dict[str, Any]] = {
-    "dense": {"embedding": list[float]},
-    "lexical": {"text": str},
-    "hybrid": {"embedding": list[float], "text": str},
+    "dense": {"embedding": list[float], **_FILTER_READ},
+    "lexical": {"text": str, **_FILTER_READ},
+    "hybrid": {"embedding": list[float], "text": str, **_FILTER_READ},
 }
 # What it writes: the passages found.
 RETRIEVE_WRITE_TYPES = {"candidates": list[ScoredPassage]}
@@ -105,8 +111,8 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
 
         Args:
             settings: The stage's settings; only the retrieval mode is read.
-            fields: The query's vector, its words, or both, in that order; then
-                the one field the candidates go to.
+            fields: The query's vector, its words, or both, in that order, then
+                the metadata filter; and the one field the candidates go to.
 
         Returns:
             Each field's type.
@@ -118,8 +124,9 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
         Example:
             >>> RetrieveStage.check_fields(
             ...     RetrieveSettings(retrieval_mode="lexical", top_k=20),
-            ...     StageFields(("standalone_query",), ("candidates",))).reads
-            {'standalone_query': <class 'str'>}
+            ...     StageFields(("standalone_query", "metadata_filter"),
+            ...                 ("candidates",))).reads
+            {'standalone_query': <class 'str'>, 'metadata_filter': ...}
         """
         mode = settings.retrieval_mode
         expecting = f"the retrieve stage in retrieval_mode {mode!r}"

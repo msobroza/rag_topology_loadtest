@@ -301,6 +301,12 @@ ADAPTERS = PACKAGE / "adapters"
 # only in how the endpoint is resolved, so the one HTTP implementation, in api/,
 # serves both (the owner's decision: two directories would hold one class twice).
 SHARED_DIRECTORIES = {"served": "api"}
+# Component package -> the ports it holds besides its own, each in its own
+# base_*.py: a store's filter translator turns a metadata filter into the store's
+# own filter, one implementation in each Backend directory beside the store.
+OTHER_PORTS: dict[str, set[str]] = {
+    "vector_store": {"base_metadata_filter_translator.py"},
+}
 # Component package -> its port classes, and the Backend values that name its
 # implementation directories: those registered for each component type.
 COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
@@ -339,7 +345,8 @@ def component_problems(
 ) -> list[str]:
     """What breaks the layout of one component package.
 
-    The layout: ``base_<component>.py`` holds the port, and each Backend value is
+    The layout: ``base_<component>.py`` holds the port (``OTHER_PORTS`` names
+    any other port beside it), and each Backend value is
     a directory holding exactly one implementation of it, except a Backend of
     ``SHARED_DIRECTORIES``, implemented in the directory it names.
 
@@ -356,7 +363,7 @@ def component_problems(
         if (component / f"base_{name}.py").is_file()
         else [f"{name}: no base_{name}.py"]
     )
-    expected_files = {"__init__.py", f"base_{name}.py"}
+    expected_files = {"__init__.py", f"base_{name}.py", *OTHER_PORTS.get(name, ())}
     problems += [
         f"{name}/{path.name} is neither the port nor a Backend directory"
         for path in sorted(component.glob("*.py"))

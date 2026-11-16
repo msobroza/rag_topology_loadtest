@@ -40,7 +40,7 @@ graph:
       call: vector_store
       retrieval_mode: lexical
       top_k: 20
-      reads: [standalone_query]
+      reads: [standalone_query, metadata_filter]
       writes: [candidates]
     rerank:
       call: reranker
@@ -332,7 +332,9 @@ def test_a_lexical_retrieve_stage_after_an_embed_stage_runs_it_for_nothing(
 ) -> None:
     monkeypatch.setenv("QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE", "lexical")
     # The retrieve stage reads what its retrieval mode needs: words, not a vector.
-    monkeypatch.setenv("QP_GRAPH__STAGES__RETRIEVE__READS", '["standalone_query"]')
+    monkeypatch.setenv(
+        "QP_GRAPH__STAGES__RETRIEVE__READS", '["standalone_query", "metadata_filter"]'
+    )
     store, embedder = ScriptedStore(["a"], ["z"]), RecordingEmbedder()
 
     ask(settings_factory(**FAKE_BACKENDS), vector_store=store, embedder=embedder)

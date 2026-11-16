@@ -11,7 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-MetadataValue = str | int | float | bool
+from .metadata_filter import MetadataCondition, MetadataValue
+
 RagMode = Literal["query", "retrieve"]
 # The key of ``RagResult.timings_ms`` that holds the whole run's wall time. Every
 # other key is a stage of the graph that ran, so no list of stages is kept here:
@@ -46,6 +47,8 @@ class RagResult(BaseModel):
     answer: str | None
     passages: list[ScoredPassage]
     timings_ms: dict[str, float]
+    # The conditions applied: the client's, then those the stages added.
+    metadata_filter: list[MetadataCondition] = Field(default_factory=list)
 
 
 def top_by_score(

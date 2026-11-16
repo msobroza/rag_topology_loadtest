@@ -27,6 +27,10 @@ components:
       index: fixture_passages
     chroma:
       collection: fixture_passages
+    metadata_field_info:
+      - name: topic
+        type: string
+        description: the handbook topic a passage belongs to
 
 graph:
   stages:
@@ -38,7 +42,7 @@ graph:
       call: vector_store
       retrieval_mode: dense
       top_k: 20
-      reads: [query_embedding]
+      reads: [query_embedding, metadata_filter]
       writes: [candidates]
     rerank:
       call: reranker

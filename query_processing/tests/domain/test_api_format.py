@@ -52,6 +52,7 @@ def test_the_built_format_sends_json_values() -> None:
         "top_k": 2,
         "retrieval_mode": "dense",
         "rrf_k": None,
+        "metadata_filter": [],
     }
 
 

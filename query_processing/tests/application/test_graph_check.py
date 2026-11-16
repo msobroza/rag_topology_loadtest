@@ -197,6 +197,7 @@ def test_the_request_provides_the_fields_of_the_initial_state() -> None:
         "standalone_query",
         "history",
         "mode",
+        "metadata_filter",
         "timings_ms",
     } == REQUEST_FIELDS
 
@@ -303,7 +304,7 @@ def test_a_field_nothing_reads_is_refused_as_a_likely_typo() -> None:
     assert str(refused.value) == (
         "stage 'polish' writes 'anwser', but no stage, edge or response reads it, "
         "a likely typo (expected a field a stage reads, or one the response reads: "
-        "'answer', 'reranked')"
+        "'answer', 'metadata_filter', 'reranked')"
     )
 
 

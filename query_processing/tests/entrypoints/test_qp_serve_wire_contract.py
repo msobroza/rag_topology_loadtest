@@ -27,6 +27,9 @@ BODY_FIELDS = {
     "answer",
     "passages",
     "timings_ms",
+    # Added with the metadata filter: the conditions applied, [] for a body
+    # with only a question.
+    "metadata_filter",
 }
 PASSAGE_FIELDS = {"id", "text", "metadata", "retrieval_score", "rerank_score"}
 
@@ -64,6 +67,7 @@ def test_a_route_answers_with_the_headers_and_body_it_always_had(
         "contract",
     )
     assert (body["question"], body["mode"]) == (QUESTION, mode)
+    assert body["metadata_filter"] == []
     assert body["passages"]
     assert all(set(passage) == PASSAGE_FIELDS for passage in body["passages"])
 

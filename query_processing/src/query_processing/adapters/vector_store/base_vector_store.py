@@ -26,6 +26,8 @@ from collections.abc import Sequence
 
 from ...domain.base_component import BaseComponent
 from ...domain.component_requests import SearchAnswer, SearchRequest
+from ...domain.errors import RagDependencyError
+from ...domain.metadata_filter import MetadataCondition
 from ...domain.passages import Passage, ScoredPassage
 from ...domain.rank_fusion import reciprocal_rank_fusion
 
@@ -57,7 +59,9 @@ class BaseVectorStore(
         if request.retrieval_mode == "dense":
             return SearchAnswer(passages=await self._dense(request))
         search = required_lexical_search(self, request.retrieval_mode)
-        lexical = search.lexical_query(request.text or "", request.top_k)
+        lexical = search.lexical_query(
+            request.text or "", request.top_k, request.metadata_filter
+        )
         if request.retrieval_mode == "lexical":
             return SearchAnswer(passages=await lexical)
         # Both legs at once, each asked for top_k, fused back to top_k. A hybrid
@@ -69,7 +73,9 @@ class BaseVectorStore(
         return SearchAnswer(passages=fused)
 
     async def _dense(self, request: SearchRequest) -> list[ScoredPassage]:
-        return await self.query(request.embedding or [], request.top_k)
+        return await self.query(
+            request.embedding or [], request.top_k, request.metadata_filter
+        )
 
     @abstractmethod
     async def upsert(
@@ -84,13 +90,18 @@ class BaseVectorStore(
 
     @abstractmethod
     async def query(
-        self, embedding: Sequence[float], top_k: int
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredPassage]:
-        """Find the passages nearest to a vector.
+        """Find the passages nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
             top_k: How many passages to return at most.
+            metadata_filter: Conditions a passage must all meet; none filters
+                nothing.
 
         Returns:
             The nearest passages, nearest first, with their ``retrieval_score``.
@@ -122,12 +133,19 @@ class BaseLexicalSearch(ABC):
     """
 
     @abstractmethod
-    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
-        """Find the passages whose words best match a text.
+    async def lexical_query(
+        self,
+        text: str,
+        top_k: int,
+        metadata_filter: Sequence[MetadataCondition] = (),
+    ) -> list[ScoredPassage]:
+        """Find the passages whose words best match a text, among those kept.
 
         Args:
             text: The text searched for.
             top_k: How many passages to return at most.
+            metadata_filter: Conditions a passage must all meet; none filters
+                nothing.
 
         Returns:
             The best-matching passages, best first, ranked by the store's own
@@ -160,3 +178,33 @@ def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSea
         "elasticsearch (QP_COMPONENTS__VECTOR_STORE__BACKEND for the one named "
         "vector_store), or the retrieve stage's retrieval_mode to dense"
     )
+
+
+def refuse_metadata_filter(
+    store: str, target: str, metadata_filter: Sequence[MetadataCondition]
+) -> None:
+    """Refuse a filter on a store that has no translator yet, rather than ignore it.
+
+    The Elasticsearch and Chroma stores take a metadata filter once their
+    translators exist; until then a search with conditions fails, naming the
+    store, so no client is answered with passages the filter would drop.
+
+    Args:
+        store: The store's backend, such as ``elasticsearch``.
+        target: Its index or collection, the error's target.
+        metadata_filter: The search's conditions; none passes.
+
+    Raises:
+        RagDependencyError: The filter has a condition.
+
+    Example:
+        >>> refuse_metadata_filter("chroma", "passages", [])  # passes
+    """
+    if metadata_filter:
+        raise RagDependencyError(
+            "vector_store",
+            f"the {store} store applies no metadata filter yet (got "
+            f"{len(metadata_filter)} conditions, expected none on {store}: "
+            "set the vector store's backend to fake to filter)",
+            target=target,
+        )

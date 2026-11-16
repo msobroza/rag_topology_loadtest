@@ -37,6 +37,7 @@ from pydantic import Field, PlainValidator, SerializeAsAny, model_validator
 
 from ..domain.api_endpoint import ApiEndpoint
 from ..domain.base_component import COMPONENT_TYPES
+from ..domain.metadata_filter import MetadataFieldInfo
 from ..domain.registry import Registry
 from ..domain.standard_formats import STANDARD_API_FORMATS
 from .registered_component_settings import RegisteredComponentSettings
@@ -265,6 +266,8 @@ class VectorStoreSettings(ComponentSettings):
 
     The index or collection the passages are kept under is the use case's to
     name: the block of the backend in use states it, or start-up refuses it.
+    ``metadata_field_info`` declares the metadata fields a request's filter
+    can name; a condition on any other field is refused.
 
     Example:
         >>> settings.components["vector_store"].elasticsearch.index
@@ -272,6 +275,9 @@ class VectorStoreSettings(ComponentSettings):
     """
 
     type: Literal["vector_store"] = "vector_store"
+    # None declared: a request's filter can name no field, and only an empty
+    # filter is accepted.
+    metadata_field_info: list[MetadataFieldInfo] = Field(default_factory=list)
     elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
     chroma: ChromaSettings = Field(default_factory=ChromaSettings)
     # "fake" = in memory, seeded with the synthetic corpus when it opens

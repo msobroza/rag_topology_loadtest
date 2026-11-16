@@ -43,7 +43,7 @@ def shout_graph() -> dict[str, Any]:
                 "call": "vector_store",
                 "retrieval_mode": "dense",
                 "top_k": 4,
-                "reads": ["query_embedding"],
+                "reads": ["query_embedding", "metadata_filter"],
                 "writes": ["candidates"],
             },
             "keep_best": {

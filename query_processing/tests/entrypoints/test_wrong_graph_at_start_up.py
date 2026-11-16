@@ -216,7 +216,7 @@ def field_written_that_nothing_reads(graph: Graph) -> None:
 def lexical_retrieval_after_an_embed_stage(graph: Graph) -> None:
     # The embed stage's vector is read by nothing once retrieval reads words.
     graph["stages"]["retrieve"]["retrieval_mode"] = "lexical"
-    graph["stages"]["retrieve"]["reads"] = ["standalone_query"]
+    graph["stages"]["retrieve"]["reads"] = ["standalone_query", "metadata_filter"]
 
 
 def two_writers_of_one_field_that_disagree(graph: Graph) -> None:
@@ -267,8 +267,9 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
         hybrid_retrieval_reading_its_vector_only,
         [
             "stage 'retrieve': the retrieve stage in retrieval_mode 'hybrid' "
-            "reads 2 fields, for "
-            "embedding: list[float], text: str (got reads ['query_embedding'])"
+            "reads 3 fields, for embedding: list[float], text: str, "
+            "metadata_filter: list[MetadataCondition] "
+            "(got reads ['query_embedding', 'metadata_filter'])"
         ],
     ),
     "a generate stage that writes two fields": (

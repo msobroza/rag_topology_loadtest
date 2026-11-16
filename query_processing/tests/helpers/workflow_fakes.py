@@ -17,6 +17,7 @@ from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
+from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import Passage, ScoredPassage
 
 
@@ -74,7 +75,10 @@ class DenseOnlyStore(BaseVectorStore):
         raise AssertionError("the workflow never writes to the store")
 
     async def query(
-        self, embedding: Sequence[float], top_k: int
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredPassage]:
         return [scored(pid) for pid in self.dense[:top_k]]
 
@@ -91,6 +95,8 @@ class ScriptedStore(BaseVectorStore, BaseLexicalSearch):
     def __init__(self, dense: Sequence[str], lexical: Sequence[str]) -> None:
         self.dense, self.lexical = list(dense), list(lexical)
         self.calls: list[tuple[str, object, int]] = []
+        # The metadata filter of each call, in the order of the calls.
+        self.filters: list[list[MetadataCondition]] = []
 
     async def upsert(
         self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
@@ -98,13 +104,23 @@ class ScriptedStore(BaseVectorStore, BaseLexicalSearch):
         raise AssertionError("the workflow never writes to the store")
 
     async def query(
-        self, embedding: Sequence[float], top_k: int
+        self,
+        embedding: Sequence[float],
+        top_k: int,
+        metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredPassage]:
         self.calls.append(("dense", list(embedding), top_k))
+        self.filters.append(list(metadata_filter))
         return [scored(pid) for pid in self.dense[:top_k]]
 
-    async def lexical_query(self, text: str, top_k: int) -> list[ScoredPassage]:
+    async def lexical_query(
+        self,
+        text: str,
+        top_k: int,
+        metadata_filter: Sequence[MetadataCondition] = (),
+    ) -> list[ScoredPassage]:
         self.calls.append(("lexical", text, top_k))
+        self.filters.append(list(metadata_filter))
         return [scored(pid) for pid in self.lexical[:top_k]]
 
     async def count(self) -> int:
