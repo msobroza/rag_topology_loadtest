@@ -1,0 +1,97 @@
+# Sitting of 16 November 2026, 06:39 to 07:14 UTC: a check on real machines of the pull
+# request that makes RAG_EMBEDDING_NORMALIZE govern an embedder on OVMS. No Locust run:
+# every entry is a measurement. See README.md.
+
+common:
+  code: &code branch claude/ovms-embedding-normalize at commit 480123c on every machine (pull request 24, not merged)
+  hardware: &hardware
+    workspace: {machine_type: n2-standard-4, vcpus: 4, spot: false}
+    elasticsearch: {machine_type: n2-standard-2, vcpus: 2, spot: true}
+    embedder: {replicas: 1, machine: {machine_type: n2-highmem-2, vcpus: 2, cores: 1, hardware_tier: cpu-2, spot: true}}
+  ovms: &ovms OpenVINO Model Server 2026.3.1, the binary of ovms/versions.env
+  request: &request one POST /v3/embeddings with one or two French sentences; the length is the Euclidean norm of a returned vector
+  cached_export: &cached_export
+    folder: the cache bucket's OVMS export of the embedder, 8-bit weights
+    graph_as_exported: "plugin_config: '{\"NUM_STREAMS\": \"1\" }', normalize_embeddings: true, pooling: CLS, target_device: \"CPU\""
+    model: inputs input_ids and attention_mask, one output last_hidden_state of width 1024
+
+experiments:
+  - id: n-fastapi-embedder-both-values
+    question: What does the FastAPI model server's embedder return with RAG_EMBEDDING_NORMALIZE unset, and set to true?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-all
+      model_server: fastapi
+      apps:
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+      deploy_target: deploy-embedder, once per value
+    measurements:
+      request: *request
+      length_setting_unset: [1.000000, 1.000000]
+      length_setting_true: [1.000000, 1.000000]
+      cosine_between_the_two: [1.000000, 1.000000]
+      model_pipeline: "modules.json of Snowflake/snowflake-arctic-embed-l-v2.0 lists Transformer, Pooling and Normalize"
+    notes:
+      - The model's own pipeline ends with a normalisation step, so its vectors are unit-length whatever the setting says.
+
+  - id: n-ovms-embedder-app-start
+    question: Does an OVMS embedder App start, with the setting unset, with it true, and on a new export?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-all
+      model_server: ovms
+      apps:
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+      deploy_target: deploy-embedder, once per case
+    measurements:
+      ovms: *ovms
+      cases:
+        - {export: the cached 8-bit export, setting: unset, served_graph_normalize_embeddings: false, result: "the App failed: ovms exited with code -11 before it answered"}
+        - {export: the cached 8-bit export, setting: "true", served_graph_normalize_embeddings: true, result: "the App failed: ovms exited with code -11 before it answered"}
+        - {export: "a new 32-bit export made by the App on its first start, 253 s", setting: unset, exported_graph_normalize_embeddings: false, result: "the App failed: ovms exited with code -11 before it answered"}
+      kernel_log: "ovms: segfault at f8 ... in libopenvino.so.2026.3.1, once per start"
+      last_ovms_log_line: MediapipeGraphDefinition initializing graph nodes
+    notes:
+      - The served graph and the new export's graph hold the value the setting asks for, as the pull request intends.
+      - The crash does not depend on that value.
+
+  - id: n-ovms-embedder-graph-variants
+    question: On which graph of the embedder does OVMS start?
+    code: *code
+    hardware: *hardware
+    measurements:
+      ovms: *ovms
+      how: ovms started alone on a free port, on the export folder or on a folder of links to it with a graph of its own
+      cached_export: *cached_export
+      variants:
+        - the export exactly as written
+        - links to the export, the graph unchanged
+        - "plugin_config NUM_STREAMS 1 alone"
+        - "plugin_config NUM_STREAMS 1 and INFERENCE_NUM_THREADS 2"
+        - "plugin_config NUM_STREAMS 1 and ENABLE_HYPER_THREADING YES"
+        - "plugin_config with the three properties, as the App writes it"
+        - "normalize_embeddings: false"
+        - "normalize_embeddings: true"
+        - the graph without its pooling line
+      result_on_the_cached_8_bit_export: every variant exits with code 139 (segmentation fault) within a second
+      result_on_the_new_32_bit_export: the first eight variants exit with code 139 (the ninth was not tried on it)
+    notes:
+      - OVMS crashes on the export as its own exporter wrote it. The serving folder, the plugin config and the normalisation value play no part.
+      - Why was not established.
+
+  - id: n-ovms-tested-model-normalize
+    question: Does OVMS honour normalize_embeddings on a model it serves?
+    code: *code
+    hardware: *hardware
+    measurements:
+      ovms: *ovms
+      model: "OpenVINO/bge-base-en-v1.5-int8-ov, of OVMS's list of tested models, pulled with ovms --pull --task embeddings --pooling CLS"
+      request: *request
+      length_as_pulled_normalize_true: 1.0
+      length_normalize_false: 16.175969
+      length_normalize_true_again: 1.0
+      dimensions: 768
+    notes:
+      - OVMS serves this embedder and follows the graph's normalize_embeddings line.

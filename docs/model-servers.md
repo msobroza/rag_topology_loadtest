@@ -250,6 +250,8 @@ A reading of the results above, not a measurement.
 - The text-generation figures are one sitting on one machine, with runs of 11 to 30
   requests and a stand-in server for PyTorch.
 - Ranking quality on `int8` weights was not checked.
+- Everything here is about the reranker. OVMS could not serve the default embedder: it
+  crashes while loading it (the check of 16 November 2026 in `experiments/`).
 
 ## Where the runs are
 
