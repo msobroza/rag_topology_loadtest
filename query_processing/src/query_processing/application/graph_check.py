@@ -2,7 +2,9 @@
 
 The checks know no stage type, no component and no edge condition. They read
 what each stage type declares (the port of the component it calls, its
-settings, and the workflow state fields it reads and writes), the declared
+settings, and the workflow state fields it reads and writes), what each plain
+call states (its ``reads`` and ``writes``, bound to its component's request and
+answer by ``bind_call``), the declared
 components with their types, and the registered edge conditions. All of it is
 in the workflow file and the settings, so ``qp-serve`` runs them before any
 component opens, and a refusal names what is wrong and what was expected. What
@@ -37,6 +39,7 @@ from ..domain.passages import TOTAL_TIMING_KEY
 from ..domain.registry import Registry
 from .component_types import COMPONENT_TYPES
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
+from .stage_binding import bind_call, stage_fields, stage_type_of
 from .stages.base_stage import STAGE_TYPES, BaseStage, StageSettings, StageTypes
 from .workflow_state import REQUEST_FIELDS
 
@@ -155,20 +158,58 @@ def _declared_fields(
     stage_types: StageTypes,
 ) -> DeclaredFields:
     stage_type = _stage_type(name, stage, stage_types)
+    if stage_type is None:
+        return _plain_call_fields(name, stage, components, component_types)
     settings = _stage_settings(name, stage, stage_type)
     _check_call(name, stage, stage_type, components, component_types)
-    return DeclaredFields(
+    declared = DeclaredFields(
         stage_type.fields_read(settings), stage_type.fields_written(settings)
     )
+    _check_stated_lists(name, stage, declared)
+    return declared
 
 
 def _stage_type(
     name: str, stage: StageDescription, stage_types: StageTypes
-) -> type[BaseStage[Any, Any]]:
+) -> type[BaseStage[Any, Any]] | None:
     try:
-        return stage_types.get(stage.type_name(name))
-    except ValueError as exc:  # the registry names the known stage types
+        return stage_type_of(name, stage, stage_types)
+    except ValueError as exc:  # it names the known stage types
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
+
+
+def _plain_call_fields(
+    name: str,
+    stage: StageDescription,
+    components: Mapping[str, str],
+    component_types: ComponentTypes,
+) -> DeclaredFields:
+    # A plain call declares the fields it states, once they bind to its
+    # component's request and answer.
+    _check_declared(name, stage, components)
+    fields = stage_fields(stage)
+    try:
+        component_type = component_types.get(components[stage.call])
+        bind_call(component_type, stage.stage_settings, fields)
+    except ValueError as exc:
+        raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
+    return DeclaredFields(frozenset(fields.reads), frozenset(fields.writes))
+
+
+def _check_stated_lists(
+    name: str, stage: StageDescription, declared: DeclaredFields
+) -> None:
+    # A stage of a stage type may state its lists: they must be the fields its
+    # stage type declares, and are otherwise unused.
+    stated = {"reads": stage.reads, "writes": stage.writes}
+    expected = {"reads": declared.reads, "writes": declared.writes}
+    for which, fields in stated.items():
+        if fields is not None and frozenset(fields) != expected[which]:
+            raise WorkflowGraphError(
+                f"stage {name!r} states {which} {sorted(fields)}, but its stage "
+                f"type {stage.type_name(name)!r} {which} "
+                f"{sorted(expected[which])} (expected those fields, or no {which})"
+            )
 
 
 def _stage_settings(
@@ -200,11 +241,7 @@ def _check_call(
     components: Mapping[str, str],
     component_types: ComponentTypes,
 ) -> None:
-    if stage.call not in components:
-        raise WorkflowGraphError(
-            f"stage {name!r} calls {stage.call!r}, which is no component "
-            f"(expected one of: {_quoted(components)})"
-        )
+    _check_declared(name, stage, components)
     needed = stage_type.component_type
     fitting = [
         kind
@@ -219,6 +256,16 @@ def _check_call(
         f"calls one of type {_quoted(fitting) or needed.__name__} "
         f"({_components_of(fitting, components)})"
     )
+
+
+def _check_declared(
+    name: str, stage: StageDescription, components: Mapping[str, str]
+) -> None:
+    if stage.call not in components:
+        raise WorkflowGraphError(
+            f"stage {name!r} calls {stage.call!r}, which is no component "
+            f"(expected one of: {_quoted(components)})"
+        )
 
 
 def _components_of(fitting: list[str], components: Mapping[str, str]) -> str:

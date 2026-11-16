@@ -456,11 +456,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
       component_types.py  COMPONENT_TYPES, as the four ports register it: each component type's port, which the start-up checks read before any component opens
-      graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares; WorkflowGraphError
+      graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states; WorkflowGraphError
+      stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
       workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
       workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
-      stages/         the stage types (rule 6); importing it imports every module, so each registers itself
-        base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, STAGE_TYPES
+      stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
+        base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, StageFields, FieldTypes, STAGE_TYPES
+        call_stage.py  CallStage: a plain call, of no stage type: its request built from its keys and reads, its answer written to its writes
         embed_stage.py  EmbedStage: the standalone query's vector, from the embedder
         retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
         rerank_stage.py  RerankStage: the candidates the reranker scores best

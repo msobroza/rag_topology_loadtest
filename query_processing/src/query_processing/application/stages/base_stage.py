@@ -16,7 +16,7 @@ Example:
 from __future__ import annotations
 
 import abc
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Generic, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -28,6 +28,33 @@ class StageSettings(BaseModel):
     """The base of a stage type's own settings: an unknown key is refused."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class StageFields(NamedTuple):
+    """The workflow state fields a stage states it reads and writes, in order.
+
+    Example:
+        >>> StageFields(("standalone_query", "candidates"), ("reranked",)).reads
+        ('standalone_query', 'candidates')
+    """
+
+    reads: tuple[str, ...]
+    writes: tuple[str, ...]
+
+
+class FieldTypes(NamedTuple):
+    """The type of each field a stage reads and writes, by the field's name.
+
+    A field's type is that of the request or answer attribute it is bound to,
+    or ``Any`` for one that is not checked.
+
+    Example:
+        >>> FieldTypes({"standalone_query": str}, {"query_embedding": list[float]})
+        FieldTypes(reads={'standalone_query': <class 'str'>}, writes={...})
+    """
+
+    reads: dict[str, Any]
+    writes: dict[str, Any]
 
 
 ComponentT = TypeVar("ComponentT")

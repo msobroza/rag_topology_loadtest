@@ -1,9 +1,12 @@
 """What a workflow graph is made of: its stages, its edges and its conditional edges.
 
 The shape is the ``graph`` block of the workflow file, in LangGraph's own names
-(ADR 0004). Stages are keyed by name; each is an instance of a stage type, which
-defaults to the stage's name, and names the component it calls with ``call``;
-every other key is a setting of the stage, which its stage type validates. Plain
+(ADR 0004). Stages are keyed by name; each names the component it calls with
+``call``, and may state the workflow state fields it reads and writes with
+``reads`` and ``writes``. A stage is an instance of the stage type ``type``
+names, which defaults to the stage's name; a stage that states both lists and
+is of no stage type is a plain call. Every other key is a setting of the stage,
+which its stage type, or for a plain call its component's request, takes. Plain
 edges are chains of stage names, ``START`` and ``END`` reserved. A conditional
 edge has a ``source``, a ``path`` that names a registered edge condition, and a
 ``path_map`` from true and false to a stage or ``END``.
@@ -34,17 +37,22 @@ END = "END"
 
 
 class StageDescription(BaseModel):
-    """One stage: its stage type, the component it calls and its own settings.
+    """One stage: its stage type, the component it calls, its fields and settings.
 
-    Every key besides ``type`` and ``call`` is kept as a setting of the stage;
-    its stage type validates them when the graph is built, and refuses a key it
-    does not know.
+    Every key besides ``type``, ``call``, ``reads`` and ``writes`` is kept as a
+    setting of the stage; its stage type validates them when the graph is
+    built, and refuses a key it does not know.
     """
 
     model_config = ConfigDict(extra="allow", frozen=True)
 
     type: str | None = None  # None = the stage's own name
     call: str
+    # The workflow state fields the stage reads and writes, in the order its
+    # component's request and answer take them. Optional until every workflow
+    # file states them.
+    reads: list[str] | None = None
+    writes: list[str] | None = None
 
     def type_name(self, stage: str) -> str:
         """Return the name of the stage type this stage is an instance of.
@@ -63,11 +71,11 @@ class StageDescription(BaseModel):
 
     @property
     def stage_settings(self) -> dict[str, Any]:
-        """The stage's own settings: every key besides ``type`` and ``call``.
+        """The stage's own settings: every key besides ``type``, ``call`` and the lists.
 
         Example:
             >>> StageDescription.model_validate(
-            ...     {"call": "reranker", "top_k": 10}
+            ...     {"call": "reranker", "top_k": 10, "reads": ["candidates"]}
             ... ).stage_settings
             {'top_k': 10}
         """

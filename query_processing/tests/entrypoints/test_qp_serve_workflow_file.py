@@ -19,6 +19,7 @@ import yaml
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from query_processing.application.graph_check import check_graph
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
@@ -156,6 +157,37 @@ def test_a_stage_named_otherwise_is_an_instance_of_the_type_it_names(
 
     assert reranker.calls == [(QUESTION, 20, 4)]
     assert len(body["passages"]) == 4
+
+
+def test_stages_of_no_stage_type_that_state_their_lists_answer_as_plain_calls(
+    settings_factory: SettingsFactory, no_named_file: Path
+) -> None:
+    graph = fixture_graph()
+    del graph["stages"]["embed"], graph["stages"]["rerank"]
+    graph["stages"]["embed_query"] = {
+        "call": "embedder",
+        "reads": ["standalone_query"],
+        "writes": ["query_embedding"],
+    }
+    graph["stages"]["keep_best"] = {
+        "call": "reranker",
+        "top_k": 4,
+        "reads": ["standalone_query", "candidates"],
+        "writes": ["reranked"],
+    }
+    graph["edges"][0] = ["START", "embed_query", "retrieve", "keep_best"]
+    graph["conditional_edges"][0]["source"] = "keep_best"
+    write_workflow_file(no_named_file / "workflow.yaml", graph)
+    settings = settings_factory(**FAKE_BACKENDS)
+    embedder, reranker = RecordingEmbedder(), RecordingReranker()
+
+    check_graph(settings.graph, settings.component_types())
+    body = ask(settings, "/query", embedder=embedder, reranker=reranker)
+
+    assert embedder.queries == [QUESTION]
+    assert reranker.calls == [(QUESTION, 20, 4)]
+    assert len(body["passages"]) == 4
+    assert body["answer"].startswith("[fake-llm] Context:\n[1] ")
 
 
 def test_a_stage_that_names_no_component_is_refused_at_start_up(

@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from echo_components import Echo, EchoRequest
 from query_processing.application.component_types import COMPONENT_TYPES
 from query_processing.application.edge_conditions.edge_condition import EdgeCondition
 from query_processing.application.graph_check import (
@@ -329,3 +330,60 @@ def test_the_request_provides_the_fields_of_the_initial_state() -> None:
         "mode",
         "timings_ms",
     } == REQUEST_FIELDS
+
+
+# --- plain calls and stated lists ----------------------------------------------------
+
+
+class FakeEcho(
+    BaseComponent[EchoRequest, Echo],
+    component_type="echo",
+    registry=FIXTURE_COMPONENT_TYPES,
+):
+    """The port a plain call of these graphs calls."""
+
+
+WITH_VOICE = {**COMPONENTS, "voice": FakeEcho.component_type_name}
+
+
+def test_a_stage_of_no_stage_type_that_states_its_lists_is_a_plain_call() -> None:
+    shout = {"call": "voice", "reads": ["conversational_query"], "writes": ["draft"]}
+    # polish reads the draft the plain call writes
+    graph = graph_of({"shout": shout, "polish": POLISH}, [["START", "shout", "polish"]])
+
+    check(graph, WITH_VOICE)
+
+
+def test_a_plain_call_whose_lists_do_not_fill_its_request_is_refused() -> None:
+    shout = {"call": "voice", "reads": ["mode", "history"], "writes": ["draft"]}
+    graph = graph_of({"shout": shout}, [["START", "shout", "END"]])
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(graph, WITH_VOICE)
+
+    assert str(refused.value) == (
+        "stage 'shout': echo takes (text: str) and gives (text: str, length: int); "
+        "reads lists 2 fields"
+    )
+
+
+def test_a_stage_of_no_stage_type_that_states_one_list_only_is_refused() -> None:
+    shout = {"call": "voice", "reads": ["conversational_query"]}
+    graph = graph_of({"shout": shout}, [["START", "shout", "END"]])
+
+    with pytest.raises(WorkflowGraphError, match="stage 'shout': unknown stage type"):
+        check(graph, WITH_VOICE)
+
+
+def test_a_stage_of_a_stage_type_may_state_the_lists_its_type_declares() -> None:
+    stated = {**DRAFT, "reads": ["conversational_query"], "writes": ["draft"]}
+    misstated = {**DRAFT, "reads": ["standalone_query"]}
+
+    check(graph_of({"draft": stated}, [["START", "draft", "END"]]))
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(graph_of({"draft": misstated}, [["START", "draft", "END"]]))
+
+    assert str(refused.value) == (
+        "stage 'draft' states reads ['standalone_query'], but its stage type "
+        "'draft' reads ['conversational_query'] (expected those fields, or no reads)"
+    )

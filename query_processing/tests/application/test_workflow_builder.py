@@ -14,8 +14,11 @@ from typing import Any
 
 import pytest
 
+from echo_components import Upper
 from query_processing.application.edge_conditions.edge_condition import EdgeCondition
+from query_processing.application.graph_check import WorkflowGraphError
 from query_processing.application.stages.base_stage import BaseStage, StageSettings
+from query_processing.application.stages.call_stage import CallStage
 from query_processing.application.workflow import CompiledWorkflow
 from query_processing.application.workflow_builder import (
     build_workflow,
@@ -192,7 +195,45 @@ def test_a_setting_its_stage_type_does_not_know_is_refused_naming_it() -> None:
         fixture_workflow(FakeScribe(), stages=stages)
 
 
+async def test_a_plain_call_in_the_graph_answers_through_its_component() -> None:
+    # "loud" is no stage type: it states its lists, so it is a plain call.
+    loud = {"call": "echo", "reads": ["answer"], "writes": ["answer"]}
+    stages = {**FIXTURE_GRAPH["stages"], "loud": loud}
+    graph = GraphDescription.model_validate(
+        {"stages": stages, "edges": [["START", "draft", "loud", "END"]]}
+    )
+    workflow = build_workflow(
+        graph,
+        {"scribe": FakeScribe(), "echo": Upper()},
+        stage_types=FIXTURE_STAGE_TYPES,
+        edge_conditions=FIXTURE_EDGE_CONDITIONS,
+    )
+
+    result = await workflow.run("hello")
+
+    assert result.answer == "HELLO!"
+    assert list(result.timings_ms) == ["draft", "shout", "loud", "total"]
+
+
+def test_a_plain_call_of_something_that_answers_no_ainvoke_is_refused() -> None:
+    loud = {"call": "scribe", "reads": ["answer"], "writes": ["answer"]}
+
+    with pytest.raises(WorkflowGraphError, match="stage 'loud': a plain call calls"):
+        fixture_workflow(FakeScribe(), stages={**FIXTURE_GRAPH["stages"], "loud": loud})
+
+
 # --- the builder's pieces -------------------------------------------------------
+
+
+def test_open_stage_builds_a_plain_call_bound_by_its_lists() -> None:
+    description = StageDescription.model_validate(
+        {"call": "echo", "reads": ["conversational_query"], "writes": ["answer"]}
+    )
+
+    stage = open_stage("loud", description, {"echo": Upper()}, FIXTURE_STAGE_TYPES)
+
+    assert isinstance(stage, CallStage)
+    assert stage.binding.from_reads == {"text": "conversational_query"}
 
 
 def test_open_stage_builds_the_stage_type_its_description_names() -> None:

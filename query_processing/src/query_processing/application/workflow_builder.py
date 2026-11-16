@@ -2,7 +2,9 @@
 
 The builder knows no stage, no component and no edge condition. Each stage is an
 instance of the stage type its description names, built with the component its
-``call`` names and its own settings, and timed under its name; the workflow's
+``call`` names and its own settings, or, when it is of no stage type and states
+``reads`` and ``writes``, a plain call bound by them; each is timed under its
+name; the workflow's
 results are keyed by those names, in the description's order. Each chain of
 plain edges becomes one LangGraph edge per pair, the reserved ``START`` and
 ``END`` becoming LangGraph's own. Each conditional edge asks the edge condition
@@ -24,6 +26,7 @@ from langgraph.graph import END as LANGGRAPH_END
 from langgraph.graph import START as LANGGRAPH_START
 from langgraph.graph import StateGraph
 
+from ..domain.base_component import BaseComponent
 from ..domain.graph_description import (
     END,
     START,
@@ -34,7 +37,9 @@ from ..domain.graph_description import (
 from ..domain.registry import Registry
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
 from .graph_check import WorkflowGraphError
+from .stage_binding import bind_call, stage_fields, stage_type_of
 from .stages.base_stage import STAGE_TYPES, BaseStage, StageTypes
+from .stages.call_stage import CallStage
 from .workflow import CompiledWorkflow
 from .workflow_state import WorkflowState
 
@@ -112,37 +117,78 @@ def open_stage(
     description: StageDescription,
     components: Mapping[str, object],
     stage_types: StageTypes,
-) -> BaseStage[Any, Any]:
-    """Build one stage: its stage type, with its settings and its component.
+) -> BaseStage[Any, Any] | CallStage:
+    """Build one stage: its stage type with its settings, or a plain call.
 
     Args:
         name: The stage's name, which its type defaults to.
-        description: The stage's type, ``call`` and own settings.
+        description: The stage's type, ``call``, lists and own settings.
         components: What ``call`` names, by name.
         stage_types: Where the stage's type is found.
 
     Returns:
-        The stage.
+        The stage: of its stage type, or a plain call when it is of none and
+        states ``reads`` and ``writes``.
 
     Raises:
-        WorkflowGraphError: The stage's settings do not fit its stage type, or
-            its stage type refuses the component; the message names the stage.
+        WorkflowGraphError: The stage is of no stage type and no plain call,
+            its settings do not fit its stage type, its stage type refuses the
+            component, or a plain call's keys and lists do not bind to its
+            component; the message names the stage.
 
     Example:
         >>> open_stage("rerank", StageDescription.model_validate(
         ...     {"call": "reranker", "top_k": 10}), components, STAGE_TYPES)
         <RerankStage ...>
+        >>> open_stage("embed_query", StageDescription.model_validate(
+        ...     {"call": "embedder", "reads": ["standalone_query"],
+        ...      "writes": ["query_embedding"]}), components, STAGE_TYPES)
+        <CallStage ...>
     """
-    stage_type = stage_types.get(description.type_name(name))
+    component = components[description.call]
     try:
+        stage_type = stage_type_of(name, description, stage_types)
+        if stage_type is None:
+            return open_call(description, component)
         settings = stage_type.settings_type.model_validate(description.stage_settings)
-        return stage_type(components[description.call], settings)
+        return stage_type(component, settings)
     except ValueError as exc:
         # A refusal, so qp-serve reports it as one line, not as a crash.
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
 
 
-def timed(name: str, stage: BaseStage[Any, Any]) -> LangGraphNode:
+def open_call(description: StageDescription, component: object) -> CallStage:
+    """Build a plain call: its component, bound by its keys and its lists.
+
+    Args:
+        description: The stage, which states ``reads`` and ``writes``.
+        component: What its ``call`` names, a component with ``ainvoke``.
+
+    Returns:
+        The plain call.
+
+    Raises:
+        ValueError: The component is no ``BaseComponent``, or the stage's keys
+            and lists do not bind to its request and answer.
+
+    Example:
+        >>> open_call(StageDescription.model_validate({"call": "embedder",
+        ...     "reads": ["standalone_query"], "writes": ["query_embedding"]}),
+        ...     embedder)
+        <CallStage ...>
+    """
+    if not isinstance(component, BaseComponent):
+        raise ValueError(
+            f"a plain call calls {description.call!r}, a "
+            f"{type(component).__name__} (expected a component of a component "
+            "type, which answers ainvoke)"
+        )
+    fields = stage_fields(description)
+    binding = bind_call(type(component), description.stage_settings, fields)
+    return CallStage(component, binding)
+
+
+def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> LangGraphNode:
     """Wrap a stage so its update also carries ``{"timings_ms": {name: ms}}``.
 
     Args:
