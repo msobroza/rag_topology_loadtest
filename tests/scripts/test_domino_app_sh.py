@@ -255,6 +255,8 @@ def test_bootstrap_installs_the_extras_an_agent_asks_for(
 def test_bootstrap_runs_ovms_from_an_unpacked_bundle(
     tmp_path: Path, bin_dir: Path
 ) -> None:
+    # Not root, whoever runs the suite: as root app.sh skips sudo (the test below).
+    write_fake(bin_dir / "id", tmp_path / "id.log", "echo 1000\n")
     models, bundle = models_dir(tmp_path), ovms_bundle(tmp_path)
     result = run_app(
         tmp_path,
