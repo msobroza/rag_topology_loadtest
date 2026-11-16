@@ -149,11 +149,79 @@ The FastAPI model server under `torch` runs several calls at once (`RAG_MODEL_WO
 4 here). Alone, `fp32`, requests a second: 0.90 at 4 users and 0.98 at 16 on 8 vCPUs,
 against 1.00 and 1.01 under `openvino`; 1.61 and 1.94 on 16 vCPUs, against 1.81 and 1.80.
 
+### A larger reranker did not turn the result
+
+The same comparison on Qwen3 with 0.6 B parameters, about five times the small
+reranker's size: the FastAPI model server on the project's own `fp32` export of
+`tomaarsen/Qwen3-Reranker-0.6B-seq-cls` and on OpenVINO's own conversion,
+`OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov`, and OVMS on that conversion. Every
+request carries the prompt format the two model cards give. One reranker alone, 3-minute
+runs, requests a second:
+
+| CPUs | Passages, users | FastAPI, own export | FastAPI, OpenVINO's files | OVMS, OpenVINO's files |
+|---|---|---|---|---|
+| 8 | uniform, 1 | 0.15, p50 6.3 s | 0.15, p50 6.0 s | 0.08, p50 12 s |
+| 8 | uniform, 4 | 0.16 | 0.17 | 0.16 |
+| 8 | mixed, 4 | 0.13 | 0.14 | 0.11 |
+| 16 | uniform, 1 | not run | 0.27, p50 3.1 s | 0.15, p50 6.0 s |
+| 16 | uniform, 4 | not run | 0.33 | 0.33 |
+| 16 | mixed, 4 | not run | 0.27 | 0.21 |
+
+- The conversion changes nothing: the project's export and OpenVINO's files serve alike.
+- Under load on uniform passages the two servers serve alike. On passages of mixed
+  length the FastAPI model server leads, through its batch size again: 4.5 s a request
+  in batches of 2 against 6.8 s as one batch of 20, on 8 CPUs.
+- Streams gain more here than on the small reranker, and cost the lone user. For
+  4 requests in flight on 8 CPUs, 4 streams took 25.9 s against 29.7 s on one; a lone
+  request then takes 12 s on OVMS against 6 s on the FastAPI model server.
+- OVMS does not return the model cards' reference scores. For the cards' own example
+  the FastAPI path returns 0.0427, 0.9992, 0.4064 and 0.9718, as the cards print; OVMS,
+  on the same model file, returns 0.0655, 0.9956, 0.4441 and 0.9497. The order is the
+  same. The likely cause, not tested: OVMS's source puts its own start, end and
+  separator tokens around the query and the passage, which the cards' code does not.
+
+## What OVMS's own material says matters for a reranker
+
+OVMS has no tuning guide for rerankers. Its rerank demo, its general tuning guide, its
+export helper and its maintainers' answers in issues name the settings below, set here
+in the order of their effect in the sittings above. The seconds are those of 4 requests
+in flight on 8 vCPUs.
+
+| | Setting | What the material says | Measured here |
+|---|---|---|---|
+| 1 | The tokens of a request: its passages times their length | The demo's own benchmark, 20 passages a request: 3.6 requests a second on passages of 500 tokens, 12.7 on passages of 75. A passage longer than the model's context is cut into chunks, each one more row of the batch. `top_n` shortens the response, not the work | The batch is padded to its longest passage: "On passages of mixed length the batch size decides" |
+| 2 | The weight format | Every example exports with `--weight-format int8`, which is also the export helper's default | About 1.5 times the requests a second, on both servers |
+| 3 | `NUM_STREAMS` | The one speed option the export helper has for rerank, 1 by default. The guide: 1 for a single client, more under concurrency, fewer than the requests in flight, never more than the cores. A maintainer: about 2 streams for 4 clients, and more streams raise the throughput of most models at the cost of latency | Calibration kept 1 or 2 streams for 4 requests in flight. Gain: 2% at most, 13% at most on Qwen3; a lone request then takes twice as long |
+| 4 | `INFERENCE_NUM_THREADS` against the container's CPUs | The guide: give a container whole cores (Kubernetes' CPU manager, or `--cpuset-cpus`), not a share of CPU time. OVMS reads the CPUs of its container and adjusts threads, streams and pinning. One issue traces slow inference under a Kubernetes CPU limit to more threads than the limit allows | Not measurable on the emulation, where an App has its machine to itself. The App pins the thread count in OVMS's configuration to the CPUs it counts for itself |
+| 5 | `ENABLE_CPU_PINNING`, `ENABLE_CPU_RESERVATION` | Pinning is on by default, and is turned off only where several workloads share the machine. Several models in one server: one stream each, with cores reserved and pinned for each | Pinning off: 7.9 s against 7.6 s on 2 streams |
+| 6 | `PERFORMANCE_HINT` | In place of `NUM_STREAMS`, never with it | The throughput hint alone: 7.7 s against 7.6 s |
+| 7 | `rest_workers`, `nireq` | The defaults are enough in most cases. `nireq` is the size of a queue, not parallelism, and is at least the stream count | 4 REST workers on 4 streams: no gain |
+
+What follows for this project:
+
+- The two settings the material treats as tunable on a CPU, streams and threads, are
+  the two that OVMS's calibration searches. Its stream candidates go up to the CPU
+  count, above the cores, which the guide advises against.
+- The largest effects lie outside the server: how many passages a request carries, how
+  long they are, and the weight format.
+- The rerank endpoint has no batch size. OVMS's source builds one batch from every
+  passage of a request and scores it in one inference, so a smaller batch is a request
+  with fewer passages. Splitting a request on the client side was not tried.
+- Not done: reading OVMS's metrics, where the time waiting for an inference request
+  (`ovms_wait_for_infer_req_time_us`) set against the inference time
+  (`ovms_inference_time_us`) would tell queueing from computing in "OVMS does not
+  serve in arrival order"; and the guide's method of settling the plugin configuration
+  with OpenVINO's benchmark tool first.
+
+Outside OVMS, Sentence Transformers' page on speeding up cross-encoders compares
+backends and `int8` on ranking quality as well as speed, and advises testing each
+backend on one's own model and data.
+
 ## Which to use
 
 A reading of the results above, not a measurement.
 
-- **The FastAPI model server** for this reranker on machines of up to 8 cores. It
+- **The FastAPI model server** for these rerankers on machines of up to 8 cores. It
   serves as much as OVMS on the same weights, more on passages of mixed length, and
   under overload it loses fewer requests. It scales with the cores of one instance
   (0.28, 1.0 and 1.8 requests a second on 2, 8 and 16 vCPUs) and with replicas.
@@ -164,16 +232,32 @@ A reading of the results above, not a measurement.
 ## Limits
 
 - Each figure is one 2-minute run. The stream timings are one or two rounds each.
-- One model, `crossencoder-camembert-base-mmarcoFR`, at 20 passages a request.
+- Two models at 20 passages a request: `crossencoder-camembert-base-mmarcoFR` for
+  every figure but the last section's, and Qwen3 with 0.6 B parameters there, whose
+  runs hold 14 to 60 requests each.
 - Machines of 2, 8 and 16 vCPUs. Nothing here says what happens with more cores, or
   with several sockets.
 - Ranking quality on `int8` weights was not checked.
+
+## Where the runs are
+
+Every run behind these figures, with its settings and its statistics, is registered in
+`experiments/` (the two sittings of 15 November 2026).
 
 ## Pages read
 
 - OVMS 2026.3.1: `README.md`, `docs/features.md`, `docs/performance_tuning.md`,
   `docs/mediapipe.md`, `docs/dynamic_input.md`, `docs/starting_server.md`,
-  `docs/metrics.md`, `docs/model_server_rest_api_rerank.md`, `demos/rerank/README.md`
-  of `github.com/openvinotoolkit/model_server` at tag `v2026.3.1`.
+  `docs/metrics.md`, `docs/model_server_rest_api_rerank.md`, `demos/rerank/README.md`,
+  `demos/embeddings/README.md`, `demos/common/export_models/export_model.py`,
+  `src/rerank/rerank_calculator_ov.proto`, `src/rerank/rerank_calculator_ov.cc` and
+  `src/rerank/rerank_utils.cpp` of `github.com/openvinotoolkit/model_server` at tag
+  `v2026.3.1`.
+- Issues 2721, 3136, 3248 and 3310 of the same repository, as they stood on
+  15 November 2026.
+- Sentence Transformers, "Speeding up Inference" for cross-encoders, on `sbert.net`.
+- The model cards of `tomaarsen/Qwen3-Reranker-0.6B-seq-cls` and
+  `OpenVINO/Qwen3-Reranker-0.6B-seq-cls-fp16-ov` on Hugging Face, for the prompt format
+  and the OVMS command.
 - FastAPI: "Concurrency and async / await", "Deployments Concepts" and "Server
   Workers - Uvicorn with Workers" of `fastapi.tiangolo.com`.

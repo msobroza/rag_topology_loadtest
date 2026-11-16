@@ -1,0 +1,286 @@
+# Sitting of 15 November 2026, 03:17 to 06:26 UTC, first part (phases Q1 to R6): every
+# server on its default settings, before calibration. The second part is
+# experiments-calibration-and-weights.yaml. See README.md.
+#
+# Each layout is the deploy file the phase script wrote with mkdeploy.py from the
+# Workspace's deploy.yaml: topology, model_server, and per App its autoscaling (replicas)
+# and settings. "deploy_target" is the make target that published it.
+
+common:
+  code: &code Workspace and every pool machine at commit ec600e6
+  workspace: &workspace {machine_type: n2-standard-4, vcpus: 4}
+  elasticsearch: &elasticsearch {machine_type: n2-standard-2, vcpus: 2, spot: true}
+  app_machine: &app_machine
+    machine_type: n2-highmem-2
+    vcpus: 2
+    cores: 1
+    memory_gib: 16
+    spot: true
+    hardware_tier: cpu-2
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+  deploy_defaults: &deploy_defaults
+    # deploy.yaml as the Workspace's startup script wrote it.
+    environment_id: emulation-environment
+    hardware_tier_id: cpu-2
+    settings:
+      RAG_ES_URL: the Elasticsearch machine (address not recorded here)
+      RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino
+      RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models
+  alone: &alone
+    target: the first reranker machine, port 8888, without the emulated Domino's proxy
+    route: POST /v3/rerank
+    command: make loadtest-models TARGET=rerank
+    duration: 2m
+    spawn_rate: 5
+    passages: the load test's 20 synthetic passages per request, 303 to 380 characters
+  end_to_end: &end_to_end
+    target: the workflow App through the emulated Domino's proxy, balancing rule round-robin
+    route: POST /retrieve only (RAG_LOADTEST_QUERY_WEIGHT=0)
+    command: make -C emulation loadtest
+    duration: 2m
+    spawn_rate: 5
+    passages: the corpus's, 20 candidates from the index per request, 137 to 816 characters
+  fastapi_fp32_export: &fastapi_fp32
+    weights: fp32, the in-process export, 442.5 MB of f32 constants
+    threads: the thread budget gave the reranker 2 threads; OpenVINO used 1 (the machine 51% busy)
+  ovms_int8_export: &ovms_int8
+    weights: int8, OVMS's own export (--weight-format int8), 110.6 MB of u8 constants
+    plugin_config: '{"NUM_STREAMS": "1"}'
+  layout_split_all: &layout_split_all
+    topology: split-all
+    model_server: fastapi
+    defaults: *deploy_defaults
+    apps:
+      workflow: {autoscaling: {min_replicas: 1, max_replicas: 1}, settings: {RAG_RUN_LABEL: split-all-1w-1e-2r}}
+      embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+      reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+    deploy_target: deploy
+  hardware_split_all: &hardware_split_all
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 1, machine: *app_machine}
+    embedder: {replicas: 1, machine: *app_machine}
+    reranker: {replicas: 2, machine: *app_machine}
+  layout_split_reranker: &layout_split_reranker
+    topology: split-reranker
+    model_server: fastapi
+    defaults: *deploy_defaults
+    apps:
+      workflow: {autoscaling: {min_replicas: 2, max_replicas: 2}, settings: {RAG_RUN_LABEL: split-reranker-2w-2r}}
+      reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+    deploy_target: deploy
+  hardware_split_reranker: &hardware_split_reranker
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 2, machine: *app_machine, embedder: in its process}
+    reranker: {replicas: 2, machine: *app_machine}
+  layout_split_reranker_ovms: &layout_split_reranker_ovms
+    topology: split-reranker
+    model_server: "ovms (the file said fastapi; RAG_DEPLOY_MODEL_SERVER=ovms at deploy time)"
+    defaults: *deploy_defaults
+    apps:
+      workflow: {autoscaling: {min_replicas: 2, max_replicas: 2}, settings: {RAG_RUN_LABEL: split-reranker-ovms-reranker-2w-2r}}
+      reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+    deploy_target: deploy-reranker, then deploy-workflow before the end-to-end runs
+
+experiments:
+  - id: m0-fastapi-rerank-in-split-all
+    question: How much does one FastAPI reranker replica of 2 vCPUs serve alone, first sample?
+    code: *code
+    hardware: *hardware_split_all
+    deploy: *layout_split_all
+    server: *fastapi_fp32
+    load: {<<: *alone, users: [1, 2, 4, 8]}
+    runs: [m0-fastapi-rerank-in-split-all-u1, m0-fastapi-rerank-in-split-all-u2,
+           m0-fastapi-rerank-in-split-all-u4, m0-fastapi-rerank-in-split-all-u8]
+    notes:
+      - Phase Q1 ran these as m1-fastapi-rerank-u1 to -u8 on the split-all layout; they were
+        renamed when the owner chose the split-reranker layout (2/0/2) for every reranker-alone
+        comparison.
+
+  - id: m1-fastapi-rerank
+    question: How much does one FastAPI reranker replica of 2 vCPUs serve alone, on defaults?
+    code: *code
+    hardware: *hardware_split_reranker
+    deploy: *layout_split_reranker
+    server: *fastapi_fp32
+    load: {<<: *alone, users: [1, 2, 4, 8]}
+    runs: [m1-fastapi-rerank-u1, m1-fastapi-rerank-u2, m1-fastapi-rerank-u4, m1-fastapi-rerank-u8]
+
+  - id: m2-split-reranker
+    question: How does split-reranker on 2 workflows and 2 FastAPI rerankers serve /retrieve?
+    code: *code
+    hardware: *hardware_split_reranker
+    deploy: *layout_split_reranker
+    server: *fastapi_fp32
+    run_label: split-reranker-2w-2r
+    load: {<<: *end_to_end, users: [1, 2, 4, 8]}
+    runs: [m2-split-reranker-u1, m2-split-reranker-u2, m2-split-reranker-u4, m2-split-reranker-u8]
+
+  - id: m1-ovms-rerank-first-attempt
+    question: How much does one OVMS reranker replica serve alone (first attempt)?
+    code: *code
+    hardware: *hardware_split_reranker
+    deploy: *layout_split_reranker_ovms
+    server: *ovms_int8
+    load: {<<: *alone, users: [1]}
+    void: >-
+      The phase script took the OVMS machines for workflows (OVMS answers /healthz with a JSON
+      error), so Locust had no host: 197 requests, all failed. Its statistics were set aside and
+      the run name was reused by the valid run of m1-ovms-rerank.
+    notes:
+      - >-
+        The first OVMS deploy was refused, "ovms_bundle=... does not exist", because rag-deploy
+        checks the bundle on the Workspace and only the pool machines held it. The file was
+        copied to the Workspace by hand. Both reranker machines then exported the models in
+        275 s.
+
+  - id: m1-ovms-rerank
+    question: How much does one OVMS reranker replica of 2 vCPUs serve alone, on defaults?
+    code: *code
+    hardware: *hardware_split_reranker
+    deploy: *layout_split_reranker_ovms
+    server: *ovms_int8
+    load: {<<: *alone, users: [1, 2, 4, 8]}
+    runs: [m1-ovms-rerank-u1, m1-ovms-rerank-u2, m1-ovms-rerank-u4, m1-ovms-rerank-u8]
+    notes:
+      - >-
+        OVMS ran 8-bit weights and FastAPI 32-bit ones here: the weight format differs between
+        the two sides of this comparison. m8-ovms-fp32-rerank and m8-fastapi-int8-rerank
+        compare them on equal weights.
+
+  - id: m3-split-reranker-ovms
+    question: How does split-reranker serve /retrieve with 2 OVMS rerankers?
+    code: *code
+    hardware: *hardware_split_reranker
+    deploy: *layout_split_reranker_ovms
+    server: *ovms_int8
+    run_label: split-reranker-ovms-reranker-2w-2r
+    load: {<<: *end_to_end, users: [4, 8]}
+    runs: [m3-split-reranker-ovms-u4, m3-split-reranker-ovms-u8]
+    notes:
+      - The 8 failures at 8 users are the proxy's 30-second limit on /retrieve (HTTP 502, ReadTimeout).
+
+  - id: m2-split-all
+    question: How does split-all on 1 workflow, 1 embedder and 2 FastAPI rerankers serve /retrieve?
+    code: *code
+    hardware: *hardware_split_all
+    deploy: *layout_split_all
+    server: *fastapi_fp32
+    run_label: split-all-1w-1e-2r
+    load: {<<: *end_to_end, users: [1, 2, 4, 8]}
+    runs: [m2-split-all-u1, m2-split-all-u2, m2-split-all-u4, m2-split-all-u8]
+
+  - id: m6-split-all-query
+    question: How does split-all serve /query with generation at 2 users?
+    code: *code
+    hardware: *hardware_split_all
+    deploy: *layout_split_all
+    load: {target: the workflow App through the emulated Domino's proxy, route: "POST /query and /retrieve, the default weights", users: [2], duration: 2m}
+    void: >-
+      Not run. The one /query tried first answered HTTP 503 after 24 s: the generation provider
+      answered 401, "Incorrect API key provided". The key in the Project environment variables
+      is not a working key.
+
+  - id: m3-split-all-ovms
+    question: How does split-all serve /retrieve with 2 OVMS rerankers?
+    code: *code
+    hardware: *hardware_split_all
+    deploy:
+      topology: split-all
+      model_server: "ovms for the reranker (the file said fastapi; RAG_DEPLOY_MODEL_SERVER=ovms for deploy-reranker); the embedder stayed a FastAPI model server"
+      defaults: *deploy_defaults
+      apps:
+        workflow: {autoscaling: {min_replicas: 1, max_replicas: 1}, settings: {RAG_RUN_LABEL: split-all-ovms-reranker-1w-1e-2r}}
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      deploy_target: deploy-reranker, then deploy-workflow
+    server: *ovms_int8
+    run_label: split-all-ovms-reranker-1w-1e-2r
+    load: {<<: *end_to_end, users: [4, 8]}
+    runs: [m3-split-all-ovms-u4, m3-split-all-ovms-u8]
+
+  - id: m2-monolith
+    question: How does monolith on 4 workflow replicas serve /retrieve?
+    code: *code
+    hardware:
+      workspace: *workspace
+      elasticsearch: *elasticsearch
+      workflow: {replicas: 4, machine: *app_machine, embedder: in its process, reranker: in its process}
+    deploy:
+      topology: monolith
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: {autoscaling: {min_replicas: 4, max_replicas: 4}, settings: {RAG_RUN_LABEL: monolith-4w}}
+      deploy_target: deploy
+    run_label: monolith-4w
+    load: {<<: *end_to_end, users: [1, 2, 4, 8]}
+    runs: [m2-monolith-u1, m2-monolith-u2, m2-monolith-u4, m2-monolith-u8]
+    notes:
+      - The run at 2 users (0.24 requests a second, p95 13 s) is unexplained.
+
+  - id: m5-torch-rerank
+    question: Does the torch runtime serve more than openvino, one FastAPI reranker replica alone?
+    code: *code
+    hardware: *hardware_split_reranker
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: {autoscaling: {min_replicas: 2, max_replicas: 2}, settings: {RAG_RUN_LABEL: split-reranker-torch-reranker-2w-2r}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}, settings: {RAG_LOCAL_MODEL_RUNTIME: torch}}
+      deploy_target: deploy
+    server:
+      weights: fp32, the model's own weights loaded by torch
+      thread_budget: {runtime: torch, workers: 2, reranker_threads: 1}
+    load: {<<: *alone, users: [1, 4, 8]}
+    runs: [m5-torch-rerank-u1, m5-torch-rerank-u4, m5-torch-rerank-u8]
+    notes:
+      - Two calls at once kept the machine 100% busy.
+
+  - id: m4-split-all-connection-random
+    question: Does the balancing rule matter? split-all under connection-random.
+    code: *code
+    hardware: *hardware_split_all
+    deploy:
+      topology: split-all
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: {autoscaling: {min_replicas: 1, max_replicas: 1}, settings: {RAG_RUN_LABEL: split-all-1w-1e-2r-connection-random}}
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      deploy_target: deploy
+    emulated_domino: --replica-balancing connection-random
+    server: *fastapi_fp32
+    run_label: split-all-1w-1e-2r-connection-random
+    load: {<<: *end_to_end, target: "the workflow App through the emulated Domino's proxy, balancing rule connection-random", users: [4, 8]}
+    runs: [m4-split-all-connection-random-u4, m4-split-all-connection-random-u8]
+    notes:
+      - The 18 failures at 8 users are the proxy's 30-second limit on /retrieve.
+
+  - id: m-side-sweep-rerank-threads-batch
+    question: Which thread setting and batch size make one rerank fastest on 2 vCPUs?
+    code: *code
+    hardware: {machine: *app_machine, note: one pool machine left idle for the sweep}
+    deploy: none; a side process (sweep_rerank.py) with the App's own Python and the FastAPI server's 32-bit export
+    load: one request at a time; the synthetic payload (303 to 380 characters) and a corpus payload (20 passages for one question, 137 to 816 characters)
+    measurements:
+      # requests a second and seconds a request, the best rows of each payload, from the sweep's summary.
+      duration: 747 s, 51 measurements
+      corpus_payload:
+        - {setting: "2 threads, hyper-threading on", batch: 2, req_s: 0.340, s_per_request: 2.94, busy_pct: 100}
+        - {setting: "2 threads, hyper-threading on", batch: 1, req_s: 0.333, s_per_request: 3.01, busy_pct: 100}
+        - {setting: "OpenVINO's throughput hint", batch: 2, req_s: 0.316, s_per_request: 3.17, busy_pct: 50}
+        - {setting: "2 threads (the App's setting)", batch: 20, req_s: 0.182, s_per_request: 5.49, busy_pct: 50}
+      synthetic_payload:
+        - {setting: "2 threads, hyper-threading on", batch: 2, req_s: 0.288, s_per_request: 3.47, busy_pct: 100}
+        - {setting: "2 threads (the App's setting)", batch: 20, req_s: 0.231, s_per_request: 4.33, busy_pct: 50}
+      effective_settings: >-
+        Asked for 2 threads, OpenVINO ran 1 (INFERENCE_NUM_THREADS 1, hyper-threading off,
+        pinning on). With ENABLE_HYPER_THREADING YES it ran 2 threads. The throughput hint
+        ran 2 streams of 2 threads.
+    notes:
+      - The full summary is in the sitting's result archive, not in this repository.

@@ -1,0 +1,77 @@
+# Two sittings of 14 November 2026, 23:06 to 23:45 UTC: the cache bucket verified, one
+# sitting with it empty and one on fresh machines with it filled. See README.md.
+
+common:
+  code: &code branch claude/emulation-cache-and-spot at commit 17ec043 (pull request 11)
+  hardware: &hardware
+    workspace: {machine_type: n2-standard-4, vcpus: 4, spot: false}
+    elasticsearch: {machine_type: n2-standard-4, vcpus: 4, spot: true}
+    workflow: {machine_type: n2-standard-8, vcpus: 8, replicas: 1, hardware_tier: cpu-8, spot: true}
+    embedder: {machine_type: n2-standard-8, vcpus: 8, replicas: 1, hardware_tier: cpu-8, spot: true}
+    reranker: {machine_type: n2-standard-8, vcpus: 8, replicas: 1, hardware_tier: cpu-8, spot: true}
+  deploy: &deploy
+    topology: split-all
+    model_server: fastapi
+    defaults:
+      # deploy.yaml as the Workspace's startup script wrote it at commit 17ec043.
+      environment_id: emulation-environment
+      hardware_tier_id: cpu-8
+      settings:
+        RAG_ES_URL: the Elasticsearch machine (address not recorded here)
+        RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino
+        RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models
+    apps: {}
+    workflow_settings:
+      RAG_TOP_K_RETRIEVE: "20 (the default)"
+      RAG_TOP_K_RERANK: "5 (the default at commit 17ec043)"
+  load: &load
+    target: the workflow App through the emulated Domino's proxy
+    route: POST /retrieve only
+    users: [5]
+    duration: 2m
+    passages: the corpus's, 20 candidates from the index per request
+    corpus: French corpus, 1,223 documents, 1,592 passages
+
+experiments:
+  - id: cache-sitting1
+    question: Built from scratch with an empty cache bucket, what does split-all serve at 5 users?
+    code: *code
+    hardware: *hardware
+    deploy: *deploy
+    run_label: split-all-fastapi
+    load: *load
+    runs: [cache-sitting1-u5]
+    measurements:
+      # Times from the session's notes, UTC.
+      plan: 11 to add (5 machines, the bucket, 4 grants, the storage API), 0 to change, 0 to destroy
+      apply: 23:07:11 to 23:08:08
+      every_machine_ready_after_apply: 2 min
+      pool_machine_dependencies_install: 155 packages prepared in 17.9 s
+      deploy_of_the_three_apps: 23:11:06 to 23:12:53 (the embedder's export 50.3 s)
+      corpus_ingestion_on_the_4_vcpu_workspace: 23:11:06 to 23:31:21
+      end_of_apply_to_a_workflow_ready_to_measure: 23 min
+      corpus_save: 23:34:41 to 23:34:44
+      models_save: 23:34:55 to 23:35:17 (2.28 GB from the Workspace, 445 MB from the reranker's machine)
+      corpus_restore_on_the_live_cluster: 23:35:33 to 23:35:37, readyz 200 with 1,592 passages
+    notes:
+      - A restore asked for another analyzer failed and named the missing snapshot.
+      - The five machines were deleted by name at 23:35:50 to 23:36:47.
+
+  - id: cache-sitting2
+    question: On fresh machines restored from the filled cache bucket, does split-all serve the same?
+    code: *code
+    hardware: *hardware
+    deploy: *deploy
+    run_label: split-all-fastapi
+    load: *load
+    runs: [cache-sitting2-u5]
+    measurements:
+      plan: 5 to add
+      apply: 23:37:11 to 23:37:57
+      models_restored_at_boot_on_the_pool_machines: by 23:38:19 to 23:38:25
+      every_machine_ready: 23:39:59
+      corpus_restore: 23:40:14 to 23:40:17
+      deploy_of_the_three_apps: 23:40:17 to 23:41:13, no export (no local_model_provisioned line in any App log)
+      end_of_apply_to_a_workflow_ready_to_measure: 3 min 18 s
+    notes:
+      - The five machines were deleted by name at 23:44:14 to 23:45:13.
