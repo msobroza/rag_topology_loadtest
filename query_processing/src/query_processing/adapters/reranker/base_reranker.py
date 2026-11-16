@@ -15,13 +15,17 @@ Example:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Sequence
 
+from ...domain.base_component import BaseComponent
+from ...domain.component_requests import RerankAnswer, RerankRequest
 from ...domain.passages import ScoredPassage
 
 
-class BaseReranker(ABC):
+class BaseReranker(
+    BaseComponent[RerankRequest, RerankAnswer], component_type="reranker"
+):
     """Re-scores retrieval candidates against the query and keeps the best."""
 
     @abstractmethod
@@ -38,6 +42,23 @@ class BaseReranker(ABC):
         Returns:
             At most ``top_n`` passages, best first.
         """
+
+    async def ainvoke(self, request: RerankRequest) -> RerankAnswer:
+        """Re-score the request's candidates and keep its ``top_k`` best.
+
+        Args:
+            request: The query, the candidates and how many to keep.
+
+        Returns:
+            At most ``top_k`` passages, best first.
+
+        Example:
+            >>> await reranker.ainvoke(RerankRequest(
+            ...     query="vacation", passages=candidates, top_k=5))
+            RerankAnswer(passages=[...])
+        """
+        kept = await self.rerank(request.query, request.passages, request.top_k)
+        return RerankAnswer(passages=kept)
 
     @abstractmethod
     async def ready(self) -> tuple[bool, str]:

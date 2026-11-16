@@ -435,6 +435,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       errors.py       RagDependencyError, describe_error
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules
+      base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line
+      component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
       prompts.py      RagPrompts: system prompt + user template -> chat messages
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
       retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
@@ -448,7 +450,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
-      component_types.py  COMPONENT_TYPES: each component type's port, which the start-up checks read before any component opens
+      component_types.py  COMPONENT_TYPES, as the four ports register it: each component type's port, which the start-up checks read before any component opens
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares; WorkflowGraphError
       workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
       workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings

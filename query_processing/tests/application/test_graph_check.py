@@ -28,15 +28,24 @@ from query_processing.application.stages.base_stage import (
 )
 from query_processing.application.workflow_state import REQUEST_FIELDS, WorkflowState
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.base_component import BaseComponent
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.registry import Registry
 
+FIXTURE_COMPONENT_TYPES: Registry[type[BaseComponent[Any, Any]]] = Registry(
+    "component type"
+)
 
-class FakeScribe:
+
+class FakeScribe(
+    BaseComponent[str, str], component_type="scribe", registry=FIXTURE_COMPONENT_TYPES
+):
     """The port a draft and a polish stage call."""
 
 
-class FakeJudge:
+class FakeJudge(
+    BaseComponent[str, bool], component_type="judge", registry=FIXTURE_COMPONENT_TYPES
+):
     """The port a judge stage calls."""
 
 
@@ -77,7 +86,6 @@ for _name, _stage_type in [
 ]:
     FIXTURE_STAGE_TYPES.register(_name)(_stage_type)
 FIXTURE_EDGE_CONDITIONS: Registry[EdgeCondition] = Registry("edge condition")
-FIXTURE_COMPONENT_TYPES = {"scribe": FakeScribe, "judge": FakeJudge}
 COMPONENTS = {"pen": "scribe", "jury": "judge"}
 
 
@@ -310,7 +318,7 @@ async def test_the_declared_components_are_the_ones_a_stage_is_given_once_open(
 
     assert set(declared) == set(opened)
     for name, component in opened.items():
-        assert isinstance(component, COMPONENT_TYPES[declared[name]]), name
+        assert isinstance(component, COMPONENT_TYPES.get(declared[name])), name
 
 
 def test_the_request_provides_the_fields_of_the_initial_state() -> None:

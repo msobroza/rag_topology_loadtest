@@ -12,7 +12,10 @@ from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.adapters.reranker.base_reranker import BaseReranker
-from query_processing.adapters.vector_store.base_vector_store import BaseVectorStore
+from query_processing.adapters.vector_store.base_vector_store import (
+    BaseVectorStore,
+    required_lexical_search,
+)
 from query_processing.application.edge_conditions.edge_condition import EDGE_CONDITIONS
 from query_processing.application.edge_conditions.is_query_mode import is_query_mode
 from query_processing.application.rag_dependencies import RagDependencies
@@ -26,7 +29,6 @@ from query_processing.application.stages.rerank_stage import RerankSettings, Rer
 from query_processing.application.stages.retrieve_stage import (
     RetrieveSettings,
     RetrieveStage,
-    required_lexical_search,
 )
 from query_processing.application.workflow_builder import open_stage
 from query_processing.application.workflow_state import WorkflowState

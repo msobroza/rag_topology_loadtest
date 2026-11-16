@@ -1,9 +1,10 @@
 """The retrieve stage type: candidates from the vector store, by its retrieval mode.
 
-``dense`` asks the store by the query's vector, ``lexical`` by the words of the
-standalone query, and ``hybrid`` asks both at once and fuses the two rankings by
-reciprocal rank. Lexical and hybrid need a store that ranks text: the store's
-own ``BaseLexicalSearch``, refused when the stage is built if it has none.
+The stage builds a ``SearchRequest`` from the state: the query's vector, the
+words of the standalone query, its retrieval mode and its ``top_k``. The store's
+``ainvoke`` searches by that mode, and fuses a hybrid search. Lexical and hybrid
+need a store that ranks text: the store's own ``BaseLexicalSearch``, refused when
+the stage is built if it has none.
 
 Example:
     >>> stage = RetrieveStage(
@@ -14,17 +15,13 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable
-
 from pydantic import Field
 
 from ...adapters.vector_store.base_vector_store import (
-    BaseLexicalSearch,
     BaseVectorStore,
+    required_lexical_search,
 )
-from ...domain.passages import ScoredPassage
-from ...domain.rank_fusion import reciprocal_rank_fusion
+from ...domain.component_requests import SearchRequest
 from ...domain.retrieval_mode import RetrievalMode
 from ..workflow_state import WorkflowState
 from .base_stage import STAGE_TYPES, BaseStage, StageSettings
@@ -35,9 +32,6 @@ READS_BY_RETRIEVAL_MODE: dict[RetrievalMode, frozenset[str]] = {
     "lexical": frozenset({"standalone_query"}),
     "hybrid": frozenset({"query_embedding", "standalone_query"}),
 }
-
-# The search of one retrieval mode: state in, candidates out.
-CandidateFinder = Callable[[WorkflowState], Awaitable[list[ScoredPassage]]]
 
 
 class RetrieveSettings(StageSettings):
@@ -53,32 +47,6 @@ class RetrieveSettings(StageSettings):
     # 60, as in the paper that defined the fusion (Cormack, Clarke and Buettcher,
     # SIGIR 2009); smaller widens the gap between ranks.
     rrf_k: int = Field(default=60, ge=1)
-
-
-def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSearch:
-    """Return the store's lexical search, which a lexical or hybrid retrieval needs.
-
-    Args:
-        store: The vector store the retrieve stage calls.
-        mode: The retrieval mode that needs it, named in the error.
-
-    Returns:
-        ``store``, known to rank text.
-
-    Raises:
-        ValueError: The store ranks no text.
-
-    Example:
-        >>> required_lexical_search(elasticsearch_store, "hybrid")
-    """
-    if isinstance(store, BaseLexicalSearch):
-        return store
-    raise ValueError(
-        f"retrieval_mode={mode!r} needs a store that ranks text, but the vector "
-        "store ranks no text: set the backend of the vector store it calls to "
-        "elasticsearch (QP_COMPONENTS__VECTOR_STORE__BACKEND for the one named "
-        "vector_store), or the retrieve stage's retrieval_mode to dense"
-    )
 
 
 @STAGE_TYPES.register("retrieve")
@@ -103,7 +71,11 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
     def __init__(self, component: BaseVectorStore, settings: RetrieveSettings) -> None:
         super().__init__(component, settings)
         self.reads = self.fields_read(settings)
-        self._find_candidates = self._candidate_finder()
+        # Checked here as well as in the store's ainvoke, so a lexical or hybrid
+        # workflow over a store that ranks no text fails at start-up, not on its
+        # first request.
+        if settings.retrieval_mode != "dense":
+            required_lexical_search(component, settings.retrieval_mode)
 
     @classmethod
     def fields_read(cls, settings: RetrieveSettings) -> frozenset[str]:
@@ -131,30 +103,11 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
         Returns:
             ``candidates``: at most ``top_k`` passages, best first.
         """
-        return {"candidates": await self._find_candidates(state)}
-
-    # Chosen once at construction, so a lexical or hybrid workflow over a store
-    # that ranks no text fails at start-up, not on its first request.
-    def _candidate_finder(self) -> CandidateFinder:
-        store, top_k = self.component, self.settings.top_k
-        mode, rrf_k = self.settings.retrieval_mode, self.settings.rrf_k
-
-        async def dense(state: WorkflowState) -> list[ScoredPassage]:
-            return await store.query(state["query_embedding"], top_k)
-
-        if mode == "dense":
-            return dense
-        search = required_lexical_search(store, mode)
-
-        async def lexical(state: WorkflowState) -> list[ScoredPassage]:
-            return await search.lexical_query(state["standalone_query"], top_k)
-
-        if mode == "lexical":
-            return lexical
-
-        async def hybrid(state: WorkflowState) -> list[ScoredPassage]:
-            # Both legs at once, each asked for top_k, fused back to top_k.
-            rankings = await asyncio.gather(dense(state), lexical(state))
-            return reciprocal_rank_fusion(rankings, k=rrf_k, top_k=top_k)
-
-        return hybrid
+        request = SearchRequest(
+            embedding=state.get("query_embedding"),
+            text=state.get("standalone_query"),
+            top_k=self.settings.top_k,
+            retrieval_mode=self.settings.retrieval_mode,
+            rrf_k=self.settings.rrf_k,
+        )
+        return {"candidates": (await self.component.ainvoke(request)).passages}

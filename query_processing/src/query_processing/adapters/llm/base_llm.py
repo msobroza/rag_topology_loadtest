@@ -14,10 +14,13 @@ Example:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+
+from ...domain.base_component import BaseComponent
+from ...domain.component_requests import GenerateAnswer, GenerateRequest
 
 
-class BaseLLM(ABC):
+class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="llm"):
     """Answers an OpenAI-style message list."""
 
     model_name: str
@@ -32,3 +35,19 @@ class BaseLLM(ABC):
         Returns:
             The model's answer text.
         """
+
+    async def ainvoke(self, request: GenerateRequest) -> GenerateAnswer:
+        """Answer the request's conversation.
+
+        Args:
+            request: OpenAI-style messages, each with ``role`` and ``content``.
+
+        Returns:
+            The model's answer text.
+
+        Example:
+            >>> await llm.ainvoke(GenerateRequest(
+            ...     messages=[{"role": "user", "content": "Hi"}]))
+            GenerateAnswer(text='Hello!')
+        """
+        return GenerateAnswer(text=await self.generate(request.messages))

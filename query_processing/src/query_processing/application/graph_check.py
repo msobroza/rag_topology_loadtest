@@ -25,6 +25,7 @@ from typing import Any, NamedTuple
 
 from pydantic import ValidationError
 
+from ..domain.base_component import BaseComponent
 from ..domain.graph_description import (
     END,
     START,
@@ -50,6 +51,10 @@ _RESERVED_STAGE_NAMES = {
 }
 
 
+# Every component type's port, by the type's name.
+ComponentTypes = Registry[type[BaseComponent[Any, Any]]]
+
+
 class WorkflowGraphError(ValueError):
     """A workflow graph that cannot run: the message says what and what was expected."""
 
@@ -65,7 +70,7 @@ def check_graph(
     graph: GraphDescription,
     components: Mapping[str, str],
     *,
-    component_types: Mapping[str, type[Any]] = COMPONENT_TYPES,
+    component_types: ComponentTypes = COMPONENT_TYPES,
     stage_types: StageTypes = STAGE_TYPES,
     edge_conditions: Registry[EdgeCondition] = EDGE_CONDITIONS,
 ) -> None:
@@ -74,7 +79,8 @@ def check_graph(
     Args:
         graph: The stages, the chains of plain edges and the conditional edges.
         components: Each declared component's type, by the component's name.
-        component_types: The port of each component type, by the type's name.
+        component_types: The port of each component type, as the ports register
+            them by the type's name.
         stage_types: Where a stage's type is found.
         edge_conditions: Where a conditional edge's ``path`` is found.
 
@@ -145,7 +151,7 @@ def _declared_fields(
     name: str,
     stage: StageDescription,
     components: Mapping[str, str],
-    component_types: Mapping[str, type[Any]],
+    component_types: ComponentTypes,
     stage_types: StageTypes,
 ) -> DeclaredFields:
     stage_type = _stage_type(name, stage, stage_types)
@@ -192,7 +198,7 @@ def _check_call(
     stage: StageDescription,
     stage_type: type[BaseStage[Any, Any]],
     components: Mapping[str, str],
-    component_types: Mapping[str, type[Any]],
+    component_types: ComponentTypes,
 ) -> None:
     if stage.call not in components:
         raise WorkflowGraphError(
@@ -200,14 +206,13 @@ def _check_call(
             f"(expected one of: {_quoted(components)})"
         )
     needed = stage_type.component_type
-    port = component_types.get(components[stage.call])
-    if port is not None and issubclass(port, needed):
-        return
     fitting = [
         kind
-        for kind, kind_port in component_types.items()
-        if issubclass(kind_port, needed)
+        for kind in component_types.names()
+        if issubclass(component_types.get(kind), needed)
     ]
+    if components[stage.call] in fitting:
+        return
     raise WorkflowGraphError(
         f"stage {name!r} calls {stage.call!r}, a component of type "
         f"{components[stage.call]!r}, but its stage type {stage.type_name(name)!r} "

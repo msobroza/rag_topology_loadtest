@@ -23,7 +23,21 @@ from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store im
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
+from query_processing.domain.base_component import COMPONENT_TYPES
+from query_processing.domain.component_requests import (
+    EmbedRequest,
+    GenerateRequest,
+    RerankRequest,
+    SearchRequest,
+)
 from query_processing.domain.passages import ScoredPassage
+from workflow_fakes import (
+    DenseOnlyStore,
+    RecordingEmbedder,
+    RecordingReranker,
+    ScriptedStore,
+    scored,
+)
 
 
 def test_elasticsearch_and_the_in_memory_store_rank_text_and_chroma_does_not() -> None:
@@ -70,3 +84,91 @@ def test_a_class_with_the_right_methods_but_no_port_base_is_not_a_port() -> None
             return True, "duck"
 
     assert not isinstance(DuckEmbedder(), BaseEmbedder)
+
+
+# --- the common API -------------------------------------------------------------
+
+
+async def test_each_port_answers_ainvoke_from_its_own_method() -> None:
+    embedder, reranker = RecordingEmbedder(), RecordingReranker()
+
+    assert (await embedder.ainvoke(EmbedRequest(text="q"))).embedding == [1.0, 0.0]
+    assert embedder.queries == ["q"]
+    passages = [scored("a"), scored("b")]
+    kept = await reranker.ainvoke(RerankRequest(query="q", passages=passages, top_k=1))
+    assert [p.id for p in kept.passages] == ["a"]
+    assert reranker.calls == [("q", 2, 1)]
+    request = GenerateRequest(messages=[{"role": "user", "content": "hi"}])
+    assert (await FakeLLM().ainvoke(request)).text == "[fake-llm] hi"
+
+
+def test_the_four_ports_are_the_registered_component_types() -> None:
+    assert sorted(COMPONENT_TYPES.names()) == [
+        "embedder",
+        "llm",
+        "reranker",
+        "vector_store",
+    ]
+    assert COMPONENT_TYPES.get("vector_store") is BaseVectorStore
+    assert (BaseReranker.request_type, BaseReranker.component_type_name) == (
+        RerankRequest,
+        "reranker",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected", "calls"),
+    [
+        ("dense", ["a", "b"], [("dense", [1.0, 0.0], 3)]),
+        ("lexical", ["b", "c"], [("lexical", "q", 3)]),
+        ("hybrid", ["b", "a", "c"], [("dense", [1.0, 0.0], 3), ("lexical", "q", 3)]),
+    ],
+)
+async def test_the_vector_store_searches_by_its_retrieval_mode(
+    mode: str, expected: list[str], calls: list[tuple[str, object, int]]
+) -> None:
+    store = ScriptedStore(dense=["a", "b"], lexical=["b", "c"])
+
+    answer = await store.ainvoke(
+        SearchRequest(
+            embedding=[1.0, 0.0], text="q", top_k=3, retrieval_mode=mode, rrf_k=60
+        )
+    )
+
+    assert [p.id for p in answer.passages] == expected
+    assert store.calls == calls
+
+
+async def test_a_store_that_ranks_no_text_is_refused_a_lexical_search() -> None:
+    backend = "QP_COMPONENTS__VECTOR_STORE__BACKEND"
+    request = SearchRequest(text="q", top_k=3, retrieval_mode="lexical")
+
+    with pytest.raises(ValueError, match=rf"to elasticsearch \({backend} for the one"):
+        await DenseOnlyStore(["a"]).ainvoke(request)
+
+
+@pytest.mark.parametrize(
+    ("fields", "refused"),
+    [
+        ({"retrieval_mode": "dense"}, r"retrieval_mode='dense' needs embedding"),
+        ({"retrieval_mode": "lexical"}, r"retrieval_mode='lexical' needs text"),
+        (
+            {"retrieval_mode": "hybrid", "embedding": [1.0], "text": "q"},
+            r"retrieval_mode='hybrid' needs rrf_k",
+        ),
+    ],
+)
+def test_a_search_request_refuses_what_its_retrieval_mode_cannot_use(
+    fields: dict[str, object], refused: str
+) -> None:
+    with pytest.raises(ValueError, match=refused):
+        SearchRequest.model_validate({"top_k": 3, **fields})
+
+
+def test_a_request_is_frozen_and_refuses_an_unknown_key() -> None:
+    request = EmbedRequest(text="q")
+
+    with pytest.raises(ValueError, match="frozen"):
+        request.text = "other"  # type: ignore[misc]
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        EmbedRequest.model_validate({"text": "q", "prefix": "query: "})

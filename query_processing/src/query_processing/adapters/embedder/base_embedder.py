@@ -22,12 +22,19 @@ Example:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Sequence
 
+from ...domain.base_component import BaseComponent
+from ...domain.component_requests import EmbedAnswer, EmbedRequest
 
-class BaseEmbedder(ABC):
-    """Turns a query, or passages, into vectors."""
+
+class BaseEmbedder(BaseComponent[EmbedRequest, EmbedAnswer], component_type="embedder"):
+    """Turns a query, or passages, into vectors.
+
+    As a component it answers an ``EmbedRequest`` with the query's vector, from
+    ``embed_query``; ingestion keeps calling ``embed_documents``.
+    """
 
     model_name: str
 
@@ -52,6 +59,21 @@ class BaseEmbedder(ABC):
         Returns:
             Its vector.
         """
+
+    async def ainvoke(self, request: EmbedRequest) -> EmbedAnswer:
+        """Embed the request's query, with the model's query prefix in front.
+
+        Args:
+            request: The query to embed.
+
+        Returns:
+            Its vector.
+
+        Example:
+            >>> (await embedder.ainvoke(EmbedRequest(text="vacation"))).embedding
+            [0.12, ...]
+        """
+        return EmbedAnswer(embedding=await self.embed_query(request.text))
 
     @abstractmethod
     async def ready(self) -> tuple[bool, str]:
