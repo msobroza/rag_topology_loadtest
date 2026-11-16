@@ -2,10 +2,13 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# The RAG, the toolkit's first use case (ADR 0005). Its workflow file, deploy
-# settings example, environment example and Makefile are files of this
-# directory, where its commands run. Its own code, under src/, is what the
-# toolkit cannot give (ADR 0006): its kNN router and the command that trains it.
+# The RAG, the toolkit's first use case (ADR 0005). It holds its settings and
+# the implementations, trained models and data that are its own (ADR 0006).
+# Its workflow file, prompts, routes, deploy settings example, environment
+# example and Makefile are files of this directory, where its commands run. Its
+# package, under src/, holds its kNN router, the router's local backend, and
+# qp-rag-train-router, the command that trains it; workflow.yaml names the
+# package under extensions, so the toolkit loads it.
 [project]
 name = "query-processing-rag-usecase"
 version = "0.1.0"

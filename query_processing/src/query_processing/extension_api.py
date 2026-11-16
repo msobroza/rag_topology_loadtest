@@ -24,7 +24,7 @@ An output schema         a pydantic model under the          its fields
 
 Two spellings fill the same registries: a keyword on the class line for a
 component, a decorator for the other entries (``STAGE_TYPES``,
-``EDGE_CONDITIONS``, ``COMPONENT_API_FORMATS``).
+``EDGE_CONDITIONS``, ``OUTPUT_SCHEMAS``, ``COMPONENT_API_FORMATS``).
 
 Every component type has a ``served`` backend with no code: the toolkit builds
 the class that calls a model server on its call route, and an API format that

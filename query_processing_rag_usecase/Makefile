@@ -60,13 +60,13 @@ loadtest: ## Headless locust run: make loadtest RUN_NAME=monolith HOST=http://ho
 compare: ## Compare all runs found under results/ into results/comparison.md
 	$(BIN)qp-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
 
-ovms-export: ## Export each embedder and reranker of the workflow file to ovms/models (needs HF access)
+ovms-export: ## Export each embedder and reranker of the workflow file, the router's embedder included, to ovms/models (needs HF access)
 	$(TOOLKIT)/ovms/export_models.sh
 
-openvino-export: ## Convert the in-process reranker + embedder to OpenVINO under models/openvino (needs HF access)
+openvino-export: ## Convert each embedder and reranker, the router's embedder included, to OpenVINO under models/openvino (needs HF access)
 	$(BIN)qp-export-openvino
 
-calibrate: ## Calibrate the in-process embedder + reranker on this machine; prints the environment paths that pin them
+calibrate: ## Calibrate each in-process embedder and reranker, the router's embedder included, on this machine; prints the environment paths that pin them
 	$(BIN)qp-calibrate
 
 deploy: ## On Domino: publish (or redeploy) every App of the topology (settings in deploy.yaml)

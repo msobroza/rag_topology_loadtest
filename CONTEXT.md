@@ -195,6 +195,10 @@ _Avoid_: step, node, phase
 The registered behaviour of a stage that does more than call its component: `generate` renders a prompt, and `retrieve` reads different fields in each retrieval mode. A stage that only calls needs none.
 _Avoid_: node type, stage adapter (a stage implements no port)
 
+**Plain call**:
+A stage of no stage type, which only calls its component: a key of the stage that names an attribute of the request fills it, its reads fill the other attributes in order, and its writes take the answer's. The RAG's embed_for_route, route, embed and rerank stages are plain calls.
+_Avoid_: call stage, default stage, passthrough
+
 **CPU-bound stage**:
 A stage whose work runs in the App's own process, on its CPUs: embed and rerank when their model is local. Retrieve and generate wait on another service.
 _Avoid_: heavy stage, compute stage

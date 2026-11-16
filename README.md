@@ -86,13 +86,19 @@ puts each component it names `local` or `served`), says how each App runs on
 Domino, and holds this site's values under `overrides`, in the workflow file's
 shape.
 
-The toolkit, `query_processing/`, holds all the code: the stage types, edge
-conditions, components and backends, the workflow app (`qp-serve`), the model
-server (`qp-model-server`), the deploy tool (`qp-deploy`), the load-test client
-(a Locust file and `qp-compare`) and a fake Domino. It ships no use case's
-models, prompts or sizes. A use case installs it and holds settings only: the
-RAG's, `query_processing_rag_usecase/`, adds an environment example, a
-`Makefile` of run targets and its tests to the two files. Its commands run in
+The toolkit, `query_processing/`, holds what any use case can assemble: the
+component types with their requests and answers, the stage types, the edge
+conditions, the API formats, the backends of the embedder, the reranker, the
+LLM and the vector store, the workflow app (`qp-serve`), the model server
+(`qp-model-server`), the deploy tool (`qp-deploy`), the load-test client (a
+Locust file and `qp-compare`) and a fake Domino. It ships no use case's
+models, prompts or sizes. A use case installs it and holds its settings and the
+implementations, trained models and data that are its own, loaded by the
+toolkit from the packages its workflow file names under `extensions`. The
+RAG's, `query_processing_rag_usecase/`, adds to the two files its prompts and
+routes, an environment example, a `Makefile` of run targets, its tests, and a
+package of its own: a kNN router, the router's `local` backend, and
+`qp-rag-train-router`, the command that trains it. Its commands run in
 its directory, where they find `workflow.yaml`, `deploy.yaml` and `.env`
 (`QP_WORKFLOW_FILE` and `QP_DEPLOY_FILE` name others; with no workflow file, a
 command stops and says where it looked). Every command of this README runs
@@ -100,9 +106,15 @@ there, and a file path is relative to the toolkit's directory, unless it says
 otherwise. The design is in
 [ADR 0003](docs/adr/0003-the-deploy-tool-resolves-the-topology.md) (the deploy
 tool resolves the topology), [ADR 0004](docs/adr/0004-the-workflow-graph-is-a-file.md)
-(the workflow graph is a file) and
+(the workflow graph is a file),
 [ADR 0005](docs/adr/0005-toolkit-and-use-case-are-two-distributions.md) (the
-toolkit and a use case are two distributions), the vocabulary in
+toolkit and a use case are two distributions),
+[ADR 0006](docs/adr/0006-a-use-case-holds-the-implementations-that-are-its-own.md)
+(a use case holds the implementations that are its own),
+[ADR 0007](docs/adr/0007-an-edge-condition-can-answer-with-a-label.md) (an
+edge condition can answer with a label) and
+[ADR 0008](docs/adr/0008-every-component-is-called-the-same-way.md) (every
+component is called the same way), the vocabulary in
 [CONTEXT.md](CONTEXT.md).
 
 ## Overview
@@ -134,7 +146,10 @@ where the workflow file is read; the git-ignored `deploy.yaml` stays where
 backend its settings give. Inside the workflow app, LangGraph runs the graph of
 the file. The question is both the conversational and the standalone query of
 the workflow state, and the earlier turns the client sends, if any, its
-conversational history; `/retrieve` ends after rerank, where
+conversational history. A first message goes straight to `embed`; one with a
+conversational history goes to the router, and when it leans on that history,
+the `rewrite` stage makes it a standalone query and may add conditions to the
+metadata filter. `/retrieve` ends after rerank, where
 `is_query_mode` is false; `timings_ms` has one key per stage
 ([HTTP API](#http-api)). Each component has alternatives a setting away:
 [Retrieval, stores and model endpoints](#retrieval-stores-and-model-endpoints).
@@ -226,8 +241,10 @@ make train-router             # once: writes router_pipeline.joblib and its mani
 make serve                    # qp-serve on http://0.0.0.0:8888
 ```
 
-The router on `local` refuses to start without its pipeline file: until it is
-trained, uncomment the router's two `fake` lines of `.env`. The calls of the
+On the real backends the workflow app refuses to start until the router's
+pipeline is trained with `make train-router`, and no pipeline file is
+committed: until it is trained, uncomment the router's two `fake` lines of
+`.env`. The calls of the
 first run reach it on port 8888; `make infra-down` stops the
 containers. `make ingest` embeds with the component `embedder`, which it names
 since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
@@ -255,36 +272,41 @@ QP_COMPONENTS__RERANKER__BACKEND=served \
 A `served` component is given only its URL, the full route: it is called in the
 standard format of its type, under its alias, with no key off Domino. No
 topology is reported, and the run label is
-`embedder=local+reranker=served+llm=api+vector_store=elasticsearch` for the
-first. Then [Load test and comparison](#load-test-and-comparison), and on Domino
+`embedder=local+router_embedder=local+router=local+reranker=served+llm=api+vector_store=elasticsearch`
+for the first. Then [Load test and comparison](#load-test-and-comparison), and on Domino
 [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands) or,
 by hand, [Step by step](#step-by-step-first-test-run-on-domino).
 
 ## Starting a second use case
 
-A second use case is a directory of files, with no code (ADR 0005), in this
-repository beside the toolkit, as `query_processing_<name>_usecase/`:
-`qp-deploy` looks for the toolkit's launch script going up from where it runs
-and refuses to publish from anywhere else, and every App runs its command in
-that directory, where the workflow App installs the use case as it starts.
+A second use case is a distribution of its own, in this repository beside the
+toolkit, as `query_processing_<name>_usecase/`: `qp-deploy` looks for the
+toolkit's launch script going up from where it runs and refuses to publish
+from anywhere else, and every App runs its command in that directory, where
+the workflow App installs the use case as it starts. It holds its settings,
+and, when the toolkit has no implementation that fits, a package of its own
+with the implementations, trained models and data that are its own (ADR 0006).
 Start from a copy of the RAG's:
 
 | File | What it states |
 | --- | --- |
-| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`. Each stage the component it `call`s, its `reads` and `writes`, and the settings its stage type or its component's request requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's `prompt`. No API key. |
+| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). `extensions`, the packages of the use case whose classes register before the components are read, when it has any. Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`; a router its `embedder` and `routes`. Each stage the component it `call`s, its `reads` and `writes`, and the settings its stage type or its component's request requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's `prompt`. No API key. |
 | `prompts.yaml` | The prompts a stage names, each a list of messages with a `role` and a `content`, a Jinja2 template whose variables are the fields its stage reads ([The workflow file](#the-workflow-file)). |
+| `routes.yaml` | When it has a router: the routes its routers choose between, each with a `name`, a `description` and its `utterances` ([The router](#the-router)). |
 | `deploy.example.yaml` | Its own `app_name_prefix`, so that its Apps can share a Domino project with the RAG's; its `topology_alias` table over its own components, and `topology`; `defaults.environment_id`; a block of `apps` per App part; this site's `overrides`. Copied to the git-ignored `deploy.yaml`. |
-| `pyproject.toml` | A distribution of its own that depends on `query-processing`, with `packages = []`, which `domino/app.sh` installs with the toolkit. |
+| `pyproject.toml` | A distribution of its own that depends on `query-processing`, which `domino/app.sh` installs with the toolkit: its package under `src/`, the libraries its implementations need and the commands it installs. With no code, `packages = []`. |
+| `src/query_processing_<name>_usecase/` | When it has code: its package, in the toolkit's layers (`domain`, `config`, `adapters`, `application`, `infrastructure`, `entrypoints`) and with no `composition`, since a class builds itself. It imports the toolkit through `query_processing.extension_api` alone, and its `__init__.py` files stay empty. The RAG's holds its kNN router (`adapters/router/local/knn_router.py`), its settings, the pipeline file it loads, and `qp-rag-train-router`. |
 | `.env.example` | The API keys, by their paths; `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a load test straight at a reranker. |
-| `Makefile` | Its run targets. The RAG's names the toolkit as `../query_processing`, and the RAG's components in `deploy-embedder`, `deploy-reranker` and `SERVE ?= reranker`. |
-| `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. |
+| `Makefile` | Its run targets. The RAG's names the toolkit as `../query_processing`, the RAG's components in `deploy-embedder`, `deploy-reranker` and `SERVE ?= reranker`, and its own command in `train-router`. |
+| `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. An implementation of its own is tested by a subclass of a test class the toolkit ships, and its imports by a structure test of its own (the RAG's `tests/test_layering.py`). |
 
 The root `Makefile` and the CI install and test the RAG use case only: install
 another with the toolkit in one command (`python -m pip install -e
 ./query_processing -e ./query_processing_<name>_usecase`) and run its tests in
 its directory. The `rag` image of `domino/Dockerfile` takes
 `--build-arg USE_CASE=<its directory>`. A minimal workflow file, run from a
-scratch directory: a lexical search that keeps three passages, with no LLM:
+scratch directory: a lexical search that keeps three passages, with no LLM and
+no code:
 
 ```yaml
 components:
@@ -305,32 +327,87 @@ The `fake` store is seeded through the file's embedder, so the file declares
 one that no stage calls: without it the app does not start (`vector_store
 unavailable: could not open backend 'fake': ValueError: ingestion embeds with
 one embedder component, and the workflow file declares 0 (its embedders:
-none)`). With `app_name_prefix: qp-search` and the topology alias
+none): name one, with qp-ingest --embedder`). With `app_name_prefix: qp-search` and the topology alias
 `split-reranker: {reranker: served}`, a dry run from beside `query_processing/`
 publishes `qp-search-reranker`, then `qp-search-workflow`; from the scratch
 directory `qp-deploy` stops (`no query_processing/domino/app.sh in <directory>
 or any directory above it`).
 
+### What a use case adds
+
+The toolkit holds what any use case can assemble, and a use case holds what is
+its own (rule 8 of [Where a file goes](#where-a-file-goes)). A use case adds
+each of these in a module of its package, which the toolkit imports because
+the workflow file names the package under `extensions`. Every name it needs is
+in `query_processing.extension_api`, whose docstring holds this table:
+
+| To add | Subclass | Write |
+| --- | --- | --- |
+| An implementation of a component type | its abstract class, such as `BaseRouter` | `invoke`, and `from_settings` when it has settings |
+| A whole component type | `BaseComponent[Request, Answer]` | its request and its answer |
+| A stage type | `BaseStage` | what the stage does beyond calling its component |
+| An edge condition | a function under the toolkit's decorator | the function |
+| An output schema | a pydantic model under the toolkit's decorator | its fields |
+
+Two spellings fill the same registries: a keyword on the class line for a
+component, a decorator for the other entries (`STAGE_TYPES`, `EDGE_CONDITIONS`,
+`OUTPUT_SCHEMAS`, `COMPONENT_API_FORMATS`). A component type names its type on
+its class line, `component_type="anonymizer"`, and an implementation its
+backend and its settings block, `backend="local", settings=...`; the class is
+refused when it is defined if it writes neither `invoke` nor `ainvoke`, or
+names a backend its component type already has, and the message says what to
+write. A use case adds registrations and never replaces one of the toolkit's:
+a name registered twice stops the load, naming both classes.
+
+Every component type made this way has a `served` backend with no code: the
+toolkit builds the class that calls a model server of ours on the type's call
+route, and an API format that mirrors its request and its answer, and
+`qp-model-server --serve <component>` serves it on the `fastapi` model-server
+kind. A use case registers a `BaseApiFormat` under the type's name to redefine
+the format, and writes a `served` class, a subclass of `ServedCallMixin` and the
+type, only to redefine the built one.
+
+The toolkit ships two test classes in `query_processing.testing`, which a use
+case's tests import from there and not from `extension_api`, so that no command
+loads what they serve a component with. `ComponentContract`, subclassed with
+`make_component` and `make_request`, checks the answer's shape, the API format
+both ways, and the served class through an in-process model server.
+`RouterContract` adds `routes`, and checks that the route chosen is one of
+them and that the confidence is between 0 and 1. The RAG's
+`tests/test_knn_router.py` subclasses it.
+
 ### What only the toolkit adds
 
-Code goes in the toolkit, even when one use case alone needs it (rule 8 of
-[Where a file goes](#where-a-file-goes)). Each of these is one new module, under
-`src/query_processing/`, that registers itself with its registry's decorator
-(rule 6); its package imports every module, so no list is edited. The module
-also gets its line in [the tree](#the-tree) and a test.
+What any use case can assemble goes in the toolkit. A stage type and an edge
+condition can go either way: in the toolkit when another use case could use
+them, else in the use case's package, as above. The other three rows of the
+table below only the toolkit can add: the embedder, the reranker, the LLM and
+the vector store keep their openers in the composition (ADR 0008), so a use
+case cannot yet add a backend or an API format to one of them, and a
+model-server kind has a launch script in the toolkit's `domino/`. Each of
+these is one new module, under `src/query_processing/`, that registers itself
+with its registry's decorator (rule 6); its package imports every module, so
+no list is edited. The module also gets its line in [the tree](#the-tree) and
+a test.
 
 | A new | Its module | Registered with | A test that adds one |
 | --- | --- | --- | --- |
 | stage type, for a stage that does more than call its component | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type` and `settings_type`, and defines `check_fields` (the lists of fields it can use, with their types) and `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
 | edge condition | `application/edge_conditions/<name>.py`: a function of the values its conditional edge reads, in the order of its `reads`, that returns a bool, or a `str` label | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
-| backend | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
-| API format | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
+| backend of one of the four existing component types | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
+| API format of one of the four | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
 | model-server kind | `deploy/model_server_kinds/<name>_kind.py`: a `BaseModelServerKind` with its `routes` and `probe_route`; and the toolkit's `domino/model_servers/<name>.sh`, which defines `bootstrap_model_server` and `serve_model_server` | `@MODEL_SERVER_KINDS.register("<name>")` | `tests/deploy/test_a_new_model_server_kind.py` |
 
-The start-up checks and the graph builder read what a stage type declares, so
-neither changes. A component type of its own, a new port, is more than one
-module: its port, its settings, its registry of openers and its entry in
-`application/component_types.py`.
+The start-up checks and the graph builder read what a stage type declares, or
+what a plain call's component takes and gives, so neither changes. A
+component type of the toolkit's own is one abstract class in
+`adapters/<component>/base_<component>.py`, as the router's is, with its
+request and its answer in the domain, and its import in
+`application/component_types.py`, so that the start-up checks find it
+registered. Its implementations sit beside it, one directory per backend
+(rule 4), and a settings class of the type's own keys is registered in
+`COMPONENT_TYPE_SETTINGS` in `config/component_settings.py`, as the router's
+`RouterSettings` is, kept in `config/router_settings.py`.
 
 ## Code layout
 
@@ -339,20 +416,24 @@ module: its port, its settings, its registry of openers and its entry in
 The repository holds two distributions (ADR 0005), each a directory of its own
 at its root:
 
-- **The toolkit**, in `query_processing/`: every line of code. Every path of this
-  section and of the tree below it is relative to that directory, except the use
-  case's and the repository's own entries at the end of the tree
-  (`query_processing_rag_usecase/`, `emulation/`, `docs/`, the root `Makefile`,
-  `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and `.github/`).
-  It ships no workflow file and no default that is a use case's model, prompt,
-  size, index or collection: its tests run on a fixture workflow file of made-up
-  models (`tests/helpers/fixture_workflow.yaml`).
-- **A use case**, `query_processing_rag_usecase/` for the RAG: settings only, no
-  Python code (its workflow file, deploy settings example, environment example,
-  a Makefile of run targets) and its own tests, which import only what the
-  toolkit installs. It depends on the toolkit; the toolkit never imports nor
-  names a use case. Its commands run in its directory, where they find
-  `workflow.yaml`, `deploy.yaml` and `.env`, and write what they write.
+- **The toolkit**, in `query_processing/`: what any use case can assemble.
+  Every path of this section and of the tree below it is relative to that
+  directory, except the use case's and the repository's own entries at the end
+  of the tree (`query_processing_rag_usecase/`, `emulation/`, `docs/`, the root
+  `Makefile`, `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and
+  `.github/`). It ships no workflow file and no default that is a use case's
+  model, prompt, size, index or collection: its tests run on a fixture workflow
+  file of made-up models (`tests/helpers/fixture_workflow.yaml`), and on a
+  component type of their own, `shouter`, defined in
+  `tests/helpers/shout_extension/` as a use case would define one.
+- **A use case**, `query_processing_rag_usecase/` for the RAG: its settings (its
+  workflow file, prompts, routes, deploy settings example, environment example,
+  a Makefile of run targets), its own tests, and the implementations, trained
+  models and data that are its own (ADR 0006), in a package under `src/` that
+  its workflow file names under `extensions`. It depends on the toolkit; the
+  toolkit never imports nor names a use case. Its commands run in its
+  directory, where they find `workflow.yaml`, `deploy.yaml` and `.env`, and
+  write what they write.
 
 The toolkit is three applications over one shared domain. The domain
 (`domain/`) is the language all three use: no I/O, no framework.
@@ -362,6 +443,12 @@ The toolkit is three applications over one shared domain. The domain
 | RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `infrastructure/`, `composition/`, `entrypoints/` |
 | deploy tool | what publishes the Apps of a Topology (`qp-deploy`) | one package, `deploy/` |
 | load-test client | what drives a target and compares runs (Locust, `qp-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, which a use case's Makefile hands to Locust (`-f`) |
+
+Two parts of the toolkit face a use case's code and belong to none of the
+three. `extension_api.py` is the one module a use case imports the toolkit
+through, and no package of the toolkit imports it. `testing/` holds the test
+classes a use case's tests subclass, imported as `query_processing.testing`,
+and no package imports it either, `extension_api` included.
 
 1. **Imports.** A package imports only what this table allows.
 
@@ -448,17 +535,39 @@ The toolkit is three applications over one shared domain. The domain
    application that builds it may import. A model-server kind is what the
    deploy tool publishes and refuses by, so it is in `deploy/`; the /v3 routes
    it declares are wire-contract constants of the domain, which the FastAPI
-   model server answers on too.
+   model server answers on too. Four more kinds serve the components that are
+   called the same way (ADR 0008): an output schema (`OUTPUT_SCHEMAS` in
+   `application/output_schemas.py`), a structured output method
+   (`STRUCTURED_OUTPUT_METHODS` in `adapters/llm/api/base_structured_output_method.py`),
+   the API format of a component type registered on its class line
+   (`COMPONENT_API_FORMATS` in `domain/api_format.py`), and the component
+   types with their implementations, which register with no decorator: a
+   component type names itself on its class line (`component_type="router"`)
+   and an implementation its backend and settings (`backend="local",
+   settings=...`), filling `COMPONENT_TYPES` and each type's backends in
+   `domain/base_component.py`. A use case's package fills the same registries:
+   the toolkit imports every module of each package the workflow file names
+   under `extensions` (`config/extensions.py`, with `import_package_tree`)
+   before it reads the components, and a name registered twice stops the
+   load, naming both.
 7. **The tree below** lists every package and module of `src/query_processing/`; a
    new module gets a line.
 8. **One way.** A use case depends on the toolkit, never the reverse: no file of
    the toolkit's `src/` names a use case (`query_processing_<name>_usecase`),
-   in an import, a path or a default. What a use case needs that is code (a
-   stage type, a backend) is added to the toolkit, even when one use case alone
-   needs it; a use case adds files only.
+   in an import, a path or a default; a use case's package name is a value of
+   its own workflow file. What any use case can assemble is added to the
+   toolkit: a component type with its request and answer, a stage type, an
+   edge condition, an API format. A use case holds what is its own (ADR 0006):
+   its implementations of a component type, its trained models and its data.
+   Its package imports the toolkit through `query_processing.extension_api`
+   alone and follows the toolkit's layers, with no `composition`, since a
+   class builds itself; its adapters may import its own `config`, as a class
+   names its settings on its class line.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, that
-`locustfile.py` imports only the `loadtest` package, and rule 8;
+`locustfile.py` imports only the `loadtest` package, that no package imports
+`extension_api` or `testing`, and the toolkit's side of rule 8; the use case's
+`tests/test_layering.py` checks its side;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
 rule 4 (only component packages in `adapters/`, their layout with `api/` for
 both `served` and `api`, and no port implemented anywhere else) and rule 7. The fake Domino (`src/fake_domino/`) is a
@@ -497,10 +606,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       corpus.py       synthetic handbook corpus, its questions, chunking
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
-      workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
+      workflow_state.py  WorkflowState, what a request carries from stage to stage by field name (the state's type is built in state_fields); REQUEST_FIELD_TYPES, the fields the request writes; RESPONSE_FIELDS, those the response reads; REQUEST_FIELDS, those a stage may read wherever it is; initial_state, merge_timings
       state_fields.py  field_types_of: each field the request and the stages write, with its type; state_type: the LangGraph state built from them; WorkflowGraphError
       component_types.py  COMPONENT_TYPES, as the five ports register it: each component type's port, which the start-up checks read before any component opens
-      graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states; WorkflowGraphError
+      graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states: its stages, the field rule and the type rules, the edges through edge_check; fields_set_before
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
       edge_check.py   check_edges: the edges and conditional edges of a graph that cannot run, refused; field_labels: the labels each field can take
       workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out; asked_of_state
@@ -635,7 +744,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         vector_store_on_fake.py  the in-memory store, seeded through the embedder
     entrypoints/      the RAG system's commands: FastAPI apps and CLIs
       qp_serve.py     qp-serve: the FastAPI app (/query /retrieve /healthz /readyz), --domino, Domino tracing, JSON logs, a refused graph as one line
-      qp_model_server.py  qp-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, its answers, UNKNOWN_MODEL_ERROR
+      qp_model_server.py  qp-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, or on its call route (POST /call/<component type>) for a registered type; its answers, UNKNOWN_MODEL_ERROR
       qp_served_models.py  qp-served-models: each embedder and reranker of the workflow file (name, type, source id, alias), one line of shell words each
       qp_export_openvino.py  qp-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
       qp_calibrate.py  qp-calibrate: calibrate the in-process models here, print the environment paths that pin them
@@ -649,7 +758,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
       model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
         base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
-        fastapi_kind.py  fastapi: qp-model-server, an embedder or a reranker on the /v3 routes
+        fastapi_kind.py  fastapi: qp-model-server, an embedder or a reranker on the /v3 routes, a component of a registered type on its call route
         ovms_kind.py  ovms: OpenVINO Model Server on its /v3 routes, from the OVMS bundle it refuses when missing
       publish.py      where every App starts (LaunchPaths: the toolkit's launch script, found going up from the use case's directory, and that directory), the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
@@ -681,20 +790,27 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   ovms/               versions.env (single OVMS version pin), export_models.sh (into ovms/models of the working directory, a use case's)
   domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/
-    domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/   the tests of that sub-package
+    domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
     structure/        the import, placement and code-shape rules, read from the source with ast
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
-    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
-query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: settings only, no code
-  pyproject.toml      the distribution (query-processing-rag-usecase), its one dependency the toolkit; packages = []
-  workflow.yaml       the RAG's workflow file: its components (models, endpoint, store) and its graph (stages, sizes)
-  prompts.yaml        the RAG's prompts, which its generate stage names (answer_from_context)
+    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
+query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: its settings, and its kNN router (ADR 0006)
+  pyproject.toml      the distribution (query-processing-rag-usecase): the toolkit, scikit-learn pinned exactly and joblib; its package under src/; qp-rag-train-router
+  workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)
+  prompts.yaml        the RAG's prompts, which its generate stages name (answer_from_context, rewrite_as_standalone)
+  routes.yaml         the routes its router chooses between, each with its utterances
+  src/query_processing_rag_usecase/   its package, named under extensions; it imports the toolkit through extension_api alone
+    config/knn_router_settings.py     KnnRouterSettings: the router's local block (pipeline_file, n_neighbors, metric)
+    adapters/router/local/knn_router.py  KnnRouter: the router's local backend, a trained kNN pipeline
+    infrastructure/knn_pipeline.py    the scikit-learn pipeline: a normalizer and a k-nearest-neighbours classifier
+    infrastructure/pipeline_artifact.py  the pipeline file and its manifest: written, and refused at load when the manifest does not match
+    entrypoints/train_router.py       qp-rag-train-router: embeds the utterances, fits and scores the pipeline, writes the file (make train-router)
   deploy.example.yaml  its deploy settings example: the topology aliases, the Apps, this site's overrides (cp to deploy.yaml)
   .env.example        its environment example, the load-test sizes of a rerank request included (cp to .env)
-  Makefile            its run targets (serve, ingest, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
-  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias
+  Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
+  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports
   results/            load-test output (git-ignored), as data/, models/, ovms/models/ and chroma/ written here
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
 docs/adr/           the decisions
@@ -742,8 +858,11 @@ the body>`, and a 200 whose body is not JSON, or is JSON but not an object, also
 counts as a failure (it used to vanish from the statistics altogether).
 Every successful response's `timings_ms` is re-emitted as Locust `STAGE` rows,
 one per stage it names, in its order: `/query:embed`, `/query:retrieve`,
-`/query:rerank`, `/query:generate` for this graph, same for `/retrieve`; the
-total and a stage timed at zero (generate on `/retrieve`) get no row. The client
+`/query:rerank`, `/query:generate` for a first message of the RAG's graph,
+`/query:embed_for_route`, `/query:route` and `/query:rewrite` before them for
+a follow-up that leans on its history, same for `/retrieve`; the total and a
+stage timed at zero (generate on `/retrieve`, a stage the request did not take)
+get no row. The client
 reads the stages from the response and keeps no list of them, so a graph with
 other stages is measured as it is, and p50/p95/p99 per stage land in the same
 CSV as the endpoint totals.
@@ -832,10 +951,10 @@ declares, `/v3/rerank` / `/v3/embeddings` for both.
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
+| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
-| `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `reranker`); `503` when a check fails |
+| `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `router_embedder`, `reranker`); `503` when a check fails |
 
 `X-RAG-Run-Label` (the run label) and `X-Request-ID` are set on every response
 (an incoming `X-Request-ID` is propagated), and `X-RAG-Topology` (the topology
@@ -875,10 +994,12 @@ collection. The RAG use case's, `query_processing_rag_usecase/workflow.yaml`, is
 the first example of this README.
 
 A component can take any name. Its type is the port it is used through,
-`embedder`, `reranker`, `llm` or `vector_store`, and defaults to its name, so a
-second component of one type names it: `coarse: {type: reranker, backend:
-local, source_id: ...}`, which a second rerank stage calls with `call:
-coarse`.
+`embedder`, `reranker`, `llm`, `vector_store` or `router`, or a component type
+an extension registers, and defaults to its name, so a second component of one
+type names it: the RAG's `router_embedder: {type: embedder, ...}`, which the
+`embed_for_route` stage calls with `call: router_embedder`. Every component is
+called the same way, a request in and an answer out (ADR 0008), and its
+`backend` says which of its type's registered classes runs it.
 
 Every stage states `reads` and `writes`, the workflow state fields it reads and
 writes. A stage is of the stage type its `type` names, else of the stage type
@@ -886,10 +1007,12 @@ of its own name (`retrieve` and `generate`), else a plain call, which only calls
 its component: a key of the stage that names an attribute of the component's
 request fills it, such as `top_k: 10`; `reads` fill the other attributes in
 order; and `writes` take the answer's attributes in order, and can stop early.
-The RAG's `embed` and `rerank` stages are plain calls. A `retrieve` stage reads
-`[query_embedding]` for `dense`, `[standalone_query]` for `lexical` and both,
-in that order, for `hybrid`, and writes one field; a `generate` stage reads the
-question, then the passages, and writes one field.
+The RAG's `embed_for_route`, `route`, `embed` and `rerank` stages are plain
+calls. A `retrieve` stage reads `[query_embedding]` for `dense`,
+`[standalone_query]` for `lexical` and both, in that order, for `hybrid`, then
+`metadata_filter`, and writes one field; a `generate` stage reads any fields,
+each the prompt variable of the same name, and writes one field, the text, or
+the fields of its output schema.
 
 The vector store is a component like the models: its backend is named
 after its product, `elasticsearch` or `chroma`, or is `fake`, each with its
@@ -897,8 +1020,8 @@ block, and `qp-ingest` fills the one the file declares.
 
 | Component type | Key | In the RAG's file | Meaning |
 | --- | --- | --- | --- |
-| every type | `backend` | `local`, `local`, `api`, `elasticsearch` | how it runs, one of the openers registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. Nothing else decides it: `qp-deploy` sets it for each component the topology alias names, and on a laptop you set it |
-| every type | `type` | not written: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` |
+| every type | `backend` | `local`, `local`, `local`, `local`, `api`, `elasticsearch` | how it runs, one of the backends registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store, `served` \| `fake` for a router and `local` when the use case's extension registers it, as the RAG's does; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. Nothing else decides it: `qp-deploy` sets it for each component the topology alias names, and on a laptop you set it |
+| every type | `type` | the router's embedder's: `embedder`; not written for the others: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` \| `router`, or a type an extension registers |
 | every model | `source_id` | the two models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
 | every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
 | `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
@@ -909,6 +1032,7 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `qp-serve --domino` and no key elsewhere |
 | `embedder` | `served.batch_size` | not written: `64` | texts per model-server request (>= 1) |
 | `llm` | `served.temperature` | not written: `0` | sampling temperature, 0 to 2 |
+| `llm` | `served.structured_output`, `api.structured_output` | not written: `json_schema` | how an output schema reaches the endpoint: `json_schema` (OpenAI's `response_format`, strict) or `format_instructions` (the schema in the messages, for an endpoint that imposes none); an unknown one is refused before a command opens anything ([Structured output](#structured-output)) |
 | every model | `api.url` | the LLM's: OpenAI's chat route | the full route of an endpoint we do not run, e.g. `https://api.cohere.com/v2/rerank`; required with the `api` backend |
 | every model | `api.api_format` | not written: `openai`, `cohere`, `openai` | the request and response shapes the route speaks |
 | every model | `api.model` | the LLM's: `gpt-4o-mini` | the model name sent; empty = the component's alias |
@@ -925,6 +1049,11 @@ block, and `qp-ingest` fills the one the file declares.
 | `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
 | `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the passages; the collection is required on `chroma`: no default |
 | `vector_store` | `fake.seed_documents` | not written: `200` | synthetic documents seeded into the `fake` store when it opens (>= 1) |
+| `vector_store` | `metadata_field_info` | `source`, a string of seven values | the metadata fields a request's metadata filter, and an output schema narrowed to this store, can name: each a `name`, a `type` (`string`, `integer`, `float`, `boolean`), a `description` and optionally its `allowed_values`; none declared accepts only an empty filter ([The metadata filter](#the-metadata-filter-and-the-prefilter)) |
+| `vector_store` | `prefilter` | not written: none | conditions every search applies before the request's own, on fields a client cannot name; the RAG's `deploy.example.yaml` shows one under `overrides` |
+| `router` | `embedder` | `router_embedder` | the embedder component whose vectors the router reads ([The router](#the-router)) |
+| `router` | `routes` | `self_contained`, `leans_on_history` | the routes of `routes.yaml` it chooses between, two at least; a route the file lacks is refused |
+| `router` | `local.pipeline_file`, `local.n_neighbors`, `local.metric` | `router_pipeline.joblib`, `3`, `cosine` | the RAG's kNN router's own block, no default: the pipeline file `make train-router` writes, with its manifest beside it, and the values it is trained with |
 
 A key the type does not have, a block of a backend it does not have included
 (an LLM's `local`), is refused at start-up naming the key and the type's keys.
@@ -978,14 +1107,16 @@ QP_LOCAL_MODELS__RUNTIME=torch QP_LOCAL_MODELS__CPUS=4 make serve
 
 | Stage | Setting | In the RAG's file | Meaning |
 | --- | --- | --- | --- |
-| every stage | `call` | | the component it calls: `embedder`, `vector_store`, `reranker` or `llm` |
+| every stage | `call` | | the component it calls, by its name: `router_embedder`, `router`, `llm`, `embedder`, `vector_store`, `reranker` |
 | every stage | `type` | not written: the stage's name | the stage type it is an instance of; a stage of no stage type is a plain call |
 | every stage | `reads`, `writes` | each stage's | the workflow state fields it reads and writes, in the order its stage type or its component takes and gives them; required |
 | `retrieve` | `retrieval_mode` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` when the graph is built |
 | `retrieve` | `top_k` | `20` | candidates from the vector store (>= 1) |
 | `retrieve` | `rrf_k` | not written: `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
 | `rerank` | `top_k` | `10` | passages kept after reranking and sent to the LLM (>= 1) |
-| `generate` | `prompt` | `answer_from_context` | the prompt of `prompts.yaml` it renders; the fields of its `reads` are the prompt's variables, any number of them, and it writes one field, the answer |
+| `generate` | `prompt` | `rewrite_as_standalone`, `answer_from_context` | the prompt of `prompts.yaml` it renders; the fields of its `reads` are the prompt's variables, any number of them, and it writes one field, the text, unless it names an output schema |
+| `generate` | `output_schema` | the rewrite's: `standalone_query_with_filter`; not written for `generate` | a registered output schema the LLM answers in; the stage writes each of its fields to the field of `writes` of the same name, and `writes` lists them all ([Structured output](#structured-output)) |
+| `generate` | `metadata_fields_of` | the rewrite's: `vector_store` | a vector store whose declared fields narrow the output schema's conditions, and which the prompt gets as `metadata_field_info` |
 
 The prompts are in a file of their own, `prompts.yaml`, beside the workflow
 file: the one `QP_PROMPTS_FILE` names, else `prompts.yaml` in the working
@@ -1071,7 +1202,10 @@ mode needs). They refuse:
 
 - a stage whose `type` names no stage type, naming the known ones;
 - a stage whose settings or lists its stage type refuses, naming what it
-  expects;
+  expects: for a `generate` stage, a prompt that is not defined or uses a
+  variable the stage does not read, an output schema that is not registered or
+  whose fields differ from its `writes`, and a `metadata_fields_of` that names
+  no vector store;
 - a plain call whose keys and `reads` do not fill its component's request
   exactly once, or whose `writes` list more fields than its answer has, showing
   what the component takes and gives;
@@ -1133,6 +1267,7 @@ before the app serves, with one line in the server's log.
 | `QP_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `qp-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
 | `QP_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+router_embedder=local+router=local+reranker=local+llm=api+vector_store=elasticsearch` for the RAG's file); `qp-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `qp-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
 | `QP_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory (environment only, not `.env`); with neither, a command stops, naming both places |
+| `QP_PROMPTS_FILE`, `QP_ROUTES_FILE` | unset | the prompts file and the routes file to read, before a `prompts.yaml` and a `routes.yaml` in the working directory; with neither, there are no prompts or no routes, and a stage or a router that names one is refused at start-up |
 | `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `QP_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `QP_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
 | `QP_LOCAL_MODELS__...`, `QP_CALIBRATION__...`, `QP_HTTP__...`, `QP_DOMINO__...` | from the workflow file, else the defaults | one value of a block the components share, named by its path, such as `QP_LOCAL_MODELS__CPUS` or `QP_DOMINO__TRACING` (see the shared blocks above) |
@@ -1248,7 +1383,7 @@ environment paths of its `local` block that pin the choice. The logs go to
 standard error.
 
 ```bash
-make calibrate                                  # qp-calibrate: every embedder and reranker
+make calibrate                                  # qp-calibrate: every embedder and reranker, the router's embedder included
 QP_CALIBRATION__ROUNDS=3 QP_CALIBRATION__BUDGET_S=600 qp-calibrate --only reranker
 ```
 
@@ -1383,7 +1518,9 @@ Embedded by default: a folder (its `chroma.path`, in the use case's directory), 
 Chroma serves dense retrieval only. Open-source Chroma filters text by substring
 but does not rank it (its ranked Search API is Chroma Cloud only), so a
 `lexical` or `hybrid` retrieve stage with `chroma` stops `qp-serve` at
-start-up.
+start-up. On Chroma, `ne` and `nin` keep a passage that lacks the field, where
+the other stores drop it
+([The metadata filter](#the-metadata-filter-and-the-prefilter)).
 
 **Model endpoints.** Two backends call a model over HTTP, through one
 implementation per component (its `api/` directory), and differ only in how
@@ -1414,6 +1551,13 @@ model server's route. The shapes of the standards are pydantic classes in
 module in the component's `api/` directory, its class decorated with the
 registry beside the base class, such as `@RERANK_API_FORMATS.register("cohere")`;
 no table or list is edited.
+
+A component type registered on its class line, such as the router, has no
+outside API format: on `served` it is called on its model server's call route,
+`POST /call/<component type>`, in a format of our own, the one registered for
+its type in `COMPONENT_API_FORMATS`, else one the toolkit builds that mirrors
+its request and its answer. The router's is written by hand, `{"embedding"}` →
+`{"route","confidence"}` (`adapters/router/router_api_format.py`).
 
 An `api` key is the same for every component: empty sends no `Authorization`
 header, `domino` sends the Domino run's token, anything else is sent as a
@@ -1452,7 +1596,7 @@ QP_COMPONENTS__RERANKER__BACKEND=api QP_COMPONENTS__RERANKER__API__URL=https://a
 
 Any component may be on any of its backends, `api` like `fake` and `none`, and
 the default run label names each component with its own
-(`embedder=local+reranker=api+llm=api+vector_store=elasticsearch` for the
+(`embedder=local+router_embedder=local+router=local+reranker=api+llm=api+vector_store=elasticsearch` for the
 command above). An embedding endpoint serving another
 model returns vectors of its own size, so it needs its own index: ingest with
 the embedder you will serve with. In a split topology `qp-deploy` still
@@ -1475,6 +1619,82 @@ QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX=rag_quebec \
   qp-ingest --corpus data/quebec/corpus.jsonl
 QP_LOADTEST_QUESTIONS_FILE=data/quebec/questions.jsonl make loadtest RUN_NAME=monolith-fr HOST=http://localhost:8888
 ```
+
+## The router, the metadata filter and structured output
+
+### The router
+
+A router chooses, for a query's vector, one route out of its own list, with a
+confidence. It is the toolkit's fifth component type: the toolkit gives its
+port (`BaseRouter`), its `fake` backend, which always chooses the first of its
+routes, and its `served` backend, built with no code; how it chooses is a use
+case's. Its settings name the embedder whose vectors it reads (`embedder`) and
+the routes it chooses between (`routes`), two at least, out of the catalogue of
+`routes.yaml`, found as `prompts.yaml` is: the file `QP_ROUTES_FILE` names,
+else `routes.yaml` in the working directory. A route is a `name`, a
+`description` and its `utterances`; a route a router lists and the file lacks
+is refused at start-up. Its stage is a plain call, and a conditional edge on
+the field it writes asks the edge condition `label`, whose `path_map` has one
+row for each of the router's routes (ADR 0007).
+
+The RAG's router, on `local`, is its own kNN router: `make train-router`
+(`qp-rag-train-router`) embeds the utterances of its routes through the
+router's embedder, with its query prefix, fits a normalizer and a
+k-nearest-neighbours classifier with the values of its `local` block, scores
+them by leave-one-out, and writes `router_pipeline.joblib` with a manifest of
+what it was trained on. On the real backends the workflow app refuses to start
+until the router's pipeline is trained with `make train-router` (see
+[The real run](#the-real-run)). The router refuses a pipeline file whose
+manifest records other values, routes, utterances, embedder or scikit-learn
+version than its own: train it again after any of them changes.
+
+### The metadata filter and the prefilter
+
+A request can carry a metadata filter, `metadata_filter` in the body of
+`/query` and `/retrieve`: a flat list of conditions that must all hold, each an
+`attribute`, a `comparator` (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`,
+`nin`) and a `value`, a list for `in` and `nin`. A condition is checked against
+the fields its vector store declares under `metadata_field_info`: an unknown
+field, a value outside the allowed ones, or a comparator the field's type does
+not have (an order only for a number) is answered with a 422 that names it. A
+stage can add conditions, as the RAG's `rewrite` does, and never removes the
+client's; the response's `metadata_filter` is the conditions applied.
+
+A vector store can also state a `prefilter`, conditions in the same shape that
+every search applies before the request's own: which passages a workflow can
+read at all. Its fields are not declared, so neither a client nor the LLM can
+name them, and the response does not report them. `qp-ingest` writes none of
+them, so a store filled by it returns nothing under a prefilter; the RAG's
+workflow file states none, and its `deploy.example.yaml` shows one under
+`overrides`.
+
+Each store turns the conditions into its own filter:
+
+| Store | The filter | A passage that lacks the field |
+| --- | --- | --- |
+| `elasticsearch` | filter clauses on `metadata.<attribute>`, a string on its `.keyword` sub-field; inside the `knn` clause of a vector search, which the server applies during the search, and in the filter of a text search | dropped, whatever the comparator |
+| `chroma` | a `where` with Chroma's operators, applied before its vector search | dropped, except that `ne` and `nin` keep it, since Chroma has no operator that asks for a field |
+| `fake` | a predicate over a passage's metadata | dropped, whatever the comparator |
+
+### Structured output
+
+A `generate` stage can name `output_schema`, a registered pydantic model: the
+LLM then answers one instance of it, and the stage writes each of its fields
+to the field of `writes` of the same name. The toolkit registers one,
+`standalone_query_with_filter`, a `standalone_query` and a `metadata_filter`,
+which the RAG's `rewrite` stage names; `metadata_fields_of: vector_store`
+narrows its conditions to the fields and the allowed values that store
+declares. A use case registers its own with `@OUTPUT_SCHEMAS.register(...)` in
+its package. A use case's output schema must forbid extra keys and have no
+default to be accepted by an endpoint's strict mode.
+
+How the schema reaches the endpoint is a setting of the LLM, `structured_output`
+in its `api` or `served` block: `json_schema`, the default, sends it as
+OpenAI's `response_format`, strict; `format_instructions` writes it in the
+messages and parses the answer with LangChain core's parser, for an endpoint
+that imposes no schema. Under both, an answer that is not an instance of the
+schema is asked again within the LLM's `http.retries`, then the request fails,
+showing the text. The fake LLM answers a valid instance.
 
 ## Elasticsearch
 
@@ -1570,9 +1790,10 @@ downloads `export_model.py` and its `requirements.txt` from the OVMS repository 
 separate environment, which it needs: the exporter pins its own
 sentence-transformers and OpenVINO versions and would downgrade this project's),
 then runs `rerank_ov` for each reranker and `embeddings_ov --pooling CLS` for
-each embedder, with `--weight-format int8`. The result is one
-`config_<component>.json` per component (`config_reranker.json`,
-`config_embedder.json`) and one directory per model; the configs reference the
+each embedder, the router's embedder included, with `--weight-format int8`.
+The result is one `config_<component>.json` per component
+(`config_reranker.json`, `config_embedder.json`, `config_router_embedder.json`)
+and one directory per model; the configs reference the
 model directories relatively, so the tree can be mounted anywhere.
 
 **On Domino the export is optional.** A model server App of kind `ovms`

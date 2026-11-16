@@ -2,15 +2,27 @@
 
 The toolkit `query_processing` and its first use case, a RAG. Read `CONTEXT.md`
 for the vocabulary, the README's "Where a file goes" for the layout and its
-rules, and `docs/adr/0003` to `0005` for the design.
+rules, and `docs/adr/0003` to `0008` for the design.
 
-- `query_processing/`: the toolkit, one distribution holding all the code
-  (package `query_processing`, commands `qp-*`, variables `QP_*`).
-- `query_processing_rag_usecase/`: the RAG use case, settings only
-  (`workflow.yaml`, `deploy.example.yaml`, `.env.example`, a `Makefile` of run
-  targets, its tests). It installs the toolkit.
-- Put code in the toolkit, never in a use case. The toolkit never imports nor
-  names a use case, and ships no use case's values: its tests run on
+- `query_processing/`: the toolkit, one distribution holding what any use case
+  can assemble (package `query_processing`, commands `qp-*`, variables `QP_*`):
+  the component types with their requests and answers, the stage types, the
+  edge conditions, the API formats, the backends of the embedder, the
+  reranker, the LLM and the vector store, and the router's `fake` and `served`.
+- `query_processing_rag_usecase/`: the RAG use case. It installs the toolkit and
+  holds its settings (`workflow.yaml`, `prompts.yaml`, `routes.yaml`,
+  `deploy.example.yaml`, `.env.example`, a `Makefile` of run targets), its
+  tests, and the implementations, trained models and data that are its own: a
+  package under `src/` (its kNN router, the router's `local` backend, and
+  `qp-rag-train-router`), which `workflow.yaml` names under `extensions`.
+- Put in the toolkit what any use case can assemble; a use case holds its own
+  implementations, trained models and data (ADR 0006), and a stage type, an
+  edge condition or an output schema only it needs. A use case imports
+  the toolkit through `query_processing.extension_api` alone, its tests import
+  the toolkit's test classes from `query_processing.testing`, and it adds a
+  component by subclassing one abstract class (the README's "What a use case
+  adds"). The toolkit never imports nor names a use case, and ships no use
+  case's values: its tests run on
   `query_processing/tests/helpers/fixture_workflow.yaml`.
 
 ## Commands
@@ -30,11 +42,14 @@ From the repository's root:
 From `query_processing_rag_usecase/`, where the commands find `workflow.yaml`,
 `deploy.yaml` and `.env`:
 
-- `make help`: the run targets (`serve`, `ingest`, `loadtest`, `compare`,
-  `deploy-dry-run`, `deploy`, ...).
+- `make help`: the run targets (`serve`, `ingest`, `train-router`, `loadtest`,
+  `compare`, `deploy-dry-run`, `deploy`, ...).
 - Run the workflow app with no model weights by putting every component on its
   fake backend: `QP_COMPONENTS__<NAME>__BACKEND=fake` for `EMBEDDER`,
-  `ROUTER_EMBEDDER`, `ROUTER`, `RERANKER`, `LLM` and `VECTOR_STORE`.
+  `ROUTER_EMBEDDER` (the router's embedder), `ROUTER`, `RERANKER`, `LLM` and
+  `VECTOR_STORE`. On their real backends the workflow app refuses to start until
+  `make train-router` has written the router's pipeline file, and none is
+  committed.
 
 ## Health Stack
 
