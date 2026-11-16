@@ -139,7 +139,6 @@ def test_larger_model() -> None:
 def test_scale_out_or_scale_up() -> None:
     table = table_of("04-scale-out-or-scale-up")
     assert table.columns == (
-        "panel",
         "label",
         "approach",
         "experiment",
@@ -148,11 +147,15 @@ def test_scale_out_or_scale_up() -> None:
         "vcpus_each",
         "reranker_vcpus_total",
         "requests_per_s",
-        "requests_per_s_per_reranker_vcpu",
         "median_s",
+        "p95_s",
     )
-    assert len(table.rows) == 6
-    assert table.column("requests_per_s")[:3] == (0.336, 0.649, 0.652)
-    assert table.column("median_s")[3:] == (3.6, 1.0, 0.56)
-    assert table.column("reranker_vcpus_total")[:3] == (4, 8, 8)
-    assert table.column("approach")[2] == "one bigger machine"
+    assert len(table.rows) == 10
+    out = table.rows_where("experiment", "s8-out-split-fastapi")
+    assert out.column("requests_per_s") == (0.18, 0.377, 0.755, 0.871, 0.876)
+    assert out.column("median_s") == (4.8, 4.8, 4.7, 8.4, 18.0)
+    up = table.rows_where("experiment", "s8-up-split-fastapi")
+    assert up.column("requests_per_s") == (0.508, 0.91, 0.968, 0.938, 0.94)
+    assert up.column("median_s") == (1.3, 1.6, 3.5, 7.9, 16.0)
+    assert set(table.column("reranker_vcpus_total")) == {8}
+    assert up.column("approach")[0] == "one bigger machine"

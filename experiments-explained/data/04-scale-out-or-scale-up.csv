@@ -1,7 +1,11 @@
-panel,label,approach,experiment,users,machines,vcpus_each,reranker_vcpus_total,requests_per_s,requests_per_s_per_reranker_vcpu,median_s
-"Requests a second through the whole workflow, default settings, 8 to 10 users at once",2 machines of 2 vCPUs,machines of 2 vCPUs,m2-split-reranker,8,2,2,4,0.336,0.084,
-"Requests a second through the whole workflow, default settings, 8 to 10 users at once",4 machines of 2 vCPUs,machines of 2 vCPUs,m2-monolith,8,4,2,8,0.649,0.081,
-"Requests a second through the whole workflow, default settings, 8 to 10 users at once",1 machine of 8 vCPUs,one bigger machine,pr8-monolith,10,1,8,8,0.652,0.082,
-"Median time of a request when it is the only one, by the reranker's machine",2 vCPUs,machines of 2 vCPUs,m7-calibrated-fastapi-rerank,1,1,2,2,,,3.6
-"Median time of a request when it is the only one, by the reranker's machine",8 vCPUs,one bigger machine,v8-alone-fastapi-fp32,1,1,8,8,,,1
-"Median time of a request when it is the only one, by the reranker's machine",16 vCPUs,one bigger machine,v16-alone-fastapi-fp32,1,1,16,16,,,0.56
+label,approach,experiment,users,machines,vcpus_each,reranker_vcpus_total,requests_per_s,median_s,p95_s
+4 machines of 2 vCPUs,machines of 2 vCPUs,s8-out-split-fastapi,1,4,2,8,0.18,4.8,6.6
+4 machines of 2 vCPUs,machines of 2 vCPUs,s8-out-split-fastapi,2,4,2,8,0.377,4.8,5.6
+4 machines of 2 vCPUs,machines of 2 vCPUs,s8-out-split-fastapi,4,4,2,8,0.755,4.7,5.5
+4 machines of 2 vCPUs,machines of 2 vCPUs,s8-out-split-fastapi,8,4,2,8,0.871,8.4,14
+4 machines of 2 vCPUs,machines of 2 vCPUs,s8-out-split-fastapi,16,4,2,8,0.876,18,24
+1 machine of 8 vCPUs,one bigger machine,s8-up-split-fastapi,1,1,8,8,0.508,1.3,1.8
+1 machine of 8 vCPUs,one bigger machine,s8-up-split-fastapi,2,1,8,8,0.91,1.6,2.1
+1 machine of 8 vCPUs,one bigger machine,s8-up-split-fastapi,4,1,8,8,0.968,3.5,4.1
+1 machine of 8 vCPUs,one bigger machine,s8-up-split-fastapi,8,1,8,8,0.938,7.9,8.6
+1 machine of 8 vCPUs,one bigger machine,s8-up-split-fastapi,16,1,8,8,0.94,16,17
