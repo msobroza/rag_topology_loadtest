@@ -47,9 +47,12 @@ From `query_processing_rag_usecase/`, where the commands find `workflow.yaml`,
 - Run the workflow app with no model weights by putting every component on its
   fake backend: `QP_COMPONENTS__<NAME>__BACKEND=fake` for `EMBEDDER`,
   `ROUTER_EMBEDDER` (the router's embedder), `ROUTER`, `RERANKER`, `LLM` and
-  `VECTOR_STORE`. On their real backends the workflow app refuses to start until
-  `make train-router` has written the router's pipeline file, and none is
-  committed.
+  `VECTOR_STORE`. The router's pipeline file and its manifest
+  (`router_pipeline.joblib`, `router_pipeline.json`) are committed together;
+  start-up refuses them after a change to an utterance, the router's training
+  values, its embedder's alias or query prefix, or the scikit-learn pin. Then
+  run `make train-router` on a machine that has the embedder's model (it
+  refuses the fake embedder) and commit both files.
 
 ## Health Stack
 

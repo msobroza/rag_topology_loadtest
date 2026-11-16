@@ -370,7 +370,7 @@ def test_the_load_test_sends_a_model_server_the_sizes_of_the_files_stages(
 def test_the_environment_example_shows_the_two_new_components_on_fake(
     use_case_dir: Path,
 ) -> None:
-    # The first run, with no weights and no pipeline file, needs both on fake.
+    # The first run, with no model weights, needs both on fake.
     example = (use_case_dir / ".env.example").read_text(encoding="utf-8")
 
     on_fake = re.findall(r"^# (QP_COMPONENTS__\w+__BACKEND)=fake\b", example, re.M)

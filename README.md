@@ -237,16 +237,20 @@ cp .env.example .env          # set QP_COMPONENTS__LLM__API__API_KEY there, or u
 make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need make ovms-export first)
 make openvino-export          # once: the two embedders and the reranker from the Hugging Face Hub, converted under models/openvino
 make ingest                   # qp-ingest --synthetic 200 --embedder embedder -> index rag_passages
-make train-router             # once: writes router_pipeline.joblib and its manifest from routes.yaml
 make serve                    # qp-serve on http://0.0.0.0:8888
 ```
 
-On the real backends the workflow app refuses to start until the router's
-pipeline is trained with `make train-router`, and no pipeline file is
-committed: until it is trained, uncomment the router's two `fake` lines of
-`.env`. Comment the router's embedder's line out again before `make
-train-router`: it refuses to train on the fake embedder's vectors, which no
-model gives, and names the variable to unset. The calls of the
+The router's pipeline file, `router_pipeline.joblib`, and its manifest,
+`router_pipeline.json`, are committed together in the use case's directory,
+trained on Solon's vectors of the utterances of `routes.yaml`; start-up loads
+them as they are. They are trained again, with `make train-router`, only after
+a change the manifest refuses: an utterance or a route of the router, its
+`n_neighbors` or `metric`, its embedder's alias or query prefix, or the
+scikit-learn pin. The use case's tests read the committed pipeline as start-up
+does and fail on such a change, naming the command. It runs on a machine that
+has the router's embedder's model: it refuses to train on the fake embedder's
+vectors, which no model gives, and names the variable to unset. Commit both
+files of a training together. The calls of the
 first run reach it on port 8888; `make infra-down` stops the
 containers. `make ingest` embeds with the component `embedder`, which it names
 since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
@@ -934,6 +938,7 @@ query_processing_rag_usecase/   the RAG use case, one distribution that installs
   workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)
   prompts.yaml        the RAG's prompts, which its generate stages name (answer_from_context, rewrite_as_standalone)
   routes.yaml         the routes its router chooses between, each with its utterances
+  router_pipeline.joblib, router_pipeline.json   the router's trained pipeline and its manifest, committed together (make train-router)
   src/query_processing_rag_usecase/   its package, named under extensions; it imports the toolkit through extension_api alone
     config/knn_router_settings.py     KnnRouterSettings: the router's local block (pipeline_file, n_neighbors, metric)
     adapters/router/local/knn_router.py  KnnRouter: the router's local backend, a trained kNN pipeline
@@ -1776,11 +1781,11 @@ The RAG's router, on `local`, is its own kNN router: `make train-router`
 router's embedder, with its query prefix, fits a normalizer and a
 k-nearest-neighbours classifier with the values of its `local` block, scores
 them by leave-one-out, and writes `router_pipeline.joblib` with a manifest of
-what it was trained on. On the real backends the workflow app refuses to start
-until the router's pipeline is trained with `make train-router` (see
-[The real run](#the-real-run)). The router refuses a pipeline file whose
+what it was trained on. Both files are committed, trained on Solon's vectors
+(see [The real run](#the-real-run)). The router refuses a pipeline file whose
 manifest records other values, routes, utterances, embedder or scikit-learn
-version than its own: train it again after any of them changes.
+version than its own: train it again after any of them changes, on a machine
+that has the embedder's model, and commit both files together.
 
 ### The metadata filter and the prefilter
 

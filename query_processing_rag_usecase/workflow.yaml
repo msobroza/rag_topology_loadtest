@@ -51,9 +51,10 @@ components:
     query_prefix: "query : " # Solon's own, with a space before the colon
   # Says whether a message with a conversational history can be understood
   # without it. Its routes are two of routes.yaml. Its local backend is this
-  # use case's kNN router: it loads the pipeline file `make train-router`
-  # writes, and refuses one trained with other values, routes, utterances or
-  # embedder than these.
+  # use case's kNN router: it loads the committed pipeline file and refuses it
+  # once trained with other values, routes, utterances or embedder than these;
+  # then `make train-router`, on a machine that has Solon, writes it again
+  # with its manifest, and both are committed together.
   router:
     backend: local # local | served | fake (always the first of its routes)
     embedder: router_embedder
