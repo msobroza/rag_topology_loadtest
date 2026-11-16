@@ -29,7 +29,8 @@ Example:
     >>> async with CompositionRoot(WorkflowSettings()) as composition:
     ...     deps = await composition.workflow_dependencies()
     ...     graph = composition.settings.graph  # from the workflow file
-    ...     workflow = build_workflow(graph, deps.components())
+    ...     context = stage_context(composition.settings)  # the prompts
+    ...     workflow = build_workflow(graph, deps.components(), context)
     ...     result = await workflow.run("How many vacation days?")
 """
 
@@ -44,6 +45,7 @@ from ..adapters.embedder.base_embedder import BaseEmbedder
 from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.rag_dependencies import RagDependencies
+from ..application.stages.base_stage import StageContext
 from ..config.component_settings import (
     ComponentSettings,
     EmbedderSettings,
@@ -335,3 +337,19 @@ class CompositionRoot:
         name = self.settings.ingestion_store()
         store = self._typed(name, VectorStoreSettings)
         return await self._factory.open(VECTOR_STORE_OPENERS, name, store)
+
+
+def stage_context(settings: WorkflowSettings) -> StageContext:
+    """Return what every stage is given, built from the settings.
+
+    Args:
+        settings: The workflow settings, their prompts read from the prompts file.
+
+    Returns:
+        The stage context: the prompts, by name.
+
+    Example:
+        >>> check_graph(settings.graph, settings.component_types(),
+        ...             stage_context(settings))
+    """
+    return StageContext(prompts=settings.prompts)

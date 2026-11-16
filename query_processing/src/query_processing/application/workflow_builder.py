@@ -15,7 +15,8 @@ after the function, and Domino tracing needs that name. The answer, a bool or a
 label, picks its row of ``path_map``.
 
 Example:
-    >>> workflow = build_workflow(settings.graph, deps.components())
+    >>> workflow = build_workflow(
+    ...     settings.graph, deps.components(), stage_context(settings))
     >>> result = await workflow.run("How many vacation days?")
 """
 
@@ -41,7 +42,7 @@ from ..domain.registry import Registry
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
 from .graph_check import WorkflowGraphError
 from .stage_binding import bind_call, stage_fields, stage_type_of
-from .stages.base_stage import STAGE_TYPES, BaseStage, StageTypes
+from .stages.base_stage import STAGE_TYPES, BaseStage, StageContext, StageTypes
 from .stages.call_stage import CallStage
 from .state_fields import field_types_of, state_type
 from .workflow import CompiledWorkflow
@@ -75,6 +76,7 @@ class LangGraphNode(Protocol):
 def build_workflow(
     graph: GraphDescription,
     components: Mapping[str, object],
+    context: StageContext,
     *,
     stage_types: StageTypes = STAGE_TYPES,
     edge_conditions: Registry[EdgeCondition] = EDGE_CONDITIONS,
@@ -84,6 +86,7 @@ def build_workflow(
     Args:
         graph: The stages, the chains of plain edges and the conditional edges.
         components: What a stage's ``call`` names, by name.
+        context: What every stage of a stage type is given, such as the prompts.
         stage_types: Where a stage's type is found; the registered stage types
             unless a test hands in its own.
         edge_conditions: Where a conditional edge's ``path`` is found; the
@@ -102,10 +105,10 @@ def build_workflow(
             two types.
 
     Example:
-        >>> build_workflow(settings.graph, deps.components())
+        >>> build_workflow(settings.graph, deps.components(), stage_context(settings))
     """
     stages = {
-        name: open_stage(name, description, components, stage_types)
+        name: open_stage(name, description, components, stage_types, context)
         for name, description in graph.stages.items()
     }
     types = field_types_of({name: stage.field_types for name, stage in stages.items()})
@@ -154,6 +157,7 @@ def open_stage(
     description: StageDescription,
     components: Mapping[str, object],
     stage_types: StageTypes,
+    context: StageContext,
 ) -> BaseStage[Any, Any] | CallStage:
     """Build one stage: its stage type with its settings, or a plain call.
 
@@ -162,6 +166,7 @@ def open_stage(
         description: The stage's type, ``call``, lists and own settings.
         components: What ``call`` names, by name.
         stage_types: Where the stage's type is found.
+        context: What a stage of a stage type is given; a plain call needs none.
 
     Returns:
         The stage: of its stage type, or a plain call when it is of none.
@@ -176,11 +181,12 @@ def open_stage(
         >>> open_stage("retrieve", StageDescription.model_validate(
         ...     {"call": "vector_store", "retrieval_mode": "dense", "top_k": 20,
         ...      "reads": ["query_embedding"], "writes": ["candidates"]}),
-        ...     components, STAGE_TYPES)
+        ...     components, STAGE_TYPES, StageContext())
         <RetrieveStage ...>
         >>> open_stage("embed", StageDescription.model_validate(
         ...     {"call": "embedder", "reads": ["standalone_query"],
-        ...      "writes": ["query_embedding"]}), components, STAGE_TYPES)
+        ...      "writes": ["query_embedding"]}), components, STAGE_TYPES,
+        ...     StageContext())
         <CallStage ...>
     """
     component = components[description.call]
@@ -189,7 +195,7 @@ def open_stage(
         if stage_type is None:
             return open_call(description, component)
         settings = stage_type.settings_type.model_validate(description.stage_settings)
-        return stage_type(component, settings, stage_fields(description))
+        return stage_type(component, settings, stage_fields(description), context)
     except ValueError as exc:
         # A refusal, so qp-serve reports it as one line, not as a crash.
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc

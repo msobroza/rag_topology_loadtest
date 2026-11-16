@@ -14,8 +14,6 @@ from query_processing.domain.graph_description import GraphDescription
 from rag_graphs import fixture_graph, rag_graph, write_workflow_file
 
 SettingsFactory = Callable[..., WorkflowSettings]
-SYSTEM_PROMPT = "Answer from the numbered fixture passages only."  # the fixture's
-USER_PROMPT = "Context:\n{context}\n\nQuestion: {question}"
 
 
 def stage_settings(settings: WorkflowSettings) -> dict[str, dict[str, object]]:
@@ -103,7 +101,7 @@ def test_the_fixture_file_reads_into_stages_edges_and_a_conditional_edge(
         "embed": {},
         "retrieve": {"retrieval_mode": "dense", "top_k": 20},
         "rerank": {"top_k": 10},
-        "generate": {"system_prompt": SYSTEM_PROMPT, "user_prompt": USER_PROMPT},
+        "generate": {"prompt": "answer_from_context"},
     }
     calls = {name: stage.call for name, stage in s.graph.stages.items()}
     assert calls == {
@@ -126,14 +124,14 @@ def test_the_fixture_file_reads_into_stages_edges_and_a_conditional_edge(
     assert all(stage.type is None for stage in s.graph.stages.values())
 
 
-def test_a_variable_overrides_one_prompt_and_keeps_the_other(
+def test_a_variable_names_another_prompt_for_the_generate_stage(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT", "Be terse.")
+    monkeypatch.setenv("QP_GRAPH__STAGES__GENERATE__PROMPT", "terse")
 
     generate = stage_settings(settings_factory())["generate"]
 
-    assert generate == {"system_prompt": "Be terse.", "user_prompt": USER_PROMPT}
+    assert generate == {"prompt": "terse"}
 
 
 def test_the_sources_win_in_their_order(

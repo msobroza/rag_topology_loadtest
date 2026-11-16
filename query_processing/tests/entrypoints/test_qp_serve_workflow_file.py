@@ -10,6 +10,7 @@ code. A variable named by a value's path overrides that value.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,10 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from query_processing.application.graph_check import check_graph
-from query_processing.composition.composition_root import CompositionRoot
+from query_processing.composition.composition_root import (
+    CompositionRoot,
+    stage_context,
+)
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.entrypoints import qp_serve
@@ -31,8 +35,7 @@ from workflow_fakes import RecordingEmbedder, RecordingReranker, ScriptedStore
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
 TIMING_KEYS = {"embed", "retrieve", "rerank", "generate", "total"}
-# The graph of the README's lexical workflow file, its prompts written out: no
-# embed stage.
+# The graph of the README's lexical workflow file: no embed stage.
 LEXICAL_WORKFLOW = """
 graph:
   stages:
@@ -49,8 +52,7 @@ graph:
       writes: [reranked]
     generate:
       call: llm
-      system_prompt: Answer from the numbered passages only.
-      user_prompt: "Context: {context} Question: {question}"
+      prompt: answer_from_context
       reads: [conversational_query, reranked]
       writes: [answer]
   edges:
@@ -60,6 +62,11 @@ graph:
     - {source: rerank, path: is_query_mode, reads: [mode], path_map: {true: generate, false: END}}
 """
 SettingsFactory = Callable[..., WorkflowSettings]
+# An answer prompt whose second message is no template Jinja2 can read.
+UNREADABLE_PROMPT = [
+    {"role": "system", "content": "Answer."},
+    {"role": "user", "content": "{% for passage in reranked %}{{ passage }}"},
+]
 
 
 def ask(
@@ -191,7 +198,7 @@ def test_stages_of_no_stage_type_that_state_their_lists_answer_as_plain_calls(
     settings = settings_factory(**FAKE_BACKENDS)
     embedder, reranker = RecordingEmbedder(), RecordingReranker()
 
-    check_graph(settings.graph, settings.component_types())
+    check_graph(settings.graph, settings.component_types(), stage_context(settings))
     body = ask(settings, "/query", embedder=embedder, reranker=reranker)
 
     assert embedder.queries == [QUESTION]
@@ -231,11 +238,15 @@ def test_a_variable_named_by_a_values_path_overrides_the_file(
     assert len(body["passages"]) == 3
 
 
-def test_a_variable_overrides_a_prompt_of_the_generate_stage(
+def test_a_variable_replaces_the_prompt_of_the_generate_stage_as_json(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    variable = "QP_GRAPH__STAGES__GENERATE__USER_PROMPT"
-    monkeypatch.setenv(variable, "ASK {question} USING {context}")
+    content = (
+        "ASK {{ conversational_query }} USING "
+        "{% for p in reranked %}[{{ loop.index }}] {{ p.text }} {% endfor %}"
+    )
+    prompt = [{"role": "user", "content": content}]
+    monkeypatch.setenv("QP_PROMPTS__ANSWER_FROM_CONTEXT", json.dumps(prompt))
 
     body = ask(settings_factory(**FAKE_BACKENDS), "/query")
 
@@ -249,7 +260,12 @@ def test_a_variable_overrides_a_prompt_of_the_generate_stage(
     ("variable", "value", "refused"),
     [
         ("QP_GRAPH__STAGES__RERANK__TOP_N", "3", "top_n"),
-        ("QP_GRAPH__STAGES__GENERATE__USER_PROMPT", "Q: {question}", "{context}"),
+        ("QP_GRAPH__STAGES__GENERATE__PROMPT", "missing", "names the prompt 'missing'"),
+        (
+            "QP_PROMPTS__ANSWER_FROM_CONTEXT",
+            json.dumps(UNREADABLE_PROMPT),
+            r"message 2 \(user\) of the prompt cannot be read: Unexpected end",
+        ),
     ],
 )
 def test_a_stage_setting_its_stage_type_refuses_stops_the_app_at_start_up(
@@ -349,7 +365,6 @@ def test_a_lexical_retrieve_stage_after_an_embed_stage_runs_it_for_nothing(
         ("QP_RETRIEVAL_MODE", "lexical"),
         ("QP_TOP_K_RERANK", "3"),
         ("QP_USER_PROMPT", "no placeholder"),
-        ("QP_PROMPTS_FILE", "/nowhere/prompts.yaml"),
     ],
 )
 def test_the_flat_variables_of_the_stages_are_no_longer_read(

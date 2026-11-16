@@ -195,8 +195,12 @@ def plain_call_reading_too_little(graph: Graph) -> None:
     graph["edges"][0] = ["START", "embed", "retrieve", "rerank", "keep_best"]
 
 
-def user_prompt_without_its_context(graph: Graph) -> None:
-    graph["stages"]["generate"]["user_prompt"] = "Q: {question}"
+def prompt_not_defined(graph: Graph) -> None:
+    graph["stages"]["generate"]["prompt"] = "answer_from_contxt"
+
+
+def prompt_variable_not_read(graph: Graph) -> None:
+    graph["stages"]["generate"]["reads"] = ["conversational_query"]
 
 
 def plain_call_key_of_the_wrong_type(graph: Graph) -> None:
@@ -351,9 +355,19 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
             "list[ScoredPassage]); reads lists 1 field after its keys fill top_k"
         ],
     ),
-    "a user prompt without its context": (
-        user_prompt_without_its_context,
-        ["stage 'generate'", "lacks the {context} placeholder"],
+    "a prompt the prompts file does not define": (
+        prompt_not_defined,
+        [
+            "stage 'generate': names the prompt 'answer_from_contxt', which the "
+            "prompts file does not define (its prompts: 'answer_from_context')"
+        ],
+    ),
+    "a prompt that uses a field the stage does not read": (
+        prompt_variable_not_read,
+        [
+            "stage 'generate': the prompt 'answer_from_context' uses 'reranked', "
+            "which the stage does not read (it reads ['conversational_query']"
+        ],
     ),
     "a key of a plain call of the wrong type": (
         plain_call_key_of_the_wrong_type,

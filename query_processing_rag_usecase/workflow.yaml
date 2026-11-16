@@ -1,6 +1,7 @@
-# The RAG use case's workflow (ADR 0004, ADR 0005): its models, prompts, sizes
-# and store, the one place they are pinned, since the toolkit defaults none of
-# them. A command run from this directory reads this file; QP_WORKFLOW_FILE
+# The RAG use case's workflow (ADR 0004, ADR 0005): its models, sizes and
+# store, the one place they are pinned, since the toolkit defaults none of
+# them; its prompts are in prompts.yaml, beside this file, which the generate
+# stage names. A command run from this directory reads this file; QP_WORKFLOW_FILE
 # names another, such as a variant, instead. Each top-level key is a setting,
 # and each value is overridden by the variable its path names, its levels
 # joined by __, such as QP_GRAPH__STAGES__RERANK__TOP_K=5 or
@@ -85,15 +86,8 @@ graph:
       # what the user asked, then the passages; the answer
       reads: [conversational_query, reranked]
       writes: [answer]
-      system_prompt: >-
-        You answer questions using only the numbered context passages.
-        Cite passages as [n]. If the context is insufficient, say so.
-      # It holds {context} and {question}; any other brace is doubled.
-      user_prompt: |-
-        Context:
-        {context}
-
-        Question: {question}
+      # A prompt of prompts.yaml, whose variables are the fields it reads.
+      prompt: answer_from_context
   # Chains of plain edges, one edge per pair; START and END are reserved.
   edges:
     - [START, embed, retrieve, rerank]

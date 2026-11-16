@@ -45,6 +45,7 @@ from pydantic_settings import (
 )
 
 from ..domain.graph_description import GraphDescription
+from ..domain.prompts import Prompt
 from ..domain.run_label import (
     RUN_LABEL_PATTERN,
     RUN_LABEL_SHAPE,
@@ -61,6 +62,7 @@ from .component_settings import (
     typed_by_name,
 )
 from .extensions import load_extensions
+from .prompts_file import prompts_file, prompts_file_source
 from .searched_embedder import searched_embedder
 from .shared_settings import (
     CalibrationSettings,
@@ -121,6 +123,8 @@ class WorkflowSettings(BaseSettings):
     # The workflow file's components block: each model and the vector store by
     # name, its backend, its settings and one block per backend.
     components: dict[str, Component]
+    # The prompts file's prompts by name, which a stage names (prompts_file.py).
+    prompts: dict[str, Prompt] = Field(default_factory=dict)
 
     # --- the topology alias and the run label: labels, they decide no backend -------
     # The topology alias the deploy tool deployed, sent as X-RAG-Topology; unset,
@@ -158,7 +162,7 @@ class WorkflowSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Order the sources: init kwargs > environment > .env > the workflow file.
+        """Order the sources: init kwargs > environment > .env > the two files.
 
         The class defaults come last. The sources are merged key by key, so a
         variable such as ``QP_GRAPH__STAGES__RERANK__TOP_K`` overrides one value
@@ -177,7 +181,8 @@ class WorkflowSettings(BaseSettings):
         # Pydantic passes every source by keyword, so the names stay.
         del file_secret_settings
         workflow = workflow_file_source(settings_cls, workflow_file())
-        return init_settings, env_settings, dotenv_settings, workflow
+        prompts = prompts_file_source(settings_cls, prompts_file())
+        return init_settings, env_settings, dotenv_settings, workflow, prompts
 
     @model_validator(mode="before")
     @classmethod

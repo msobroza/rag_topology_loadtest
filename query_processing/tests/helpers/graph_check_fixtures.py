@@ -23,6 +23,7 @@ from query_processing.application.graph_check import check_graph
 from query_processing.application.stages.base_stage import (
     BaseStage,
     FieldTypes,
+    StageContext,
     StageFields,
     StageSettings,
     StageTypes,
@@ -71,7 +72,9 @@ class FixtureStage(BaseStage[Any, NoSettings]):
     labels: tuple[str, ...] = ()  # the labels of the field it writes, if any
 
     @classmethod
-    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
+    def check_fields(
+        cls, settings: NoSettings, fields: StageFields, context: StageContext
+    ) -> FieldTypes:
         expecting = f"the {cls.__name__}"
         labels = {fields.writes[0]: cls.labels} if cls.labels else {}
         return FieldTypes(
@@ -148,6 +151,7 @@ def check(graph: GraphDescription, components: dict[str, str] = COMPONENTS) -> N
     check_graph(
         graph,
         components,
+        StageContext(),
         component_types=FIXTURE_COMPONENT_TYPES,
         stage_types=FIXTURE_STAGE_TYPES,
         edge_conditions=FIXTURE_EDGE_CONDITIONS,

@@ -19,6 +19,7 @@ import copy
 from collections.abc import Mapping
 from typing import Any
 
+from query_processing.config.prompts_file import PROMPTS_FILE_VAR
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 
 # Every model component and the vector store on its fake backend: no weights,
@@ -40,15 +41,12 @@ def shell_settings(
 ) -> list[str]:
     """The variables of ``environ`` a test clears: each with one of ``prefixes``.
 
-    A variable of the developer's shell would leak into the test. The one that
-    names the tests' workflow file (conftest.py) stays: the toolkit ships none,
-    and a test that clears the others still reads the tests' file.
+    A variable of the developer's shell would leak into the test. The ones that
+    name the tests' workflow and prompts files (conftest.py) stay: the toolkit
+    ships none, and a test that clears the others still reads the tests' files.
     """
-    return [
-        name
-        for name in environ
-        if name.startswith(prefixes) and name != WORKFLOW_FILE_VARIABLE
-    ]
+    kept = {WORKFLOW_FILE_VARIABLE, PROMPTS_FILE_VAR}
+    return [name for name in environ if name.startswith(prefixes) and name not in kept]
 
 
 def without_shell_settings(environ: Mapping[str, str]) -> dict[str, str]:

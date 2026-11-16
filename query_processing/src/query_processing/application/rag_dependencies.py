@@ -47,7 +47,7 @@ class RagDependencies:
             Each open component, by name.
 
         Example:
-            >>> build_workflow(settings.graph, deps.components())
+            >>> build_workflow(settings.graph, deps.components(), context)
         """
         return dict(self.by_name)
 

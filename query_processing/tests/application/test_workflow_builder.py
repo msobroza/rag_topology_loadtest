@@ -21,6 +21,7 @@ from query_processing.application.graph_check import WorkflowGraphError
 from query_processing.application.stages.base_stage import (
     BaseStage,
     FieldTypes,
+    StageContext,
     StageFields,
     StageSettings,
     fields_in_order,
@@ -87,7 +88,9 @@ class CopyStage(BaseStage[FakeScribe, SuffixSettings]):
     settings_type = SuffixSettings
 
     @classmethod
-    def check_fields(cls, settings: SuffixSettings, fields: StageFields) -> FieldTypes:
+    def check_fields(
+        cls, settings: SuffixSettings, fields: StageFields, context: StageContext
+    ) -> FieldTypes:
         return one_field_each("copy", fields)
 
     async def run(self, state: WorkflowState) -> WorkflowState:
@@ -101,7 +104,9 @@ class ShoutStage(BaseStage[FakeScribe, NoSettings]):
     settings_type = NoSettings
 
     @classmethod
-    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
+    def check_fields(
+        cls, settings: NoSettings, fields: StageFields, context: StageContext
+    ) -> FieldTypes:
         return one_field_each("shout", fields)
 
     async def run(self, state: WorkflowState) -> WorkflowState:
@@ -116,7 +121,9 @@ class ClassifyStage(BaseStage[FakeScribe, NoSettings]):
     settings_type = NoSettings
 
     @classmethod
-    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
+    def check_fields(
+        cls, settings: NoSettings, fields: StageFields, context: StageContext
+    ) -> FieldTypes:
         types = one_field_each("classify", fields)
         return types._replace(labels={fields.writes[0]: ("question", "statement")})
 
@@ -164,6 +171,7 @@ def fixture_workflow(scribe: FakeScribe, **changes: Any) -> CompiledWorkflow:
     return build_workflow(
         graph,
         {"scribe": scribe},
+        StageContext(),
         stage_types=FIXTURE_STAGE_TYPES,
         edge_conditions=FIXTURE_EDGE_CONDITIONS,
     )
@@ -305,7 +313,9 @@ def test_two_stages_that_write_one_field_as_two_types_are_refused() -> None:
         WorkflowGraphError,
         match="'answer' is written as str by 'loud' and as int by 'sized'",
     ):
-        build_workflow(graph, {"echo": Upper()}, stage_types=FIXTURE_STAGE_TYPES)
+        build_workflow(
+            graph, {"echo": Upper()}, StageContext(), stage_types=FIXTURE_STAGE_TYPES
+        )
 
 
 def test_a_longer_chain_is_one_edge_per_pair() -> None:
@@ -335,6 +345,7 @@ async def test_a_plain_call_in_the_graph_answers_through_its_component() -> None
     workflow = build_workflow(
         graph,
         {"scribe": FakeScribe(), "echo": Upper()},
+        StageContext(),
         stage_types=FIXTURE_STAGE_TYPES,
         edge_conditions=FIXTURE_EDGE_CONDITIONS,
     )
@@ -360,7 +371,9 @@ def test_open_stage_builds_a_plain_call_bound_by_its_lists() -> None:
         {"call": "echo", "reads": ["conversational_query"], "writes": ["answer"]}
     )
 
-    stage = open_stage("loud", description, {"echo": Upper()}, FIXTURE_STAGE_TYPES)
+    stage = open_stage(
+        "loud", description, {"echo": Upper()}, FIXTURE_STAGE_TYPES, StageContext()
+    )
 
     assert isinstance(stage, CallStage)
     assert stage.binding.from_reads == {"text": "conversational_query"}
@@ -372,7 +385,9 @@ def test_open_stage_builds_the_stage_type_its_description_names() -> None:
         {"type": "copy", "call": "scribe", "suffix": "?", **DRAFT_LISTS}
     )
 
-    stage = open_stage("draft", description, {"scribe": scribe}, FIXTURE_STAGE_TYPES)
+    stage = open_stage(
+        "draft", description, {"scribe": scribe}, FIXTURE_STAGE_TYPES, StageContext()
+    )
 
     assert isinstance(stage, CopyStage)
     assert (stage.component, stage.settings) == (scribe, SuffixSettings(suffix="?"))
@@ -383,7 +398,13 @@ def test_open_stage_refuses_lists_its_stage_type_cannot_use() -> None:
     description = StageDescription.model_validate({**SHOUT, "writes": []})
 
     with pytest.raises(WorkflowGraphError) as refused:
-        open_stage("shout", description, {"scribe": FakeScribe()}, FIXTURE_STAGE_TYPES)
+        open_stage(
+            "shout",
+            description,
+            {"scribe": FakeScribe()},
+            FIXTURE_STAGE_TYPES,
+            StageContext(),
+        )
 
     assert str(refused.value) == (
         "stage 'shout': the shout stage writes 1 field, for text: str (got writes [])"
@@ -392,7 +413,10 @@ def test_open_stage_refuses_lists_its_stage_type_cannot_use() -> None:
 
 async def test_timed_adds_the_stage_wall_time_under_its_name_to_its_update() -> None:
     stage = ShoutStage(
-        FakeScribe(), NoSettings(), StageFields(("answer",), ("answer",))
+        FakeScribe(),
+        NoSettings(),
+        StageFields(("answer",), ("answer",)),
+        StageContext(),
     )
 
     update = await timed("loud", stage)({"answer": "hi"})

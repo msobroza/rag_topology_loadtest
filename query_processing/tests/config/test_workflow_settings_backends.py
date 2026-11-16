@@ -232,6 +232,7 @@ def test_settings_field_set_is_pinned() -> None:
         "graph",
         "http",
         "local_models",
+        "prompts",
         "run_label",
         "topology_alias",
     ]

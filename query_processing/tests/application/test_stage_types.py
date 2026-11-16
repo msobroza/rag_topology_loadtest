@@ -16,6 +16,7 @@ from query_processing.adapters.vector_store.base_vector_store import (
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.stages.base_stage import (
     STAGE_TYPES,
+    StageContext,
     StageFields,
     StageSettings,
 )
@@ -29,8 +30,10 @@ from query_processing.application.stages.retrieve_stage import (
 )
 from query_processing.application.state_fields import field_types_of, state_type
 from query_processing.application.workflow_builder import open_stage
+from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.prompts import PromptMessage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored
 
@@ -48,7 +51,18 @@ ASKED = {
 ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
 FILTER_TYPE = list[MetadataCondition]
 GENERATE_FIELDS = StageFields(("conversational_query", "reranked"), ("answer",))
-TEMPLATE = {"system_prompt": "s", "user_prompt": "{question}|{context}"}
+ANSWER = GenerateSettings(prompt="answer")
+NUMBERED = "{% for p in reranked %}[{{ loop.index }}] {{ p.text }}{% endfor %}"
+CONTEXT = StageContext(
+    {
+        "answer": [
+            PromptMessage(role="system", content="s"),
+            PromptMessage(
+                role="user", content="{{ conversational_query }}|" + NUMBERED
+            ),
+        ]
+    }
+)
 
 
 @pytest.mark.parametrize("name", sorted(RAG_STAGE_TYPES))
@@ -69,11 +83,14 @@ def test_embed_and_rerank_are_plain_calls_not_stage_types() -> None:
 
 @pytest.mark.parametrize("mode", ["dense", "lexical", "hybrid"])
 async def test_each_rag_stage_reads_and_writes_fields_of_the_workflow_state(
-    fake_deps: RagDependencies, mode: str
+    fake_deps: RagDependencies, fake_settings: WorkflowSettings, mode: str
 ) -> None:
     graph = rag_graph(mode)
+    context = StageContext(fake_settings.prompts)
     stages = {
-        name: open_stage(name, description, fake_deps.components(), STAGE_TYPES)
+        name: open_stage(
+            name, description, fake_deps.components(), STAGE_TYPES, context
+        )
         for name, description in graph.stages.items()
     }
     types = field_types_of({name: stage.field_types for name, stage in stages.items()})
@@ -103,7 +120,9 @@ def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
     settings = RetrieveSettings(retrieval_mode=mode, top_k=5, rrf_k=60)
 
     # What the start-up checks ask, with no store and no stage built.
-    field_types = RetrieveStage.check_fields(settings, StageFields(reads, ("found",)))
+    field_types = RetrieveStage.check_fields(
+        settings, StageFields(reads, ("found",)), StageContext()
+    )
 
     assert field_types.reads == dict(zip(reads, types, strict=True))
     assert field_types.writes == {"found": list[ScoredPassage]}
@@ -134,23 +153,47 @@ def test_the_retrieve_stage_refuses_lists_its_retrieval_mode_cannot_use(
     settings = RetrieveSettings(retrieval_mode=mode, top_k=5, rrf_k=60)
 
     with pytest.raises(ValueError, match=r"fields?, for") as refused:
-        RetrieveStage.check_fields(settings, fields)
+        RetrieveStage.check_fields(settings, fields, StageContext())
 
     assert str(refused.value) == said
 
 
-def test_the_generate_stage_reads_the_question_and_the_passages() -> None:
-    settings = GenerateSettings(**TEMPLATE)
+def test_the_generate_stage_reads_the_variables_of_its_prompt() -> None:
+    field_types = GenerateStage.check_fields(ANSWER, GENERATE_FIELDS, CONTEXT)
 
-    field_types = GenerateStage.check_fields(settings, GENERATE_FIELDS)
-
-    assert field_types.reads == {
-        "conversational_query": str,
-        "reranked": list[ScoredPassage],
-    }
+    assert field_types.reads == {"conversational_query": Any, "reranked": Any}
     assert field_types.writes == {"answer": str}
-    with pytest.raises(ValueError, match=r"reads 2 fields, for question: str, "):
-        GenerateStage.check_fields(settings, StageFields(("reranked",), ("answer",)))
+    no_writes = StageFields(GENERATE_FIELDS.reads, ())
+    with pytest.raises(ValueError, match=r"writes 1 field, for answer: str"):
+        GenerateStage.check_fields(ANSWER, no_writes, CONTEXT)
+
+
+@pytest.mark.parametrize(
+    ("settings", "content", "refused"),
+    [
+        (
+            GenerateSettings(prompt="missing"),
+            "{{ conversational_query }}",
+            "names the prompt 'missing', which the prompts file does not define "
+            r"\(its prompts: 'answer'\)",
+        ),
+        (
+            ANSWER,
+            "{{ conversational_query }} {{ reranked }}",
+            "the prompt 'answer' uses 'reranked', which the stage does not read "
+            r"\(it reads \['conversational_query'\]",
+        ),
+        (ANSWER, "{% if %}", r"message 1 \(user\) of the prompt cannot be read"),
+    ],
+)
+def test_the_generate_stage_refuses_a_prompt_it_cannot_render(
+    settings: GenerateSettings, content: str, refused: str
+) -> None:
+    context = StageContext({"answer": [PromptMessage(role="user", content=content)]})
+    fields = StageFields(("conversational_query",), ("answer",))
+
+    with pytest.raises(ValueError, match=refused):
+        GenerateStage.check_fields(settings, fields, context)
 
 
 def test_the_fusion_constant_is_a_default_and_the_use_cases_choices_are_not() -> None:
@@ -178,7 +221,7 @@ async def test_the_retrieve_stage_reads_the_fields_its_lists_name() -> None:
     lexical = RetrieveSettings(retrieval_mode="lexical", top_k=3, rrf_k=60)
     fields = StageFields(("rewritten", "metadata_filter"), ("found",))
 
-    update = await RetrieveStage(store, lexical, fields).run(
+    update = await RetrieveStage(store, lexical, fields, StageContext()).run(
         {**ASKED, "rewritten": "days off in May"}
     )
 
@@ -193,7 +236,7 @@ async def test_the_retrieve_stage_hands_a_hybrid_search_its_vector_and_words() -
         ("query_embedding", "standalone_query", "metadata_filter"), ("candidates",)
     )
 
-    update = await RetrieveStage(store, hybrid, fields).run(
+    update = await RetrieveStage(store, hybrid, fields, StageContext()).run(
         {**ASKED, "query_embedding": [1.0, 0.0], "metadata_filter": [ON_PAY]}
     )
 
@@ -204,30 +247,24 @@ async def test_the_retrieve_stage_hands_a_hybrid_search_its_vector_and_words() -
 
 
 async def test_the_generate_stage_answers_what_the_user_asked() -> None:
-    settings = GenerateSettings(**TEMPLATE)
+    stage = GenerateStage(FakeLLM(), ANSWER, GENERATE_FIELDS, CONTEXT)
 
-    update = await GenerateStage(FakeLLM(), settings, GENERATE_FIELDS).run(
+    update = await stage.run(
         {**ASKED, "reranked": [scored("a", "May has 2 days off.")]}
     )
 
     assert update["answer"] == "[fake-llm] and in May?|[1] May has 2 days off."
 
 
-async def test_the_generate_stage_reads_and_writes_the_fields_its_lists_name() -> None:
-    settings = GenerateSettings(**TEMPLATE)
-    fields = StageFields(("standalone_query", "kept"), ("reply",))
+async def test_the_generate_stage_reads_any_number_of_fields_as_its_variables() -> None:
+    content = "{{ standalone_query }}|{{ kept | map(attribute='text') | join }}|{{ n }}"
+    context = StageContext({"answer": [PromptMessage(role="user", content=content)]})
+    fields = StageFields(("standalone_query", "kept", "n"), ("reply",))
+    stage = GenerateStage(FakeLLM(), ANSWER, fields, context)
 
-    update = await GenerateStage(FakeLLM(), settings, fields).run(
-        {**ASKED, "kept": [scored("a", "2 days.")]}
-    )
+    update = await stage.run({**ASKED, "kept": [scored("a", "2 days.")], "n": 3})
 
-    assert update == {"reply": "[fake-llm] vacation in May|[1] 2 days."}
-
-
-def test_the_generate_stages_settings_refuse_a_template_it_cannot_fill() -> None:
-    # In the settings, so the start-up checks refuse it before any component opens.
-    with pytest.raises(ValidationError, match=r"lacks the \{context\} placeholder"):
-        GenerateSettings(system_prompt="s", user_prompt="Q: {question}")
+    assert update == {"reply": "[fake-llm] vacation in May|2 days.|3"}
 
 
 def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:

@@ -53,12 +53,7 @@ graph:
       call: llm
       reads: [conversational_query, reranked]
       writes: [answer]
-      system_prompt: Answer from the numbered fixture passages only.
-      user_prompt: |-
-        Context:
-        {context}
-
-        Question: {question}
+      prompt: answer_from_context # of fixture_prompts.yaml
   edges:
     - [START, embed, retrieve, rerank]
     - [generate, END]

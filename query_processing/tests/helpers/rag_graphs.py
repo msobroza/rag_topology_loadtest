@@ -23,13 +23,14 @@ from query_processing.domain.graph_description import GraphDescription
 
 # The workflow file every test reads unless it names another (conftest.py).
 FIXTURE_WORKFLOW = Path(__file__).with_name("fixture_workflow.yaml")
+# Its prompts, which every test reads unless it names another file (conftest.py).
+FIXTURE_PROMPTS = Path(__file__).with_name("fixture_prompts.yaml")
 # Each keyword of rag_graph: the stage it sets and the key of that stage.
 STAGE_SETTING = {
     "retrieve_top_k": ("retrieve", "top_k"),
     "rrf_k": ("retrieve", "rrf_k"),
     "rerank_top_k": ("rerank", "top_k"),
-    "system_prompt": ("generate", "system_prompt"),
-    "user_prompt": ("generate", "user_prompt"),
+    "prompt": ("generate", "prompt"),
 }
 # What the retrieve stage reads in each retrieval mode: a vector, words, or both,
 # then the metadata filter.

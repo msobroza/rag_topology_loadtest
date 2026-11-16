@@ -1,8 +1,7 @@
-"""The RAG graph of the tests' workflow file, built over fake ports, and the prompts."""
+"""The RAG graph of the tests' workflow file, built over fake ports."""
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -11,11 +10,13 @@ import pytest
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.adapters.reranker.none.no_reranker import NoReranker
 from query_processing.application.rag_dependencies import RagDependencies
+from query_processing.application.stages.base_stage import StageContext
 from query_processing.application.workflow import CompiledWorkflow, stage_timings
 from query_processing.application.workflow_builder import build_workflow
 from query_processing.application.workflow_state import initial_state
+from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.corpus import synthetic_questions
-from query_processing.domain.prompts import RagPrompts
+from query_processing.domain.prompts import Prompt, PromptMessage
 from rag_graphs import rag_graph
 from workflow_fakes import (
     ChainNameRecorder,
@@ -23,7 +24,6 @@ from workflow_fakes import (
     RecordingEmbedder,
     RecordingReranker,
     ScriptedStore,
-    scored,
 )
 
 VACATION_QUESTION = synthetic_questions(1)[0]
@@ -31,14 +31,22 @@ VACATION_QUESTION = synthetic_questions(1)[0]
 TIMING_KEYS = ["embed", "retrieve", "rerank", "generate", "total"]
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 WorkflowFor = Callable[..., CompiledWorkflow]
+# A prompt other than the fixture's: the question, then the passages.
+ASKED_USING = "ASK {{ conversational_query }} USING {% for p in reranked %}[{{ loop.index }}] {{ p.text }} {% endfor %}"
 
 
 @pytest.fixture
-def workflow_for() -> WorkflowFor:
-    """Today's graph with ``changes`` (see ``rag_graph``), over ``deps``."""
+def workflow_for(fake_settings: WorkflowSettings) -> WorkflowFor:
+    """Today's graph with ``changes`` (see ``rag_graph``), over ``deps``.
 
-    def make(deps: RagDependencies, **changes: Any) -> CompiledWorkflow:
-        return build_workflow(rag_graph(**changes), deps.components())
+    Its prompts are the fixture's, and ``prompts`` adds or replaces some.
+    """
+
+    def make(
+        deps: RagDependencies, prompts: dict[str, Prompt] | None = None, **changes: Any
+    ) -> CompiledWorkflow:
+        context = StageContext({**fake_settings.prompts, **(prompts or {})})
+        return build_workflow(rag_graph(**changes), deps.components(), context)
 
     return make
 
@@ -130,8 +138,8 @@ async def test_non_default_settings_size_retrieval_rerank_and_prompt(
         deps,
         retrieve_top_k=3,
         rerank_top_k=2,
-        system_prompt="s",
-        user_prompt="ASK {question} USING {context}",
+        prompt="asked",
+        prompts={"asked": [PromptMessage(role="user", content=ASKED_USING)]},
     )
 
     result = await workflow.run("vacation days")
@@ -298,60 +306,3 @@ def test_stage_timings_keys_every_stage_in_the_graph_s_order_then_the_total() ->
 
     assert timings == {"embed": 1.0, "rerank": 3.0, "generate": 0.0, "total": 9.5}
     assert list(timings) == ["embed", "rerank", "generate", "total"]
-
-
-# --- prompt helpers ----------------------------------------------------------------
-
-
-def test_rag_prompts_number_the_passages_into_the_user_template() -> None:
-    prompts = RagPrompts(system="Be brief.", user="C:\n{context}\nQ: {question}")
-    passages = [scored("a", "Alpha text."), scored("b", "Beta text.")]
-
-    messages = prompts.messages("What is alpha?", passages)
-
-    assert messages == [
-        {"role": "system", "content": "Be brief."},
-        {
-            "role": "user",
-            "content": "C:\n[1] Alpha text.\n[2] Beta text.\nQ: What is alpha?",
-        },
-    ]
-
-
-@pytest.mark.parametrize(
-    ("user", "missing"),
-    [("Q: {question}", "{context}"), ("Context: {context}", "{question}")],
-)
-def test_rag_prompts_reject_a_user_template_missing_a_placeholder(
-    user: str, missing: str
-) -> None:
-    with pytest.raises(ValueError, match=re.escape(missing)) as caught:
-        RagPrompts(system="s", user=user)
-
-    assert missing in str(caught.value)
-    assert repr(user) in str(caught.value)
-
-
-@pytest.mark.parametrize(
-    "user",
-    [
-        "{context} {question} {history}",  # a placeholder nobody fills
-        '{context} {question} answer as {"answer": ...}',  # JSON braces not doubled
-        "{context} {question} }",  # a lone brace
-    ],
-)
-def test_rag_prompts_reject_a_brace_they_cannot_fill_when_built(user: str) -> None:
-    # Built at start-up from the settings, so this never waits for the first query.
-    with pytest.raises(ValueError, match=r"\{\{") as caught:
-        RagPrompts(system="s", user=user)
-
-    assert "{{" in str(caught.value)  # says how to write a literal brace
-    assert repr(user) in str(caught.value)
-
-
-def test_rag_prompts_keep_braces_of_the_question_and_passages_as_they_are() -> None:
-    prompts = RagPrompts(system="s", user='{context}|{question}|{{"k": 1}}')
-
-    messages = prompts.messages("what is {x}?", [scored("a", "set {y} to 1")])
-
-    assert messages[1]["content"] == '[1] set {y} to 1|what is {x}?|{"k": 1}'

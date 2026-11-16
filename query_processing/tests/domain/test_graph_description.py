@@ -35,8 +35,7 @@ SPEC_GRAPH = {
         },
         "generate": {
             "call": "llm",
-            "system_prompt": "s",
-            "user_prompt": "u",
+            "prompt": "answer_from_context",
             "reads": ["conversational_query", "reranked"],
             "writes": ["answer"],
         },

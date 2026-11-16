@@ -3,8 +3,8 @@
 This repository holds a toolkit, `query_processing`, and its first use case, a
 RAG workflow. A use case is a directory of settings, and two of its files say
 what runs and where. The RAG's workflow file,
-`query_processing_rag_usecase/workflow.yaml`, without its comments and with its
-two prompts shortened:
+`query_processing_rag_usecase/workflow.yaml`, without its comments (its
+prompts are in `prompts.yaml`, beside it):
 
 ```yaml
 components:
@@ -23,7 +23,7 @@ graph:
     embed:    {call: embedder, reads: [standalone_query], writes: [query_embedding]}
     retrieve: {call: vector_store, retrieval_mode: dense, top_k: 20, reads: [query_embedding, metadata_filter], writes: [candidates]}
     rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
-    generate: {call: llm, system_prompt: "…", user_prompt: "…", reads: [conversational_query, reranked], writes: [answer]}
+    generate: {call: llm, prompt: answer_from_context, reads: [conversational_query, reranked], writes: [answer]}
   edges:
     - [START, embed, retrieve, rerank]
     - [generate, END]
@@ -240,7 +240,8 @@ Start from a copy of the RAG's:
 
 | File | What it states |
 | --- | --- |
-| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`. Each stage the component it `call`s, its `reads` and `writes`, and the settings its stage type or its component's request requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's two prompts. No API key. |
+| `workflow.yaml` | The components and the graph ([The workflow file](#the-workflow-file)). Each component its `backend`; an embedder and a reranker their `source_id`, even on `fake`; a store on `elasticsearch` or `chroma` its `index` or `collection`. Each stage the component it `call`s, its `reads` and `writes`, and the settings its stage type or its component's request requires, which the toolkit leaves without a default: a retrieve stage's `retrieval_mode` and `top_k`, a rerank stage's `top_k`, a generate stage's `prompt`. No API key. |
+| `prompts.yaml` | The prompts a stage names, each a list of messages with a `role` and a `content`, a Jinja2 template whose variables are the fields its stage reads ([The workflow file](#the-workflow-file)). |
 | `deploy.example.yaml` | Its own `app_name_prefix`, so that its Apps can share a Domino project with the RAG's; its `topology_alias` table over its own components, and `topology`; `defaults.environment_id`; a block of `apps` per App part; this site's `overrides`. Copied to the git-ignored `deploy.yaml`. |
 | `pyproject.toml` | A distribution of its own that depends on `query-processing`, with `packages = []`, which `domino/app.sh` installs with the toolkit. |
 | `.env.example` | The API keys, by their paths; `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a load test straight at a reranker. |
@@ -448,7 +449,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
       component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
       metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
-      prompts.py      RagPrompts: system prompt + user template -> chat messages
+      prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
       retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
       rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
@@ -468,11 +469,12 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       edge_check.py   check_edges: the edges and conditional edges of a graph that cannot run, refused; field_labels: the labels each field can take
       workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out; asked_of_state
       workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
+      prompt_rendering.py  render_prompt, prompt_variables: a prompt rendered into chat messages, each content in Jinja2's sandbox (the one module that uses Jinja2)
       stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
-        base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, StageFields, FieldTypes, STAGE_TYPES
+        base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, StageFields, FieldTypes, StageContext (the prompts, given to every stage), STAGE_TYPES
         call_stage.py  CallStage: a plain call, of no stage type: its request built from its keys and reads, its answer written to its writes
         retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
-        generate_stage.py  GenerateStage: the answer to the conversational query, from the LLM
+        generate_stage.py  GenerateStage: the prompt its settings name, rendered from the fields it reads, answered by the LLM
       edge_conditions/  the edge conditions (rule 6); importing it imports every module
         edge_condition.py  EdgeCondition: a function of the values its conditional edge reads that answers yes or no, or a label; EDGE_CONDITIONS; answers_with_label
         is_query_mode.py  is_query_mode: whether the request goes on to generate, from the mode
@@ -488,6 +490,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       extensions.py   load_extensions: every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
       workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
+      prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder
@@ -634,10 +637,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     structure/        the import, placement and code-shape rules, read from the source with ast
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
-    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models), and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
+    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
 query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: settings only, no code
   pyproject.toml      the distribution (query-processing-rag-usecase), its one dependency the toolkit; packages = []
-  workflow.yaml       the RAG's workflow file: its components (models, endpoint, store) and its graph (stages, sizes, prompts)
+  workflow.yaml       the RAG's workflow file: its components (models, endpoint, store) and its graph (stages, sizes)
+  prompts.yaml        the RAG's prompts, which its generate stage names (answer_from_context)
   deploy.example.yaml  its deploy settings example: the topology aliases, the Apps, this site's overrides (cp to deploy.yaml)
   .env.example        its environment example, the load-test sizes of a rerank request included (cp to .env)
   Makefile            its run targets (serve, ingest, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
@@ -932,15 +936,43 @@ QP_LOCAL_MODELS__RUNTIME=torch QP_LOCAL_MODELS__CPUS=4 make serve
 | `retrieve` | `top_k` | `20` | candidates from the vector store (>= 1) |
 | `retrieve` | `rrf_k` | not written: `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
 | `rerank` | `top_k` | `10` | passages kept after reranking and sent to the LLM (>= 1) |
-| `generate` | `system_prompt`, `user_prompt` | the RAG's two prompts | the user template must hold `{context}` and `{question}`, and any other brace is doubled |
+| `generate` | `prompt` | `answer_from_context` | the prompt of `prompts.yaml` it renders; the fields of its `reads` are the prompt's variables, any number of them, and it writes one field, the answer |
+
+The prompts are in a file of their own, `prompts.yaml`, beside the workflow
+file: the one `QP_PROMPTS_FILE` names, else `prompts.yaml` in the working
+directory. It feeds the top-level setting `prompts`, and a `prompts` key in the
+workflow file is refused. Each prompt, by its name, is a list of messages with a
+`role` (`system`, `user` or `assistant`) and a `content`, as OpenAI writes them;
+an entry `placeholder: <field>` splices the messages of that field there, with
+only their role and content. Each content is a Jinja2 template, rendered on its
+own in Jinja2's sandbox with `trim_blocks` and `lstrip_blocks`, its variables
+the fields its stage reads; an undefined variable is an error. Start-up refuses
+a prompt that is named and not defined, a variable the stage does not read, and
+a template that cannot be read, naming its message. The RAG's:
+
+```yaml
+answer_from_context:
+  - role: system
+    content: You answer questions using only the numbered context passages. …
+  - role: user
+    content: |-
+      Context:
+      {% for passage in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {%- endfor %}
+
+
+      Question: {{ conversational_query }}
+```
 
 Each top-level key of the file is a setting, so every value in it has an
 environment variable named by its path, its levels joined by `__`, and the
-variable wins over the file:
+variable wins over the file; a variable named by a prompt's path replaces the
+whole prompt, written as JSON:
 
 ```bash
 QP_GRAPH__STAGES__RERANK__TOP_K=5 make serve
-QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT="Answer in French." make serve
+QP_PROMPTS__ANSWER_FROM_CONTEXT='[{"role": "user", "content": "Answer in French: {{ conversational_query }}"}]' make serve
 QP_COMPONENTS__RERANKER__BACKEND=none QP_COMPONENTS__LLM__API__API_KEY=<key> make serve
 ```
 
@@ -949,7 +981,7 @@ An API key is read from the environment or `.env` only, by its path
 holds one.
 
 Sources win in this order: constructor arguments, environment variables, `.env`,
-the workflow file, then the defaults of the code. A top-level key of the file
+the workflow file and the prompts file, then the defaults of the code. A top-level key of the file
 that is no setting, and a key a stage or the graph does not know, are refused at
 start-up with the key named, as is a stage without `call`, `reads` or `writes`.
 A stage checks only its own settings, so nothing checks any more that the rerank stage's `top_k`
@@ -965,7 +997,7 @@ graph:
   stages:
     retrieve: {call: vector_store, retrieval_mode: lexical, top_k: 20, reads: [standalone_query, metadata_filter], writes: [candidates]}
     rerank:   {call: reranker, top_k: 10, reads: [standalone_query, candidates], writes: [reranked]}
-    generate: {call: llm, system_prompt: "…", user_prompt: "…", reads: [conversational_query, reranked], writes: [answer]}
+    generate: {call: llm, prompt: answer_from_context, reads: [conversational_query, reranked], writes: [answer]}
   edges:
     - [START, retrieve, rerank]
     - [generate, END]
@@ -1248,7 +1280,8 @@ any more by the workflow app:
 | `RAG_RETRIEVAL_MODE` | the retrieve stage's `retrieval_mode` in the workflow file (`QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE`); a lexical workflow file has no embed stage |
 | `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | the retrieve and rerank stages' `top_k` (`QP_GRAPH__STAGES__RETRIEVE__TOP_K`, `QP_GRAPH__STAGES__RERANK__TOP_K`); Locust still reads `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a `rerank` target |
 | `RAG_HYBRID_RRF_K` | the retrieve stage's `rrf_k` |
-| `RAG_SYSTEM_PROMPT`, `RAG_USER_PROMPT`, `RAG_PROMPTS_FILE` (`config/prompts.yaml`) | the generate stage's `system_prompt` and `user_prompt`, in the workflow file |
+| `RAG_SYSTEM_PROMPT`, `RAG_USER_PROMPT`, `RAG_PROMPTS_FILE` (`config/prompts.yaml`) | the use case's `prompts.yaml` (`QP_PROMPTS_FILE`, else `./prompts.yaml`), which the generate stage names by its `prompt` |
+| the generate stage's `system_prompt` and `user_prompt` in the workflow file (`QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT`, `__USER_PROMPT`), the user template holding `{context}` and `{question}` | a prompt of `prompts.yaml` (the RAG's `answer_from_context`), a list of messages whose contents are Jinja2 templates over the fields the stage reads (the passages by a loop over `reranked`), named by the stage's `prompt`; a variable by its path replaces the whole prompt, as JSON (`QP_PROMPTS__ANSWER_FROM_CONTEXT`) |
 | the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES` passages, all kept |
 | `RAG_EMBEDDING_*`, `RAG_RERANK_*`, `RAG_GENERATION_*`, and before them `RAG_EMBEDDER_*`, `RAG_RERANKER_*` | each model component's entry in the workflow file, by its path: `RAG_EMBEDDING_MODEL` is the embedder's `source_id` (`QP_COMPONENTS__EMBEDDER__SOURCE_ID`), `RAG_RERANK_API_MODEL` its alias as a model server serves it (`QP_COMPONENTS__RERANKER__ALIAS`) or the name sent to an endpoint (`api.model`), `RAG_RERANK_THREADS` `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_EMBEDDING_NORMALIZE` `QP_COMPONENTS__EMBEDDER__LOCAL__NORMALIZE`, `RAG_GENERATION_TIMEOUT_S` `QP_COMPONENTS__LLM__HTTP__TIMEOUT_S` |
 | `RAG_OVMS_EMBEDDINGS_URL`, `RAG_OVMS_RERANK_URL` (a base URL with a localhost default) | `QP_COMPONENTS__EMBEDDER__SERVED__URL`, `QP_COMPONENTS__RERANKER__SERVED__URL` (the full route, no default) |

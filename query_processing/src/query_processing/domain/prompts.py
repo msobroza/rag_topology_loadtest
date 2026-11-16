@@ -1,74 +1,50 @@
-r"""The prompts the workflow sends to the LLM, as a value object.
+"""A prompt: a list of messages with roles, as OpenAI writes them, and placeholders.
 
-The texts are settings of the generate stage, in the workflow file; this module
-only knows how to turn them into messages.
+A use case writes its prompts in ``prompts.yaml``, beside its workflow file,
+each under its name (spec 4). Each message's ``content`` is a Jinja2 template,
+rendered on its own; an entry ``placeholder: <field>`` stands for the messages
+of that workflow state field, spliced in its place. The structure of the list is
+never rendered. These are the shapes only: ``application.prompt_rendering``
+renders them.
 
 Example:
-    >>> prompts = RagPrompts(system="Cite [n].", user="{context}\n\nQ: {question}")
-    >>> prompts.messages("How many vacation days?", passages)
+    >>> prompt = [PromptMessage(role="system", content="Cite [n]."),
+    ...           PromptPlaceholder(placeholder="conversational_history"),
+    ...           PromptMessage(role="user", content="{{ conversational_query }}")]
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from typing import Literal
 
-from .passages import ScoredPassage
-
-_PLACEHOLDERS = ("{context}", "{question}")
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass(frozen=True)
-class RagPrompts:
-    """The system prompt and the user template.
+class PromptMessage(BaseModel):
+    """One message of a prompt: its role, and its content, a Jinja2 template.
 
-    Construction fails with ``ValueError`` when the user template lacks a
-    placeholder or holds a brace ``str.format`` cannot fill, so a bad template
-    fails at start-up rather than on the first query.
-
-    Args:
-        system: The system prompt, sent as is.
-        user: The user template, holding ``{context}`` and ``{question}``; any
-            other literal brace must be doubled, as in ``str.format``.
+    Example:
+        >>> PromptMessage(role="user", content="{{ conversational_query }}").role
+        'user'
     """
 
-    system: str
-    user: str
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    def __post_init__(self) -> None:
-        for placeholder in _PLACEHOLDERS:
-            if placeholder not in self.user:
-                raise ValueError(
-                    f"user prompt lacks the {placeholder} placeholder: {self.user!r}"
-                )
-        try:  # a brace str.format cannot fill would only fail on the first query
-            self.user.format(context="", question="")
-        except (KeyError, IndexError, ValueError, AttributeError) as exc:
-            raise ValueError(
-                "user prompt has a brace that is neither {context} nor {question}; "
-                f"write a literal brace as {{{{ or }}}}: {self.user!r}"
-            ) from exc
+    role: Literal["system", "user", "assistant"]
+    content: str
 
-    def messages(
-        self, question: str, passages: Sequence[ScoredPassage]
-    ) -> list[dict[str, str]]:
-        r"""Build the chat messages for one question.
 
-        Args:
-            question: Fills ``{question}`` in the user template.
-            passages: Fill ``{context}``, numbered ``[1] text`` one per line.
+class PromptPlaceholder(BaseModel):
+    """The place of a field's messages in a prompt, by the field's name.
 
-        Returns:
-            OpenAI-style messages: the system prompt, then the filled user
-            template.
+    Example:
+        >>> PromptPlaceholder(placeholder="conversational_history").placeholder
+        'conversational_history'
+    """
 
-        Example:
-            >>> prompts.messages("What is alpha?", [alpha])[1]["content"]
-            'Context:\n[1] Alpha text.\n\nQuestion: What is alpha?'
-        """
-        context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
-        user = self.user.format(context=context, question=question)
-        return [
-            {"role": "system", "content": self.system},
-            {"role": "user", "content": user},
-        ]
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    placeholder: str
+
+
+Prompt = list[PromptMessage | PromptPlaceholder]

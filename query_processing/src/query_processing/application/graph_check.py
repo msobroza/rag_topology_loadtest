@@ -25,7 +25,8 @@ stage, an edge or the response, else it is likely a typo. A type of ``Any`` is n
 compared.
 
 Example:
-    >>> check_graph(settings.graph, settings.component_types())  # today's passes
+    >>> check_graph(settings.graph, settings.component_types(),
+    ...             StageContext(settings.prompts))  # today's passes
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ from .stages.base_stage import (
     STAGE_TYPES,
     BaseStage,
     FieldTypes,
+    StageContext,
     StageSettings,
     StageTypes,
     type_name,
@@ -85,6 +87,7 @@ class _Read(NamedTuple):
 def check_graph(
     graph: GraphDescription,
     components: Mapping[str, str],
+    context: StageContext,
     *,
     component_types: ComponentTypes = COMPONENT_TYPES,
     stage_types: StageTypes = STAGE_TYPES,
@@ -95,6 +98,7 @@ def check_graph(
     Args:
         graph: The stages, the chains of plain edges and the conditional edges.
         components: Each declared component's type, by the component's name.
+        context: What every stage is given, the prompts its settings name.
         component_types: The port of each component type, as the ports register
             them by the type's name.
         stage_types: Where a stage's type is found.
@@ -114,11 +118,14 @@ def check_graph(
             field as two types; or a stage writes a field nothing reads.
 
     Example:
-        >>> check_graph(settings.graph, settings.component_types())
+        >>> check_graph(settings.graph, settings.component_types(),
+        ...             StageContext(settings.prompts))
     """
     _check_stage_names(graph)
     fields = {
-        name: _declared_fields(name, stage, components, component_types, stage_types)
+        name: _declared_fields(
+            name, stage, components, component_types, stage_types, context
+        )
         for name, stage in graph.stages.items()
     }
     check_edges(graph, edge_conditions, field_labels(fields))
@@ -174,6 +181,7 @@ def _declared_fields(
     components: Mapping[str, str],
     component_types: ComponentTypes,
     stage_types: StageTypes,
+    context: StageContext,
 ) -> FieldTypes:
     stage_type = _stage_type(name, stage, stage_types)
     if stage_type is None:
@@ -181,7 +189,7 @@ def _declared_fields(
     settings = _stage_settings(name, stage, stage_type)
     _check_call(name, stage, stage_type, components, component_types)
     try:
-        return stage_type.check_fields(settings, stage_fields(stage))
+        return stage_type.check_fields(settings, stage_fields(stage), context)
     except ValueError as exc:  # it shows the lists its stage type expects
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
 

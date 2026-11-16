@@ -20,10 +20,13 @@ from __future__ import annotations
 import abc
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
+from ...domain.prompts import Prompt
 from ...domain.registry import Registry
 from ..workflow_state import WorkflowState
 
@@ -71,6 +74,21 @@ class FieldTypes(NamedTuple):
     labels: dict[str, tuple[str, ...]] = {}  # noqa: RUF012
 
 
+@dataclass(frozen=True)
+class StageContext:
+    """What every stage is given besides its component, settings and fields.
+
+    The composition builds it from the settings: the prompts of the prompts
+    file, by name, which a stage names in its settings.
+
+    Example:
+        >>> StageContext(settings.prompts).prompts["answer_from_context"][0].role
+        'system'
+    """
+
+    prompts: Mapping[str, Prompt] = dataclass_field(default_factory=dict)
+
+
 ComponentT = TypeVar("ComponentT")
 SettingsT = TypeVar("SettingsT", bound=StageSettings)
 
@@ -88,6 +106,7 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             ``component_type``.
         settings: The stage's own settings, an instance of ``settings_type``.
         fields: The fields the stage reads and writes, as its stage states them.
+        context: What every stage is given, such as the prompts.
 
     Raises:
         ValueError: The stage type cannot use those fields with those settings.
@@ -97,31 +116,40 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
     settings_type: ClassVar[type[StageSettings]]
 
     def __init__(
-        self, component: ComponentT, settings: SettingsT, fields: StageFields
+        self,
+        component: ComponentT,
+        settings: SettingsT,
+        fields: StageFields,
+        context: StageContext,
     ) -> None:
-        self.field_types = type(self).check_fields(settings, fields)
+        self.field_types = type(self).check_fields(settings, fields, context)
         self.component, self.settings, self.fields = component, settings, fields
 
     @classmethod
     @abc.abstractmethod
-    def check_fields(cls, settings: SettingsT, fields: StageFields) -> FieldTypes:
+    def check_fields(
+        cls, settings: SettingsT, fields: StageFields, context: StageContext
+    ) -> FieldTypes:
         """Return the type of each field a stage of this type reads and writes.
 
         Args:
             settings: The stage's own settings, which may change what it reads.
             fields: The fields the stage states it reads and writes, in order.
+            context: What every stage is given, such as the prompts its
+                settings may name.
 
         Returns:
             The type of each field read and written.
 
         Raises:
             ValueError: The stage type cannot use those lists with those
-                settings; the message shows what it expects.
+                settings and that context; the message shows what it expects.
 
         Example:
             >>> RetrieveStage.check_fields(
             ...     RetrieveSettings(retrieval_mode="dense", top_k=20),
-            ...     StageFields(("query_embedding",), ("candidates",))).reads
+            ...     StageFields(("query_embedding",), ("candidates",)),
+            ...     StageContext()).reads
             {'query_embedding': list[float]}
         """
 

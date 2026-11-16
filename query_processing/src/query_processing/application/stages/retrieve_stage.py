@@ -13,7 +13,8 @@ Example:
     >>> stage = RetrieveStage(
     ...     store, RetrieveSettings(retrieval_mode="hybrid", top_k=20),
     ...     StageFields(("query_embedding", "standalone_query", "metadata_filter"),
-    ...                 ("candidates",)))
+    ...                 ("candidates",)),
+    ...     StageContext())
     >>> await stage.run({"query_embedding": vector, "standalone_query": "vacation",
     ...                  "metadata_filter": []})
     {'candidates': [...]}
@@ -38,6 +39,7 @@ from .base_stage import (
     STAGE_TYPES,
     BaseStage,
     FieldTypes,
+    StageContext,
     StageFields,
     StageSettings,
     fields_in_order,
@@ -81,6 +83,7 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
         settings: The retrieval mode, the number of candidates and the fusion's
             rank constant.
         fields: What its retrieval mode reads, and the one field it writes.
+        context: What every stage is given; a retrieve stage reads none of it.
 
     Raises:
         ValueError: The lists do not fit the retrieval mode, or the retrieval
@@ -95,8 +98,9 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
         component: BaseVectorStore,
         settings: RetrieveSettings,
         fields: StageFields,
+        context: StageContext,
     ) -> None:
-        super().__init__(component, settings, fields)
+        super().__init__(component, settings, fields, context)
         # Checked here as well as in the store's ainvoke, so a lexical or hybrid
         # workflow over a store that ranks no text fails at start-up, not on its
         # first request.
@@ -105,7 +109,7 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
 
     @classmethod
     def check_fields(
-        cls, settings: RetrieveSettings, fields: StageFields
+        cls, settings: RetrieveSettings, fields: StageFields, context: StageContext
     ) -> FieldTypes:
         """Return the types of what a retrieve stage reads and writes by its mode.
 
@@ -113,6 +117,7 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             settings: The stage's settings; only the retrieval mode is read.
             fields: The query's vector, its words, or both, in that order, then
                 the metadata filter; and the one field the candidates go to.
+            context: Not read: a retrieve stage names no prompt.
 
         Returns:
             Each field's type.
@@ -125,9 +130,11 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             >>> RetrieveStage.check_fields(
             ...     RetrieveSettings(retrieval_mode="lexical", top_k=20),
             ...     StageFields(("standalone_query", "metadata_filter"),
-            ...                 ("candidates",))).reads
+            ...                 ("candidates",)),
+            ...     StageContext()).reads
             {'standalone_query': <class 'str'>, 'metadata_filter': ...}
         """
+        del context  # a retrieve stage names no prompt
         mode = settings.retrieval_mode
         expecting = f"the retrieve stage in retrieval_mode {mode!r}"
         reads = READS_BY_RETRIEVAL_MODE[mode]

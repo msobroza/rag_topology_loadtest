@@ -1,0 +1,21 @@
+# The RAG use case's prompts (spec 4), each by the name a stage of workflow.yaml
+# gives it. A command run from this directory reads this file; QP_PROMPTS_FILE
+# names another instead. A prompt is a list of messages, as OpenAI writes them;
+# each content is a Jinja2 template whose variables are the fields its stage
+# reads. A variable named by a prompt's path replaces the whole prompt, as JSON:
+# QP_PROMPTS__ANSWER_FROM_CONTEXT='[{"role": "user", "content": "..."}]'.
+answer_from_context:
+  - role: system
+    content: >-
+      You answer questions using only the numbered context passages.
+      Cite passages as [n]. If the context is insufficient, say so.
+  # The passages kept, numbered one per line, then the user's message.
+  - role: user
+    content: |-
+      Context:
+      {% for passage in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {%- endfor %}
+
+
+      Question: {{ conversational_query }}

@@ -35,7 +35,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ..application.graph_check import WorkflowGraphError, check_graph
 from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
-from ..composition.composition_root import CompositionRoot
+from ..composition.composition_root import CompositionRoot, stage_context
 from ..composition.registered_names import check_registered_names
 from ..config.component_settings import VectorStoreSettings
 from ..config.workflow_settings import WorkflowSettings
@@ -247,7 +247,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with composition:
         deps = await composition.workflow_dependencies()
         app.state.deps = deps
-        workflow = build_workflow(settings.graph, deps.components())
+        context = stage_context(settings)
+        workflow = build_workflow(settings.graph, deps.components(), context)
         app.state.run = traced(workflow.run, enabled=settings.domino.tracing)
         log_json(
             event="rag_startup",
@@ -444,7 +445,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         settings = WorkflowSettings()
         check_registered_names(settings)
-        check_graph(settings.graph, settings.component_types())
+        check_graph(settings.graph, settings.component_types(), stage_context(settings))
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")

@@ -7,7 +7,7 @@ reranked passages, and each stage's wall time, keyed by the stages of the
 graph that ran.
 
 Example:
-    >>> workflow = build_workflow(settings.graph, deps.components())
+    >>> workflow = build_workflow(settings.graph, deps.components(), context)
     >>> result = await workflow.run("How many vacation days?", mode="retrieve")
 """
 
