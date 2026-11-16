@@ -241,6 +241,8 @@ A reading of the results above, not a measurement.
 - Machines of 2, 8 and 16 vCPUs. Nothing here says what happens with more cores, or
   with several sockets.
 - Ranking quality on `int8` weights was not checked.
+- Everything here is about the reranker. OVMS could not serve the default embedder: it
+  crashes while loading it (the check of 16 November 2026 in `experiments/`).
 
 ## Where the runs are
 
