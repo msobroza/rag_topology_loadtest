@@ -24,6 +24,7 @@ from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.registry import Registry
 from .openers.component_openers import OPENERS_BY_TYPE
+from .registered_components import registered_backend_class
 
 # The API formats of each model component type, by the type its settings name.
 _API_FORMATS_BY_TYPE: dict[str, Registry[Any]] = {
@@ -63,10 +64,11 @@ def check_registered_names(settings: WorkflowSettings) -> None:
 
 
 def _known_backends(component: ComponentSettings) -> Callable[[str], object]:
-    # A type registered in COMPONENT_TYPES knows its backends by its classes;
-    # the toolkit's four by their openers.
+    # A type registered in COMPONENT_TYPES knows its backends by its classes,
+    # served always among them; the toolkit's four by their openers.
     if isinstance(component, RegisteredComponentSettings):
-        return component.component_type().backend_class
+        port = component.component_type()
+        return lambda backend: registered_backend_class(port, backend)
     return OPENERS_BY_TYPE[component.type].get
 
 

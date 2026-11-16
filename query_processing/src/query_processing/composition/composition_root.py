@@ -36,7 +36,7 @@ Example:
 from __future__ import annotations
 
 from types import TracebackType
-from typing import NamedTuple, TypeVar
+from typing import Any, NamedTuple, TypeVar
 
 import httpx
 
@@ -52,6 +52,7 @@ from ..config.component_settings import (
 )
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
+from ..domain.base_component import BaseComponent
 from ..domain.component_resources import ComponentResources
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
@@ -67,6 +68,7 @@ from .openers.component_openers import (
 )
 from .openers.embedder_on_local import calibrate_embedder_on_local
 from .openers.reranker_on_local import calibrate_reranker_on_local
+from .registered_components import local_settings
 from .resource_scope import ResourceScope
 
 C = TypeVar("C", bound=ComponentSettings)
@@ -220,6 +222,37 @@ class CompositionRoot:
         component = self._typed(name, RerankerSettings)
         return await self._factory.open_local(RERANKER_OPENERS, name, component)
 
+    async def local_component(self, name: str) -> BaseComponent[Any, Any]:
+        """Open the named registered component in this process, for its model server.
+
+        It opens on the backend the workflow file gives it, unless that is
+        ``served``, the backend that calls the model server itself: then on
+        ``local``.
+
+        Args:
+            name: A component of a type registered in ``COMPONENT_TYPES``.
+
+        Returns:
+            The supplied component if one was given, else its implementation.
+
+        Raises:
+            ValueError: If ``name`` is no such component.
+
+        Example:
+            >>> shouter = await composition.local_component("shouter")
+        """
+        component = self._component(name)
+        if not isinstance(component, RegisteredComponentSettings):
+            raise ValueError(
+                f"component {name!r} is of type {component.type!r}, which has no "
+                "call route (expected a component of a type registered on its "
+                "class line)"
+            )
+        local = local_settings(name, component)
+        return await self._factory.open_registered(
+            name, local, self._resources(name, local)
+        )
+
     async def calibration(self, name: str) -> ComponentCalibration:
         """Calibrate one component's in-process model on this machine, on demand.
 
@@ -256,14 +289,19 @@ class CompositionRoot:
     async def _open(self, name: str) -> object:
         component = self._component(name)
         if isinstance(component, RegisteredComponentSettings):
-            resources = ComponentResources(
-                name=name,
-                type_settings=component.type_block(),
-                component_settings=self._component,
-            )
+            resources = self._resources(name, component)
             return await self._factory.open_registered(name, component, resources)
         return await self._factory.open(
             OPENERS_BY_TYPE[component.type], name, component
+        )
+
+    def _resources(
+        self, name: str, component: RegisteredComponentSettings
+    ) -> ComponentResources:
+        return ComponentResources(
+            name=name,
+            type_settings=component.type_block(),
+            component_settings=self._component,
         )
 
     def _component(self, name: str) -> ComponentSettings:

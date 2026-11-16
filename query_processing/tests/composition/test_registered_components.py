@@ -89,6 +89,6 @@ def test_a_backend_the_component_type_does_not_have_is_refused_by_name(
     with pytest.raises(
         ValueError,
         match=r"QP_COMPONENTS__SHOUTER__BACKEND: unknown shouter backend 'loud' "
-        r"\(expected one of: 'fake', 'local'\)",
+        r"\(expected one of: 'fake', 'local', 'served'\)",
     ):
         check_registered_names(settings)

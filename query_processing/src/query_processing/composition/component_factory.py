@@ -27,10 +27,7 @@ from .openers.component_openers import (
     S,
     SharedResources,
 )
-from .registered_components import open_registered
-
-# The backend whose model runs in this process; a model server always opens it.
-LOCAL = "local"
+from .registered_components import LOCAL, SERVED, open_registered, open_served
 
 
 class ComponentFactory:
@@ -90,7 +87,9 @@ class ComponentFactory:
     ) -> BaseComponent[Any, Any]:
         """Open a component of a type registered in ``COMPONENT_TYPES``, once.
 
-        It has no opener: the implementation its backend names builds itself.
+        It has no opener: the implementation its backend names builds itself,
+        and on ``served`` the composition builds the class that calls its model
+        server.
 
         Args:
             name: The component's name, which it is opened and supplied under.
@@ -115,7 +114,7 @@ class ComponentFactory:
         return await self._shared.scope.once(
             name,
             component.backend,
-            lambda: open_registered(name, component, resources),
+            lambda: self._open_registered_backend(name, component, resources),
         )
 
     async def open_local(
@@ -139,6 +138,18 @@ class ComponentFactory:
         """
         local = component.model_copy(update={"backend": LOCAL})
         return await self.open(openers, name, local)
+
+    async def _open_registered_backend(
+        self,
+        name: str,
+        component: RegisteredComponentSettings,
+        resources: ComponentResources,
+    ) -> BaseComponent[Any, Any]:
+        # The served class needs the shared HTTP client, which no implementation
+        # is handed: the composition builds it.
+        if component.backend == SERVED:
+            return await open_served(name, component, self._shared.http)
+        return await open_registered(name, component, resources)
 
     async def _open_backend(self, openers: ComponentOpeners[S, P], component: S) -> P:
         return await openers.get(component.backend)(component, self._shared)

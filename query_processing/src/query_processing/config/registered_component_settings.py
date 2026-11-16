@@ -154,9 +154,15 @@ def _backend_blocks(
     component_type: ComponentType, data: Mapping[Any, Any]
 ) -> dict[str, BaseModel]:
     # Each block the entry states, and the one of the backend in use whether it
-    # is stated or not, so a block with a required key cannot be left out.
+    # is stated or not, so a block with a required key cannot be left out. A
+    # served class a type registers reads the component's own served block.
     in_use, backends = data.get("backend"), component_type.backends
-    named = [backend for backend in backends if backend in data or backend == in_use]
+    named = [
+        backend
+        for backend in backends
+        if (backend in data or backend == in_use)
+        and backend not in RegisteredComponentSettings.model_fields
+    ]
     read = {
         name: _read_block(component_type, name, backends[name], data.get(name))
         for name in named

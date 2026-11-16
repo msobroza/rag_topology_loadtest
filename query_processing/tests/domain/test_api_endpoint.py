@@ -8,6 +8,7 @@ from query_processing.domain.api_endpoint import (
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,
     ApiEndpoint,
+    call_path,
 )
 
 
@@ -29,3 +30,7 @@ def test_model_server_routes_are_the_ovms_ones() -> None:
     assert MODEL_SERVER_EMBEDDINGS_PATH == "/v3/embeddings"
     assert MODEL_SERVER_RERANK_PATH == "/v3/rerank"
     assert MODEL_SERVER_MODEL_ROUTE.format(name="bge") == "/v3/models/bge"
+
+
+def test_a_registered_component_is_called_on_the_call_route_of_its_type() -> None:
+    assert call_path("shouter") == "/call/shouter"

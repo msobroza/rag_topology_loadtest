@@ -24,7 +24,13 @@ An output schema         a pydantic model under the          its fields
 
 Two spellings fill the same registries: a keyword on the class line for a
 component, a decorator for the other entries (``STAGE_TYPES``,
-``EDGE_CONDITIONS``).
+``EDGE_CONDITIONS``, ``COMPONENT_API_FORMATS``).
+
+Every component type has a ``served`` backend with no code: the toolkit builds
+the class that calls a model server on its call route, and an API format that
+mirrors its request and its answer. A use case redefines the format by
+registering a ``BaseApiFormat`` under the type's name, and the served class by
+naming ``backend="served"`` on a subclass of ``ServedCallMixin`` and the type.
 
 Example:
     >>> from query_processing.extension_api import BaseComponent, SettingsBlock
@@ -43,16 +49,21 @@ from .application.stages.base_stage import STAGE_TYPES, BaseStage, StageSettings
 from .composition.composition_root import CompositionRoot
 from .config.settings_blocks import SettingsBlock
 from .config.workflow_settings import WorkflowSettings
+from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.base_component import BaseComponent
 from .domain.component_resources import ComponentResources
+from .infrastructure.endpoint.served_call import ServedCallMixin
 
 __all__ = [
+    "COMPONENT_API_FORMATS",
     "EDGE_CONDITIONS",
     "STAGE_TYPES",
+    "BaseApiFormat",
     "BaseComponent",
     "BaseStage",
     "ComponentResources",
     "CompositionRoot",
+    "ServedCallMixin",
     "SettingsBlock",
     "StageSettings",
     "WorkflowSettings",

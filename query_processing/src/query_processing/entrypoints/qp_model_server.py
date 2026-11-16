@@ -15,6 +15,12 @@ request for any model but this server's alias is a 404. The workflow app cannot
 tell the two servers apart, so ``QP_COMPONENTS__RERANKER__SERVED__URL`` can
 point at either and the same load test compares FastAPI with OVMS.
 
+It serves a component of a registered type too, one an extension defines,
+with no code from its author: on ``POST /call/<component type>``
+(``call_path``), its request in and its answer out in its component type's API
+format (``api_format_of``). A body that is not the request is a 422. The model
+probe answers for the component's name.
+
 Example:
     $ qp-model-server --serve reranker --port 8011
     $ QP_COMPONENTS__RERANKER__BACKEND=served \
@@ -24,6 +30,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from collections.abc import AsyncGenerator, Sequence
@@ -36,12 +43,16 @@ from fastapi.responses import JSONResponse
 
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
+from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.settings_blocks import ComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,
+    call_path,
 )
+from ..domain.api_format import api_format_of
 from ..domain.passages import ScoredPassage
 from ..domain.standard_formats import (
     CohereRerankRequest,
@@ -67,7 +78,10 @@ _ROUTES_BY_TYPE = {"embedder": embedder_routes, "reranker": reranker_routes}
 
 
 def servable_components(settings: WorkflowSettings) -> list[str]:
-    """Return the components a model server can serve: the embedders and rerankers.
+    """Return the components a model server can serve.
+
+    They are the embedders, the rerankers, and the components of a type
+    registered on its class line, on their call route.
 
     Args:
         settings: The settings whose workflow file declares the components.
@@ -79,7 +93,13 @@ def servable_components(settings: WorkflowSettings) -> list[str]:
         >>> servable_components(WorkflowSettings())
         ['embedder', 'reranker']
     """
-    return [n for n, c in settings.components.items() if c.type in _ROUTES_BY_TYPE]
+    return [n for n, c in settings.components.items() if _servable(c)]
+
+
+def _servable(component: ComponentSettings) -> bool:
+    if isinstance(component, RegisteredComponentSettings):
+        return True
+    return component.type in _ROUTES_BY_TYPE
 
 
 def create_model_server(name: str, composition: CompositionRoot) -> FastAPI:
@@ -89,15 +109,15 @@ def create_model_server(name: str, composition: CompositionRoot) -> FastAPI:
     weights are those its source id names.
 
     Args:
-        name: The component this process serves, an embedder or a reranker; its
-            type picks the one inference route.
+        name: The component this process serves, an embedder, a reranker or a
+            registered component; its type picks the one inference route.
         composition: Builds the in-process model when the lifespan starts.
 
     Returns:
         The app, its routes answering under ``DOMINO_RUN_HOST_PATH`` and at the root.
 
     Raises:
-        ValueError: If ``name`` is no embedder or reranker of the workflow file.
+        ValueError: If ``name`` is no component a model server can serve.
 
     Example:
         >>> composition = CompositionRoot(settings, reranker=FakeReranker())
@@ -108,18 +128,32 @@ def create_model_server(name: str, composition: CompositionRoot) -> FastAPI:
         raise ValueError(
             f"no component {name!r} a model server can serve; expected an "
             f"embedder or a reranker of the workflow file: {', '.join(servable)}"
+            ", or a component of a type registered on its class line"
         )
-    component = composition.settings.model_components()[name]
     app = FastAPI(
         title=f"qp-model-server ({name})",
         root_path=os.environ.get("DOMINO_RUN_HOST_PATH", ""),  # Domino's prefix
         lifespan=_lifespan,
     )
     app.state.part, app.state.composition = name, composition
-    app.state.alias = component.alias
     app.include_router(common_routes)
-    app.include_router(_ROUTES_BY_TYPE[component.type])
+    component = composition.settings.components[name]
+    if isinstance(component, RegisteredComponentSettings):
+        _serve_on_call_route(app, component)
+    else:
+        app.state.alias = composition.settings.model_components()[name].alias
+        app.include_router(_ROUTES_BY_TYPE[component.type])
     return app
+
+
+def _serve_on_call_route(app: FastAPI, component: RegisteredComponentSettings) -> None:
+    # No alias: its model server serves it under its name, as the served class
+    # sends it (composition/http_resources.py, call_endpoint).
+    app.state.alias = app.state.part
+    app.state.api_format = api_format_of(component.component_type())
+    app.add_api_route(
+        call_path(component.type), call_registered_component, methods=["POST"]
+    )
 
 
 @asynccontextmanager
@@ -127,7 +161,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     composition: CompositionRoot = app.state.composition
     name = app.state.part
     async with composition:
-        if composition.settings.components[name].type == "embedder":
+        component_type = composition.settings.components[name].type
+        if hasattr(app.state, "api_format"):  # served on its call route
+            app.state.component = await composition.local_component(name)
+        elif component_type == "embedder":
             app.state.embedder = await composition.local_embedder(name)
         else:
             app.state.reranker = await composition.local_reranker(name)
@@ -206,6 +243,32 @@ async def rerank(body: CohereRerankRequest, request: Request) -> JSONResponse:
     top_n = body.top_n or len(passages)
     ranked = await request.app.state.reranker.rerank(body.query, passages, top_n)
     return JSONResponse(rerank_response_for(ranked).model_dump())
+
+
+async def call_registered_component(request: Request) -> JSONResponse:
+    """Answer a registered component's request on its call route.
+
+    Args:
+        request: The HTTP request, its body the request in the component
+            type's API format; and the app's component and format.
+
+    Returns:
+        The answer in the API format, or 422 naming what the body lacks when
+        it is not JSON or not the request's shape.
+    """
+    api_format = request.app.state.api_format
+    try:
+        component_request = api_format.request_from_wire(await request.json())
+    except ValueError as exc:  # json.JSONDecodeError is one too
+        return _not_the_request(exc)
+    answer = await request.app.state.component.ainvoke(component_request)
+    return JSONResponse(api_format.answer_to_wire(answer))
+
+
+def _not_the_request(exc: ValueError) -> JSONResponse:
+    reason = "not JSON" if isinstance(exc, json.JSONDecodeError) else "not the request"
+    content = {"detail": f"the body is {reason}: {exc}"}
+    return JSONResponse(status_code=HTTPStatus.UNPROCESSABLE_ENTITY, content=content)
 
 
 def _unknown_model() -> JSONResponse:
@@ -312,7 +375,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--serve",
         required=True,
         metavar="NAME",
-        help="the embedder or reranker component to serve, such as reranker",
+        help="the component to serve, such as reranker: an embedder, a reranker "
+        "or a component of a registered type",
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)

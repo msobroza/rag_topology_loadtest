@@ -83,8 +83,9 @@ def test_a_backend_the_type_does_not_have_stops_the_app_before_it_starts(
         qp_serve.main([])
 
     assert stopped.value.code == 2
-    assert "unknown shouter backend 'loud' (expected one of: 'fake', 'local')" in (
-        capsys.readouterr().err
+    assert (
+        "unknown shouter backend 'loud' (expected one of: 'fake', 'local', 'served')"
+        in (capsys.readouterr().err)
     )
 
 

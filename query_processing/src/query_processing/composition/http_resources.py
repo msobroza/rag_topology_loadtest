@@ -20,6 +20,7 @@ import dataclasses
 import httpx
 
 from ..config.component_settings import ModelComponent
+from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from ..domain.standard_formats import STANDARD_API_FORMATS
@@ -64,7 +65,9 @@ class HttpResources:
         self._scope = scope
         self._transport = transport
 
-    def policy_of(self, component: ModelComponent) -> HttpPolicy:
+    def policy_of(
+        self, component: ModelComponent | RegisteredComponentSettings
+    ) -> HttpPolicy:
         """Return how patiently a component on ``served`` or ``api`` is called.
 
         Args:
@@ -100,6 +103,28 @@ class HttpResources:
         api_format = STANDARD_API_FORMATS[component.type]
         url = component.served.url
         return ApiEndpoint(url, api_format, self._served_key, component.alias)
+
+    def call_endpoint(
+        self, name: str, component: RegisteredComponentSettings
+    ) -> ApiEndpoint:
+        """Return where a registered component on the ``served`` backend is called.
+
+        Args:
+            name: The component's name, the model name its model server serves
+                it under.
+            component: The component, its ``served`` block giving the call route.
+
+        Returns:
+            The call route, its component type as the API format's name, the
+            run token on Domino and no key elsewhere, and its name as the model.
+
+        Example:
+            >>> http.call_endpoint("shouter", settings.components["shouter"])
+            ApiEndpoint(url='http://shouter-app/call/shouter', api_format='shouter',
+                        api_key='', model='shouter')
+        """
+        url, api_format = component.served.url, component.type
+        return ApiEndpoint(url, api_format, self._served_key, name)
 
     async def client(self) -> httpx.AsyncClient:
         """Return the shared HTTP client, created on the first request.

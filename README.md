@@ -444,6 +444,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
       base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line; each type's backends, filled on each implementation's class line (backend=, settings=); from_settings
       component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
+      api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
       component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
       prompts.py      RagPrompts: system prompt + user template -> chat messages
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
@@ -525,6 +526,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
         bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
         open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
+        served_call.py  ServedCallMixin: a registered component answered by a model server of ours, on its call route
       local_models/   what the local implementations share
         local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
         model_pool.py  model_executor, run_blocking: the one bounded thread pool the models run on

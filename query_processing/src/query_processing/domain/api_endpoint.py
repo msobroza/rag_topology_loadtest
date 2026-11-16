@@ -23,6 +23,26 @@ DOMINO_RUN_TOKEN = "domino"
 MODEL_SERVER_EMBEDDINGS_PATH = "/v3/embeddings"
 MODEL_SERVER_RERANK_PATH = "/v3/rerank"
 MODEL_SERVER_MODEL_ROUTE = "/v3/models/{name}"
+# The call route: a component type with no outside API format, its request in
+# and its answer out in its API format (``domain/api_format.py``); the FastAPI
+# model server's alone.
+MODEL_SERVER_CALL_PATH = "/call/{component_type}"
+
+
+def call_path(component_type: str) -> str:
+    """Return the call route a model server serves a component type on.
+
+    Args:
+        component_type: The component type's name, as it registers.
+
+    Returns:
+        The path, which a ``served`` block's URL ends with.
+
+    Example:
+        >>> call_path("shouter")
+        '/call/shouter'
+    """
+    return MODEL_SERVER_CALL_PATH.format(component_type=component_type)
 
 
 class ApiEndpoint(NamedTuple):
