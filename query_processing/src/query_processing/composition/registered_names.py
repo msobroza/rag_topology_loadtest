@@ -20,7 +20,7 @@ from ..adapters.embedder.api.base_embedding_api_format import EMBEDDING_API_FORM
 from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
 from ..config.component_settings import ComponentSettings
-from ..config.contract_component_settings import ContractComponentSettings
+from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.registry import Registry
 from .openers.component_openers import OPENERS_BY_TYPE
@@ -65,7 +65,7 @@ def check_registered_names(settings: WorkflowSettings) -> None:
 def _known_backends(component: ComponentSettings) -> Callable[[str], object]:
     # A type registered in COMPONENT_TYPES knows its backends by its classes;
     # the toolkit's four by their openers.
-    if isinstance(component, ContractComponentSettings):
+    if isinstance(component, RegisteredComponentSettings):
         return component.component_type().backend_class
     return OPENERS_BY_TYPE[component.type].get
 

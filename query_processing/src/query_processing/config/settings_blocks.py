@@ -3,7 +3,7 @@
 A block of the workflow file refuses a key it does not have. Every component
 states its type and its backend (``ComponentSettings``), and may have an
 ``http`` block and a ``served`` block; the settings of each type are built on
-these (``component_settings.py``, ``contract_component_settings.py``).
+these (``component_settings.py``, ``registered_component_settings.py``).
 
 Example:
     >>> ComponentHttpSettings(retries=0).retries

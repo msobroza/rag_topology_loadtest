@@ -5,7 +5,7 @@ A component is named. Its type is the port it is used through (``embedder``,
 components of one type take two names and state ``type``. It is read with
 the settings class its type names in ``COMPONENT_TYPE_SETTINGS``, else, for a
 component type registered in ``COMPONENT_TYPES`` (one an extension defines),
-with ``ContractComponentSettings``; any other type is refused, listing the
+with ``RegisteredComponentSettings``; any other type is refused, listing the
 known types. It states its
 backend, which picks its opener; the openers registered in ``composition/``
 know which backends exist, and refuse any other. A model component has a
@@ -39,7 +39,7 @@ from ..domain.api_endpoint import ApiEndpoint
 from ..domain.base_component import COMPONENT_TYPES
 from ..domain.registry import Registry
 from ..domain.standard_formats import STANDARD_API_FORMATS
-from .contract_component_settings import ContractComponentSettings
+from .registered_component_settings import RegisteredComponentSettings
 from .settings_blocks import (
     ComponentHttpSettings,
     ComponentSettings,
@@ -299,7 +299,7 @@ def read_component(entry: object) -> ComponentSettings:
 
     Returns:
         The component's settings, of the class registered for its type, else a
-        ``ContractComponentSettings`` for a type registered in
+        ``RegisteredComponentSettings`` for a type registered in
         ``COMPONENT_TYPES``.
 
     Raises:
@@ -321,7 +321,7 @@ def read_component(entry: object) -> ComponentSettings:
     if type_name in COMPONENT_TYPE_SETTINGS.names():
         return COMPONENT_TYPE_SETTINGS.get(type_name).model_validate(entry)
     if type_name in COMPONENT_TYPES.names():
-        return ContractComponentSettings.model_validate(entry)
+        return RegisteredComponentSettings.model_validate(entry)
     known = sorted({*COMPONENT_TYPE_SETTINGS.names(), *COMPONENT_TYPES.names()})
     raise ValueError(
         f"unknown component type {type_name!r} (expected one of: "

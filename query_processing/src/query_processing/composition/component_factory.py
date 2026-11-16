@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from ..config.contract_component_settings import ContractComponentSettings
+from ..config.registered_component_settings import RegisteredComponentSettings
 from ..domain.base_component import BaseComponent
 from ..domain.component_resources import ComponentResources
 from .openers.component_openers import (
@@ -85,7 +85,7 @@ class ComponentFactory:
     async def open_registered(
         self,
         name: str,
-        component: ContractComponentSettings,
+        component: RegisteredComponentSettings,
         resources: ComponentResources,
     ) -> BaseComponent[Any, Any]:
         """Open a component of a type registered in ``COMPONENT_TYPES``, once.

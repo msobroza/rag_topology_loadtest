@@ -2,7 +2,7 @@
 
 A component type registered in ``COMPONENT_TYPES`` that has no settings class
 of its own in ``COMPONENT_TYPE_SETTINGS`` is read with
-``ContractComponentSettings``. Its keys are the ones every component has
+``RegisteredComponentSettings``. Its keys are the ones every component has
 (``type``, ``backend``, ``http``, ``served``), the keys of its component type
 (read with the class the type names on its class line, ``settings=``), and one
 block per backend, named after it and read with the settings class its
@@ -11,7 +11,7 @@ of a backend's block that its settings class does not have, each naming the
 keys expected.
 
 Example:
-    >>> shouter = ContractComponentSettings.model_validate(
+    >>> shouter = RegisteredComponentSettings.model_validate(
     ...     {"type": "shouter", "backend": "local", "local": {"suffix": "!"}})
     >>> shouter.backend_block().suffix
     '!'
@@ -30,7 +30,7 @@ from .settings_blocks import ComponentHttpSettings, ComponentSettings, ServedSet
 ComponentType = type[BaseComponent[Any, Any]]
 
 
-class ContractComponentSettings(ComponentSettings):
+class RegisteredComponentSettings(ComponentSettings):
     """A component of a type registered in ``COMPONENT_TYPES``: its blocks, read.
 
     The keys of its type and the block of each backend it states are kept

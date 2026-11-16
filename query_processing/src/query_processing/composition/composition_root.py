@@ -50,7 +50,7 @@ from ..config.component_settings import (
     RerankerSettings,
     VectorStoreSettings,
 )
-from ..config.contract_component_settings import ContractComponentSettings
+from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.component_resources import ComponentResources
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
@@ -255,7 +255,7 @@ class CompositionRoot:
 
     async def _open(self, name: str) -> object:
         component = self._component(name)
-        if isinstance(component, ContractComponentSettings):
+        if isinstance(component, RegisteredComponentSettings):
             resources = ComponentResources(
                 name=name,
                 type_settings=component.type_block(),

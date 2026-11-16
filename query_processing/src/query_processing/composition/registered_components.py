@@ -17,13 +17,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..config.contract_component_settings import ContractComponentSettings
+from ..config.registered_component_settings import RegisteredComponentSettings
 from ..domain.base_component import BaseComponent
 from ..domain.component_resources import ComponentResources
 
 
 async def open_registered(
-    name: str, component: ContractComponentSettings, resources: ComponentResources
+    name: str, component: RegisteredComponentSettings, resources: ComponentResources
 ) -> BaseComponent[Any, Any]:
     """Open a component with the implementation its backend names.
 

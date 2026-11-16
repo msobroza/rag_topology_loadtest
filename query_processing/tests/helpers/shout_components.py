@@ -16,8 +16,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from query_processing.config.contract_component_settings import (
-    ContractComponentSettings,
+from query_processing.config.registered_component_settings import (
+    RegisteredComponentSettings,
 )
 from query_processing.domain.component_resources import ComponentResources
 from rag_graphs import fixture_components
@@ -89,7 +89,9 @@ def resources_for(name: str) -> ComponentResources:
     )
 
 
-def shouter_settings(backend: str = "local", **local: Any) -> ContractComponentSettings:
+def shouter_settings(
+    backend: str = "local", **local: Any
+) -> RegisteredComponentSettings:
     """A ``shouter`` component on ``backend``, its ``local`` block ``local``."""
     entry: dict[str, Any] = {
         "type": BaseShouter.component_type_name,
@@ -97,4 +99,4 @@ def shouter_settings(backend: str = "local", **local: Any) -> ContractComponentS
     }
     if local:
         entry["local"] = local
-    return ContractComponentSettings.model_validate(entry)
+    return RegisteredComponentSettings.model_validate(entry)
