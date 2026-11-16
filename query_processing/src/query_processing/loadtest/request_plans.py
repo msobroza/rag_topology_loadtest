@@ -1,10 +1,12 @@
 """What a load-test user sends: the request pool, and one plan per request.
 
 The questions come from ``QP_LOADTEST_QUESTIONS_FILE`` when it is set (what
-``qp-fetch-corpus`` writes, or plain text), else they are synthetic; a request
-to a model server carries what the workflow app's stage would send. Values in,
-plans out: ``locustfile.py`` only does the Locust I/O around them, so they are
-tested with plain calls and without gevent monkey-patching the interpreter.
+``qp-fetch-corpus`` writes, or plain text), else they are synthetic; each is a
+``/query`` body, which can carry a conversational history and a metadata filter
+beside its question. A request to a model server carries what the workflow
+app's stage would send. Values in, plans out: ``locustfile.py`` only does the
+Locust I/O around them, so they are tested with plain calls and without gevent
+monkey-patching the interpreter.
 
 Example:
     >>> pool = build_request_pool(settings.question_count, *settings.rerank_sizes,
@@ -19,23 +21,50 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import BaseModel, Field, StringConstraints, ValidationError
 
 from ..domain.api_endpoint import MODEL_SERVER_EMBEDDINGS_PATH, MODEL_SERVER_RERANK_PATH
+from ..domain.conversation import HistoryMessage
 from ..domain.corpus import chunk, synthetic_corpus, synthetic_questions
+from ..domain.metadata_filter import MetadataCondition
 from ..domain.standard_formats import CohereRerankRequest, OpenAIEmbeddingsRequest
 
 QUESTIONS_FILE_VAR = "QP_LOADTEST_QUESTIONS_FILE"  # named in the reader's errors
+_BODY_SHAPE = (
+    'expected a JSON object with a non-empty "question", and a'
+    ' "conversational_history" and a "metadata_filter" in the shape of the body'
+)
+
+
+class _QuestionLine(BaseModel):
+    # What a line of the questions file may carry of a /query body. The history
+    # and the filter are checked in the domain's shapes, so a malformed one
+    # stops the load test at start-up naming its line rather than as 422s
+    # during the run; the app's other limits (the question's length, the
+    # conditions against the store's fields) stay the app's to check.
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    conversational_history: list[HistoryMessage] = Field(default_factory=list)
+    metadata_filter: list[MetadataCondition] = Field(default_factory=list)
+
+
+# A line keeps these keys and leaves out any other (a corpus's evaluation
+# material, say).
+_BODY_KEYS = tuple(_QuestionLine.model_fields)
 
 
 @dataclass(frozen=True)
 class RequestPool:
     """What requests draw from: the questions, the rerank candidates and ``top_n``.
 
-    The candidates and ``top_n`` are what the workflow's rerank stage would send
-    (``QP_TOP_K_RETRIEVE`` / ``_RERANK``).
+    Each question is a ``/query`` body: its ``question``, with the
+    ``conversational_history`` and ``metadata_filter`` a line of the questions
+    file gave it. The candidates and ``top_n`` are what the workflow's rerank
+    stage would send (``QP_TOP_K_RETRIEVE`` / ``_RERANK``).
     """
 
-    questions: Sequence[str]
+    questions: Sequence[dict[str, object]]
     rerank_documents: Sequence[str]
     top_n: int
 
@@ -50,10 +79,10 @@ def build_request_pool(
     """Build the pool: the questions, and the first ``candidates`` passages.
 
     The questions are every one of ``questions_file`` when it is given, else
-    ``question_count`` synthetic ones. The rerank and embeddings targets draw
-    their queries from the same questions; the rerank candidates stay synthetic
-    passages whatever the questions, so a file changes what is asked, not what
-    is ranked.
+    ``question_count`` synthetic ones, each a body with its question alone. The
+    rerank and embeddings targets draw their queries from the same questions;
+    the rerank candidates stay synthetic passages whatever the questions, so a
+    file changes what is asked, not what is ranked.
 
     Args:
         question_count: Distinct synthetic questions to draw from; ignored with
@@ -72,10 +101,10 @@ def build_request_pool(
         ...                    questions_file=Path("data/quebec/questions.jsonl"))
     """
     passages = [p.text for d in synthetic_corpus(candidates) for p in chunk(d)]
-    questions = (
+    questions: tuple[dict[str, object], ...] = (
         load_questions(questions_file)
         if questions_file
-        else tuple(synthetic_questions(question_count))
+        else tuple({"question": q} for q in synthetic_questions(question_count))
     )
     return RequestPool(
         questions=questions,
@@ -84,27 +113,32 @@ def build_request_pool(
     )
 
 
-def load_questions(path: Path) -> tuple[str, ...]:
-    """Read a questions file: JSON lines with a ``question`` key, or plain text.
+def load_questions(path: Path) -> tuple[dict[str, object], ...]:
+    """Read a questions file into ``/query`` bodies: JSON lines, or plain text.
 
     A file whose first non-blank line starts with ``{`` is JSON lines (what
-    ``qp-fetch-corpus`` writes); any other is one question per line. Blank lines
-    are skipped and surrounding spaces stripped.
+    ``qp-fetch-corpus`` writes): each an object with a ``question`` and,
+    optionally, the ``conversational_history`` and ``metadata_filter`` the
+    request sends with it, in the shape the body takes; any other key is left
+    out. The file thus decides the mix of first messages and follow-ups. Any
+    other file is one question per line, each a body with its question alone.
+    Blank lines are skipped and surrounding spaces stripped.
 
     Args:
         path: The file, from ``QP_LOADTEST_QUESTIONS_FILE``.
 
     Returns:
-        The questions, in file order.
+        The bodies, in file order.
 
     Raises:
         ValueError: If the file cannot be read or holds no question, or a JSON
-            line is not an object with a non-empty string ``question``; the
-            message names the file, and the line.
+            line is not an object with a non-empty string ``question`` and a
+            history and filter of the body's shape; the message names the
+            file, and the line.
 
     Example:
         >>> load_questions(Path("data/quebec/questions.jsonl"))[0]
-        'Qui paie ...?'
+        {'question': 'Qui paie ...?'}
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -115,20 +149,35 @@ def load_questions(path: Path) -> tuple[str, ...]:
     if not lines:
         raise ValueError(f"{QUESTIONS_FILE_VAR}={str(path)!r}: no question in it")
     if not lines[0][1].startswith("{"):
-        return tuple(line for _, line in lines)
-    return tuple(_json_question(path, n, line) for n, line in lines)
+        return tuple({"question": line} for _, line in lines)
+    return tuple(_json_body(path, n, line) for n, line in lines)
 
 
-def _json_question(path: Path, lineno: int, line: str) -> str:
-    # The non-empty string ``question`` of one JSON line, or an error naming it.
+def _json_body(path: Path, lineno: int, line: str) -> dict[str, object]:
+    # The body of one JSON line, as written but for its other keys and the
+    # spaces around its question, or an error naming the line.
     try:
-        question = json.loads(line).get("question")
-    except (ValueError, AttributeError):  # not JSON, or not an object
-        question = None
-    if not isinstance(question, str) or not question.strip():
-        detail = 'expected a JSON object with a non-empty "question"'
-        raise ValueError(f"{path}: line {lineno}: {detail}, got {line[:80]!r}")
-    return question.strip()
+        raw = json.loads(line)
+        question = _QuestionLine.model_validate(raw).question
+    except ValueError as exc:  # not JSON, or not a body (ValidationError is one)
+        got = f"got {line[:80]!r}{_failed_field(exc)}"
+        raise ValueError(f"{path}: line {lineno}: {_BODY_SHAPE}, {got}") from exc
+    body = {key: raw[key] for key in _BODY_KEYS if key in raw}
+    body["question"] = question
+    return body
+
+
+def _failed_field(exc: ValueError) -> str:
+    # Where a body that is not of its shape fails, e.g. " at
+    # conversational_history.0.role"; nothing for a line that is not JSON.
+    if not isinstance(exc, ValidationError):
+        return ""
+    return " at " + ".".join(str(part) for part in exc.errors()[0]["loc"])
+
+
+def _drawn_question(pool: RequestPool, rng: random.Random) -> str:
+    # The question of one body drawn from the pool: a model server's query.
+    return str(rng.choice(pool.questions)["question"])
 
 
 @dataclass(frozen=True)
@@ -143,21 +192,24 @@ class RequestPlan:
 def plan_rag_request(
     endpoint: str, pool: RequestPool, rng: random.Random
 ) -> RequestPlan:
-    """Plan a workflow-app request: one random question to ``/query`` or ``/retrieve``.
+    """Plan a workflow-app request: one random body to ``/query`` or ``/retrieve``.
+
+    The body is sent as the pool holds it: its question, with the
+    conversational history and the metadata filter its line gave it.
 
     Args:
         endpoint: The route, ``/query`` or ``/retrieve``; also the stats name.
-        pool: Where the question is drawn from.
-        rng: Picks the question.
+        pool: Where the body is drawn from.
+        rng: Picks the body.
 
     Returns:
-        The plan, its payload ``{"question": ...}``.
+        The plan, its payload a copy of the drawn body.
 
     Example:
         >>> plan_rag_request("/query", pool, random.Random(7)).payload
         {'question': ...}
     """
-    return RequestPlan(endpoint, {"question": rng.choice(pool.questions)}, endpoint)
+    return RequestPlan(endpoint, dict(rng.choice(pool.questions)), endpoint)
 
 
 def plan_rerank_request(
@@ -178,7 +230,7 @@ def plan_rerank_request(
     """
     request = CohereRerankRequest(
         model=alias,
-        query=rng.choice(pool.questions),
+        query=_drawn_question(pool, rng),
         documents=list(pool.rerank_documents),
         top_n=pool.top_n,
     )
@@ -202,7 +254,6 @@ def plan_embeddings_request(
     Example:
         >>> plan_embeddings_request("embedder-alias", pool, random.Random(7)).path
     """
-    question = rng.choice(pool.questions)
-    request = OpenAIEmbeddingsRequest(model=alias, input=[question])
+    request = OpenAIEmbeddingsRequest(model=alias, input=[_drawn_question(pool, rng)])
     path = MODEL_SERVER_EMBEDDINGS_PATH
     return RequestPlan(path, request.to_wire(), path)

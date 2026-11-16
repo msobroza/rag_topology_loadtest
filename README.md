@@ -1098,7 +1098,7 @@ before the app serves, with one line in the server's log.
 | `QP_LOADTEST_WAIT_MIN_S`, `QP_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
 | `QP_LOADTEST_STEP_USERS`, `QP_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `QP_LOADTEST_SHAPE=step` |
 | `QP_LOADTEST_QUESTIONS` | `50` | Locust side: distinct synthetic questions the users ask |
-| `QP_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `qp-fetch-corpus` writes, or one question per line); `QP_LOADTEST_QUESTIONS` then does not apply |
+| `QP_LOADTEST_QUESTIONS_FILE` | unset | Locust side: ask the questions of this file instead (JSON lines with a `question` key, as `qp-fetch-corpus` writes, or one question per line); `QP_LOADTEST_QUESTIONS` then does not apply. A JSON line can also carry `conversational_history` and `metadata_filter`, in the shape of the `/query` body, and the request sends them: the file decides the mix of first messages and follow-ups. Any other key of a line is left out |
 
 Every tunable is a setting of a component, a setting the components share,
 or a setting of a stage of the graph, each read from the workflow file and its

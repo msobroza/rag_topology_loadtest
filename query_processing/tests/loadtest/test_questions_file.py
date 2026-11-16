@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import random
 from pathlib import Path
 
@@ -40,14 +41,20 @@ def test_json_lines_give_their_question_and_skip_blank_lines(tmp_path: Path) -> 
     path = written(
         tmp_path, '{"question": "Qui paie ?"}\n\n{"question": "Et après ?", "x": 1}\n'
     )
-    assert load_questions(path) == ("Qui paie ?", "Et après ?")
+    assert load_questions(path) == (
+        {"question": "Qui paie ?"},
+        {"question": "Et après ?"},
+    )
 
 
-def test_plain_text_gives_one_question_per_line(tmp_path: Path) -> None:
+def test_a_plain_text_line_is_a_question_alone(tmp_path: Path) -> None:
     path = written(
         tmp_path, "Qui paie ?\n\n  Quand déclarer un sinistre ?  \n", "q.txt"
     )
-    assert load_questions(path) == ("Qui paie ?", "Quand déclarer un sinistre ?")
+    assert load_questions(path) == (
+        {"question": "Qui paie ?"},
+        {"question": "Quand déclarer un sinistre ?"},
+    )
 
 
 @pytest.mark.parametrize(
@@ -71,6 +78,74 @@ def test_a_bad_questions_file_names_the_file_and_the_line(
         load_questions(written(tmp_path, text))
 
 
+def test_a_line_can_carry_a_history_and_a_filter(tmp_path: Path) -> None:
+    body = {
+        "question": "and b?",
+        "conversational_history": [
+            {"role": "user", "content": "a?"},
+            {"role": "assistant", "content": "A."},
+        ],
+        "metadata_filter": [{"attribute": "topic", "comparator": "eq", "value": "x"}],
+    }
+    assert load_questions(written(tmp_path, json.dumps(body))) == (body,)
+
+
+def test_another_key_of_a_line_is_left_out(tmp_path: Path) -> None:
+    line = json.dumps({"question": "q?", "answer": "evaluation material"})
+    assert load_questions(written(tmp_path, line)) == ({"question": "q?"},)
+
+
+def test_the_file_decides_the_mix_of_first_messages_and_follow_ups(
+    tmp_path: Path,
+) -> None:
+    first = {"question": "a?"}
+    follow_up = {
+        "question": "and b?",
+        "conversational_history": [{"role": "user", "content": "a?"}],
+    }
+    text = "\n".join(json.dumps(body) for body in (first, follow_up, first))
+    assert load_questions(written(tmp_path, text)) == (first, follow_up, first)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"conversational_history": "a?"},
+        {"conversational_history": [{"role": "system", "content": "a?"}]},
+        {"conversational_history": [{"role": "user", "content": ""}]},
+        {"metadata_filter": {"attribute": "topic"}},
+        {"metadata_filter": [{"attribute": "topic", "comparator": "like"}]},
+    ],
+    ids=[
+        "history-not-a-list",
+        "bad-role",
+        "empty-message",
+        "filter-not-a-list",
+        "bad-condition",
+    ],
+)
+def test_a_line_whose_history_or_filter_is_not_a_body_names_the_line(
+    tmp_path: Path, extra: dict[str, object]
+) -> None:
+    text = '{"question": "ok"}\n' + json.dumps({"question": "q?", **extra})
+    with pytest.raises(ValueError, match=r"questions\.jsonl: line 2"):
+        load_questions(written(tmp_path, text))
+
+
+def test_a_bad_history_message_is_named_by_its_place(tmp_path: Path) -> None:
+    history = [{"role": "user", "content": "a?"}, {"role": "system", "content": "b"}]
+    line = json.dumps({"question": "q?", "conversational_history": history})
+    with pytest.raises(ValueError, match=r"at conversational_history\.1\.role"):
+        load_questions(written(tmp_path, line))
+
+
+def test_the_question_of_a_follow_up_is_stripped(tmp_path: Path) -> None:
+    history = [{"role": "user", "content": "a?"}]
+    line = json.dumps({"question": "  and b? ", "conversational_history": history})
+    expected = {"question": "and b?", "conversational_history": history}
+    assert load_questions(written(tmp_path, line)) == (expected,)
+
+
 def test_a_missing_questions_file_names_it(tmp_path: Path) -> None:
     missing = tmp_path / "absent.jsonl"
     with pytest.raises(ValueError, match=rf"{QUESTIONS_FILE}.*absent\.jsonl"):
@@ -82,11 +157,12 @@ def test_the_pool_takes_every_question_of_the_file_whatever_the_count(
 ) -> None:
     path = written(tmp_path, "Qui paie ?\nQuand ?\nOù ?\n")
     pool = build_request_pool(1, candidates=4, top_n=2, questions_file=path)
-    assert pool.questions == ("Qui paie ?", "Quand ?", "Où ?")
+    questions = ("Qui paie ?", "Quand ?", "Où ?")
+    assert pool.questions == tuple({"question": q} for q in questions)
     assert len(pool.rerank_documents) == 4  # still the synthetic candidates
     rng = random.Random(3)
-    assert plan_rerank_request("r", pool, rng).payload["query"] in pool.questions
-    assert plan_embeddings_request("e", pool, rng).payload["input"][0] in pool.questions
+    assert plan_rerank_request("r", pool, rng).payload["query"] in questions
+    assert plan_embeddings_request("e", pool, rng).payload["input"][0] in questions
 
 
 def test_the_locustfile_asks_the_questions_of_the_file(
@@ -102,4 +178,4 @@ def test_the_locustfile_asks_the_questions_of_the_file(
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.POOL.questions == ("Qui paie ?",)
+    assert module.POOL.questions == ({"question": "Qui paie ?"},)
