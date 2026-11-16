@@ -591,7 +591,7 @@ with a one-line usage error, not a traceback.
 | `RAG_OVMS_THREADS` | `0` | the reranker's and the embedder's OVMS Apps (the generator's App has its own two options, below): threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
 | `RAG_OVMS_START_TIMEOUT_S` | `120` | how long one OVMS start may take to answer before its calibration fails (> 0) |
 | `RAG_OVMS_GENERATION_MODEL` | `OpenVINO/Qwen3.5-2B-int4-ov` | an `ovms-generator` App: the Hugging Face id OVMS pulls, already converted by OpenVINO, and serves as `RAG_GENERATION_API_MODEL` |
-| `RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE` | `true` | an `ovms-generator` App: OVMS's `--dynamic_split_fuse` |
+| `RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE` | `true` | an `ovms-generator` App: OVMS's `--dynamic_split_fuse`; `true` = the flag is left out and OVMS keeps its own (on), `false` = `--dynamic_split_fuse false` |
 | `RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS` | `0` | an `ovms-generator` App: OVMS's `--max_num_batched_tokens`; `0` = the flag is left out and OVMS keeps its own (256) (>= 0) |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | read as-is (no `RAG_` prefix) to look up the run's hardware tier |
 | `RAG_HTTP_TIMEOUT_S` | `30` | timeout of every embedding and rerank endpoint request and of every Domino-token request |
@@ -1010,8 +1010,9 @@ neither is there) and starts `ovms --source_model <id> --model_name <name>
 folder, when it cannot): OVMS pulls the model from the Hub into
 `$RAG_OVMS_MODELS_DIR/<id>` on its first start and reuses it after. Its two
 options are OVMS's own `--dynamic_split_fuse`
-(`RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE`) and `--max_num_batched_tokens`
-(`RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS`, left out at `0`). Nothing is
+(`RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE`, passed only as `false`, left out at
+`true`) and `--max_num_batched_tokens` (`RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS`,
+left out at `0`), so with the defaults the command is the one above. Nothing is
 calibrated. Checked on a real machine on 16 November 2026: OVMS 2026.4.1 pulled
 the default model (2.0 GB) and served it 60 s after its first start and 5 s after
 a later one, on `/v3/chat/completions`. It writes its `graph.pbtxt` again at every

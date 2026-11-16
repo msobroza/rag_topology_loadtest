@@ -56,10 +56,14 @@
 # (RAG_GENERATION_API_MODEL, the name the workflow asks for),
 # GENERATOR_DYNAMIC_SPLIT_FUSE and GENERATOR_MAX_BATCHED_TOKENS
 # (RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE / _MAX_BATCHED_TOKENS, OVMS's own
-# --dynamic_split_fuse and --max_num_batched_tokens; the latter left out when 0),
+# --dynamic_split_fuse and --max_num_batched_tokens; each left out at OVMS's
+# default, true and 0, so only `--dynamic_split_fuse false` is ever passed),
 # installing the project into $HOME/rag-venv first with uv when the command is
 # missing; with neither it stops. It creates RAG_OVMS_MODELS_DIR (stopping when
-# it cannot); OVMS pulls the model there on its first start and reuses it after; nothing is calibrated, and the weight-format record is not read.
+# it cannot); OVMS pulls the model there on its first start and reuses it after;
+# nothing is calibrated, and the weight-format record is not read. It runs on the
+# generic environment with RAG_BOOTSTRAP=1 and RAG_OVMS_BUNDLE, not on the
+# prebuilt `ovms` image.
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedding and
 # rerank backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
@@ -136,8 +140,9 @@ serve_ovms() {
 # serve_ovms_generator: serve the generator OVMS pulls from the Hub itself into
 # $MODELS_DIR (no export of ours); rag-served-models names it and its options.
 serve_ovms_generator() {
+  # The prebuilt image built from domino/Dockerfile --target ovms cannot run this Role.
   command -v ovms >/dev/null 2>&1 \
-    || die "'ovms' binary not on PATH; use the environment built from domino/Dockerfile --target ovms"
+    || die "'ovms' binary not on PATH; run this Role on the generic environment with RAG_BOOTSTRAP=1 and RAG_OVMS_BUNDLE set to the OVMS bundle"
   if ! command -v rag-served-models >/dev/null 2>&1; then
     command -v uv >/dev/null 2>&1 \
       || die "'rag-served-models' is not on PATH and 'uv' is not there to install this project; install the project, or uv"
@@ -152,9 +157,12 @@ serve_ovms_generator() {
     || die "rag-served-models printed no GENERATOR_SOURCE_MODEL; reinstall this project so the command is current"
   local args=(--source_model "$GENERATOR_SOURCE_MODEL"
     --model_name "$GENERATOR_MODEL_NAME" --model_repository_path "$MODELS_DIR"
-    --task text_generation --target_device CPU
-    --dynamic_split_fuse "$GENERATOR_DYNAMIC_SPLIT_FUSE")
-  # Empty when the setting is 0: OVMS keeps its own default.
+    --task text_generation --target_device CPU)
+  # Each flag only when it differs from OVMS's own default (split fuse on, 0
+  # batched tokens), so the default command line is the one run on a machine.
+  if [ "$GENERATOR_DYNAMIC_SPLIT_FUSE" = false ]; then
+    args+=(--dynamic_split_fuse false)
+  fi
   if [ -n "$GENERATOR_MAX_BATCHED_TOKENS" ]; then
     args+=(--max_num_batched_tokens "$GENERATOR_MAX_BATCHED_TOKENS")
   fi

@@ -107,5 +107,6 @@ apps:
   #     RAG_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-generator
   #     # OVMS's --dynamic_split_fuse and --max_num_batched_tokens; false and 8192
   #     # read each prompt in one pass, better under load on the 16 November check.
+  #     # At true and 0, the defaults, app.sh leaves both flags out.
   #     RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE: false
   #     RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS: 8192

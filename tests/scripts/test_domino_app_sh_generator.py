@@ -56,11 +56,15 @@ def served_models_printing(*lines: str) -> str:
 
 
 def generator_argv(models: Path) -> str:
-    """The ``ovms`` arguments of the generator after its REST port, by default."""
+    """The ``ovms`` arguments of the generator after its REST port, by default.
+
+    No ``--dynamic_split_fuse``: at ``true``, OVMS's own default, the flag is left
+    out, so the default command line is the one run on a machine.
+    """
     return (
         "--source_model OpenVINO/Qwen3.5-2B-int4-ov --model_name gpt-4o-mini "
         f"--model_repository_path {models} --task text_generation "
-        "--target_device CPU --dynamic_split_fuse true"
+        "--target_device CPU"
     )
 
 
@@ -91,7 +95,8 @@ def test_the_generator_role_has_ovms_pull_and_serve_the_model(
     )
 
     assert result.returncode == 0, result.stderr
-    # 0 batched tokens is OVMS's own default: the flag is left out altogether.
+    # Split fuse on and 0 batched tokens are OVMS's own defaults: both flags are
+    # left out altogether.
     assert log(tmp_path, "ovms").strip() == (
         f"--rest_port 8888 {generator_argv(models)}"
     )
@@ -116,9 +121,9 @@ def test_the_generators_tuning_reaches_ovms(tmp_path: Path, bin_dir: Path) -> No
     )
 
     assert result.returncode == 0, result.stderr
-    argv = generator_argv(models).replace("fuse true", "fuse false")
     assert log(tmp_path, "ovms").strip() == (
-        f"--rest_port 8888 {argv} --max_num_batched_tokens 8192"
+        f"--rest_port 8888 {generator_argv(models)} --dynamic_split_fuse false "
+        "--max_num_batched_tokens 8192"
     )
 
 
@@ -251,3 +256,26 @@ def test_a_models_folder_that_cannot_be_created_stops_the_generator_role(
     assert str(models) in message
     assert "RAG_OVMS_MODELS_DIR" in message
     assert log(tmp_path, "ovms") == ""
+
+
+def test_the_generator_role_without_ovms_names_the_environment_that_runs_it(
+    tmp_path: Path,
+) -> None:
+    # The prebuilt ovms image cannot start this Role; the generic environment can.
+    bare = bare_path(tmp_path)
+    (bare / "ovms").unlink()
+    env = stand_in_env(tmp_path, bare, RAG_ROLE="ovms-generator")
+
+    result = subprocess.run(
+        ["bash", str(APP_SH)],
+        env=env | {"PATH": str(bare)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 1
+    message = result.stderr.strip().splitlines()[-1]
+    assert "RAG_BOOTSTRAP=1" in message
+    assert "RAG_OVMS_BUNDLE" in message
+    assert "--target ovms" not in message

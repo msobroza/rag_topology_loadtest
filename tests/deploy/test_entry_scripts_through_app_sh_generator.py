@@ -119,7 +119,7 @@ def test_each_script_of_a_deploy_with_a_generator_starts_through_app_sh(
         assert log(tmp_path, "bundle-ovms").strip() == (
             "--rest_port 8888 --source_model OpenVINO/Qwen3.5-2B-int4-ov "
             f"--model_name qwen3.5-2b --model_repository_path {models} "
-            "--task text_generation --target_device CPU --dynamic_split_fuse true"
+            "--task text_generation --target_device CPU"
         )
         return
     assert log(tmp_path, "venv-rag-serve").strip() == (

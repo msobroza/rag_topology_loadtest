@@ -123,8 +123,16 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("RAG_RERANK_API_MODEL", "it's; echo pwned")
+    monkeypatch.setenv("RAG_GENERATION_API_MODEL", "qwen3.5-2b")
+    monkeypatch.setenv("RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE", "false")
     main([])
-    script = 'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
+    # The names domino/app.sh reads for the generator, as bash sees them; an
+    # empty batched-token count must stay empty, not become the text ''.
+    script = (
+        'eval "$1"; printf "%s\\n" "$RERANKER_MODEL_NAME" "$EMBEDDER_SOURCE_MODEL"'
+        ' "$GENERATOR_SOURCE_MODEL" "$GENERATOR_MODEL_NAME"'
+        ' "$GENERATOR_DYNAMIC_SPLIT_FUSE" "[$GENERATOR_MAX_BATCHED_TOKENS]"'
+    )
 
     result = subprocess.run(
         ["bash", "-c", script, "bash", capsys.readouterr().out],
@@ -137,6 +145,10 @@ def test_rag_served_models_output_round_trips_through_bash_eval(
     assert result.stdout.splitlines() == [
         "it's; echo pwned",
         "Snowflake/snowflake-arctic-embed-l-v2.0",
+        "OpenVINO/Qwen3.5-2B-int4-ov",
+        "qwen3.5-2b",
+        "false",
+        "[]",
     ]
 
 
