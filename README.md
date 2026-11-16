@@ -108,7 +108,8 @@ where the workflow file is read; the git-ignored `deploy.yaml` stays where
 `qp-deploy` ran (ADR 0003). On a laptop, `qp-serve` runs each component on the
 backend its settings give. Inside the workflow app, LangGraph runs the graph of
 the file. The question is both the conversational and the standalone query of
-the workflow state, whose history is empty; `/retrieve` ends after rerank, where
+the workflow state, and the earlier turns the client sends, if any, its
+conversational history; `/retrieve` ends after rerank, where
 `is_query_mode` is false; `timings_ms` has one key per stage
 ([HTTP API](#http-api)). Each component has alternatives a setting away:
 [Retrieval, stores and model endpoints](#retrieval-stores-and-model-endpoints).
@@ -448,6 +449,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
       api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
       component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
+      conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
       metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
@@ -478,7 +480,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       edge_conditions/  the edge conditions (rule 6); importing it imports every module
         edge_condition.py  EdgeCondition: a function of the values its conditional edge reads that answers yes or no, or a label; EDGE_CONDITIONS; answers_with_label
         is_query_mode.py  is_query_mode: whether the request goes on to generate, from the mode
-        has_history.py  has_history: whether the request carries earlier turns, from the history
+        has_history.py  has_history: whether the request carries a conversational history, from that field
         label.py      label: answers with the one field it reads, such as a route
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
@@ -783,7 +785,7 @@ declares, `/v3/rerank` / `/v3/embeddings` for both.
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}}`; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
+| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed,retrieve,rerank,generate,total}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `reranker`); `503` when a check fails |
@@ -1043,13 +1045,14 @@ mode needs). They refuse:
   may start at `START` (`application/edge_check.py`);
 - a stage, or a conditional edge once its source has run, that reads a field
   of the workflow state that is not sure to be set when it runs. A field is sure to be set when the request provides it (the
-  conversational and standalone queries, the history, the mode, the timings),
+  conversational query and history, the standalone query, the mode, the
+  metadata filter, the timings),
   or when a stage writes it on every path from `START` to the stage. A dense
   or hybrid retrieve stage with no embed stage before it on every path is
   refused by this rule:
 
 ```
-qp-serve: error: stage 'retrieve' reads the workflow state field 'query_embedding', which the request does not provide and is written by no stage of the graph (expected a field the request provides, one of: 'conversational_query', 'history', 'mode', 'standalone_query', 'timings_ms', or one a stage writes on every path from START to 'retrieve')
+qp-serve: error: stage 'retrieve' reads the workflow state field 'query_embedding', which the request does not provide and is written by no stage of the graph (expected a field the request provides, one of: 'conversational_history', 'conversational_query', 'metadata_filter', 'mode', 'standalone_query', 'timings_ms', or one a stage writes on every path from START to 'retrieve')
 ```
 
 - a stage that reads a field as another type than what writes it: the

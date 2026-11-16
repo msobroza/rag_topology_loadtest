@@ -11,12 +11,13 @@ from query_processing.application.edge_conditions.edge_condition import (
 from query_processing.application.edge_conditions.has_history import has_history
 from query_processing.application.edge_conditions.is_query_mode import is_query_mode
 from query_processing.application.edge_conditions.label import label
+from query_processing.domain.conversation import HistoryMessage
 
 
 def test_the_three_edge_conditions() -> None:
     assert is_query_mode("query")
     assert not is_query_mode("retrieve")
-    assert has_history([("a", "b")])
+    assert has_history([HistoryMessage(role="user", content="a")])
     assert not has_history([])
     assert label("leans_on_history") == "leans_on_history"
 

@@ -11,6 +11,8 @@ from query_processing.application.prompt_rendering import (
     render_prompt,
 )
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.conversation import HistoryMessage
+from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import ScoredPassage
 from query_processing.domain.prompts import Prompt, PromptMessage, PromptPlaceholder
 from workflow_fakes import scored
@@ -83,6 +85,38 @@ def test_a_placeholder_splices_messages_with_their_role_and_content_only() -> No
     assert rendered == [
         {"role": "user", "content": "a"},
         {"role": "user", "content": "b"},
+    ]
+
+
+def test_the_history_as_the_state_holds_it_is_spliced_and_its_conditions_read() -> None:
+    # The template of spec 4: it reads each message's conditions, as JSON.
+    prompt: Prompt = [
+        PromptMessage(
+            role="system",
+            content=(
+                "{% for message in conversational_history if message.metadata_filter %}\n"
+                "Restricted to: {{ message.metadata_filter | tojson }}\n"
+                "{% endfor %}"
+            ),
+        ),
+        PromptPlaceholder(placeholder="conversational_history"),
+    ]
+    on_amf = MetadataCondition(attribute="source", comparator="in", value=["AMF"])
+    history = [
+        HistoryMessage(role="user", content="a", metadata_filter=[on_amf]),
+        HistoryMessage(role="assistant", content="b"),
+    ]
+
+    rendered = render_prompt(prompt, {"conversational_history": history})
+
+    assert rendered == [
+        {
+            "role": "system",
+            "content": 'Restricted to: [{"attribute": "source", "comparator": "in", '
+            '"value": ["AMF"]}]\n',
+        },
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "b"},
     ]
 
 

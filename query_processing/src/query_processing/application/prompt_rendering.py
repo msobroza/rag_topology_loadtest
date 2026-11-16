@@ -7,7 +7,8 @@ not an empty text. Blocks drop the newline after them and the spaces before
 them (``trim_blocks``, ``lstrip_blocks``), so a loop can sit on lines of its
 own; a content's last newline is kept, as it is written. A placeholder entry
 is replaced by the messages of the field it names, each with only its role and
-its content.
+its content. ``tojson`` writes a model, such as a history message's
+condition, as its fields.
 
 Example:
     >>> render_prompt([PromptMessage(role="user", content="Q: {{ q }}")], {"q": "a?"})
@@ -32,6 +33,21 @@ _ENVIRONMENT = ImmutableSandboxedEnvironment(
     keep_trailing_newline=True,
     autoescape=False,  # chat text, not HTML
 )
+
+
+def _as_json(value: object) -> object:
+    # tojson meets the state's values as they are: a conversational history's
+    # conditions are models, which json cannot write until dumped.
+    model_dump = getattr(value, "model_dump", None)
+    if model_dump is None:
+        raise TypeError(
+            f"tojson cannot write {value!r} (expected JSON values or a model)"
+        )
+    return model_dump(mode="json")
+
+
+# Jinja2's own default (sorted keys), and models written as their fields.
+_ENVIRONMENT.policies["json.dumps_kwargs"] = {"sort_keys": True, "default": _as_json}
 
 
 def prompt_variables(prompt: Prompt) -> frozenset[str]:

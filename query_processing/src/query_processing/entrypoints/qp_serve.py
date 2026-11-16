@@ -39,6 +39,7 @@ from ..composition.composition_root import CompositionRoot, stage_context
 from ..composition.registered_names import check_registered_names
 from ..config.component_settings import VectorStoreSettings
 from ..config.workflow_settings import WorkflowSettings
+from ..domain.conversation import HistoryMessage, check_history_conditions
 from ..domain.errors import RagDependencyError
 from ..domain.metadata_filter import (
     MetadataCondition,
@@ -52,13 +53,16 @@ logger = logging.getLogger("query_processing")
 
 
 class QueryRequest(BaseModel):
-    """The question to answer, 1 to 2000 characters, and the conditions to meet.
+    """The question to answer, 1 to 2000 characters, its history and its conditions.
 
-    ``metadata_filter`` is optional: every passage retrieved meets all its
-    conditions, each checked against the fields the vector stores declare.
+    ``conversational_history`` is optional: the earlier turns, in order, for the
+    prompts to read. ``metadata_filter`` is optional: every passage retrieved
+    meets all its conditions. Each condition, a history message's included, is
+    checked against the fields the vector stores declare.
     """
 
     question: str = Field(min_length=1, max_length=2000)
+    conversational_history: list[HistoryMessage] = Field(default_factory=list)
     metadata_filter: list[MetadataCondition] = Field(default_factory=list)
 
 
@@ -330,9 +334,12 @@ def declared_metadata_fields(settings: WorkflowSettings) -> list[MetadataFieldIn
 
 def _refuse_conditions_that_do_not_fit(request: Request, body: QueryRequest) -> None:
     # A condition the declared fields do not allow is the client's mistake: a
-    # 422 whose detail names it, as for a body of the wrong shape.
+    # 422 whose detail names it, as for a body of the wrong shape. A history
+    # message's conditions are checked too, though only the prompts read them.
+    fields = request.app.state.metadata_fields
     try:
-        check_conditions(body.metadata_filter, request.app.state.metadata_fields)
+        check_conditions(body.metadata_filter, fields)
+        check_history_conditions(body.conversational_history, fields)
     except ValueError as exc:
         raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
@@ -341,7 +348,10 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
     settings = _settings(request)
     _refuse_conditions_that_do_not_fit(request, body)
     result = await request.app.state.run(
-        body.question, mode=mode, metadata_filter=body.metadata_filter
+        body.question,
+        mode=mode,
+        conversational_history=body.conversational_history,
+        metadata_filter=body.metadata_filter,
     )
     log_json(
         event="rag_request",

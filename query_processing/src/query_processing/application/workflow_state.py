@@ -2,11 +2,11 @@
 
 The state is no closed class: ``state_fields.state_type`` builds it from the
 fields the request and the stages write, each with the type of what writes it.
-A request provides the conversational query, the standalone query, the history,
-the mode and the metadata filter (the client's conditions, possibly none); each
-stage reads some fields and writes others, as the workflow file states. There
-is no history yet, so the standalone query is the question as asked and the
-history is always empty.
+A request provides the conversational query, the conversational history (the
+earlier turns the client sends, possibly none), the standalone query, the mode
+and the metadata filter (the client's conditions, possibly none); each stage
+reads some fields and writes others, as the workflow file states. The
+standalone query is the question as asked, until a stage rewrites it.
 
 Example:
     >>> state = initial_state("How many vacation days?", "retrieve")
@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from ..domain.conversation import HistoryMessage
 from ..domain.metadata_filter import MetadataCondition
 from ..domain.passages import RagMode
 
@@ -33,12 +34,15 @@ TIMINGS_FIELD = "timings_ms"
 # The conditions a search must meet: the client's, then those stages add. The
 # one field that accumulates; state_fields.add_conditions is its reducer.
 METADATA_FILTER_FIELD = "metadata_filter"
+# The earlier turns the request carries: a prompt's placeholder splices them.
+CONVERSATIONAL_HISTORY_FIELD = "conversational_history"
 
 # The fields the request writes before the first stage runs, with their types.
 REQUEST_FIELD_TYPES: dict[str, Any] = {
     "conversational_query": str,  # the user's message as sent in this turn
     "standalone_query": str,  # the same request made self-contained; searched
-    "history": list[tuple[str, str]],  # earlier turns as (message, answer)
+    # The earlier turns, as the client sent them; the workflow keeps none.
+    CONVERSATIONAL_HISTORY_FIELD: list[HistoryMessage],
     "mode": RagMode,
     METADATA_FILTER_FIELD: list[MetadataCondition],
 }
@@ -70,27 +74,29 @@ def initial_state(
     question: str,
     mode: RagMode,
     *,
+    conversational_history: Sequence[HistoryMessage] = (),
     metadata_filter: Sequence[MetadataCondition] = (),
 ) -> WorkflowState:
     """Return the state one request starts with.
 
     Args:
         question: The request's question, copied into the conversational query
-            and, with no history to resolve it against, the standalone query.
+            and, until a stage rewrites it, the standalone query.
         mode: How far the request runs through the stages.
+        conversational_history: The earlier turns the client sent, in order.
         metadata_filter: The client's conditions, which every search meets.
 
     Returns:
-        The request's fields, an empty history and no timings.
+        The request's fields and no timings.
 
     Example:
-        >>> initial_state("vacation days?", "query")["history"]
+        >>> initial_state("vacation days?", "query")["conversational_history"]
         []
     """
     return {
         "conversational_query": question,
         "standalone_query": question,
-        "history": [],
+        CONVERSATIONAL_HISTORY_FIELD: list(conversational_history),
         "mode": mode,
         METADATA_FILTER_FIELD: list(metadata_filter),
         TIMINGS_FIELD: {},

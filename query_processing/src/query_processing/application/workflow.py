@@ -19,6 +19,7 @@ from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
+from ..domain.conversation import HistoryMessage
 from ..domain.metadata_filter import MetadataCondition
 from ..domain.passages import TOTAL_TIMING_KEY, RagMode, RagResult
 from .workflow_state import METADATA_FILTER_FIELD, initial_state
@@ -46,6 +47,7 @@ class CompiledWorkflow:
         question: str,
         *,
         mode: RagMode = "query",
+        conversational_history: Sequence[HistoryMessage] = (),
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> RagResult:
         """Invoke the graph once.
@@ -54,6 +56,7 @@ class CompiledWorkflow:
             question: The question to answer.
             mode: ``query`` runs every stage; ``retrieve`` stops after reranking
                 and leaves ``answer`` None.
+            conversational_history: The earlier turns the client sent.
             metadata_filter: The client's conditions, which every search meets.
 
         Returns:
@@ -66,7 +69,12 @@ class CompiledWorkflow:
             True
         """
         started = time.perf_counter()
-        state = initial_state(question, mode, metadata_filter=metadata_filter)
+        state = initial_state(
+            question,
+            mode,
+            conversational_history=conversational_history,
+            metadata_filter=metadata_filter,
+        )
         final = await self.graph.ainvoke(state)
         total_ms = (time.perf_counter() - started) * 1000
         return RagResult(

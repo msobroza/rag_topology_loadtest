@@ -195,7 +195,7 @@ def test_the_request_provides_the_fields_of_the_initial_state() -> None:
     assert {
         "conversational_query",
         "standalone_query",
-        "history",
+        "conversational_history",
         "mode",
         "metadata_filter",
         "timings_ms",
@@ -214,7 +214,11 @@ def test_a_stage_of_no_stage_type_that_states_its_lists_is_a_plain_call() -> Non
 
 
 def test_a_plain_call_whose_lists_do_not_fill_its_request_is_refused() -> None:
-    shout = {"call": "voice", "reads": ["mode", "history"], "writes": ["draft"]}
+    shout = {
+        "call": "voice",
+        "reads": ["mode", "conversational_history"],
+        "writes": ["draft"],
+    }
     graph = graph_of({"shout": shout}, [["START", "shout", "END"]])
 
     with pytest.raises(WorkflowGraphError) as refused:

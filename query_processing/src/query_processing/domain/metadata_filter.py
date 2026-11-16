@@ -81,13 +81,17 @@ class MetadataFieldInfo(BaseModel):
 
 
 def check_conditions(
-    conditions: Sequence[MetadataCondition], fields: Sequence[MetadataFieldInfo]
+    conditions: Sequence[MetadataCondition],
+    fields: Sequence[MetadataFieldInfo],
+    label: str = "metadata_filter",
 ) -> None:
     """Refuse a condition that does not fit the field it names.
 
     Args:
         conditions: The filter's conditions.
         fields: The fields a filter can name, as a vector store declares them.
+        label: What holds the conditions, named in the error, such as
+            ``"conversational_history[2].metadata_filter"``.
 
     Raises:
         ValueError: A condition names no declared field, has a comparator its
@@ -107,7 +111,7 @@ def check_conditions(
         problem = _problem(condition, by_name)
         if problem:
             raise ValueError(
-                f"metadata_filter[{index}] {condition.model_dump()} does not fit "
+                f"{label}[{index}] {condition.model_dump()} does not fit "
                 f"the fields declared: {problem}"
             )
 
