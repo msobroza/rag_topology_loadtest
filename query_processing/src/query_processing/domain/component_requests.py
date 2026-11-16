@@ -55,9 +55,14 @@ class RerankAnswer(_FrozenStrictModel):
 
 
 class GenerateRequest(_FrozenStrictModel):
-    """An OpenAI-style message list, each message with ``role`` and ``content``."""
+    """An OpenAI-style message list, each message with ``role`` and ``content``.
+
+    ``output_schema``, when set, is the pydantic model the answer must follow:
+    the answer's text is then the JSON object alone.
+    """
 
     messages: list[dict[str, str]]
+    output_schema: type[BaseModel] | None = None
 
 
 class GenerateAnswer(_FrozenStrictModel):

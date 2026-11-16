@@ -28,7 +28,11 @@ class BaseGenerationApiFormat(ABC):
 
     @abstractmethod
     def request_body(
-        self, model: str, messages: list[dict[str, str]], temperature: float
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        response_format: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Build the body that asks ``model`` to answer ``messages``.
 
@@ -36,6 +40,8 @@ class BaseGenerationApiFormat(ABC):
             model: The model name sent with the request.
             messages: OpenAI-style messages, each with ``role`` and ``content``.
             temperature: The sampling temperature.
+            response_format: OpenAI's ``response_format`` object, which states
+                the schema the answer must follow; None sends none.
 
         Returns:
             The JSON body.

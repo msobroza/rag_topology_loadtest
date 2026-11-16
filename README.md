@@ -472,6 +472,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out; asked_of_state
       workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
       prompt_rendering.py  render_prompt, prompt_variables: a prompt rendered into chat messages, each content in Jinja2's sandbox (the one module that uses Jinja2)
+      output_schemas.py  OUTPUT_SCHEMAS: the pydantic models a generate stage can ask the LLM for, each field written to the field of its name
       stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
         base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, StageFields, FieldTypes, StageContext (the prompts, given to every stage), STAGE_TYPES
         call_stage.py  CallStage: a plain call, of no stage type: its request built from its keys and reads, its answer written to its writes

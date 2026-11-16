@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import pytest
+from pydantic import BaseModel
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -100,6 +101,17 @@ async def test_each_port_answers_ainvoke_from_its_own_method() -> None:
     assert reranker.calls == [("q", 2, 1)]
     request = GenerateRequest(messages=[{"role": "user", "content": "hi"}])
     assert (await FakeLLM().ainvoke(request)).text == "[fake-llm] hi"
+
+
+async def test_the_llm_answers_its_request_under_the_requests_output_schema() -> None:
+    class Reply(BaseModel):
+        text: str
+
+    request = GenerateRequest(
+        messages=[{"role": "user", "content": "hi"}], output_schema=Reply
+    )
+
+    assert (await FakeLLM().ainvoke(request)).text == '{"text":"[fake-llm] hi"}'
 
 
 def test_the_four_ports_are_the_registered_component_types() -> None:

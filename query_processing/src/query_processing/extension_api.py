@@ -48,7 +48,15 @@ Example:
 from __future__ import annotations
 
 from .application.edge_conditions.edge_condition import EDGE_CONDITIONS
-from .application.stages.base_stage import STAGE_TYPES, BaseStage, StageSettings
+from .application.output_schemas import OUTPUT_SCHEMAS
+from .application.stages.base_stage import (
+    STAGE_TYPES,
+    BaseStage,
+    FieldTypes,
+    StageContext,
+    StageFields,
+    StageSettings,
+)
 from .composition.composition_root import CompositionRoot
 from .config.settings_blocks import SettingsBlock
 from .config.workflow_settings import WorkflowSettings
@@ -61,6 +69,7 @@ from .testing.component_contract import ComponentContract
 __all__ = [
     "COMPONENT_API_FORMATS",
     "EDGE_CONDITIONS",
+    "OUTPUT_SCHEMAS",
     "STAGE_TYPES",
     "BaseApiFormat",
     "BaseComponent",
@@ -68,8 +77,11 @@ __all__ = [
     "ComponentContract",
     "ComponentResources",
     "CompositionRoot",
+    "FieldTypes",
     "ServedCallMixin",
     "SettingsBlock",
+    "StageContext",
+    "StageFields",
     "StageSettings",
     "WorkflowSettings",
 ]

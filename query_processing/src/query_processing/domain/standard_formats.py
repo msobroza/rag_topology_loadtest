@@ -122,11 +122,16 @@ class CohereRerankResponse(BaseModel):
 
 
 class OpenAIChatRequest(BaseApiRequest):
-    """``{model, messages, temperature}`` of ``POST /v1/chat/completions``."""
+    """``{model, messages, temperature}`` of ``POST /v1/chat/completions``.
+
+    ``response_format``, sent only when set, states the JSON schema the answer
+    must follow.
+    """
 
     model: str
     messages: list[dict[str, str]]
     temperature: float
+    response_format: dict[str, object] | None = None
 
 
 class OpenAIChatMessage(BaseModel):

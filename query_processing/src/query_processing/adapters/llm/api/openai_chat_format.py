@@ -24,20 +24,29 @@ class OpenAIChatFormat(BaseGenerationApiFormat):
     """
 
     def request_body(
-        self, model: str, messages: list[dict[str, str]], temperature: float
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        response_format: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        """Build ``{model, messages, temperature}``.
+        """Build ``{model, messages, temperature}``, and ``response_format`` if set.
 
         Args:
             model: The model name sent with the request.
             messages: OpenAI-style messages, each with ``role`` and ``content``.
             temperature: The sampling temperature.
+            response_format: OpenAI's ``response_format`` object; None leaves
+                the key out.
 
         Returns:
             The JSON body.
         """
         request = OpenAIChatRequest(
-            model=model, messages=messages, temperature=temperature
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            response_format=response_format,
         )
         return request.to_wire()
 

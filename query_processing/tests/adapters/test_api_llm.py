@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from model_api_fakes import HttpClients, ScriptedRoute, endpoint_client
 from query_processing.adapters.llm.api.api_llm import ApiLLM
@@ -26,13 +27,21 @@ async def clients() -> AsyncIterator[HttpClients]:
     await pool.aclose()
 
 
+class Verdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+
+
 def make(
-    clients: HttpClients, *script: httpx.Response | Exception, temperature: float = 0.0
+    clients: HttpClients,
+    *script: httpx.Response | Exception,
+    temperature: float = 0.0,
+    retries: int = 2,
 ) -> tuple[ApiLLM, ScriptedRoute]:
     route = ScriptedRoute(*script)
     endpoint = ApiEndpoint(url=URL, api_format="openai", api_key="k1", model=MODEL)
     client = endpoint_client(clients.over(route), endpoint, component="llm")
-    llm = ApiLLM(client, OpenAIChatFormat(), temperature=temperature)
+    llm = ApiLLM(client, OpenAIChatFormat(), temperature=temperature, retries=retries)
     return llm, route
 
 
@@ -101,4 +110,59 @@ async def test_a_rejected_key_fails_at_once(clients: HttpClients) -> None:
     llm, route = make(clients, httpx.Response(401, text="bad key"))
     with pytest.raises(RagDependencyError, match="HTTP 401"):
         await llm.generate(MESSAGES)
+    assert len(route.requests) == 1
+
+
+# --- under an output schema -----------------------------------------------------
+
+
+async def test_a_schema_is_sent_as_openais_response_format(
+    clients: HttpClients,
+) -> None:
+    llm, route = make(clients, completion(' {"ok": true}\n'))
+
+    assert await llm.generate(MESSAGES, output_schema=Verdict) == '{"ok": true}'
+    [request] = route.requests
+    assert request.json["messages"] == MESSAGES
+    assert request.json["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "Verdict",
+            "schema": Verdict.model_json_schema(),
+            "strict": True,
+        },
+    }
+
+
+async def test_an_answer_that_does_not_match_is_asked_again(
+    clients: HttpClients,
+) -> None:
+    fenced = '```json\n{"ok": true}\n```'
+    llm, route = make(clients, completion(fenced), completion('{"ok": false}'))
+
+    assert await llm.generate(MESSAGES, output_schema=Verdict) == '{"ok": false}'
+    assert len(route.requests) == 2
+    assert route.requests[0].json == route.requests[1].json
+
+
+async def test_an_answer_that_never_matches_fails_showing_the_text(
+    clients: HttpClients,
+) -> None:
+    answers = ['{"ok": "maybe"}', "not json", "still not"]
+    llm, route = make(clients, *map(completion, answers), retries=2)
+
+    with pytest.raises(RagDependencyError, match="still not") as info:
+        await llm.generate(MESSAGES, output_schema=Verdict)
+    assert (info.value.component, info.value.target) == ("llm", URL)
+    assert "Verdict" in info.value.detail
+    assert len(route.requests) == 3
+
+
+async def test_with_no_retries_an_answer_that_does_not_match_is_asked_once(
+    clients: HttpClients,
+) -> None:
+    llm, route = make(clients, completion("no"), retries=0)
+
+    with pytest.raises(RagDependencyError, match="'no'"):
+        await llm.generate(MESSAGES, output_schema=Verdict)
     assert len(route.requests) == 1

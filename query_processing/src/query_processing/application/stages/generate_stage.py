@@ -2,7 +2,10 @@
 
 A generate stage names its prompt, one of the prompts file's (spec 4). The
 fields its ``reads`` names are the prompt's variables, as many as it uses, by
-their names; the LLM's answer goes to the one field its ``writes`` names.
+their names; the LLM's answer goes to the one field its ``writes`` names. A
+stage that names an ``output_schema``, one of ``OUTPUT_SCHEMAS``, asks the LLM
+for one instance of it and writes each of its fields to the field of
+``writes`` of the same name (spec 5).
 
 Example:
     >>> stage = GenerateStage(llm, GenerateSettings(prompt="answer_from_context"),
@@ -17,8 +20,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from ...adapters.llm.base_llm import BaseLLM
+from ...domain.errors import RagDependencyError
 from ...domain.prompts import Prompt
+from ..output_schemas import OUTPUT_SCHEMAS
 from ..prompt_rendering import prompt_variables, render_prompt
 from ..workflow_state import WorkflowState
 from .base_stage import (
@@ -31,14 +38,19 @@ from .base_stage import (
     fields_in_order,
 )
 
-# What the stage writes: the answer's text.
+# What the stage writes without an output schema: the answer's text.
 GENERATE_WRITE_TYPES = {"answer": str}
 
 
 class GenerateSettings(StageSettings):
-    """The name of the prompt the stage renders, one of the prompts file's."""
+    """The prompt the stage renders, and the schema its answer follows, if any.
+
+    ``prompt`` names one of the prompts file's prompts. ``output_schema`` names
+    one of ``OUTPUT_SCHEMAS``; None asks the LLM for text.
+    """
 
     prompt: str
+    output_schema: str | None = None
 
 
 @STAGE_TYPES.register("generate")
@@ -47,8 +59,9 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
 
     Args:
         component: The LLM.
-        settings: The name of its prompt.
-        fields: The fields its prompt reads, and the one field the answer goes to.
+        settings: The name of its prompt, and of its output schema if it has one.
+        fields: The fields its prompt reads; then the one field the answer goes
+            to, or under a schema the schema's fields, by name.
         context: The prompts, by name.
     """
 
@@ -64,6 +77,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
     ) -> None:
         super().__init__(component, settings, fields, context)
         self._prompt = context.prompts[settings.prompt]  # check_fields found it
+        name = settings.output_schema
+        self._schema = None if name is None else _named_schema(name)
 
     @classmethod
     def check_fields(
@@ -72,19 +87,22 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
         """Return the types of what a generate stage reads and writes.
 
         Args:
-            settings: The name of its prompt.
+            settings: The name of its prompt, and of its output schema if any.
             fields: Any number of fields, the prompt's variables; then the one
-                field the answer goes to.
+                field the answer goes to, or under a schema its fields.
             context: The prompts, by name.
 
         Returns:
-            ``Any`` for each field read, which a template takes as it is, and
-            ``str`` for the one written.
+            ``Any`` for each field read, which a template takes as it is;
+            ``str`` for the one written, or under a schema the type of each of
+            its fields.
 
         Raises:
             ValueError: The prompt is not defined, a template cannot be read
                 (the message names its message), the prompt uses a variable
-                the stage does not read, or ``writes`` does not list one field.
+                the stage does not read, the output schema is not registered,
+                or ``writes`` does not list one field, or under a schema each
+                of the schema's fields by name.
 
         Example:
             >>> GenerateStage.check_fields(
@@ -101,10 +119,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
                 f"which the stage does not read (it reads {list(fields.reads)}; "
                 "expected each variable of the prompt among its reads)"
             )
-        expecting = "the generate stage"
         return FieldTypes(
-            dict.fromkeys(fields.reads, Any),
-            fields_in_order("writes", fields.writes, GENERATE_WRITE_TYPES, expecting),
+            dict.fromkeys(fields.reads, Any), _write_types(settings, fields.writes)
         )
 
     async def run(self, state: WorkflowState) -> WorkflowState:
@@ -114,11 +130,20 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
             state: The workflow state; the fields of ``reads`` are read.
 
         Returns:
-            The field of ``writes``: the answer.
+            The field of ``writes``: the answer; under a schema, each of the
+            schema's fields, from the instance the LLM answered.
+
+        Raises:
+            RagDependencyError: Under a schema, the answer is not an instance
+                of it; the message shows the answer.
         """
         variables = dict(zip(self.fields.reads, self.read_fields(state), strict=True))
         messages = render_prompt(self._prompt, variables)
-        return self.write_field(await self.component.generate(messages))
+        text = await self.component.generate(messages, self._schema)
+        if self._schema is None:
+            return self.write_field(text)
+        answer = _instance_of(self._schema, text)
+        return {field: getattr(answer, field) for field in self.fields.writes}
 
 
 def _named_prompt(name: str, context: StageContext) -> Prompt:
@@ -130,3 +155,48 @@ def _named_prompt(name: str, context: StageContext) -> Prompt:
         f"names the prompt {name!r}, which the prompts file does not define "
         f"(its prompts: {known})"
     )
+
+
+def _write_types(settings: GenerateSettings, writes: tuple[str, ...]) -> dict[str, Any]:
+    # The answer's text in one field, or each field of the schema by its name.
+    if settings.output_schema is None:
+        expecting = "the generate stage"
+        return fields_in_order("writes", writes, GENERATE_WRITE_TYPES, expecting)
+    name = settings.output_schema
+    schema = _named_schema(name)
+    schema_fields = list(schema.model_fields)
+    if sorted(writes) != sorted(schema_fields):
+        raise ValueError(
+            f"the output schema {name!r} has the fields {schema_fields}, but the "
+            f"stage writes {list(writes)} (expected writes listing each field of "
+            "the schema, by name)"
+        )
+    return {field: schema.model_fields[field].annotation for field in writes}
+
+
+def _named_schema(name: str) -> type[BaseModel]:
+    # The schema a stage names, refused with the registered ones.
+    if name in OUTPUT_SCHEMAS.names():
+        return OUTPUT_SCHEMAS.get(name)
+    known = ", ".join(map(repr, OUTPUT_SCHEMAS.names())) or "none"
+    raise ValueError(
+        f"names the output schema {name!r}, which is not registered "
+        f"(expected one of: {known})"
+    )
+
+
+def _instance_of(schema: type[BaseModel], text: str) -> BaseModel:
+    # The LLM's port promises an instance; an implementation that breaks the
+    # promise fails the request as the LLM, showing what it answered.
+    try:
+        return schema.model_validate_json(text)
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{'.'.join(map(str, error['loc'])) or '<answer>'}: {error['msg']}"
+            for error in exc.errors()
+        )
+        raise RagDependencyError(
+            "llm",
+            f"the answer is not an instance of the output schema {schema.__name__} "
+            f"({problems}; expected one JSON object it accepts): {text!r}",
+        ) from exc
