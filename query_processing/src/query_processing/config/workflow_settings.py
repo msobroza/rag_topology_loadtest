@@ -46,6 +46,7 @@ from pydantic_settings import (
 
 from ..domain.graph_description import GraphDescription
 from ..domain.prompts import Prompt
+from ..domain.routes import Route
 from ..domain.run_label import (
     RUN_LABEL_PATTERN,
     RUN_LABEL_SHAPE,
@@ -61,8 +62,11 @@ from .component_settings import (
     VectorStoreSettings,
     typed_by_name,
 )
+from .endpoint_urls import missing_url_message, model_endpoint_url
 from .extensions import load_extensions
 from .prompts_file import prompts_file, prompts_file_source
+from .router_settings import check_router_routes
+from .routes_file import routes_file, routes_file_name, routes_file_source
 from .searched_embedder import searched_embedder
 from .shared_settings import (
     CalibrationSettings,
@@ -71,21 +75,6 @@ from .shared_settings import (
     LocalModelsSettings,
 )
 from .workflow_file import workflow_file, workflow_file_source
-
-# Shown in the error for a backend called over HTTP without a URL: one route
-# per backend and type, a model server of ours or an endpoint we do not run.
-_URL_EXAMPLES = {
-    "served": {
-        "embedder": "http://localhost:8002/v3/embeddings",
-        "reranker": "http://localhost:8001/v3/rerank",
-        "llm": "http://localhost:8000/v3/chat/completions",
-    },
-    "api": {
-        "embedder": "https://api.openai.com/v1/embeddings",
-        "reranker": "https://api.cohere.com/v2/rerank",
-        "llm": "https://api.openai.com/v1/chat/completions",
-    },
-}
 
 
 class WorkflowSettings(BaseSettings):
@@ -125,6 +114,8 @@ class WorkflowSettings(BaseSettings):
     components: dict[str, Component]
     # The prompts file's prompts by name, which a stage names (prompts_file.py).
     prompts: dict[str, Prompt] = Field(default_factory=dict)
+    # The routes file's catalogue, of which each router lists some (routes_file.py).
+    routes: list[Route] = Field(default_factory=list)
 
     # --- the topology alias and the run label: labels, they decide no backend -------
     # The topology alias the deploy tool deployed, sent as X-RAG-Topology; unset,
@@ -162,7 +153,7 @@ class WorkflowSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Order the sources: init kwargs > environment > .env > the two files.
+        """Order the sources: init kwargs > environment > .env > the three files.
 
         The class defaults come last. The sources are merged key by key, so a
         variable such as ``QP_GRAPH__STAGES__RERANK__TOP_K`` overrides one value
@@ -182,7 +173,8 @@ class WorkflowSettings(BaseSettings):
         del file_secret_settings
         workflow = workflow_file_source(settings_cls, workflow_file())
         prompts = prompts_file_source(settings_cls, prompts_file())
-        return init_settings, env_settings, dotenv_settings, workflow, prompts
+        routes = routes_file_source(settings_cls, routes_file())
+        return init_settings, env_settings, dotenv_settings, workflow, prompts, routes
 
     @model_validator(mode="before")
     @classmethod
@@ -268,9 +260,31 @@ class WorkflowSettings(BaseSettings):
                 variables, the value and an example.
         """
         for name, component in self.model_components().items():
-            url = _endpoint_url(component)
+            url = model_endpoint_url(component)
             if url is not None and not url.startswith(("http://", "https://")):
-                raise ValueError(self._missing_url_message(name, component, url))
+                backend = self.variable_of("components", name, "backend")
+                url_variable = self.variable_of(
+                    "components", name, component.backend, "url"
+                )
+                raise ValueError(
+                    missing_url_message(component, backend, url_variable, url)
+                )
+        return self
+
+    @model_validator(mode="after")
+    def check_routes_of_routers(self) -> WorkflowSettings:
+        """Fail at start-up when a router lists a route the routes file lacks.
+
+        Returns:
+            The settings, unchanged.
+
+        Raises:
+            ValueError: If a router lists a route the catalogue lacks, or two
+                routes share a name; the message names the router, the route,
+                the routes file and its routes.
+        """
+        where = routes_file_name(routes_file())
+        check_router_routes(self.components, self.routes, where)
         return self
 
     @model_validator(mode="after")
@@ -456,19 +470,6 @@ class WorkflowSettings(BaseSettings):
         """
         return searched_embedder(self.graph, self.component_types())
 
-    def _missing_url_message(
-        self, name: str, component: ModelComponent, url: str
-    ) -> str:
-        # Variables, value, example: the same shape for every component.
-        backend = component.backend
-        backend_variable = self.variable_of("components", name, "backend")
-        url_variable = self.variable_of("components", name, backend, "url")
-        example = _URL_EXAMPLES[backend][component.type]
-        return (
-            f"{backend_variable}={backend!r} needs {url_variable}, the full route "
-            f"of the endpoint (for example {example}); got {url!r}"
-        )
-
 
 def _store_name(component: Component) -> tuple[str, str] | None:
     # A store's key that names where its passages are kept, and its value;
@@ -479,14 +480,4 @@ def _store_name(component: Component) -> tuple[str, str] | None:
         return "index", component.elasticsearch.index
     if component.backend == "chroma":
         return "collection", component.chroma.collection
-    return None
-
-
-def _endpoint_url(component: ModelComponent) -> str | None:
-    # The URL of a component called over HTTP, from the block of its backend;
-    # None for a backend that calls no endpoint.
-    if component.backend == "served":
-        return component.served.url
-    if component.backend == "api":
-        return component.api.url
     return None

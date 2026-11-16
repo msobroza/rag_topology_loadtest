@@ -25,6 +25,7 @@ from pydantic_settings import BaseSettings, YamlConfigSettingsSource
 
 from .component_settings import alias_of
 from .prompts_file import refuse_prompts_key
+from .routes_file import refuse_routes_key
 
 WORKFLOW_FILE = "workflow.yaml"  # in the working directory
 # Read from the environment only, not from .env: it says which files to read.
@@ -94,7 +95,8 @@ def workflow_file_source(
         WorkflowFileNotFoundError: If ``path`` is not a file.
         OSError: If ``path`` cannot be read.
         ValueError: If a top-level key is not a field of ``settings_cls``, or
-            is ``prompts``, which ``prompts.yaml`` holds.
+            is ``prompts`` or ``routes``, which ``prompts.yaml`` and
+            ``routes.yaml`` hold.
 
     Example:
         >>> workflow_file_source(WorkflowSettings, Path("missing.yaml"))
@@ -107,6 +109,7 @@ def workflow_file_source(
     except OSError as exc:
         raise OSError(f"cannot read workflow file {str(path)!r}: {exc}") from exc
     refuse_prompts_key(source.yaml_data, path)
+    refuse_routes_key(source.yaml_data, path)
     unknown = unknown_keys(source.yaml_data, settings_cls)
     if unknown:
         raise ValueError(

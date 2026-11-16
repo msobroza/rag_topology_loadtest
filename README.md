@@ -346,7 +346,7 @@ The toolkit is three applications over one shared domain. The domain
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
    | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003) |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
-   | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, and `extension_api` offers it to a use case |
+   | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
 2. **Commands.** A command lives in its own application, in a module named
    exactly after it with hyphens as underscores: the RAG system's six in
@@ -359,13 +359,15 @@ The toolkit is three applications over one shared domain. The domain
    `api_endpoint.py`).
 4. **Adapters.** `adapters/` holds the ports and their implementations, nothing
    else: one package per component, `embedder/`, `reranker/`, `llm/`
-   (generation) and `vector_store/`. Its port, the abstract class the
+   (generation), `vector_store/` and `router/`. Its port, the abstract class the
    application depends on, is `base_<component>.py`; each implementation is a
    directory named after its Backend value, an embedder's `backend: local`
    being `embedder/local/`, and holds one implementation of the port. One
    directory serves two Backends: `api/` implements both `served` and `api`,
    which call an endpoint over HTTP the same way and differ only in how it is
-   resolved (two directories would hold the same class twice). Code that
+   resolved (two directories would hold the same class twice). The router's
+   `served` backend is built, so it has no directory, and its API format, the
+   one written by hand, sits beside its port. Code that
    implements no port is not an adapter and lives in `infrastructure/`: what
    the `api` implementations share (`endpoint/`), what the `local` ones share
    (`local_models/`), `http/`, the corpora `qp-fetch-corpus` downloads
@@ -406,8 +408,9 @@ The toolkit is three applications over one shared domain. The domain
    `base_model_server_kind.py`, and one launch script each in
    `domino/model_servers/`) and a component type's settings class, which a
    component is read with (`COMPONENT_TYPE_SETTINGS` in
-   `config/component_settings.py`; the four types of the toolkit keep their
-   classes in that module and register them there by call, since the
+   `config/component_settings.py`; the five types of the toolkit register
+   their classes there by call, four of them kept in that module and the
+   router's in `config/router_settings.py`, since the
    decorator's return type would hide their fields from the type checkers;
    an unknown type is refused, listing the known ones). A stage type and an edge
    condition call only ports, so they are in the application; the description
@@ -447,6 +450,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
       base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line; each type's backends, filled on each implementation's class line (backend=, settings=); from_settings
       component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
+      routes.py       Route, RouteRequest, RouteChoice: a route of routes.yaml (name, description, utterances), and the router's request and answer
       api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
       component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
       conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
@@ -465,7 +469,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState: the one typed state of every graph; initial_state, merge_timings, REQUEST_FIELDS
       state_fields.py  field_types_of: each field the request and the stages write, with its type; state_type: the LangGraph state built from them; WorkflowGraphError
-      component_types.py  COMPONENT_TYPES, as the four ports register it: each component type's port, which the start-up checks read before any component opens
+      component_types.py  COMPONENT_TYPES, as the five ports register it: each component type's port, which the start-up checks read before any component opens
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states; WorkflowGraphError
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
       edge_check.py   check_edges: the edges and conditional edges of a graph that cannot run, refused; field_labels: the labels each field can take
@@ -494,6 +498,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
       workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
       prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
+      routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
+      router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
+      endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder
@@ -526,6 +533,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           openai_chat_format.py  the openai chat completions format (messages in, choices[0] out)
         fake/         backend: fake
           fake_llm.py  FakeLLM: an echo
+      router/         the router
+        base_router.py  BaseRouter, the port: a query's vector in, a route choice out; its routes are the labels of the route chosen
+        router_api_format.py  RouterApiFormat, the router's API format written by hand ({embedding} in, {route, confidence} out)
+        fake/         backend: fake
+          fake_router.py  FakeRouter: the first of its routes, confidence 1
       vector_store/   the vector store
         base_vector_store.py  BaseVectorStore and BaseLexicalSearch, the ports
         base_metadata_filter_translator.py  BaseMetadataFilterTranslator, the port that turns a metadata filter into a store's own
@@ -618,8 +630,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
-    testing/          the tests the toolkit ships, which a user runs on a component of their own; extension_api exports them, no package imports them
+    testing/          the tests the toolkit ships, which a user runs on a component of their own; a use case's tests import them from query_processing.testing, no package imports them
       component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
+      router_contract.py  RouterContract: ComponentContract for a router, with routes to write; the route chosen is one of them, the confidence between 0 and 1
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)

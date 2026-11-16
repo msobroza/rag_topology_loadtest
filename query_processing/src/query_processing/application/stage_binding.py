@@ -109,6 +109,7 @@ def bind_call(
     component_type: type[BaseComponent[Any, Any]],
     stage_keys: Mapping[str, object],
     fields: StageFields,
+    answer_labels: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CallBinding:
     """Bind a plain call's keys and fields to its component's request and answer.
 
@@ -116,9 +117,13 @@ def bind_call(
         component_type: The component type of the component the stage calls.
         stage_keys: The stage's own keys, besides ``type``, ``call`` and the lists.
         fields: The fields the stage reads and writes, in order.
+        answer_labels: The labels an answer attribute takes, by its name, as
+            the component type declares them (``answer_labels``); a field the
+            attribute is written to takes them. None for none.
 
     Returns:
-        Where each request attribute comes from and each answer attribute goes.
+        Where each request attribute comes from and each answer attribute goes,
+        and the labels of each field written that takes some.
 
     Raises:
         ValueError: A key names no request attribute or does not fit its
@@ -140,6 +145,7 @@ def bind_call(
         raise ValueError(f"{_signature(component_type, takes, gives)}; {problem}")
     from_reads = dict(zip(left, fields.reads, strict=True))
     to_writes = dict(zip(fields.writes, gives, strict=False))
+    labels = answer_labels or {}
     return CallBinding(
         from_keys=dict(stage_keys),
         from_reads=from_reads,
@@ -147,6 +153,7 @@ def bind_call(
         field_types=FieldTypes(
             reads={field: takes[attr] for attr, field in from_reads.items()},
             writes={field: gives[attr] for field, attr in to_writes.items()},
+            labels={f: labels[a] for f, a in to_writes.items() if a in labels},
         ),
     )
 

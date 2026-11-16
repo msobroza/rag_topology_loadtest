@@ -132,6 +132,30 @@ class BaseComponent(ABC, Generic[RequestT, AnswerT]):
         del settings, resources  # the signature an implementation overrides
         return cls()
 
+    @classmethod
+    def answer_labels(
+        cls, type_settings: BaseModel | None
+    ) -> dict[str, tuple[str, ...]]:
+        """Return the labels an answer attribute takes, by the attribute's name.
+
+        A plain call gives them to the field it writes that attribute to, and a
+        label edge that reads the field has one row of ``path_map`` for each
+        (ADR 0007). By default no attribute has labels.
+
+        Args:
+            type_settings: The keys of the component's type, as its settings
+                read them; None for a type that has none.
+
+        Returns:
+            The labels of each answer attribute that takes one of a few.
+
+        Example:
+            >>> BaseRouter.answer_labels(settings.components["router"])
+            {'name': ('self_contained', 'leans_on_history')}
+        """
+        del type_settings  # the signature a component type overrides
+        return {}
+
     def invoke(self, request: RequestT) -> AnswerT:
         """Answer a request, blocking: what an in-process implementation writes.
 

@@ -15,11 +15,10 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from query_processing.application.graph_check import check_graph
 from query_processing.application.prompt_rendering import render_prompt
 from query_processing.composition.composition_root import (
     CompositionRoot,
-    stage_context,
+    check_workflow_graph,
 )
 from query_processing.composition.registered_names import check_registered_names
 from query_processing.config.workflow_settings import WorkflowSettings
@@ -45,7 +44,7 @@ def settings_here() -> WorkflowSettings:
     """The settings qp-serve builds here, refused as it refuses them at start-up."""
     settings = WorkflowSettings(_env_file=None)  # type: ignore[call-arg]
     check_registered_names(settings)
-    check_graph(settings.graph, settings.component_types(), stage_context(settings))
+    check_workflow_graph(settings)
     return settings
 
 

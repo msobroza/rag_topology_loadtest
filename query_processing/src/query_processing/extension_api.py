@@ -32,8 +32,11 @@ mirrors its request and its answer. A use case redefines the format by
 registering a ``BaseApiFormat`` under the type's name, and the served class by
 naming ``backend="served"`` on a subclass of ``ServedCallMixin`` and the type.
 
-A use case tests an implementation by subclassing ``ComponentContract`` and
-writing ``make_component`` and ``make_request``.
+A use case's tests import the test classes the toolkit ships from
+``query_processing.testing``, not from here, so that no command loads what
+they serve a component with: ``ComponentContract``, subclassed with
+``make_component`` and ``make_request``, and ``RouterContract`` for a router,
+which adds ``routes``.
 
 Example:
     >>> from query_processing.extension_api import BaseComponent, SettingsBlock
@@ -47,6 +50,7 @@ Example:
 
 from __future__ import annotations
 
+from .adapters.router.base_router import BaseRouter
 from .application.edge_conditions.edge_condition import EDGE_CONDITIONS
 from .application.output_schemas import OUTPUT_SCHEMAS
 from .application.stages.base_stage import (
@@ -63,8 +67,8 @@ from .config.workflow_settings import WorkflowSettings
 from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.base_component import BaseComponent
 from .domain.component_resources import ComponentResources
+from .domain.routes import Route, RouteChoice, RouteRequest
 from .infrastructure.endpoint.served_call import ServedCallMixin
-from .testing.component_contract import ComponentContract
 
 __all__ = [
     "COMPONENT_API_FORMATS",
@@ -73,11 +77,14 @@ __all__ = [
     "STAGE_TYPES",
     "BaseApiFormat",
     "BaseComponent",
+    "BaseRouter",
     "BaseStage",
-    "ComponentContract",
     "ComponentResources",
     "CompositionRoot",
     "FieldTypes",
+    "Route",
+    "RouteChoice",
+    "RouteRequest",
     "ServedCallMixin",
     "SettingsBlock",
     "StageContext",

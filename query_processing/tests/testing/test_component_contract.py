@@ -11,8 +11,9 @@ import asyncio
 
 import pytest
 
-from query_processing.extension_api import BaseComponent, ComponentContract
-from query_processing.testing import ComponentContract as ShippedContract
+from query_processing import extension_api
+from query_processing.extension_api import BaseComponent
+from query_processing.testing import ComponentContract
 from shout_extension.shouting import BaseShouter, Shouted, ShoutRequest, UpperShouter
 from shout_extension.whispering import LowerWhisperer
 
@@ -56,8 +57,11 @@ class ContractOf(ComponentContract):
         return ShoutRequest(text="a")
 
 
-def test_the_extension_api_exports_the_shipped_class() -> None:
-    assert ComponentContract is ShippedContract
+def test_the_extension_api_does_not_export_the_shipped_classes() -> None:
+    # Every command imports extension_api with a use case's extensions: the
+    # shipped classes would load the model server and the test client with it.
+    assert not hasattr(extension_api, "ComponentContract")
+    assert not hasattr(extension_api, "RouterContract")
 
 
 def test_the_contract_catches_an_answer_of_the_wrong_shape() -> None:

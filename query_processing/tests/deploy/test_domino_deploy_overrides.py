@@ -180,7 +180,7 @@ def refusal(settings: DeploySettings) -> str:
 
 TOP_LEVEL_KEYS = (
     "'calibration', 'components', 'domino', 'extensions', 'graph', 'http', "
-    "'local_models', 'prompts', 'run_label', 'topology_alias'"
+    "'local_models', 'prompts', 'routes', 'run_label', 'topology_alias'"
 )
 
 

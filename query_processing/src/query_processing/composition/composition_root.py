@@ -40,10 +40,12 @@ from types import TracebackType
 from typing import Any, NamedTuple, TypeVar
 
 import httpx
+from pydantic import BaseModel
 
 from ..adapters.embedder.base_embedder import BaseEmbedder
 from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
+from ..application.graph_check import check_graph
 from ..application.rag_dependencies import RagDependencies
 from ..application.stages.base_stage import StageContext
 from ..config.component_settings import (
@@ -53,6 +55,7 @@ from ..config.component_settings import (
     VectorStoreSettings,
 )
 from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.router_settings import RouterSettings, routes_of
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.base_component import BaseComponent
 from ..domain.component_resources import ComponentResources
@@ -300,10 +303,17 @@ class CompositionRoot:
     def _resources(
         self, name: str, component: RegisteredComponentSettings
     ) -> ComponentResources:
+        catalogue = {route.name: route for route in self.settings.routes}
+        routes = (
+            routes_of(component, catalogue)
+            if isinstance(component, RouterSettings)
+            else {}
+        )
         return ComponentResources(
             name=name,
             type_settings=component.type_block(),
             component_settings=self._component,
+            routes=routes,
         )
 
     def _component(self, name: str) -> ComponentSettings:
@@ -353,3 +363,47 @@ def stage_context(settings: WorkflowSettings) -> StageContext:
         ...             stage_context(settings))
     """
     return StageContext(prompts=settings.prompts)
+
+
+def check_workflow_graph(settings: WorkflowSettings) -> None:
+    """Refuse a workflow graph that cannot run, before any component opens.
+
+    Args:
+        settings: The workflow settings, their graph, components and prompts.
+
+    Raises:
+        WorkflowGraphError: The graph cannot run (``check_graph``); the message
+            names what is wrong and what was expected.
+
+    Example:
+        >>> check_workflow_graph(WorkflowSettings())  # a use case's: nothing raised
+    """
+    check_graph(
+        settings.graph,
+        settings.component_types(),
+        stage_context(settings),
+        component_type_settings(settings),
+    )
+
+
+def component_type_settings(settings: WorkflowSettings) -> dict[str, BaseModel | None]:
+    """Return the keys of each component's type, by the component's name.
+
+    The start-up checks give a plain call's written fields the labels its
+    component type declares from them, such as a router's routes.
+
+    Args:
+        settings: The workflow settings.
+
+    Returns:
+        Each component's type keys, read with its type's settings class; None
+        for a component whose type has none, or that is not registered.
+
+    Example:
+        >>> component_type_settings(settings)["router"].routes
+        ['self_contained', 'leans_on_history']
+    """
+    return {
+        name: c.type_block() if isinstance(c, RegisteredComponentSettings) else None
+        for name, c in settings.components.items()
+    }

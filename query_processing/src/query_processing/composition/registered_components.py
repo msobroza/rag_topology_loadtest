@@ -24,6 +24,8 @@ from collections.abc import Iterable
 from functools import cache
 from typing import Any
 
+from ..adapters.router.fake.fake_router import FakeRouter
+from ..adapters.router.router_api_format import RouterApiFormat
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.api_format import api_format_of
@@ -33,6 +35,10 @@ from ..infrastructure.endpoint.open_endpoint_client import open_endpoint_client
 from ..infrastructure.endpoint.served_call import ServedCallMixin
 from .http_resources import HttpResources
 
+# The toolkit's own registered component type, the router: imported for what its
+# classes register on their class line (the fake backend, the API format), and
+# named here so the imports are kept.
+TOOLKIT_REGISTRATIONS = (FakeRouter, RouterApiFormat)
 # The backend every registered component type has, whether a class names it or not.
 SERVED = "served"
 # The backend whose model runs in this process; a model server opens it.
@@ -206,7 +212,8 @@ def local_settings(
             f"set the one it opens (one of: {_listed(port.backends)})"
         )
     entry = {**component.model_dump(), "backend": LOCAL}
-    return RegisteredComponentSettings.model_validate(entry)
+    # Read with its own class, so a router keeps the keys of its type.
+    return type(component).model_validate(entry)
 
 
 def _listed(names: Iterable[str]) -> str:

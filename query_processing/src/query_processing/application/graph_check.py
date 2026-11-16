@@ -34,7 +34,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ..domain.base_component import BaseComponent
 from ..domain.graph_description import (
@@ -77,6 +77,14 @@ _RESERVED_STAGE_NAMES = {
 ComponentTypes = Registry[type[BaseComponent[Any, Any]]]
 
 
+class _Declared(NamedTuple):
+    # The components of the settings: each one's type and its type's keys, by
+    # name, and the port of each component type.
+    types: Mapping[str, str]
+    type_settings: Mapping[str, BaseModel | None]
+    ports: ComponentTypes
+
+
 class _Read(NamedTuple):
     # One field a stage reads, with the type it takes.
     stage: str
@@ -84,10 +92,11 @@ class _Read(NamedTuple):
     takes: Any
 
 
-def check_graph(
+def check_graph(  # noqa: PLR0913 - three of them are the tests' seams
     graph: GraphDescription,
     components: Mapping[str, str],
     context: StageContext,
+    component_settings: Mapping[str, BaseModel | None] | None = None,
     *,
     component_types: ComponentTypes = COMPONENT_TYPES,
     stage_types: StageTypes = STAGE_TYPES,
@@ -99,6 +108,9 @@ def check_graph(
         graph: The stages, the chains of plain edges and the conditional edges.
         components: Each declared component's type, by the component's name.
         context: What every stage is given, the prompts its settings name.
+        component_settings: The keys of each component's type, by the
+            component's name, from which a plain call gives the fields it
+            writes their labels, such as a router's routes; None for none.
         component_types: The port of each component type, as the ports register
             them by the type's name.
         stage_types: Where a stage's type is found.
@@ -113,7 +125,8 @@ def check_graph(
             takes, has other rows than its answers (true and false, or the
             labels of the field it reads), or repeats an edge condition on one
             source; nothing leaves START; a stage or a conditional edge reads a
-            field that is not sure to be set when it runs; a stage reads a
+            field that is not sure to be set when it runs, or a label edge has
+            other rows than the labels of its field; a stage reads a
             field as another type than its writer writes; two writers write a
             field as two types; or a stage writes a field nothing reads.
 
@@ -122,10 +135,9 @@ def check_graph(
         ...             StageContext(settings.prompts))
     """
     _check_stage_names(graph)
+    declared = _Declared(components, component_settings or {}, component_types)
     fields = {
-        name: _declared_fields(
-            name, stage, components, component_types, stage_types, context
-        )
+        name: _declared_fields(name, stage, declared, stage_types, context)
         for name, stage in graph.stages.items()
     }
     check_edges(graph, edge_conditions, field_labels(fields))
@@ -178,16 +190,15 @@ def _check_stage_names(graph: GraphDescription) -> None:
 def _declared_fields(
     name: str,
     stage: StageDescription,
-    components: Mapping[str, str],
-    component_types: ComponentTypes,
+    declared: _Declared,
     stage_types: StageTypes,
     context: StageContext,
 ) -> FieldTypes:
     stage_type = _stage_type(name, stage, stage_types)
     if stage_type is None:
-        return _plain_call_fields(name, stage, components, component_types)
+        return _plain_call_fields(name, stage, declared)
     settings = _stage_settings(name, stage, stage_type)
-    _check_call(name, stage, stage_type, components, component_types)
+    _check_call(name, stage, stage_type, declared.types, declared.ports)
     try:
         return stage_type.check_fields(settings, stage_fields(stage), context)
     except ValueError as exc:  # it shows the lists its stage type expects
@@ -204,18 +215,19 @@ def _stage_type(
 
 
 def _plain_call_fields(
-    name: str,
-    stage: StageDescription,
-    components: Mapping[str, str],
-    component_types: ComponentTypes,
+    name: str, stage: StageDescription, declared: _Declared
 ) -> FieldTypes:
     # A plain call declares the fields it states, with the types of the request
-    # and answer attributes they bind to.
-    _check_declared(name, stage, components)
+    # and answer attributes they bind to, and the labels its component type
+    # declares for an answer attribute, such as a router's routes.
+    _check_declared(name, stage, declared.types)
     try:
-        component_type = component_types.get(components[stage.call])
-        binding = bind_call(component_type, stage.stage_settings, stage_fields(stage))
-    except ValueError as exc:
+        component_type = declared.ports.get(declared.types[stage.call])
+        labels = component_type.answer_labels(declared.type_settings.get(stage.call))
+        binding = bind_call(
+            component_type, stage.stage_settings, stage_fields(stage), labels
+        )
+    except (ValueError, TypeError) as exc:
         raise WorkflowGraphError(f"stage {name!r}: {exc}") from exc
     return binding.field_types
 

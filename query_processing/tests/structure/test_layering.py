@@ -49,9 +49,10 @@ MAY_IMPORT: dict[str, set[str]] = {
     },
     "deploy": {"deploy", "domain"},
     "loadtest": {"loadtest", "domain"},
-    # The tests the toolkit ships (``ComponentContract``): they serve a user's
-    # component as the toolkit does, so they may import every package, and no
-    # package imports them; extension_api offers them to a use case.
+    # The tests the toolkit ships (``ComponentContract``, ``RouterContract``):
+    # they serve a user's component as the toolkit does, so they may import
+    # every package, and no package imports them, extension_api included: a use
+    # case's tests import them from query_processing.testing.
     "testing": {
         "testing",
         "domain",
@@ -256,12 +257,12 @@ def test_each_package_imports_only_what_the_table_allows(package: str) -> None:
     assert not offending, f"{package} may import only {allowed}: {offending}"
 
 
-def importers_of(top: str, exempt: Path) -> list[str]:
+def importers_of(top: str, exempt: Path | None = None) -> list[str]:
     """Each import of ``query_processing.<top>`` from outside it, ``exempt`` aside.
 
     Example::
 
-        importers_of("testing", EXTENSION_API)   # [] when the rule holds
+        importers_of("testing")   # [] when the rule holds
     """
     return [
         f"{module_name(path)}:{line} imports {imported}"
@@ -283,10 +284,12 @@ def test_no_package_of_the_toolkit_imports_the_extension_api() -> None:
 
 
 def test_no_package_of_the_toolkit_imports_the_tests_it_ships() -> None:
-    # extension_api offers them to a use case; the toolkit never runs them.
-    offending = importers_of("testing", EXTENSION_API)
+    # The toolkit never runs them, and extension_api, which every command
+    # imports with a use case's extensions, would load the model server and
+    # the test client with them.
+    offending = importers_of("testing")
     assert (PACKAGE / "testing" / "__init__.py").is_file()
-    assert not offending, f"only extension_api may import testing: {offending}"
+    assert not offending, f"no module may import testing: {offending}"
 
 
 def test_the_ports_import_only_the_domain() -> None:
@@ -303,7 +306,7 @@ def test_the_ports_import_only_the_domain() -> None:
         )
         if imported.split(".")[1] != "domain"
     ]
-    assert len(ports) == 4, f"expected the four ports, found {ports}"
+    assert len(ports) == 5, f"expected the five ports, found {ports}"
     assert not offending, f"a port may import only the domain: {offending}"
 
 

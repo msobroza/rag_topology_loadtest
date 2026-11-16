@@ -1,7 +1,7 @@
 """Each component's settings: the workflow file's ``components`` block.
 
 A component is named. Its type is the port it is used through (``embedder``,
-``reranker``, ``llm``, ``vector_store``) and defaults to its name, so two
+``reranker``, ``llm``, ``vector_store``, ``router``) and defaults to its name, so two
 components of one type take two names and state ``type``. It is read with
 the settings class its type names in ``COMPONENT_TYPE_SETTINGS``, else, for a
 component type registered in ``COMPONENT_TYPES`` (one an extension defines),
@@ -51,6 +51,7 @@ from ..domain.metadata_filter import (
 from ..domain.registry import Registry
 from ..domain.standard_formats import STANDARD_API_FORMATS
 from .registered_component_settings import RegisteredComponentSettings
+from .router_settings import RouterSettings
 from .settings_blocks import (
     ComponentHttpSettings,
     ComponentSettings,
@@ -317,6 +318,8 @@ COMPONENT_TYPE_SETTINGS.register("embedder")(EmbedderSettings)
 COMPONENT_TYPE_SETTINGS.register("reranker")(RerankerSettings)
 COMPONENT_TYPE_SETTINGS.register("llm")(LlmSettings)
 COMPONENT_TYPE_SETTINGS.register("vector_store")(VectorStoreSettings)
+# The router is read as a registered component type is, its own keys as fields.
+COMPONENT_TYPE_SETTINGS.register("router")(RouterSettings)
 
 
 def read_component(entry: object) -> ComponentSettings:

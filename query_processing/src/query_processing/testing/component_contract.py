@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 import httpx
@@ -86,6 +86,32 @@ class ComponentContract(ABC):
             ShoutRequest(text='a')
         """
 
+    def component_keys(self) -> dict[str, object]:
+        """Return the keys of its type the component's settings need, if any.
+
+        Returns:
+            No key by default; a component type with required keys of its own,
+            such as a router's routes, gives them.
+
+        Example:
+            >>> TestFakeRouter().component_keys()
+            {'embedder': 'embedder', 'routes': ['a', 'b']}
+        """
+        return {}
+
+    def workflow_keys(self) -> dict[str, object]:
+        """Return the top-level settings the component's settings need, if any.
+
+        Returns:
+            No setting by default; a router gives the routes it lists, as
+            ``routes.yaml`` would.
+
+        Example:
+            >>> list(TestFakeRouter().workflow_keys())
+            ['routes']
+        """
+        return {}
+
     async def test_the_answer_has_the_shape_of_its_component_type(self) -> None:
         """The component answers with its component type's answer class.
 
@@ -137,7 +163,9 @@ class ComponentContract(ABC):
         component = self.make_component()
         request = self.make_request()
         expected = await component.ainvoke(request)
-        served = await served_answer(component, request)
+        served = await served_answer(
+            component, request, self.component_keys(), self.workflow_keys()
+        )
         assert served == expected, (
             f"the served {type(component).__name__} answered {served!r}; expected "
             f"{expected!r}, what it answers in process"
@@ -170,12 +198,19 @@ def component_type_of(component: object) -> ComponentType:
     )
 
 
-async def served_answer(component: BaseComponent[Any, Any], request: BaseModel) -> Any:
+async def served_answer(
+    component: BaseComponent[Any, Any],
+    request: BaseModel,
+    component_keys: Mapping[str, object] | None = None,
+    workflow_keys: Mapping[str, object] | None = None,
+) -> Any:
     """Serve the component in process; return what its ``served`` class answers.
 
     Args:
         component: The component the model server serves.
         request: What the served class is asked.
+        component_keys: The keys of its type its settings need; None for none.
+        workflow_keys: The top-level settings they need; None for none.
 
     Returns:
         The answer the type's ``served`` class reads from the call route.
@@ -185,26 +220,30 @@ async def served_answer(component: BaseComponent[Any, Any], request: BaseModel) 
         Shouted(text='A!')
     """
     name = component_type_of(component).component_type_name
-    given = _ContractSettings(**_blocks(name, {"backend": _GIVEN_BACKEND}))
+    keys, top = dict(component_keys or {}), dict(workflow_keys or {})
+    given = _ContractSettings(**_blocks(name, {**keys, "backend": _GIVEN_BACKEND}, top))
     supplied: dict[str, Any] = {name: component}  # a port supplied by its name
     server = create_model_server(name, CompositionRoot(given, **supplied))
     with TestClient(server):  # runs its lifespan, which opens the component given
         transport = httpx.ASGITransport(app=server)
         url = _MODEL_SERVER_URL + call_path(name)
-        calling = _ContractSettings(
-            **_blocks(name, {"backend": SERVED, "served": {"url": url}})
-        )
+        served_block = {**keys, "backend": SERVED, "served": {"url": url}}
+        calling = _ContractSettings(**_blocks(name, served_block, top))
         async with CompositionRoot(calling, transport=transport) as composition:
             opened = (await composition.workflow_dependencies()).components()
             served = cast(BaseComponent[Any, Any], opened[name])
             return await served.ainvoke(request)
 
 
-def _blocks(name: str, component: dict[str, Any]) -> dict[str, Any]:
+def _blocks(
+    name: str, component: dict[str, Any], top: dict[str, object]
+) -> dict[str, Any]:
     # One component, of the type named after it, and one stage that calls it,
-    # so that the composition opens it and nothing else.
+    # so that the composition opens it and nothing else; and the top-level
+    # settings its settings need.
     stage = {"call": name, "reads": [], "writes": []}
     return {
+        **top,
         "components": {name: {"type": name, **component}},
         "graph": {"stages": {name: stage}},
     }

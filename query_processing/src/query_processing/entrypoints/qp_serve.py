@@ -32,10 +32,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from ..application.graph_check import WorkflowGraphError, check_graph
+from ..application.graph_check import WorkflowGraphError
 from ..application.rag_dependencies import RagDependencies
 from ..application.workflow_builder import build_workflow
-from ..composition.composition_root import CompositionRoot, stage_context
+from ..composition.composition_root import (
+    CompositionRoot,
+    check_workflow_graph,
+    stage_context,
+)
 from ..composition.registered_names import check_registered_names
 from ..config.component_settings import VectorStoreSettings
 from ..config.workflow_settings import WorkflowSettings
@@ -455,7 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         settings = WorkflowSettings()
         check_registered_names(settings)
-        check_graph(settings.graph, settings.component_types(), stage_context(settings))
+        check_workflow_graph(settings)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")

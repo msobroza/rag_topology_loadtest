@@ -19,6 +19,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
 
+from query_processing.adapters.router.fake.fake_router import FakeRouter
 from query_processing.composition.openers.component_openers import (
     EMBEDDER_OPENERS,
     LLM_OPENERS,
@@ -307,8 +308,13 @@ SHARED_DIRECTORIES = {"served": "api"}
 OTHER_PORTS: dict[str, set[str]] = {
     "vector_store": {"base_metadata_filter_translator.py"},
 }
+# Component package -> the API format written by hand beside its port: the
+# router's, the worked example of one, for its served backend, which is built
+# and so has no directory.
+HAND_WRITTEN_FORMATS: dict[str, set[str]] = {"router": {"router_api_format.py"}}
 # Component package -> its port classes, and the Backend values that name its
-# implementation directories: those registered for each component type.
+# implementation directories: those registered for each component type. The
+# router's are those its classes name, fake; its served class is built.
 COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
     "embedder": ({"BaseEmbedder"}, EMBEDDER_OPENERS.names()),
     "reranker": ({"BaseReranker"}, RERANKER_OPENERS.names()),
@@ -317,6 +323,7 @@ COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
         {"BaseVectorStore", "BaseLexicalSearch"},
         VECTOR_STORE_OPENERS.names(),
     ),
+    "router": ({"BaseRouter"}, tuple(FakeRouter.backends)),
 }
 
 
@@ -346,7 +353,8 @@ def component_problems(
     """What breaks the layout of one component package.
 
     The layout: ``base_<component>.py`` holds the port (``OTHER_PORTS`` names
-    any other port beside it), and each Backend value is
+    any other port beside it, ``HAND_WRITTEN_FORMATS`` an API format written
+    by hand), and each Backend value is
     a directory holding exactly one implementation of it, except a Backend of
     ``SHARED_DIRECTORIES``, implemented in the directory it names.
 
@@ -363,7 +371,12 @@ def component_problems(
         if (component / f"base_{name}.py").is_file()
         else [f"{name}: no base_{name}.py"]
     )
-    expected_files = {"__init__.py", f"base_{name}.py", *OTHER_PORTS.get(name, ())}
+    expected_files = {
+        "__init__.py",
+        f"base_{name}.py",
+        *OTHER_PORTS.get(name, ()),
+        *HAND_WRITTEN_FORMATS.get(name, ()),
+    }
     problems += [
         f"{name}/{path.name} is neither the port nor a Backend directory"
         for path in sorted(component.glob("*.py"))

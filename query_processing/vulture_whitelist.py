@@ -21,6 +21,14 @@ handle_request
 # in tests/adapters/test_elasticsearch_store.py).
 bulk
 
+# pydantic: Route.utterances, read from routes.yaml for a use case's router to
+# learn its routes from; the toolkit's fake router reads none.
+utterances
+# Python: the toolkit's own router classes, imported in
+# composition/registered_components.py for what they register on their class
+# line, and named there so that the import is kept.
+TOOLKIT_REGISTRATIONS
+
 # LangGraph: WorkflowState keys, written and read by the stages as string keys
 # (history is written by every request and read by none yet).
 conversational_query

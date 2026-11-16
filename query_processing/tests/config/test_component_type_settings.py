@@ -17,6 +17,7 @@ from query_processing.config.component_settings import (
     RerankerSettings,
     VectorStoreSettings,
 )
+from query_processing.config.router_settings import RouterSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.registry import Registry
 
@@ -32,7 +33,7 @@ class CounterSettings(ComponentSettings):
 
 @pytest.fixture
 def with_counter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The four types of the toolkit, and ``counter`` registered beside them."""
+    """The five types of the toolkit, and ``counter`` registered beside them."""
     registry: Registry[type[ComponentSettings]] = Registry("component type")
     for name in COMPONENT_TYPE_SETTINGS.names():
         registry.register(name)(COMPONENT_TYPE_SETTINGS.get(name))
@@ -40,13 +41,14 @@ def with_counter(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(component_settings, "COMPONENT_TYPE_SETTINGS", registry)
 
 
-def test_the_four_types_of_the_toolkit_are_registered() -> None:
+def test_the_five_types_of_the_toolkit_are_registered() -> None:
     assert {
         n: COMPONENT_TYPE_SETTINGS.get(n) for n in COMPONENT_TYPE_SETTINGS.names()
     } == {
         "embedder": EmbedderSettings,
         "llm": LlmSettings,
         "reranker": RerankerSettings,
+        "router": RouterSettings,
         "vector_store": VectorStoreSettings,
     }
 

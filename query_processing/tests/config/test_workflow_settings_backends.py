@@ -221,7 +221,8 @@ def test_settings_field_set_is_pinned() -> None:
     # the sizes and the prompts are settings of the stages of its graph; what
     # the components share is four blocks named after what they are about. Only
     # the topology alias and the run label, two labels, and Domino's own run
-    # variables stay flat. The extensions are the packages the file loads.
+    # variables stay flat. The extensions are the packages the file loads; the
+    # prompts and the routes, the catalogue routers list from, files of their own.
     assert sorted(WorkflowSettings.model_fields) == [
         "calibration",
         "components",
@@ -233,6 +234,7 @@ def test_settings_field_set_is_pinned() -> None:
         "http",
         "local_models",
         "prompts",
+        "routes",
         "run_label",
         "topology_alias",
     ]

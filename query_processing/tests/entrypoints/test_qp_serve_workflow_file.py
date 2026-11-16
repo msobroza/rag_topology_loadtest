@@ -20,10 +20,9 @@ import yaml
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from query_processing.application.graph_check import check_graph
 from query_processing.composition.composition_root import (
     CompositionRoot,
-    stage_context,
+    check_workflow_graph,
 )
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
@@ -198,7 +197,7 @@ def test_stages_of_no_stage_type_that_state_their_lists_answer_as_plain_calls(
     settings = settings_factory(**FAKE_BACKENDS)
     embedder, reranker = RecordingEmbedder(), RecordingReranker()
 
-    check_graph(settings.graph, settings.component_types(), stage_context(settings))
+    check_workflow_graph(settings)
     body = ask(settings, "/query", embedder=embedder, reranker=reranker)
 
     assert embedder.queries == [QUESTION]
