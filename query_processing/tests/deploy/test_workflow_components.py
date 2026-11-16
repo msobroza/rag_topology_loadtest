@@ -221,3 +221,26 @@ def test_the_values_are_checked_with_the_overrides_over_the_file_alone(
         refuse_override_values(
             {"components": {"reranker": {"backend": "api"}}}, FIXTURE_WORKFLOW
         )
+
+
+def prefilter_override(condition: dict[str, object]) -> dict[str, object]:
+    """The overrides that give the fixture's vector store a one-condition prefilter."""
+    return {"components": {"vector_store": {"prefilter": [condition]}}}
+
+
+def test_a_prefilter_override_on_undeclared_fields_passes() -> None:
+    overrides = prefilter_override(
+        {"attribute": "active", "comparator": "eq", "value": True}
+    )
+
+    refuse_unknown_override_keys(overrides, FIXTURE_WORKFLOW)
+    refuse_override_values(overrides, FIXTURE_WORKFLOW)
+
+
+def test_a_prefilter_override_of_the_wrong_shape_is_refused() -> None:
+    overrides = prefilter_override(
+        {"attribute": "version", "comparator": "in", "value": []}
+    )
+
+    with pytest.raises(DominoDeployError, match="'in' takes a list of at least one"):
+        refuse_override_values(overrides, FIXTURE_WORKFLOW)

@@ -23,12 +23,14 @@ async def open_vector_store_on_chroma(
         _shared: Unused: Chroma shares nothing with the process.
 
     Returns:
-        The Chroma store.
+        The Chroma store, under the settings' prefilter.
 
     Example:
         >>> store = await open_vector_store_on_chroma(vector_store, shared)
     """
     block = component.chroma
-    return await ChromaVectorStore.open(
+    store = await ChromaVectorStore.open(
         url=block.url, path=block.path, collection=block.collection
     )
+    store.prefilter = tuple(component.prefilter)
+    return store

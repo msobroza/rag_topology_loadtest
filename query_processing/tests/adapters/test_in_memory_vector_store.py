@@ -168,3 +168,60 @@ async def test_a_search_without_conditions_filters_nothing() -> None:
     )
 
     assert len(answer.passages) == len(TOPICS)
+
+
+def cond(attribute: str, comparator: str, value: object) -> MetadataCondition:
+    """A condition, built as a client or a settings file sends it."""
+    return MetadataCondition.model_validate(
+        {"attribute": attribute, "comparator": comparator, "value": value}
+    )
+
+
+SOURCES = {"amf-on": ("AMF", True), "amf-off": ("AMF", False), "gaa-on": ("GAA", True)}
+
+
+async def store_of_sources() -> InMemoryVectorStore:
+    """A store of three passages, by source and by whether they are active."""
+    store = InMemoryVectorStore()
+    passages = [
+        Passage(id=pid, text="vacation", metadata={"source": src, "active": on})
+        for pid, (src, on) in SOURCES.items()
+    ]
+    await store.upsert(passages, [[1.0, 0.0]] * len(passages))
+    return store
+
+
+@pytest.mark.parametrize("retrieval_mode", ["dense", "lexical", "hybrid"])
+async def test_the_prefilter_and_the_requests_conditions_must_all_hold(
+    retrieval_mode: RetrievalMode,
+) -> None:
+    store = await store_of_sources()
+    store.prefilter = (cond("active", "eq", True),)
+
+    answer = await store.ainvoke(
+        SearchRequest(
+            embedding=[1.0, 0.0],
+            text="vacation",
+            metadata_filter=[cond("source", "in", ["AMF"])],
+            top_k=5,
+            retrieval_mode=retrieval_mode,
+            rrf_k=60,
+        )
+    )
+
+    assert [p.id for p in answer.passages] == ["amf-on"]
+
+
+async def test_the_prefilter_applies_to_a_search_without_conditions() -> None:
+    store = await store_of_sources()
+    store.prefilter = (cond("active", "eq", True),)
+
+    answer = await store.ainvoke(
+        SearchRequest(embedding=[1.0, 0.0], top_k=5, retrieval_mode="dense")
+    )
+
+    assert sorted(p.id for p in answer.passages) == ["amf-on", "gaa-on"]
+
+
+def test_a_store_states_no_prefilter_by_default() -> None:
+    assert tuple(InMemoryVectorStore().prefilter) == ()

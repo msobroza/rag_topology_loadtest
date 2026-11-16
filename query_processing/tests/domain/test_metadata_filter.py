@@ -9,6 +9,7 @@ import pytest
 from query_processing.domain.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
+    check_condition_shapes,
     check_conditions,
 )
 
@@ -50,6 +51,14 @@ FIELDS = [SOURCE, ACTIVE, CHUNK]
         (
             {"attribute": "chunk", "comparator": "eq", "value": [1, 2]},
             "'eq' takes one value",
+        ),
+        (
+            {"attribute": "source", "comparator": "in", "value": []},
+            "'in' takes a list of at least one value",
+        ),
+        (
+            {"attribute": "chunk", "comparator": "nin", "value": []},
+            "'nin' takes a list of at least one value",
         ),
         (
             {"attribute": "chunk", "comparator": "gte", "value": "two"},
@@ -116,3 +125,37 @@ def test_a_condition_keeps_the_type_of_its_value() -> None:
 
     assert condition.value is True
     assert MetadataCondition(attribute="chunk", comparator="in", value=[2]).value == [2]
+
+
+@pytest.mark.parametrize(
+    ("condition", "problem"),
+    [
+        (
+            {"attribute": "active", "comparator": "in", "value": True},
+            "'in' takes a list",
+        ),
+        (
+            {"attribute": "version", "comparator": "eq", "value": ["1"]},
+            "'eq' takes one",
+        ),
+        ({"attribute": "version", "comparator": "nin", "value": []}, "at least one"),
+    ],
+)
+def test_a_condition_of_the_wrong_shape_is_refused_without_a_field_declared(
+    condition: dict[str, Any], problem: str
+) -> None:
+    # A prefilter names fields no store declares: only its shape is checked.
+    with pytest.raises(ValueError, match=problem) as refused:
+        check_condition_shapes([MetadataCondition(**condition)], "prefilter")
+
+    assert str(refused.value).startswith("prefilter[0] ")
+
+
+def test_a_condition_of_the_right_shape_needs_no_field_declared() -> None:
+    check_condition_shapes(
+        [
+            MetadataCondition(attribute="version", comparator="eq", value="1"),
+            MetadataCondition(attribute="active", comparator="in", value=[True]),
+        ],
+        "prefilter",
+    )

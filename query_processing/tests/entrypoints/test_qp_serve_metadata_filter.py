@@ -80,6 +80,16 @@ def test_every_condition_must_hold(client: TestClient) -> None:
         ({"attribute": "topic", "comparator": "gt", "value": "x"}, "'gt'"),
         ({"attribute": "topic", "comparator": "in", "value": "x"}, "'in'"),
         ({"attribute": "topic", "comparator": "eq", "value": 3}, "3 is not of type"),
+        # Regression: an empty list was accepted, and Chroma then failed with a
+        # ValueError mid-search.
+        (
+            {"attribute": "topic", "comparator": "in", "value": []},
+            "'in' takes a list of at least one",
+        ),
+        (
+            {"attribute": "topic", "comparator": "nin", "value": []},
+            "'nin' takes a list of at least one",
+        ),
     ],
 )
 @pytest.mark.parametrize("path", ["/query", "/retrieve"])
@@ -148,3 +158,47 @@ def test_the_fields_declared_are_those_of_the_stores_retrieve_stages_call(
         ("topic", "string"),
         ("year", "integer"),
     ]
+
+
+# The synthetic corpus numbers its documents by ``seq``, a field no store declares.
+LATER_DOCUMENTS = [{"attribute": "seq", "comparator": "gte", "value": 100}]
+
+
+@pytest.fixture
+def prefiltered_client(
+    settings_factory: Callable[..., WorkflowSettings],
+) -> Iterator[TestClient]:
+    """The app whose store's prefilter keeps the later half of the documents."""
+    settings = settings_factory(
+        **FAKE_BACKENDS, components__vector_store__prefilter=LATER_DOCUMENTS
+    )
+    with TestClient(create_app(CompositionRoot(settings))) as test_client:
+        yield test_client
+
+
+@pytest.mark.parametrize("path", ["/query", "/retrieve"])
+def test_the_prefilter_applies_with_the_requests_conditions_and_is_not_reported(
+    prefiltered_client: TestClient, client: TestClient, path: str
+) -> None:
+    body = {"question": QUESTION, "metadata_filter": ON_REMOTE_WORK}
+    unfiltered = client.post(path, json=body).json()
+
+    answer = prefiltered_client.post(path, json=body).json()
+
+    # Without the prefilter an earlier document is retrieved: the test can fail.
+    assert min(p["metadata"]["seq"] for p in unfiltered["passages"]) < 100
+    assert answer["passages"]
+    assert {p["metadata"]["topic"] for p in answer["passages"]} == {"remote-work"}
+    assert min(p["metadata"]["seq"] for p in answer["passages"]) >= 100
+    assert answer["metadata_filter"] == ON_REMOTE_WORK
+
+
+def test_a_client_cannot_name_a_field_of_the_prefilter(
+    prefiltered_client: TestClient,
+) -> None:
+    response = prefiltered_client.post(
+        "/retrieve", json={"question": QUESTION, "metadata_filter": LATER_DOCUMENTS}
+    )
+
+    assert response.status_code == 422
+    assert "no field 'seq'" in response.json()["detail"]

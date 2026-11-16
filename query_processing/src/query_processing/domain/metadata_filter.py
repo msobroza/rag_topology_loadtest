@@ -112,6 +112,36 @@ def check_conditions(
             )
 
 
+def check_condition_shapes(conditions: Sequence[MetadataCondition], label: str) -> None:
+    """Refuse a condition whose value does not have its comparator's shape.
+
+    For conditions on fields no store declares, such as a vector store's
+    prefilter: only the shape is checked, not a field's type nor its values.
+
+    Args:
+        conditions: The conditions.
+        label: What holds them, named in the error, such as ``"prefilter"``.
+
+    Raises:
+        ValueError: ``in`` or ``nin`` has one value or an empty list, or another
+            comparator has a list. The message names the condition.
+
+    Example:
+        >>> check_condition_shapes(
+        ...     [MetadataCondition(attribute="active", comparator="in", value=[])],
+        ...     "prefilter")
+        Traceback (most recent call last):
+        ValueError: prefilter[0] ... 'in' takes a list of at least one value ...
+    """
+    for index, condition in enumerate(conditions):
+        problem = _shape_problem(condition)
+        if problem:
+            raise ValueError(
+                f"{label}[{index}] {condition.model_dump()} does not have the "
+                f"shape of a condition: {problem}"
+            )
+
+
 def _problem(
     condition: MetadataCondition, by_name: dict[str, MetadataFieldInfo]
 ) -> str:
@@ -133,11 +163,22 @@ def _comparator_problem(condition: MetadataCondition, field: MetadataFieldInfo) 
             f"{comparator!r} is not a comparator of a {field.type} "
             f"(expected one of: {', '.join(sorted(allowed))})"
         )
-    is_list = isinstance(condition.value, list)
-    if comparator in LIST_COMPARATORS and not is_list:
-        return f"{comparator!r} takes a list of values (got {condition.value!r})"
-    if comparator not in LIST_COMPARATORS and is_list:
-        return f"{comparator!r} takes one value (got the list {condition.value!r})"
+    return _shape_problem(condition)
+
+
+def _shape_problem(condition: MetadataCondition) -> str:
+    comparator, value = condition.comparator, condition.value
+    if comparator not in LIST_COMPARATORS:
+        if isinstance(value, list):
+            return f"{comparator!r} takes one value (got the list {value!r})"
+        return ""
+    if not isinstance(value, list):
+        return f"{comparator!r} takes a list of values (got {value!r})"
+    # An empty list keeps nothing (in) or everything (nin), never what was meant,
+    # and a store may refuse it mid-search (Chroma raises a ValueError): it is
+    # refused here, where the condition is read.
+    if not value:
+        return f"{comparator!r} takes a list of at least one value (got [])"
     return ""
 
 

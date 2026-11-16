@@ -34,17 +34,26 @@ from ...domain.rank_fusion import reciprocal_rank_fusion
 class BaseVectorStore(
     BaseComponent[SearchRequest, SearchAnswer], component_type="vector_store"
 ):
-    """Stores passages with their vectors and finds them by vector."""
+    """Stores passages with their vectors and finds them by vector.
+
+    ``prefilter`` holds the conditions the store adds to every search, in front
+    of a request's own: which passages a workflow can read at all. Its opener
+    sets it from the store's settings; none by default.
+    """
+
+    prefilter: Sequence[MetadataCondition] = ()
 
     async def ainvoke(self, request: SearchRequest) -> SearchAnswer:
-        """Search the store by the request's retrieval mode.
+        """Search the store by the request's retrieval mode, under its prefilter.
 
         Args:
             request: The vector, the words or both, how many passages to return,
-                the retrieval mode and, for ``hybrid``, the fusion's rank constant.
+                the retrieval mode, the metadata filter and, for ``hybrid``, the
+                fusion's rank constant.
 
         Returns:
-            At most ``top_k`` passages, best first.
+            At most ``top_k`` passages, best first, each meeting the prefilter
+            and the request's metadata filter.
 
         Raises:
             ValueError: The retrieval mode is ``lexical`` or ``hybrid`` and the
@@ -55,26 +64,25 @@ class BaseVectorStore(
             ...     embedding=vector, top_k=20, retrieval_mode="dense"))
             SearchAnswer(passages=[...])
         """
+        conditions = [*self.prefilter, *request.metadata_filter]
         if request.retrieval_mode == "dense":
-            return SearchAnswer(passages=await self._dense(request))
+            return SearchAnswer(passages=await self._dense(request, conditions))
         search = required_lexical_search(self, request.retrieval_mode)
-        lexical = search.lexical_query(
-            request.text or "", request.top_k, request.metadata_filter
-        )
+        lexical = search.lexical_query(request.text or "", request.top_k, conditions)
         if request.retrieval_mode == "lexical":
             return SearchAnswer(passages=await lexical)
         # Both legs at once, each asked for top_k, fused back to top_k. A hybrid
         # request always carries rrf_k: SearchRequest refuses one without it.
-        rankings = await asyncio.gather(self._dense(request), lexical)
+        rankings = await asyncio.gather(self._dense(request, conditions), lexical)
         fused = reciprocal_rank_fusion(
             rankings, k=request.rrf_k or 0, top_k=request.top_k
         )
         return SearchAnswer(passages=fused)
 
-    async def _dense(self, request: SearchRequest) -> list[ScoredPassage]:
-        return await self.query(
-            request.embedding or [], request.top_k, request.metadata_filter
-        )
+    async def _dense(
+        self, request: SearchRequest, conditions: Sequence[MetadataCondition]
+    ) -> list[ScoredPassage]:
+        return await self.query(request.embedding or [], request.top_k, conditions)
 
     @abstractmethod
     async def upsert(

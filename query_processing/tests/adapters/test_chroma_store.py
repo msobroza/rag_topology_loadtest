@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
+from query_processing.domain.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.metadata_filter import Comparator, MetadataCondition
 from query_processing.domain.passages import MetadataValue, Passage
@@ -106,6 +107,23 @@ async def test_chroma_query_returns_only_the_passages_the_filter_keeps(
     await store.upsert(TAGGED, TAGGED_VECTORS)
     hits = await store.query([1.0, 0.0], 3, conditions)
     assert [h.id for h in hits] == kept
+
+
+async def test_chroma_a_search_keeps_only_what_the_prefilter_and_request_keep(
+    tmp_path: Path,
+) -> None:
+    store = await open_store(tmp_path)
+    await store.upsert(TAGGED, TAGGED_VECTORS)
+    store.prefilter = (cond("source", "in", ["AMF", "GAA"]),)
+    search = SearchRequest(embedding=[1.0, 0.0], top_k=3, retrieval_mode="dense")
+
+    unfiltered = await store.ainvoke(search)
+    filtered = await store.ainvoke(
+        search.model_copy(update={"metadata_filter": [cond("chunk", "gte", 2)]})
+    )
+
+    assert [p.id for p in unfiltered.passages] == ["amf", "gaa"]
+    assert [p.id for p in filtered.passages] == ["gaa"]
 
 
 async def test_chroma_ready_reports_count_and_collection(tmp_path: Path) -> None:

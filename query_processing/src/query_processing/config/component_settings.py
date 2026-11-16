@@ -33,11 +33,21 @@ from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, PlainValidator, SerializeAsAny, model_validator
+from pydantic import (
+    Field,
+    PlainValidator,
+    SerializeAsAny,
+    field_validator,
+    model_validator,
+)
 
 from ..domain.api_endpoint import ApiEndpoint
 from ..domain.base_component import COMPONENT_TYPES
-from ..domain.metadata_filter import MetadataFieldInfo
+from ..domain.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+    check_condition_shapes,
+)
 from ..domain.registry import Registry
 from ..domain.standard_formats import STANDARD_API_FORMATS
 from .registered_component_settings import RegisteredComponentSettings
@@ -267,7 +277,10 @@ class VectorStoreSettings(ComponentSettings):
     The index or collection the passages are kept under is the use case's to
     name: the block of the backend in use states it, or start-up refuses it.
     ``metadata_field_info`` declares the metadata fields a request's filter
-    can name; a condition on any other field is refused.
+    can name; a condition on any other field is refused. ``prefilter`` holds
+    the conditions every search applies before a request's own: which passages
+    a workflow can read at all. Its fields need not be declared, and a client
+    cannot name them; only each condition's shape is checked when read.
 
     Example:
         >>> settings.components["vector_store"].elasticsearch.index
@@ -278,10 +291,20 @@ class VectorStoreSettings(ComponentSettings):
     # None declared: a request's filter can name no field, and only an empty
     # filter is accepted.
     metadata_field_info: list[MetadataFieldInfo] = Field(default_factory=list)
+    # None by default: every passage of the store can be read.
+    prefilter: list[MetadataCondition] = Field(default_factory=list)
     elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
     chroma: ChromaSettings = Field(default_factory=ChromaSettings)
     # "fake" = in memory, seeded with the synthetic corpus when it opens
     fake: FakeStoreSettings = Field(default_factory=FakeStoreSettings)
+
+    @field_validator("prefilter")
+    @classmethod
+    def _prefilter_has_the_shape_of_conditions(
+        cls, prefilter: list[MetadataCondition]
+    ) -> list[MetadataCondition]:
+        check_condition_shapes(prefilter, "prefilter")
+        return prefilter
 
 
 # The settings class of each component type, found by the type's name: a

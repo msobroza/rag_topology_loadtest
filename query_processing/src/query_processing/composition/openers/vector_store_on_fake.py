@@ -28,7 +28,7 @@ async def open_vector_store_on_fake(
         shared: Opens the process's embedder.
 
     Returns:
-        The seeded in-memory store.
+        The seeded in-memory store, under the settings' prefilter.
 
     Example:
         >>> store = await open_vector_store_on_fake(vector_store, shared)
@@ -37,4 +37,5 @@ async def open_vector_store_on_fake(
     documents = synthetic_corpus(component.fake.seed_documents)
     passages = [passage for document in documents for passage in chunk(document)]
     await ingest(passages, await shared.open_embedder(), store)
+    store.prefilter = tuple(component.prefilter)
     return store

@@ -359,7 +359,8 @@ def test_a_block_the_vector_store_does_not_have_is_refused_naming_its_keys(
     message = str(refused.value)
     assert "the 'vector_store' component type has no 'qdrant'" in message
     assert (
-        "(backend, chroma, elasticsearch, fake, metadata_field_info, type)" in message
+        "(backend, chroma, elasticsearch, fake, metadata_field_info, prefilter, type)"
+        in message
     )
 
 
@@ -406,3 +407,32 @@ def test_ingestion_refuses_a_file_without_a_vector_store(
 
     with pytest.raises(ValueError, match=r"declares 0 \(its vector stores: none\)"):
         settings_factory().ingestion_store()
+
+
+def test_a_prefilter_names_fields_the_vector_store_does_not_declare(
+    settings_factory: SettingsFactory,
+) -> None:
+    prefilter = [{"attribute": "active", "comparator": "eq", "value": True}]
+
+    settings = settings_factory(components__vector_store__prefilter=prefilter)
+
+    store = settings.components["vector_store"]
+    assert [c.model_dump() for c in store.prefilter] == prefilter
+    assert [f.name for f in store.metadata_field_info] == ["topic"]
+
+
+@pytest.mark.parametrize(
+    ("condition", "problem"),
+    [
+        ({"attribute": "v", "comparator": "nin", "value": []}, "at least one"),
+        ({"attribute": "v", "comparator": "in", "value": "1"}, "takes a list"),
+        ({"attribute": "v", "comparator": "like", "value": "1"}, "like"),
+    ],
+)
+def test_a_prefilter_of_the_wrong_shape_is_refused_when_the_settings_are_read(
+    settings_factory: SettingsFactory, condition: dict[str, object], problem: str
+) -> None:
+    with pytest.raises(ValidationError, match=problem) as refused:
+        settings_factory(components__vector_store__prefilter=[condition])
+
+    assert "prefilter" in str(refused.value)

@@ -207,6 +207,8 @@ async def test_es_lexical_query_without_a_match_is_empty() -> None:
 
 TOPIC_HR = [MetadataCondition(attribute="topic", comparator="eq", value="hr")]
 TOPIC_HR_CLAUSES = [{"term": {"metadata.topic.keyword": "hr"}}]
+ACTIVE = MetadataCondition(attribute="active", comparator="eq", value=True)
+ACTIVE_FIRST = [{"term": {"metadata.active": True}}, *TOPIC_HR_CLAUSES]
 
 
 async def test_es_query_sends_the_conditions_as_the_vector_searchs_filter() -> None:
@@ -230,8 +232,15 @@ async def test_es_lexical_query_sends_the_conditions_in_its_bool_filter() -> Non
     ]
 
 
-async def test_es_hybrid_search_passes_the_conditions_to_both_searches() -> None:
+@pytest.mark.parametrize(
+    ("prefilter", "clauses"), [((), TOPIC_HR_CLAUSES), ((ACTIVE,), ACTIVE_FIRST)]
+)
+async def test_es_hybrid_search_passes_the_conditions_to_both_searches(
+    prefilter: tuple[MetadataCondition, ...], clauses: list[dict[str, Any]]
+) -> None:
     fake = FakeLangChainStore()
+    store = plain_store(fake)
+    store.prefilter = prefilter
     request = SearchRequest(
         embedding=[0.5, 0.5],
         text="vacation",
@@ -240,10 +249,10 @@ async def test_es_hybrid_search_passes_the_conditions_to_both_searches() -> None
         rrf_k=60,
         metadata_filter=TOPIC_HR,
     )
-    await plain_store(fake).ainvoke(request)
-    assert [call["filter"] for call in fake.search_calls] == [TOPIC_HR_CLAUSES]
+    await store.ainvoke(request)
+    assert [call["filter"] for call in fake.search_calls] == [clauses]
     [lexical] = fake.lexical_calls
-    assert lexical["query"]["bool"]["filter"] == TOPIC_HR_CLAUSES
+    assert lexical["query"]["bool"]["filter"] == clauses
 
 
 @pytest.mark.parametrize(("exists", "expected"), [(False, 0), (True, 17)])

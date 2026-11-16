@@ -215,6 +215,12 @@ def read_back(
     return WorkflowSettings(_env_file=None)
 
 
+# A list of conditions, each value of another type: the site's prefilter.
+PREFILTER = [
+    {"attribute": "ingestion_pipeline_version", "comparator": "eq", "value": "1"},
+    {"attribute": "active", "comparator": "eq", "value": True},
+    {"attribute": "chunk", "comparator": "in", "value": [0, 1]},
+]
 # A site's values in the workflow file's shape, one of each kind: whole and
 # decimal numbers, a boolean, a text with spaces and shell symbols, a list, a
 # value of a component, one of a stage and a label.
@@ -222,7 +228,10 @@ SITE_OVERRIDES: dict[str, object] = {
     "http": {"timeout_s": 45, "retries": 0, "backoff_s": 0.5},
     "components": {
         "llm": {"http": {"timeout_s": 90.5}},  # the file's is 120
-        "vector_store": {"elasticsearch": {"url": "https://es.site:9200/?a=b&c d"}},
+        "vector_store": {
+            "elasticsearch": {"url": "https://es.site:9200/?a=b&c d"},
+            "prefilter": PREFILTER,  # its fields need not be declared
+        },
         "embedder": {"query_prefix": "passage: "},
     },
     "domino": {"tracing": False},
@@ -253,6 +262,8 @@ def test_every_app_reads_each_override_back_to_its_value_over_the_file(
     url = components["vector_store"].elasticsearch.url
     assert url == "https://es.site:9200/?a=b&c d"
     assert components["embedder"].query_prefix == "passage: "
+    prefilter = [c.model_dump() for c in components["vector_store"].prefilter]
+    assert prefilter == PREFILTER
     assert (settings.domino.tracing, settings.local_models.cpus) == (False, 1.5)
     assert settings.graph.edges == SITE_OVERRIDES["graph"]["edges"]  # type: ignore[index]
     # A plain call's keys fill its component's request, which reads the text back.

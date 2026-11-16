@@ -79,6 +79,25 @@ async def test_the_chroma_backend_gives_the_workflow_a_store_that_ranks_no_text(
         assert not isinstance(store, BaseLexicalSearch)  # Chroma ranks no text
 
 
+# Opening a store reaches no network: Elasticsearch connects on the first call.
+@pytest.mark.parametrize("backend", ["fake", "chroma", "elasticsearch"])
+async def test_every_vector_store_opens_under_the_prefilter_of_its_settings(
+    settings_factory: SettingsFactory, tmp_path: Path, backend: str
+) -> None:
+    prefilter = [{"attribute": "active", "comparator": "eq", "value": True}]
+    settings = settings_factory(
+        components__embedder__backend="fake",
+        components__vector_store__backend=backend,
+        components__vector_store__chroma__path=str(tmp_path / "chroma"),
+        components__vector_store__prefilter=prefilter,
+    )
+
+    async with CompositionRoot(settings) as composition:
+        store = (await composition.ingest_ports()).vector_store
+
+        assert [c.model_dump() for c in store.prefilter] == prefilter
+
+
 # --- in-process runtime ---------------------------------------------------------------
 
 # What the export loads a model with: convert it to OpenVINO, in memory.

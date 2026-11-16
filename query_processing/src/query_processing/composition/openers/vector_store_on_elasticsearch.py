@@ -25,7 +25,7 @@ async def open_vector_store_on_elasticsearch(
         shared: The scope, which closes the client.
 
     Returns:
-        The Elasticsearch store.
+        The Elasticsearch store, under the settings' prefilter.
 
     Example:
         >>> store = await open_vector_store_on_elasticsearch(vector_store, shared)
@@ -37,5 +37,6 @@ async def open_vector_store_on_elasticsearch(
         api_key=block.api_key,
         text_analyzer=block.text_analyzer,
     )
+    store.prefilter = tuple(component.prefilter)
     shared.scope.exit_stack("vector_store").push_async_callback(store.aclose)
     return store
