@@ -1,8 +1,7 @@
-"""The registered stage types and edge condition of the RAG, and what each declares."""
+"""The registered stage types of the RAG, and what each declares."""
 
 from __future__ import annotations
 
-import inspect
 from typing import Any, get_type_hints
 
 import pytest
@@ -14,8 +13,6 @@ from query_processing.adapters.vector_store.base_vector_store import (
     BaseVectorStore,
     required_lexical_search,
 )
-from query_processing.application.edge_conditions.edge_condition import EDGE_CONDITIONS
-from query_processing.application.edge_conditions.is_query_mode import is_query_mode
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.stages.base_stage import (
     STAGE_TYPES,
@@ -32,7 +29,6 @@ from query_processing.application.stages.retrieve_stage import (
 )
 from query_processing.application.state_fields import field_types_of, state_type
 from query_processing.application.workflow_builder import open_stage
-from query_processing.application.workflow_state import WorkflowState
 from query_processing.domain.passages import ScoredPassage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored
@@ -227,18 +223,3 @@ def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:
     backend = "QP_COMPONENTS__VECTOR_STORE__BACKEND"
     with pytest.raises(ValueError, match=rf"to elasticsearch \({backend} for the one"):
         required_lexical_search(DenseOnlyStore(), "lexical")
-
-
-# --- the edge condition --------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("state", "expected"),
-    [({"mode": "query"}, True), ({"mode": "retrieve"}, False), ({}, False)],
-)
-def test_is_query_mode_is_a_registered_question_about_the_state_alone(
-    state: WorkflowState, expected: bool
-) -> None:
-    assert EDGE_CONDITIONS.get("is_query_mode") is is_query_mode
-    assert list(inspect.signature(is_query_mode).parameters) == ["state"]
-    assert is_query_mode(state) is expected

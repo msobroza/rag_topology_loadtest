@@ -1,10 +1,10 @@
 """The start-up checks are generic: graphs of fixture stage types, fixture component
-types and fixture edge conditions, in registries of the test's own.
+types and fixture edge conditions, in registries of the tests' own
+(``graph_check_fixtures``).
 
-A draft stage writes a draft from the message, a polish stage turns the draft
-into the answer, and a judge stage, which calls a component of another type,
-gives a verdict on the draft. The RAG's own graphs are checked through
-``qp-serve`` in ``tests/entrypoints/test_wrong_graph_at_start_up.py``.
+The RAG's own graphs are checked through ``qp-serve`` in
+``tests/entrypoints/test_wrong_graph_at_start_up.py``; the checks of the edges
+are in ``test_edge_check.py``.
 """
 
 from __future__ import annotations
@@ -14,134 +14,25 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from echo_components import Echo, EchoRequest
+from graph_check_fixtures import (
+    ANOTHER_DRAFT,
+    DRAFT,
+    EXPLAIN,
+    JUDGE,
+    POLISH,
+    WITH_VOICE,
+    asking,
+    check,
+    graph_of,
+)
 from query_processing.application.component_types import COMPONENT_TYPES
-from query_processing.application.edge_conditions.edge_condition import EdgeCondition
 from query_processing.application.graph_check import (
     WorkflowGraphError,
-    check_graph,
     fields_set_before,
 )
 from query_processing.application.rag_dependencies import RagDependencies
-from query_processing.application.stages.base_stage import (
-    BaseStage,
-    FieldTypes,
-    StageFields,
-    StageSettings,
-    StageTypes,
-    fields_in_order,
-)
-from query_processing.application.workflow_state import REQUEST_FIELDS, WorkflowState
+from query_processing.application.workflow_state import REQUEST_FIELDS
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.base_component import BaseComponent
-from query_processing.domain.graph_description import GraphDescription
-from query_processing.domain.registry import Registry
-
-FIXTURE_COMPONENT_TYPES: Registry[type[BaseComponent[Any, Any]]] = Registry(
-    "component type"
-)
-
-
-class FakeScribe(
-    BaseComponent[str, str], component_type="scribe", registry=FIXTURE_COMPONENT_TYPES
-):
-    """The port a draft and a polish stage call."""
-
-
-class FakeJudge(
-    BaseComponent[str, bool], component_type="judge", registry=FIXTURE_COMPONENT_TYPES
-):
-    """The port a judge stage calls."""
-
-
-class NoSettings(StageSettings):
-    pass
-
-
-class FixtureStage(BaseStage[Any, NoSettings]):
-    """A stage type that reads one field and writes one, whatever their names."""
-
-    settings_type = NoSettings
-    takes: Any = str  # the type of the field it reads
-    gives: Any = str  # the type of the field it writes
-
-    @classmethod
-    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
-        expecting = f"the {cls.__name__}"
-        return FieldTypes(
-            fields_in_order("reads", fields.reads, {"text": cls.takes}, expecting),
-            fields_in_order("writes", fields.writes, {"text": cls.gives}, expecting),
-        )
-
-    async def run(self, state: WorkflowState) -> WorkflowState:
-        return {}
-
-
-class DraftStage(FixtureStage):
-    component_type = FakeScribe
-
-
-class PolishStage(FixtureStage):
-    component_type = FakeScribe
-
-
-class JudgeStage(FixtureStage):
-    component_type = FakeJudge
-    gives = bool  # a verdict
-
-
-class ExplainStage(FixtureStage):
-    component_type = FakeScribe
-    takes = bool  # a verdict, explained in words
-
-
-FIXTURE_STAGE_TYPES: StageTypes = Registry("stage type")
-for _name, _stage_type in [
-    ("draft", DraftStage),
-    ("polish", PolishStage),
-    ("judge", JudgeStage),
-    ("explain", ExplainStage),
-]:
-    FIXTURE_STAGE_TYPES.register(_name)(_stage_type)
-FIXTURE_EDGE_CONDITIONS: Registry[EdgeCondition] = Registry("edge condition")
-COMPONENTS = {"pen": "scribe", "jury": "judge"}
-
-
-@FIXTURE_EDGE_CONDITIONS.register("is_question")
-def is_question(state: WorkflowState) -> bool:
-    return state.get("conversational_query", "").endswith("?")
-
-
-@FIXTURE_EDGE_CONDITIONS.register("is_long")
-def is_long(state: WorkflowState) -> bool:
-    return len(state.get("conversational_query", "")) > 10
-
-
-def graph_of(
-    stages: dict[str, Any],
-    edges: list[list[str]],
-    conditional_edges: list[dict[str, Any]] | None = None,
-) -> GraphDescription:
-    return GraphDescription.model_validate(
-        {"stages": stages, "edges": edges, "conditional_edges": conditional_edges or []}
-    )
-
-
-def check(graph: GraphDescription, components: dict[str, str] = COMPONENTS) -> None:
-    check_graph(
-        graph,
-        components,
-        component_types=FIXTURE_COMPONENT_TYPES,
-        stage_types=FIXTURE_STAGE_TYPES,
-        edge_conditions=FIXTURE_EDGE_CONDITIONS,
-    )
-
-
-DRAFT = {"call": "pen", "reads": ["conversational_query"], "writes": ["draft"]}
-POLISH = {"call": "pen", "reads": ["draft"], "writes": ["answer"]}
-JUDGE = {"call": "jury", "reads": ["draft"], "writes": ["verdict"]}
-EXPLAIN = {"call": "pen", "reads": ["verdict"], "writes": ["answer"]}
-ANOTHER_DRAFT = {**DRAFT, "type": "draft"}
 
 
 def test_a_graph_of_other_stage_types_and_edge_conditions_passes() -> None:
@@ -149,16 +40,8 @@ def test_a_graph_of_other_stage_types_and_edge_conditions_passes() -> None:
         {"draft": DRAFT, "polish": POLISH, "judge": JUDGE, "explain": EXPLAIN},
         [["START", "draft", "judge", "explain"], ["polish", "END"]],
         [
-            {
-                "source": "explain",
-                "path": "is_question",
-                "path_map": {True: "polish", False: "END"},
-            },
-            {
-                "source": "draft",
-                "path": "is_question",  # the same edge condition on another source
-                "path_map": {True: "END", False: "END"},
-            },
+            asking("explain", "is_question", {True: "polish", False: "END"}),
+            asking("draft", "is_question", {True: "END", False: "END"}),
         ],
     )
 
@@ -169,13 +52,7 @@ def test_a_field_written_on_one_branch_only_is_refused() -> None:
     graph = graph_of(
         {"draft": DRAFT, "polish": POLISH},
         [["draft", "polish", "END"]],
-        [
-            {
-                "source": "START",
-                "path": "is_question",
-                "path_map": {True: "draft", False: "polish"},
-            }
-        ],
+        [asking("START", "is_question", {True: "draft", False: "polish"})],
     )
 
     with pytest.raises(WorkflowGraphError) as refused:
@@ -192,13 +69,7 @@ def test_a_field_written_on_every_branch_passes() -> None:
     graph = graph_of(
         {"short": ANOTHER_DRAFT, "long": ANOTHER_DRAFT, "polish": POLISH},
         [["short", "polish"], ["long", "polish", "END"]],
-        [
-            {
-                "source": "START",
-                "path": "is_long",
-                "path_map": {True: "long", False: "short"},
-            }
-        ],
+        [asking("START", "is_long", {True: "long", False: "short"})],
     )
 
     check(graph)
@@ -209,25 +80,13 @@ def test_a_stage_on_a_loop_reads_only_what_is_set_before_its_first_pass() -> Non
     looped = graph_of(
         {"draft": DRAFT, "polish": POLISH},
         [["START", "polish", "draft"]],
-        [
-            {
-                "source": "draft",
-                "path": "is_long",
-                "path_map": {True: "polish", False: "END"},
-            }
-        ],
+        [asking("draft", "is_long", {True: "polish", False: "END"})],
     )
     # START -> draft -> polish -> draft ...: every pass of polish has its draft.
     redrafted = graph_of(
         {"draft": DRAFT, "polish": POLISH},
         [["START", "draft", "polish"]],
-        [
-            {
-                "source": "polish",
-                "path": "is_long",
-                "path_map": {True: "draft", False: "END"},
-            }
-        ],
+        [asking("polish", "is_long", {True: "draft", False: "END"})],
     )
 
     with pytest.raises(WorkflowGraphError, match="stage 'polish' reads"):
@@ -299,19 +158,11 @@ def test_a_stage_type_with_no_settings_says_it_expects_none() -> None:
     ("conditional_edge", "refused"),
     [
         (
-            {
-                "source": "END",
-                "path": "is_long",
-                "path_map": {True: "END", False: "END"},
-            },
+            asking("END", "is_long", {True: "END", False: "END"}),
             "conditional edge from 'END' on 'is_long' starts at 'END'",
         ),
         (
-            {
-                "source": "draft",
-                "path": "is_long",
-                "path_map": {True: "START", False: "END"},
-            },
+            asking("draft", "is_long", {True: "START", False: "END"}),
             "the true answer of the conditional edge from 'draft' on 'is_long' leads "
             "to 'START', which is no stage",
         ),
@@ -351,17 +202,6 @@ def test_the_request_provides_the_fields_of_the_initial_state() -> None:
 
 
 # --- plain calls and stated lists ----------------------------------------------------
-
-
-class FakeEcho(
-    BaseComponent[EchoRequest, Echo],
-    component_type="echo",
-    registry=FIXTURE_COMPONENT_TYPES,
-):
-    """The port a plain call of these graphs calls."""
-
-
-WITH_VOICE = {**COMPONENTS, "voice": FakeEcho.component_type_name}
 
 
 def test_a_stage_of_no_stage_type_that_states_its_lists_is_a_plain_call() -> None:

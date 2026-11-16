@@ -9,8 +9,10 @@ results are keyed by those names, in the description's order. The LangGraph
 state is built from the fields the request and the stages write. Each chain of
 plain edges becomes one LangGraph edge per pair, the reserved ``START`` and
 ``END`` becoming LangGraph's own. Each conditional edge asks the edge condition
-its ``path`` names, handed to LangGraph as it is registered: LangGraph names the
-branch after the function, and Domino tracing needs that name.
+its ``path`` names about the values of the fields its ``reads`` names, through
+a function that keeps the edge condition's name: LangGraph names the branch
+after the function, and Domino tracing needs that name. The answer, a bool or a
+label, picks its row of ``path_map``.
 
 Example:
     >>> workflow = build_workflow(settings.graph, deps.components())
@@ -20,7 +22,7 @@ Example:
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Hashable, Mapping
+from collections.abc import Awaitable, Callable, Hashable, Mapping, Sequence
 from typing import Any, Protocol
 
 from langgraph.graph import END as LANGGRAPH_END
@@ -113,10 +115,38 @@ def build_workflow(
     for source, target in graph.edge_pairs():
         builder.add_edge(langgraph_name(source), langgraph_name(target))
     for edge in graph.conditional_edges:
-        condition = edge_conditions.get(edge.path)
+        asked = asked_of_state(edge_conditions.get(edge.path), edge.reads)
         source = langgraph_name(edge.source)
-        builder.add_conditional_edges(source, condition, path_map(edge))
+        builder.add_conditional_edges(source, asked, path_map(edge))
     return CompiledWorkflow(builder.compile(), stage_names=list(graph.stages))
+
+
+def asked_of_state(
+    condition: EdgeCondition, reads: Sequence[str]
+) -> Callable[[WorkflowState], bool | str]:
+    """Return the edge condition asked of the state: the values of ``reads``, in order.
+
+    The function keeps the edge condition's name: LangGraph names the branch
+    after it, and Domino tracing fails on a step with no name.
+
+    Args:
+        condition: The registered edge condition.
+        reads: The fields its conditional edge reads, in the order it takes them.
+
+    Returns:
+        A function of the workflow state, named as ``condition`` is.
+
+    Example:
+        >>> asked_of_state(is_query_mode, ["mode"])({"mode": "retrieve"})
+        False
+    """
+    fields = tuple(reads)
+
+    def ask(state: WorkflowState) -> bool | str:
+        return condition(*(state[field] for field in fields))
+
+    ask.__name__ = ask.__qualname__ = getattr(condition, "__name__", "edge_condition")
+    return ask
 
 
 def open_stage(
@@ -245,7 +275,7 @@ def path_map(edge: ConditionalEdge) -> dict[Hashable, str]:
 
     Example:
         >>> path_map(ConditionalEdge(source="rerank", path="is_query_mode",
-        ...          path_map={True: "generate", False: "END"}))
+        ...          reads=["mode"], path_map={True: "generate", False: "END"}))
         {True: 'generate', False: '__end__'}
     """
     return {answer: langgraph_name(to) for answer, to in edge.path_map.items()}

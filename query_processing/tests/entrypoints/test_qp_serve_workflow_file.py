@@ -57,7 +57,7 @@ graph:
     - [START, retrieve, rerank]
     - [generate, END]
   conditional_edges:
-    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
+    - {source: rerank, path: is_query_mode, reads: [mode], path_map: {true: generate, false: END}}
 """
 SettingsFactory = Callable[..., WorkflowSettings]
 

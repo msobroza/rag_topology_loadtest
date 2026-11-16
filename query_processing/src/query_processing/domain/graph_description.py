@@ -8,8 +8,9 @@ names, else of the stage type of its own name, else a plain call. Every other
 key is a setting of the stage, which its stage type, or for a plain call its
 component's request, takes. Plain
 edges are chains of stage names, ``START`` and ``END`` reserved. A conditional
-edge has a ``source``, a ``path`` that names a registered edge condition, and a
-``path_map`` from true and false to a stage or ``END``.
+edge has a ``source``, a ``path`` that names a registered edge condition, the
+``reads`` whose values that edge condition is asked about, and a ``path_map``
+from each answer, true and false or each label, to a stage or ``END``.
 
 These types are in the domain because the settings, which read the description,
 and the application, which builds the graph from it, may both import the
@@ -31,7 +32,7 @@ from __future__ import annotations
 from itertools import pairwise
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # The reserved names a chain of plain edges starts from and ends at.
 START = "START"
@@ -86,18 +87,46 @@ class StageDescription(BaseModel):
         return dict(self.model_extra or {})
 
 
-class ConditionalEdge(BaseModel):
-    """An edge that asks an edge condition and goes one way on true, another on false.
+# The answers of a yes-or-no edge condition as text, as an environment variable
+# gives them; any other key of a path_map is a label.
+_ANSWERS_AS_TEXT = {"true": True, "false": False}
 
-    ``path`` names a registered edge condition; ``path_map`` maps its answer to
-    a stage or ``END``.
+
+class ConditionalEdge(BaseModel):
+    """An edge that asks an edge condition, and goes where its answer's row leads.
+
+    ``path`` names a registered edge condition, asked about the values of the
+    fields ``reads`` names, in order; ``path_map`` maps each answer, true and
+    false or a label, to a stage or ``END`` (ADR 0007).
+
+    Example:
+        >>> ConditionalEdge(source="route", path="label", reads=["route"],
+        ...                 path_map={"self_contained": "embed"}).path_map
+        {'self_contained': 'embed'}
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: str
     path: str
-    path_map: dict[bool, str]
+    reads: list[str]
+    path_map: dict[bool | str, str]
+
+    @field_validator("path_map", mode="before")
+    @classmethod
+    def _answers_as_booleans(cls, path_map: object) -> object:
+        # "true" and "false" are yes and no, not labels: the union would keep
+        # them as the strings they are.
+        if not isinstance(path_map, dict):
+            return path_map
+        return {_answer(key): to for key, to in path_map.items()}
+
+
+def _answer(key: object) -> object:
+    # "True" or "false" from an environment variable is a yes or a no too.
+    if isinstance(key, str):
+        return _ANSWERS_AS_TEXT.get(key.lower(), key)
+    return key
 
 
 # A chain names at least one edge, so at least two names.
@@ -114,7 +143,7 @@ class GraphDescription(BaseModel):
         ...                           "writes": ["reranked"]}},
         ...     "edges": [["START", "rerank"]],
         ...     "conditional_edges": [{
-        ...         "source": "rerank", "path": "is_query_mode",
+        ...         "source": "rerank", "path": "is_query_mode", "reads": ["mode"],
         ...         "path_map": {True: "END", False: "END"},
         ...     }],
         ... })

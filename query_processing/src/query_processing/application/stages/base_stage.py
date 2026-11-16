@@ -53,15 +53,22 @@ class FieldTypes(NamedTuple):
     """The type of each field a stage reads and writes, by the field's name.
 
     A field's type is that of the request or answer attribute it is bound to,
-    or ``Any`` for one that is not checked.
+    or ``Any`` for one that is not checked. ``labels`` gives, for a field
+    written that takes one of a few labels, such as a router's route, those
+    labels: a label edge that reads the field has one row of ``path_map`` for
+    each (ADR 0007).
 
     Example:
         >>> FieldTypes({"standalone_query": str}, {"query_embedding": list[float]})
-        FieldTypes(reads={'standalone_query': <class 'str'>}, writes={...})
+        FieldTypes(reads={'standalone_query': <class 'str'>}, writes={...}, labels={})
+        >>> FieldTypes({}, {"route": str}, {"route": ("self_contained",)}).labels
+        {'route': ('self_contained',)}
     """
 
     reads: dict[str, Any]
     writes: dict[str, Any]
+    # A NamedTuple's default, shared and never mutated: no field declares labels.
+    labels: dict[str, tuple[str, ...]] = {}  # noqa: RUF012
 
 
 ComponentT = TypeVar("ComponentT")

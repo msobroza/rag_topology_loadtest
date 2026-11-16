@@ -46,6 +46,7 @@ SPEC_GRAPH = {
         {
             "source": "rerank",
             "path": "is_query_mode",
+            "reads": ["mode"],
             "path_map": {True: "generate", False: "END"},
         }
     ],
@@ -97,11 +98,38 @@ def test_every_key_besides_type_call_and_the_lists_is_a_setting_of_the_stage() -
 
 def test_a_path_map_goes_from_true_and_false_written_as_text_too() -> None:
     # As an environment variable would give it.
-    path_map = {"true": "generate", "false": "END"}
+    path_map = {"true": "generate", "False": "END"}
 
-    edge = ConditionalEdge(source="rerank", path="is_query_mode", path_map=path_map)
+    edge = ConditionalEdge(
+        source="rerank", path="is_query_mode", reads=["mode"], path_map=path_map
+    )
 
     assert edge.path_map == {True: "generate", False: "END"}
+
+
+def test_a_path_map_goes_from_labels_too() -> None:
+    path_map = {"self_contained": "embed", "leans_on_history": "rewrite"}
+
+    edge = ConditionalEdge(
+        source="route", path="label", reads=["route"], path_map=path_map
+    )
+
+    assert edge.path_map == path_map
+
+
+def test_a_conditional_edge_states_what_it_reads() -> None:
+    unstated = {
+        k: v for k, v in SPEC_GRAPH["conditional_edges"][0].items() if k != "reads"
+    }
+
+    with pytest.raises(ValidationError) as refused:
+        GraphDescription.model_validate({**SPEC_GRAPH, "conditional_edges": [unstated]})
+
+    [error] = refused.value.errors()
+    assert (error["loc"], error["type"]) == (
+        ("conditional_edges", 0, "reads"),
+        "missing",
+    )
 
 
 def test_a_chain_of_one_name_is_refused() -> None:

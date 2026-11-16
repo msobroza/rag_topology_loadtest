@@ -119,7 +119,12 @@ def embed_stage_off_one_path(graph: Graph) -> None:
     graph["edges"][0] = ["embed", "retrieve", "rerank"]
     path_map = {True: "embed", False: "retrieve"}
     graph["conditional_edges"].append(
-        {"source": "START", "path": "is_query_mode", "path_map": path_map}
+        {
+            "source": "START",
+            "path": "is_query_mode",
+            "reads": ["mode"],
+            "path_map": path_map,
+        }
     )
 
 
@@ -133,6 +138,14 @@ def edge_from_an_unknown_stage(graph: Graph) -> None:
 
 def unregistered_edge_condition(graph: Graph) -> None:
     graph["conditional_edges"][0]["path"] = "is_query"
+
+
+def conditional_edge_without_its_reads(graph: Graph) -> None:
+    del graph["conditional_edges"][0]["reads"]
+
+
+def conditional_edge_reading_a_field_written_after_it(graph: Graph) -> None:
+    graph["conditional_edges"][0]["reads"] = ["answer"]  # generate writes it
 
 
 def conditional_edge_without_a_false_target(graph: Graph) -> None:
@@ -283,7 +296,22 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     ),
     "an unregistered edge condition": (
         unregistered_edge_condition,
-        ["unknown edge condition 'is_query' (expected one of: 'is_query_mode')"],
+        [
+            "unknown edge condition 'is_query' (expected one of: 'has_history', "
+            "'is_query_mode', 'label')"
+        ],
+    ),
+    "a conditional edge without its reads": (
+        conditional_edge_without_its_reads,
+        ["graph.conditional_edges.0.reads", "Field required"],
+    ),
+    "a conditional edge that reads a field written after it": (
+        conditional_edge_reading_a_field_written_after_it,
+        [
+            "conditional edge from 'rerank' on 'is_query_mode' reads the workflow "
+            "state field 'answer'",
+            "not on every path from START to the end of 'rerank'",
+        ],
     ),
     "a conditional edge without its false target": (
         conditional_edge_without_a_false_target,

@@ -28,7 +28,7 @@ graph:
     - [START, embed, retrieve, rerank]
     - [generate, END]
   conditional_edges:
-    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
+    - {source: rerank, path: is_query_mode, reads: [mode], path_map: {true: generate, false: END}}
 ```
 
 Its deploy file, `deploy.yaml`, is a copy of `deploy.example.yaml` edited for a
@@ -290,7 +290,7 @@ also gets its line in [the tree](#the-tree) and a test.
 | A new | Its module | Registered with | A test that adds one |
 | --- | --- | --- | --- |
 | stage type, for a stage that does more than call its component | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type` and `settings_type`, and defines `check_fields` (the lists of fields it can use, with their types) and `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
-| edge condition | `application/edge_conditions/<name>.py`: a function of the `WorkflowState` that returns a bool | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
+| edge condition | `application/edge_conditions/<name>.py`: a function of the values its conditional edge reads, in the order of its `reads`, that returns a bool, or a `str` label | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
 | backend | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
 | API format | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
 | model-server kind | `deploy/model_server_kinds/<name>_kind.py`: a `BaseModelServerKind` with its `routes` and `probe_route`; and the toolkit's `domino/model_servers/<name>.sh`, which defines `bootstrap_model_server` and `serve_model_server` | `@MODEL_SERVER_KINDS.register("<name>")` | `tests/deploy/test_a_new_model_server_kind.py` |
@@ -464,7 +464,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       component_types.py  COMPONENT_TYPES, as the four ports register it: each component type's port, which the start-up checks read before any component opens
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states; WorkflowGraphError
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
-      workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out
+      edge_check.py   check_edges: the edges and conditional edges of a graph that cannot run, refused; field_labels: the labels each field can take
+      workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out; asked_of_state
       workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
       stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
         base_stage.py  BaseStage (component type, settings, state fields read and written), StageSettings, StageFields, FieldTypes, STAGE_TYPES
@@ -472,8 +473,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         retrieve_stage.py  RetrieveStage: candidates from the vector store, dense, lexical or hybrid
         generate_stage.py  GenerateStage: the answer to the conversational query, from the LLM
       edge_conditions/  the edge conditions (rule 6); importing it imports every module
-        edge_condition.py  EdgeCondition: a function of the workflow state that returns a bool; EDGE_CONDITIONS
-        is_query_mode.py  is_query_mode: whether the request goes on to generate
+        edge_condition.py  EdgeCondition: a function of the values its conditional edge reads that answers yes or no, or a label; EDGE_CONDITIONS; answers_with_label
+        is_query_mode.py  is_query_mode: whether the request goes on to generate, from the mode
+        has_history.py  has_history: whether the request carries earlier turns, from the history
+        label.py      label: answers with the one field it reads, such as a route
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
@@ -804,7 +807,8 @@ server logs the refusal as one line, `qp-serve: cannot start: stage
 The workflow is declared in a workflow file: its components, each with its
 backend, and its graph, whose stages each name the component they call and hold
 their own settings, its plain edges as chains, and its conditional edges in a
-block of their own, spelled with LangGraph's names (ADR 0004). A command finds
+block of their own, spelled with LangGraph's names (ADR 0004), each stating in
+`reads` the fields its edge condition is asked about (ADR 0007). A command finds
 it as `qp-deploy` finds `deploy.yaml`: the file `QP_WORKFLOW_FILE` names (read
 from the environment, not from `.env`), else `workflow.yaml` in the working
 directory, a use case's; with neither, it stops, naming both places. The toolkit
@@ -961,7 +965,7 @@ graph:
     - [START, retrieve, rerank]
     - [generate, END]
   conditional_edges:
-    - {source: rerank, path: is_query_mode, path_map: {true: generate, false: END}}
+    - {source: rerank, path: is_query_mode, reads: [mode], path_map: {true: generate, false: END}}
 ```
 
 `QP_GRAPH__STAGES__RETRIEVE__RETRIEVAL_MODE=lexical` over the RAG's file is
@@ -991,11 +995,17 @@ mode needs). They refuse:
   run's time in `timings_ms`, where the stage's timing would collide with it;
 - an edge from or to a name that is no stage (`START` only starts an edge,
   `END` only ends one), and a graph with no edge from `START`;
-- a conditional edge whose `path` is no registered edge condition, whose
-  `path_map` lacks its `true` or its `false` target, or whose edge condition
-  is already used on the same source;
-- a stage that reads a field of the workflow state that is not sure to be set
-  when it runs. A field is sure to be set when the request provides it (the
+- a conditional edge without `reads`, whose `path` is no registered edge
+  condition, whose `reads` list another number of fields than its edge
+  condition takes, whose edge condition is already used on the same source,
+  or whose `path_map` has other rows than its answers: a `true` and a `false`
+  target for a yes-or-no edge condition; for `label`, one row for each label
+  the writer of the one field it reads declares, a field that declares none
+  being refused (ADR 0007; on LangGraph 1.2.21 a label missing from
+  `path_map` would raise only when a request takes it). A conditional edge
+  may start at `START` (`application/edge_check.py`);
+- a stage, or a conditional edge once its source has run, that reads a field
+  of the workflow state that is not sure to be set when it runs. A field is sure to be set when the request provides it (the
   conversational and standalone queries, the history, the mode, the timings),
   or when a stage writes it on every path from `START` to the stage. A dense
   or hybrid retrieve stage with no embed stage before it on every path is

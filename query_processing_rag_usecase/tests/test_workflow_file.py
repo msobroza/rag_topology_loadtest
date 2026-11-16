@@ -142,6 +142,7 @@ def test_the_file_pins_the_rags_graph_its_sizes_and_its_prompts(
     (branch,) = graph.conditional_edges
     assert (branch.source, branch.path) == ("rerank", "is_query_mode")
     assert branch.path_map == {True: "generate", False: "END"}
+    assert branch.reads == ["mode"]
 
 
 def test_the_load_test_sends_a_model_server_the_sizes_of_the_files_stages(

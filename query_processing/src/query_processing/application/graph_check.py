@@ -14,12 +14,14 @@ retrieval, is refused when the graph is built, as a ``WorkflowGraphError`` too.
 The field rule: a stage may read a workflow state field only if the request
 provides it or a stage writes it on every path from ``START`` to the stage. A
 dense retrieval with no embed stage before it is refused by that rule, not by a
-rule of its own (ADR 0004).
+rule of its own (ADR 0004). A conditional edge states what it reads as a stage
+does (ADR 0007), and is held to the same rule at the end of its source; the
+checks of the edges themselves are in ``edge_check``.
 
 The type rules (spec 3.4): a field's type is that of what writes it, the
 request or a stage, and two writers that disagree are refused; a stage reads a
 field only as the type it is written; and a field a stage writes is read by a
-stage or by the response, else it is likely a typo. A type of ``Any`` is not
+stage, an edge or the response, else it is likely a typo. A type of ``Any`` is not
 compared.
 
 Example:
@@ -37,13 +39,13 @@ from ..domain.base_component import BaseComponent
 from ..domain.graph_description import (
     END,
     START,
-    ConditionalEdge,
     GraphDescription,
     StageDescription,
 )
 from ..domain.passages import TOTAL_TIMING_KEY
 from ..domain.registry import Registry
 from .component_types import COMPONENT_TYPES
+from .edge_check import check_edges, edge_name, field_labels, links, quoted
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
 from .stage_binding import bind_call, stage_fields, stage_type_of
 from .stages.base_stage import (
@@ -103,11 +105,13 @@ def check_graph(
             settings or lists its stage type refuses, lists that do not bind to
             the component a plain call calls, or calls a missing component or
             one of the wrong type; an edge names no stage; a conditional edge names
-            an unknown edge condition, lacks its true or false target, or repeats
-            an edge condition on one source; nothing leaves START; a stage
-            reads a field that is not sure to be set when it runs, or reads it
-            as another type than its writer writes; two writers write a field
-            as two types; or a stage writes a field nothing reads.
+            an unknown edge condition, reads another number of fields than it
+            takes, has other rows than its answers (true and false, or the
+            labels of the field it reads), or repeats an edge condition on one
+            source; nothing leaves START; a stage or a conditional edge reads a
+            field that is not sure to be set when it runs; a stage reads a
+            field as another type than its writer writes; two writers write a
+            field as two types; or a stage writes a field nothing reads.
 
     Example:
         >>> check_graph(settings.graph, settings.component_types())
@@ -117,12 +121,10 @@ def check_graph(
         name: _declared_fields(name, stage, components, component_types, stage_types)
         for name, stage in graph.stages.items()
     }
-    _check_edges(graph)
-    _check_conditional_edges(graph, edge_conditions)
-    _check_entry(graph)
+    check_edges(graph, edge_conditions, field_labels(fields))
     _check_fields_read(graph, fields)
     _check_read_types(fields)
-    _check_fields_unread(fields)
+    _check_fields_unread(graph, fields)
 
 
 def fields_set_before(
@@ -162,7 +164,7 @@ def _check_stage_names(graph: GraphDescription) -> None:
         if name in _RESERVED_STAGE_NAMES:
             raise WorkflowGraphError(
                 f"stage {name!r} is named like {_RESERVED_STAGE_NAMES[name]} "
-                f"(expected a name other than {_quoted(_RESERVED_STAGE_NAMES)})"
+                f"(expected a name other than {quoted(_RESERVED_STAGE_NAMES)})"
             )
 
 
@@ -217,7 +219,7 @@ def _stage_settings(
         return stage_type.settings_type.model_validate(stage.stage_settings)
     except ValidationError as exc:
         problems = "; ".join(_problem(e["loc"], e["msg"]) for e in exc.errors())
-        keys = _quoted(stage_type.settings_type.model_fields)
+        keys = quoted(stage_type.settings_type.model_fields)
         expected = f"its settings among: {keys}" if keys else "no settings"
         raise WorkflowGraphError(
             f"stage {name!r} has settings its stage type "
@@ -251,7 +253,7 @@ def _check_call(
     raise WorkflowGraphError(
         f"stage {name!r} calls {stage.call!r}, a component of type "
         f"{components[stage.call]!r}, but its stage type {stage.type_name(name)!r} "
-        f"calls one of type {_quoted(fitting) or needed.__name__} "
+        f"calls one of type {quoted(fitting) or needed.__name__} "
         f"({_components_of(fitting, components)})"
     )
 
@@ -262,7 +264,7 @@ def _check_declared(
     if stage.call not in components:
         raise WorkflowGraphError(
             f"stage {name!r} calls {stage.call!r}, which is no component "
-            f"(expected one of: {_quoted(components)})"
+            f"(expected one of: {quoted(components)})"
         )
 
 
@@ -271,90 +273,7 @@ def _components_of(fitting: list[str], components: Mapping[str, str]) -> str:
     names = [name for name, kind in components.items() if kind in fitting]
     if not names:
         return "expected a component of that type, and none is declared"
-    return f"expected one of: {_quoted(names)}"
-
-
-# --- edges ---------------------------------------------------------------------------
-
-
-def _check_edges(graph: GraphDescription) -> None:
-    for source, target in graph.edge_pairs():
-        edge = f"edge {source!r} -> {target!r}"
-        _check_source(graph, source, edge)
-        _check_target(graph, target, edge)
-
-
-def _check_source(graph: GraphDescription, source: str, edge: str) -> None:
-    if source != START and source not in graph.stages:
-        raise WorkflowGraphError(
-            f"{edge} starts at {source!r}, which is no stage "
-            f"(expected START or one of the stages: {_quoted(graph.stages)})"
-        )
-
-
-def _check_target(graph: GraphDescription, target: str, edge: str) -> None:
-    if target != END and target not in graph.stages:
-        raise WorkflowGraphError(
-            f"{edge} leads to {target!r}, which is no stage "
-            f"(expected END or one of the stages: {_quoted(graph.stages)})"
-        )
-
-
-def _check_conditional_edges(
-    graph: GraphDescription, edge_conditions: Registry[EdgeCondition]
-) -> None:
-    asked: set[tuple[str, str]] = set()
-    for edge in graph.conditional_edges:
-        _check_conditional_edge(graph, edge, edge_conditions)
-        if (edge.source, edge.path) in asked:
-            # LangGraph would refuse it too, naming the branch, not the file.
-            raise WorkflowGraphError(
-                f"edge condition {edge.path!r} is used twice on {edge.source!r} "
-                "(expected each edge condition once per source: LangGraph names a "
-                "branch after its edge condition, and one conditional edge "
-                "already says where its true and its false answer lead)"
-            )
-        asked.add((edge.source, edge.path))
-
-
-def _check_conditional_edge(
-    graph: GraphDescription,
-    edge: ConditionalEdge,
-    edge_conditions: Registry[EdgeCondition],
-) -> None:
-    where = f"conditional edge from {edge.source!r} on {edge.path!r}"
-    _check_source(graph, edge.source, where)
-    try:
-        edge_conditions.get(edge.path)
-    except ValueError as exc:  # the registry names the known edge conditions
-        raise WorkflowGraphError(f"{where}: {exc}") from exc
-    for answer in (True, False):
-        said = str(answer).lower()
-        if answer not in edge.path_map:
-            raise WorkflowGraphError(
-                f"{where} has no {said} target (expected a path_map with a true "
-                "and a false target, each a stage or END)"
-            )
-        _check_target(graph, edge.path_map[answer], f"the {said} answer of the {where}")
-
-
-def _check_entry(graph: GraphDescription) -> None:
-    if all(source != START for source, _ in _links(graph)):
-        raise WorkflowGraphError(
-            "the graph has no edge from START (expected a chain of plain edges "
-            "that starts with START, or a conditional edge from START)"
-        )
-
-
-def _links(graph: GraphDescription) -> list[tuple[str, str]]:
-    # Every way from one stage to the next: each plain edge, and each answer of
-    # a conditional edge.
-    answers = [
-        (edge.source, target)
-        for edge in graph.conditional_edges
-        for target in edge.path_map.values()
-    ]
-    return [*graph.edge_pairs(), *answers]
+    return f"expected one of: {quoted(names)}"
 
 
 # --- the field rule ------------------------------------------------------------------
@@ -365,27 +284,63 @@ def _check_fields_read(
 ) -> None:
     writes = {name: frozenset(declared.writes) for name, declared in fields.items()}
     set_before = fields_set_before(graph, writes)
-    for name, declared in fields.items():
-        unset = sorted(set(declared.reads) - set_before[name])
+    for reader in _readers(graph, fields, set_before, writes):
+        unset = sorted(set(reader.reads) - reader.set_by_then)
         if unset:
-            raise WorkflowGraphError(_unset_field_message(name, unset[0], writes))
+            raise WorkflowGraphError(_unset_field_message(reader, unset[0], writes))
+
+
+class _Reader(NamedTuple):
+    # A stage or a conditional edge, what it reads, and what is sure to be set
+    # when it reads: the paths from START end at it, named in `upto`.
+    name: str
+    upto: str
+    reads: Iterable[str]
+    set_by_then: frozenset[str]
+
+
+def _readers(
+    graph: GraphDescription,
+    fields: Mapping[str, FieldTypes],
+    set_before: Mapping[str, frozenset[str]],
+    writes: Mapping[str, frozenset[str]],
+) -> list[_Reader]:
+    # A conditional edge is asked once its source has run.
+    stages = [
+        _Reader(f"stage {name!r}", repr(name), declared.reads, set_before[name])
+        for name, declared in fields.items()
+    ]
+    edges = [
+        (
+            _Reader(edge_name(edge), "START", edge.reads, REQUEST_FIELDS)
+            if edge.source == START
+            else _Reader(
+                edge_name(edge),
+                f"the end of {edge.source!r}",
+                edge.reads,
+                set_before[edge.source] | writes[edge.source],
+            )
+        )
+        for edge in graph.conditional_edges
+    ]
+    return [*stages, *edges]
 
 
 def _unset_field_message(
-    stage: str, field: str, writes: Mapping[str, frozenset[str]]
+    reader: _Reader, field: str, writes: Mapping[str, frozenset[str]]
 ) -> str:
     writers = [name for name, written in writes.items() if field in written]
     written = (
-        f"is written by {_quoted(writers)}, but not on every path from START "
-        f"to {stage!r}"
+        f"is written by {quoted(writers)}, but not on every path from START "
+        f"to {reader.upto}"
         if writers
         else "is written by no stage of the graph"
     )
     return (
-        f"stage {stage!r} reads the workflow state field {field!r}, which the "
+        f"{reader.name} reads the workflow state field {field!r}, which the "
         f"request does not provide and {written} (expected a field the request "
-        f"provides, one of: {_quoted(REQUEST_FIELDS)}, or one a stage writes on "
-        f"every path from START to {stage!r})"
+        f"provides, one of: {quoted(REQUEST_FIELDS)}, or one a stage writes on "
+        f"every path from START to {reader.upto})"
     )
 
 
@@ -412,22 +367,27 @@ def _reads(fields: Mapping[str, FieldTypes]) -> list[_Read]:
     ]
 
 
-def _check_fields_unread(fields: Mapping[str, FieldTypes]) -> None:
+def _check_fields_unread(
+    graph: GraphDescription, fields: Mapping[str, FieldTypes]
+) -> None:
     # A field no one reads is most likely a misspelt one that someone does.
-    read = RESPONSE_FIELDS.union(*(declared.reads for declared in fields.values()))
+    read = RESPONSE_FIELDS.union(
+        *(declared.reads for declared in fields.values()),
+        *(edge.reads for edge in graph.conditional_edges),
+    )
     for name, declared in fields.items():
         unread = [field for field in declared.writes if field not in read]
         if unread:
             raise WorkflowGraphError(
                 f"stage {name!r} writes {unread[0]!r}, but no stage, edge or "
                 "response reads it, a likely typo (expected a field a stage "
-                f"reads, or one the response reads: {_quoted(RESPONSE_FIELDS)})"
+                f"reads, or one the response reads: {quoted(RESPONSE_FIELDS)})"
             )
 
 
 def _sources_by_stage(graph: GraphDescription) -> dict[str, set[str]]:
     sources: dict[str, set[str]] = {stage: set() for stage in graph.stages}
-    for source, target in _links(graph):
+    for source, target in links(graph):
         if target in sources:  # END runs nothing
             sources[target].add(source)
     return sources
@@ -447,7 +407,3 @@ def _narrowed(
         stage: fields.intersection(*map(set_after, sources[stage]))
         for stage, fields in set_before.items()
     }
-
-
-def _quoted(names: Iterable[str]) -> str:
-    return ", ".join(repr(name) for name in sorted(names))

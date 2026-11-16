@@ -121,6 +121,7 @@ def test_the_fixture_file_reads_into_stages_edges_and_a_conditional_edge(
     (branch,) = s.graph.conditional_edges
     assert (branch.source, branch.path) == ("rerank", "is_query_mode")
     assert branch.path_map == {True: "generate", False: "END"}
+    assert branch.reads == ["mode"]
     # The type of each stage is its name.
     assert all(stage.type is None for stage in s.graph.stages.values())
 

@@ -16,6 +16,7 @@ import pytest
 
 from echo_components import Upper
 from query_processing.application.edge_conditions.edge_condition import EdgeCondition
+from query_processing.application.edge_conditions.label import label
 from query_processing.application.graph_check import WorkflowGraphError
 from query_processing.application.stages.base_stage import (
     BaseStage,
@@ -27,6 +28,7 @@ from query_processing.application.stages.base_stage import (
 from query_processing.application.stages.call_stage import CallStage
 from query_processing.application.workflow import CompiledWorkflow
 from query_processing.application.workflow_builder import (
+    asked_of_state,
     build_workflow,
     langgraph_name,
     open_stage,
@@ -106,10 +108,29 @@ class ShoutStage(BaseStage[FakeScribe, NoSettings]):
         return {"answer": await self.component.write(str(state["answer"]).upper())}
 
 
-@FIXTURE_EDGE_CONDITIONS.register("is_a_question")
-def is_a_question(state: WorkflowState) -> bool:
-    return state["conversational_query"].endswith("?")
+@FIXTURE_STAGE_TYPES.register("classify")
+class ClassifyStage(BaseStage[FakeScribe, NoSettings]):
+    """Writes the kind of the message, a label: a question or a statement."""
 
+    component_type = FakeScribe
+    settings_type = NoSettings
+
+    @classmethod
+    def check_fields(cls, settings: NoSettings, fields: StageFields) -> FieldTypes:
+        types = one_field_each("classify", fields)
+        return types._replace(labels={fields.writes[0]: ("question", "statement")})
+
+    async def run(self, state: WorkflowState) -> WorkflowState:
+        asked = state["conversational_query"].endswith("?")
+        return self.write_field("question" if asked else "statement")
+
+
+@FIXTURE_EDGE_CONDITIONS.register("is_a_question")
+def is_a_question(conversational_query: str) -> bool:
+    return conversational_query.endswith("?")
+
+
+FIXTURE_EDGE_CONDITIONS.register("label")(label)
 
 DRAFT_LISTS = {"reads": ["conversational_query"], "writes": ["answer"]}
 SHOUT = {"call": "scribe", "reads": ["answer"], "writes": ["answer"]}
@@ -123,9 +144,18 @@ FIXTURE_GRAPH = {
         {
             "source": "draft",
             "path": "is_a_question",
+            "reads": ["conversational_query"],
             "path_map": {True: "shout", False: "END"},
         }
     ],
+}
+# The same graph, its question asked of a label a classify stage writes.
+CLASSIFY = {"call": "scribe", "reads": ["conversational_query"], "writes": ["kind"]}
+LABEL_EDGE = {
+    "source": "classify",
+    "path": "label",
+    "reads": ["kind"],
+    "path_map": {"question": "shout", "statement": "END"},
 }
 
 
@@ -201,6 +231,51 @@ async def test_every_step_reaches_a_tracer_with_a_name() -> None:
     assert None not in recorder.names, recorder.names
     # The edge condition keeps its own function name: the branch is named after it.
     assert {"draft", "is_a_question", "shout"} <= set(recorder.names)
+
+
+@pytest.mark.parametrize(
+    ("message", "answer"), [("who?", "WHO?!"), ("hello", "hello!")]
+)
+async def test_a_label_answer_takes_its_row_of_the_path_map(
+    message: str, answer: str
+) -> None:
+    stages = {**FIXTURE_GRAPH["stages"], "classify": CLASSIFY}
+    workflow = fixture_workflow(
+        FakeScribe(),
+        stages=stages,
+        edges=[["START", "draft", "classify"], ["shout", "END"]],
+        conditional_edges=[LABEL_EDGE],
+    )
+    recorder = ChainNameRecorder()
+
+    final = await workflow.graph.ainvoke(
+        initial_state(message, "query"), {"callbacks": [recorder]}
+    )
+
+    assert final["answer"] == answer
+    assert "label" in recorder.names  # the branch keeps the edge condition's name
+
+
+@pytest.mark.parametrize(("message", "answer"), [("who?", "who?!"), ("hello", None)])
+async def test_a_conditional_edge_can_start_at_start(
+    message: str, answer: str | None
+) -> None:
+    from_start = {**FIXTURE_GRAPH["conditional_edges"][0], "source": "START"}
+    from_start["path_map"] = {True: "draft", False: "END"}
+    workflow = fixture_workflow(
+        FakeScribe(), edges=[["draft", "END"]], conditional_edges=[from_start]
+    )
+
+    final = await workflow.graph.ainvoke(initial_state(message, "query"))
+
+    assert final.get("answer") == answer
+
+
+def test_asked_of_state_hands_the_values_read_and_keeps_the_name() -> None:
+    asked = asked_of_state(is_a_question, ["standalone_query"])
+
+    assert asked.__name__ == "is_a_question"
+    assert asked({"standalone_query": "who?", "conversational_query": "hi"}) is True
 
 
 def test_the_state_holds_the_fields_the_file_names_with_their_writers_types() -> None:
