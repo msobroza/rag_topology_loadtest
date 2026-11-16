@@ -203,11 +203,11 @@ class RagSettings(BaseSettings):
     calibration_users: int = Field(default=4, ge=1)
 
     # --- OpenVINO Model Server (an ovms-* App) ----------------------------------------
-    # Requests OVMS runs at once on its model (NUM_STREAMS); 0 = calibrated at
-    # start-up, by rag-ovms-config.
+    # The reranker's and embedder's OVMS only (the generator has its own two
+    # below): requests it runs at once (NUM_STREAMS); 0 = calibrated at start-up.
     ovms_num_streams: int = Field(default=0, ge=0)
-    # Threads its inference shares, all streams together (INFERENCE_NUM_THREADS);
-    # 0 = calibrated at start-up, up to the CPUs.
+    # Likewise: threads its inference shares, all streams together
+    # (INFERENCE_NUM_THREADS); 0 = calibrated at start-up, up to the CPUs.
     ovms_threads: int = Field(default=0, ge=0)
     # How long one OVMS start may take to answer before calibration fails.
     ovms_start_timeout_s: float = Field(default=120.0, gt=0)

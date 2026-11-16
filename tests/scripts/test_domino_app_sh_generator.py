@@ -202,3 +202,52 @@ def test_the_generator_role_without_the_project_or_uv_names_both(
     assert "rag-served-models" in result.stderr
     assert "uv" in result.stderr
     assert log(tmp_path, "ovms") == ""
+
+
+def test_the_generator_role_creates_its_models_folder_before_ovms_starts(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    # Nobody has seen OVMS create the folder itself, so app.sh makes it first.
+    models = tmp_path / "not-yet" / "generator-models"
+    write_fake(
+        bin_dir / "rag-served-models",
+        tmp_path / "rag-served-models.log",
+        served_models_printing(*GENERATOR_DEFAULTS),
+    )
+    seen = tmp_path / "folder-at-ovms-start"
+    write_fake(
+        bin_dir / "ovms",
+        tmp_path / "ovms.log",
+        f'[ -d "{models}" ] && echo yes > "{seen}"\n',
+    )
+
+    result = run_app(
+        tmp_path, bin_dir, RAG_ROLE="ovms-generator", RAG_OVMS_MODELS_DIR=str(models)
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert seen.read_text().strip() == "yes"
+
+
+def test_a_models_folder_that_cannot_be_created_stops_the_generator_role(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    write_fake(
+        bin_dir / "rag-served-models",
+        tmp_path / "rag-served-models.log",
+        served_models_printing(*GENERATOR_DEFAULTS),
+    )
+    regular_file = tmp_path / "a-file"
+    regular_file.write_text("")
+    models = regular_file / "generator-models"
+
+    result = run_app(
+        tmp_path, bin_dir, RAG_ROLE="ovms-generator", RAG_OVMS_MODELS_DIR=str(models)
+    )
+
+    assert result.returncode == 1
+    message = result.stderr.strip().splitlines()[-1]
+    assert message.startswith("app.sh[ovms-generator]: ")
+    assert str(models) in message
+    assert "RAG_OVMS_MODELS_DIR" in message
+    assert log(tmp_path, "ovms") == ""

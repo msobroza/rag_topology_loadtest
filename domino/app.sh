@@ -58,8 +58,8 @@
 # (RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE / _MAX_BATCHED_TOKENS, OVMS's own
 # --dynamic_split_fuse and --max_num_batched_tokens; the latter left out when 0),
 # installing the project into $HOME/rag-venv first with uv when the command is
-# missing; with neither it stops. OVMS pulls the model on its first start and
-# reuses it after; nothing is calibrated, and the weight-format record is not read.
+# missing; with neither it stops. It creates RAG_OVMS_MODELS_DIR (stopping when
+# it cannot); OVMS pulls the model there on its first start and reuses it after; nothing is calibrated, and the weight-format record is not read.
 #
 # Both workflow app roles run `rag-serve --domino`: Python resolves the embedding and
 # rerank backends from RAG_TOPOLOGY (src/rag_load_test/domain/topology.py), requires
@@ -158,6 +158,10 @@ serve_ovms_generator() {
   if [ -n "$GENERATOR_MAX_BATCHED_TOKENS" ]; then
     args+=(--max_num_batched_tokens "$GENERATOR_MAX_BATCHED_TOKENS")
   fi
+  # Made here: on the real check the folder existed before OVMS started, so
+  # nobody has seen OVMS create it itself.
+  mkdir -p "$MODELS_DIR" \
+    || die "cannot create the generator's models folder $MODELS_DIR (RAG_OVMS_MODELS_DIR); point RAG_OVMS_MODELS_DIR at a folder this App can write"
   run_ovms "${args[@]}"
 }
 

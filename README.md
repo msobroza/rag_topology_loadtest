@@ -586,8 +586,8 @@ with a one-line usage error, not a traceback.
 | `RAG_CALIBRATION_BUDGET_S` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `rag-calibrate`); no new candidate starts after them, and an OVMS trial still running then is abandoned (> 0) |
 | `RAG_CALIBRATION_ROUNDS` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `RAG_CALIBRATION_USERS` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
-| `RAG_OVMS_NUM_STREAMS` | `0` | an OVMS App: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
-| `RAG_OVMS_THREADS` | `0` | an OVMS App: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
+| `RAG_OVMS_NUM_STREAMS` | `0` | the reranker's and the embedder's OVMS Apps (the generator's App has its own two options, below): requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs |
+| `RAG_OVMS_THREADS` | `0` | the reranker's and the embedder's OVMS Apps (the generator's App has its own two options, below): threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `RAG_OVMS_NUM_STREAMS` is refused |
 | `RAG_OVMS_START_TIMEOUT_S` | `120` | how long one OVMS start may take to answer before its calibration fails (> 0) |
 | `RAG_OVMS_GENERATION_MODEL` | `OpenVINO/Qwen3.5-2B-int4-ov` | an `ovms-generator` App: the Hugging Face id OVMS pulls, already converted by OpenVINO, and serves as `RAG_GENERATION_API_MODEL` |
 | `RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE` | `true` | an `ovms-generator` App: OVMS's `--dynamic_split_fuse` |
@@ -1005,7 +1005,8 @@ part. `app.sh` reads both from `rag-served-models` (installing the project into
 `$HOME/rag-venv` with `uv` first when the command is missing, and stopping when
 neither is there, as in the prebuilt `ovms` image) and starts `ovms --source_model <id> --model_name <name>
 --model_repository_path "$RAG_OVMS_MODELS_DIR" --task text_generation
---target_device CPU`: OVMS pulls the model from the Hub into
+--target_device CPU`, after creating `$RAG_OVMS_MODELS_DIR` (it stops, naming the
+folder, when it cannot): OVMS pulls the model from the Hub into
 `$RAG_OVMS_MODELS_DIR/<id>` on its first start and reuses it after. Its two
 options are OVMS's own `--dynamic_split_fuse`
 (`RAG_OVMS_GENERATION_DYNAMIC_SPLIT_FUSE`) and `--max_num_batched_tokens`
