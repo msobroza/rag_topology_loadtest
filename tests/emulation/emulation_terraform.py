@@ -113,10 +113,15 @@ def template_calls() -> dict[str, set[str]]:
     }
 
 
-def render(template: str) -> str:
-    """``scripts/common.sh`` then the template, placeholders given dummy values."""
+def render(template: str, values: dict[str, str] | None = None) -> str:
+    """``scripts/common.sh`` then the template, placeholders given dummy values.
+
+    ``values`` replaces the dummy of the placeholders it names, as a variable set in
+    ``terraform.tfvars`` would.
+    """
+    given = DUMMIES | (values or {})
     text = (TF_DIR / template).read_text(encoding="utf-8")
-    rendered = PLACEHOLDER.sub(lambda m: DUMMIES.get(m[1], f"dummy-{m[1]}"), text)
+    rendered = PLACEHOLDER.sub(lambda m: given.get(m[1], f"dummy-{m[1]}"), text)
     rendered = rendered.replace("$${", "${").replace("%%{", "%{")
     return (SCRIPTS / "common.sh").read_text(encoding="utf-8") + "\n" + rendered
 

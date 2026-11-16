@@ -6,9 +6,10 @@ server built on FastAPI. Both run the same engine, OpenVINO, on the same model. 
 page says what the documentation of OVMS and of FastAPI says about serving, how each
 is set up here, and what the two sittings of 15 November 2026 measured.
 
-Read for this page: OVMS's documentation at the version pinned in `ovms/versions.env`
-(2026.3.1), and FastAPI's pages on concurrency and deployment as they stood on
-15 November 2026. The pages are listed at the end.
+Read for this page: OVMS's documentation at 2026.3.1, the version pinned in
+`ovms/versions.env` when the page was written (the pin is 2026.4.1 since the
+generator; the documentation was not read again), and FastAPI's pages on concurrency
+and deployment as they stood on 15 November 2026. The pages are listed at the end.
 
 ## What their documentation says
 
@@ -236,8 +237,9 @@ A reading of the results above, not a measurement.
   weights on OVMS 2026.4.1, on PyTorch behind a stand-in FastAPI server and on vLLM.
   OVMS answered one user soonest (7.9 s against 13 s and 19 s). At 4 users its batching
   gained only once it read each prompt in one pass (`--dynamic_split_fuse false
-  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. Neither
-  model server of this project serves a generator yet.
+  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. OVMS can
+  now serve a generator as an App of its own (`generator_server: ovms` in the deploy
+  file); the FastAPI model server serves none.
 
 ## Limits
 
