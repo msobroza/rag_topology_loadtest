@@ -356,13 +356,19 @@ def stage_context(settings: WorkflowSettings) -> StageContext:
         settings: The workflow settings, their prompts read from the prompts file.
 
     Returns:
-        The stage context: the prompts, by name.
+        The stage context: the prompts, by name, and the metadata fields each
+        vector store declares, by its component name.
 
     Example:
         >>> check_graph(settings.graph, settings.component_types(),
         ...             stage_context(settings))
     """
-    return StageContext(prompts=settings.prompts)
+    declared = {
+        name: component.metadata_field_info
+        for name, component in settings.components.items()
+        if isinstance(component, VectorStoreSettings)
+    }
+    return StageContext(prompts=settings.prompts, metadata_field_info=declared)
 
 
 def check_workflow_graph(settings: WorkflowSettings) -> None:

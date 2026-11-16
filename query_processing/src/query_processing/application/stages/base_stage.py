@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import abc
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
+from ...domain.metadata_filter import MetadataFieldInfo
 from ...domain.prompts import Prompt
 from ...domain.registry import Registry
 from ..workflow_state import WorkflowState
@@ -79,14 +80,20 @@ class StageContext:
     """What every stage is given besides its component, settings and fields.
 
     The composition builds it from the settings: the prompts of the prompts
-    file, by name, which a stage names in its settings.
+    file, by name, which a stage names in its settings; and the metadata
+    fields each vector store declares, by the store's component name, which a
+    ``generate`` stage's ``metadata_fields_of`` names.
 
     Example:
         >>> StageContext(settings.prompts).prompts["answer_from_context"][0].role
         'system'
+        >>> StageContext(metadata_field_info={"vector_store": [topic]})
     """
 
     prompts: Mapping[str, Prompt] = dataclass_field(default_factory=dict)
+    metadata_field_info: Mapping[str, Sequence[MetadataFieldInfo]] = dataclass_field(
+        default_factory=dict
+    )
 
 
 ComponentT = TypeVar("ComponentT")

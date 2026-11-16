@@ -274,3 +274,22 @@ def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:
     backend = "QP_COMPONENTS__VECTOR_STORE__BACKEND"
     with pytest.raises(ValueError, match=rf"to elasticsearch \({backend} for the one"):
         required_lexical_search(DenseOnlyStore(), "lexical")
+
+
+async def test_a_generate_stage_with_a_schema_writes_each_of_its_fields() -> None:
+    settings = GenerateSettings(
+        prompt="rewrite", output_schema="standalone_query_with_filter"
+    )
+    rewrite = [PromptMessage(role="user", content="{{ conversational_query }}")]
+    fields = StageFields(
+        ("conversational_query", "conversational_history"),
+        ("standalone_query", "metadata_filter"),
+    )
+    context = StageContext({"rewrite": rewrite})
+    stage = GenerateStage(FakeLLM(), settings, fields, context)
+
+    update = await stage.run(
+        {"conversational_query": "and b?", "conversational_history": []}
+    )
+
+    assert update == {"standalone_query": "[fake-llm] and b?", "metadata_filter": []}
