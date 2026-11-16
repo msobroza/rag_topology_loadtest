@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from rag_load_test.application.workflow import answer_tokens
+from rag_load_test.domain.generation import Generation
+from rag_load_test.entrypoints.rag_serve import QueryResponse
 from rag_load_test.loadtest.response_checks import (
     AnswerTokens,
     ResponseVerdict,
@@ -105,3 +108,23 @@ def test_a_response_without_usable_tokens_has_none(body: str) -> None:
 def test_a_failure_has_no_tokens() -> None:
     body = '{"timings_ms": {"generate": 7474.0}, "tokens": {"prompt": 829, "completion": 128}}'
     assert judge_response("/query", 503, body).tokens is None
+
+
+def test_the_tokens_the_workflow_writes_are_the_tokens_the_load_test_reads() -> None:
+    # The keys are written in application/workflow.py and read in
+    # loadtest/response_checks.py; a body rag-serve would send proves they agree.
+    served = QueryResponse(
+        request_id="r-1",
+        topology="monolith",
+        run_label="monolith",
+        question="What is the capital of France?",
+        mode="query",
+        answer="Paris.",
+        passages=[],
+        timings_ms={"embed": 3.0, "generate": 7474.0, "total": 7480.0},
+        tokens=answer_tokens(Generation("Paris.", 829, 128)),
+    )
+
+    verdict = judge_response("/query", 200, served.model_dump_json())
+
+    assert verdict.tokens == AnswerTokens(829, 128, 7474.0)

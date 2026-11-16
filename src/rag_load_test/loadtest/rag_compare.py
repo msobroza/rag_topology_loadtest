@@ -161,15 +161,21 @@ def _tokens_of(record: TargetRecord | None) -> TokenTotals | None:
 
 
 def _token_cells(tokens: TokenTotals, query: RowStats | None) -> str:
-    # A caller waits generate_ms for its completion; the server answers rps
-    # queries a second, each of completion-per-answer tokens.
+    # A caller waits generate_ms for its completion. Served is the run's
+    # completion tokens over its seconds (requests / rps): Locust counts failed
+    # requests in rps, so tokens per answer times rps would credit each failure
+    # with an answer.
     completion_per_answer = tokens.completion / tokens.answers
     per_caller = (
         f"{tokens.completion / (tokens.generate_ms / 1000):.1f}"
         if tokens.generate_ms
         else "n/a"
     )
-    served = f"{completion_per_answer * query.rps:.1f}" if query else "n/a"
+    served = (
+        f"{tokens.completion * query.rps / query.requests:.1f}"
+        if query and query.requests
+        else "n/a"
+    )
     return (
         f"{tokens.answers} | {tokens.prompt / tokens.answers:.1f} | "
         f"{completion_per_answer:.1f} | {per_caller} | {served}"

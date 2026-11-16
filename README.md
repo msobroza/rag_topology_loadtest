@@ -447,8 +447,9 @@ is listed by its run name alone, as before. When any run's record has tokens,
 a last section, `## Tokens`, has one row per such run: `run`, `answers`,
 `prompt tokens per answer`, `completion tokens per answer`, `tokens/s as a
 caller sees them` (completion tokens over the generate time) and `tokens/s
-served` (completion tokens per answer times the RPS of the run's `POST /query`
-row). A run without tokens has no row there.
+served` (the run's completion tokens over its seconds, the request count of
+its `POST /query` row over that row's RPS; a failed request adds no tokens).
+A run without tokens has no row there.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 

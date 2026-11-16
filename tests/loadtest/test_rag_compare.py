@@ -232,3 +232,61 @@ def test_no_run_with_tokens_means_no_tokens_section(tmp_path: Path) -> None:
     markdown = render_markdown({"split-all": load_stats(split)}, {"split-all": record})
 
     assert "## Tokens" not in markdown
+
+
+def _ovms_tokens_row(
+    tmp_path: Path, tokens: TokenTotals, *rows: tuple[Any, ...]
+) -> str:
+    """The ``## Tokens`` row of one run ``ovms`` with these stats rows and tokens."""
+    ovms = _stats_csv(tmp_path / "ovms", *rows)
+    write_target_record(str(ovms), "rag", Counter(), tokens)
+    record = read_target_record(Path(f"{ovms}_target.json"))
+    assert record is not None
+    lines = render_markdown({"ovms": load_stats(ovms)}, {"ovms": record}).splitlines()
+    table = lines[lines.index("## Tokens") :]
+    return next(line for line in table if line.startswith("| ovms | "))
+
+
+def test_tokens_served_are_the_completion_tokens_over_the_runs_seconds(
+    tmp_path: Path,
+) -> None:
+    # Locust counts failed requests in Requests/s: 11 of the 22 failed, and the
+    # 1258 tokens of the 11 answers took the run's 177 s, 7.1 a second, not 14.2.
+    half_failed = (
+        ("POST", "/query", 22, 11, 0.124, 7400, 9000, 9500),
+        ("", "Aggregated", 22, 11, 0.124, 7400, 9000, 9500),
+    )
+    tokens = TokenTotals(answers=11, prompt=8723, completion=1258, generate_ms=82214.0)
+
+    row = _ovms_tokens_row(tmp_path, tokens, *half_failed)
+
+    assert row.endswith("| 114.4 | 15.3 | 7.1 |")
+
+
+def test_tokens_served_are_na_without_a_query_row(tmp_path: Path) -> None:
+    no_query = (("", "Aggregated", 22, 0, 0.124, 7400, 9000, 9500),)
+
+    row = _ovms_tokens_row(tmp_path, OVMS_TOKENS, *no_query)
+
+    assert row == "| ovms | 22 | 793.0 | 114.4 | 15.3 | n/a |"
+
+
+def test_tokens_served_are_na_when_the_query_row_counts_no_request(
+    tmp_path: Path,
+) -> None:
+    idle = (
+        ("POST", "/query", 0, 0, 0.0, 0, 0, 0),
+        ("", "Aggregated", 0, 0, 0.0, 0, 0, 0),
+    )
+
+    row = _ovms_tokens_row(tmp_path, OVMS_TOKENS, *idle)
+
+    assert row == "| ovms | 22 | 793.0 | 114.4 | 15.3 | n/a |"
+
+
+def test_tokens_a_caller_sees_are_na_without_a_generate_time(tmp_path: Path) -> None:
+    untimed = OVMS_TOKENS.model_copy(update={"generate_ms": 0.0})
+
+    row = _ovms_tokens_row(tmp_path, untimed, *OVMS_QUERY)
+
+    assert row == "| ovms | 22 | 793.0 | 114.4 | n/a | 14.2 |"
