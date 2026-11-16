@@ -2,14 +2,17 @@
 
 Both follow from ``TOPOLOGY_BACKENDS``: a component whose implied backend is
 ``api`` is served by a model server App of ours, and the workflow App is always
-there, last, since it is published with the model servers' URLs. The Role is
-what ``domino/app.sh`` reads from ``RAG_ROLE`` to start an App: ``role_for``
-gives it for a Topology, an App part and a model-server kind. The launch script
-stays hand-written; a test runs every script the deploy tool writes through it.
+there, last, since it is published with the model servers' URLs. The generator
+App does not follow from the topology: it is there when the deploy asks for one,
+after the topology's model servers. The Role is what ``domino/app.sh`` reads from
+``RAG_ROLE`` to start an App: ``role_for`` gives it for a Topology, an App part
+and a model-server kind, ``generator_role`` for the generator's server. The
+launch script stays hand-written; a test runs every script the deploy tool writes
+through it.
 
 Example:
-    >>> apps_for_topology("split-reranker")
-    ['reranker', 'workflow']
+    >>> apps_for_topology("split-reranker", generator=True)
+    ['reranker', 'generator', 'workflow']
     >>> role_for("split-all", "embedder", "ovms")
     'ovms-embedder'
 """
@@ -28,12 +31,16 @@ Role = Literal[
     "ovms-embedder",
     "fastapi-reranker",
     "fastapi-embedder",
+    "ovms-generator",
 ]
-# Which App of a Topology it is: the workflow app, or a model server.
-AppPart = Literal["embedder", "reranker", "workflow"]
+# Which App of a deploy it is: the workflow app, or a model server.
+AppPart = Literal["embedder", "reranker", "generator", "workflow"]
+# The topology's model servers; also what calibration and rag-model-server serve.
 ModelServerPart = Literal["embedder", "reranker"]
 # What serves a model server App: our FastAPI model server, or OVMS.
 ModelServerKind = Literal["fastapi", "ovms"]
+# What serves the generator App; none = no generator App is deployed.
+GeneratorServer = Literal["none", "ovms"]
 
 _MODEL_SERVER_ROLES: dict[tuple[ModelServerKind, ModelServerPart], Role] = {
     ("fastapi", "embedder"): "fastapi-embedder",
@@ -41,6 +48,7 @@ _MODEL_SERVER_ROLES: dict[tuple[ModelServerKind, ModelServerPart], Role] = {
     ("ovms", "embedder"): "ovms-embedder",
     ("ovms", "reranker"): "ovms-reranker",
 }
+_GENERATOR_ROLES: dict[GeneratorServer, Role] = {"ovms": "ovms-generator"}
 
 
 def model_servers_for_topology(topology: Topology) -> list[ModelServerPart]:
@@ -65,20 +73,47 @@ def model_servers_for_topology(topology: Topology) -> list[ModelServerPart]:
     return [part for part, backend in served if backend == "api"]
 
 
-def apps_for_topology(topology: Topology) -> list[AppPart]:
-    """List every App a topology needs, in deploy order: the workflow App last.
+def apps_for_topology(topology: Topology, *, generator: bool = False) -> list[AppPart]:
+    """List every App a deploy needs, in deploy order: the workflow App last.
 
     Args:
         topology: The topology being deployed.
+        generator: Whether the deploy asks for a generator App.
 
     Returns:
-        Its model server Apps, then ``workflow``.
+        The topology's model server Apps, then ``generator`` when asked for, then
+        ``workflow``, which is published with the URLs of all the others.
 
     Example:
-        >>> apps_for_topology("monolith")
-        ['workflow']
+        >>> apps_for_topology("monolith", generator=True)
+        ['generator', 'workflow']
     """
-    return [*model_servers_for_topology(topology), "workflow"]
+    generators: list[AppPart] = ["generator"] if generator else []
+    return [*model_servers_for_topology(topology), *generators, "workflow"]
+
+
+def generator_role(server: GeneratorServer) -> Role:
+    """Return the Role the generator App is published as when ``server`` serves it.
+
+    Args:
+        server: What serves the generator, the deploy's ``generator_server``.
+
+    Returns:
+        ``<server>-generator``.
+
+    Raises:
+        ValueError: If ``server`` is ``none``: no generator App is deployed.
+
+    Example:
+        >>> generator_role("ovms")
+        'ovms-generator'
+    """
+    if server == "none":
+        raise ValueError(
+            "generator_server is none: the deploy asks for no generator App, so "
+            "there is no generator Role"
+        )
+    return _GENERATOR_ROLES[server]
 
 
 def role_for(topology: Topology, part: AppPart, kind: ModelServerKind) -> Role:
@@ -95,12 +130,18 @@ def role_for(topology: Topology, part: AppPart, kind: ModelServerKind) -> Role:
         ``workflow`` for that of a split topology, else ``<kind>-<part>``.
 
     Raises:
-        ValueError: If the topology has no such App.
+        ValueError: If the topology has no such App, or ``part`` is the
+            generator, whose Role ``generator_role`` gives.
 
     Example:
         >>> role_for("monolith", "workflow", "fastapi")
         'monolith'
     """
+    if part == "generator":
+        raise ValueError(
+            "the generator's Role follows from generator_server, not from the "
+            "topology: see generator_role"
+        )
     servers = model_servers_for_topology(topology)
     if part == "workflow":
         return "workflow" if servers else "monolith"

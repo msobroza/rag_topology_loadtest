@@ -81,11 +81,11 @@ A process of ours that serves one model on the /v3 routes: OpenVINO Model Server
 _Avoid_: inference service, OVMS app (when the FastAPI one is also meant)
 
 **/v3 routes**:
-The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings and rerank, each in an API format, and the model probe.
+The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings, rerank and chat completions, each in an API format, and the model probe. OpenVINO Model Server answers all three; the FastAPI model server the first two.
 _Avoid_: /v3 contract, OVMS API, model API
 
 **Served model**:
-A model as a model server exposes it: a source id paired with an alias.
+A model as a model server exposes it: a source id paired with an alias. The generator's source id is `RAG_OVMS_GENERATION_MODEL`, files OpenVINO Model Server pulls as published, with no export of ours; its alias is `RAG_GENERATION_API_MODEL`.
 
 **Source id**:
 The Hugging Face id of a served model's weights.
@@ -96,7 +96,7 @@ The name clients send to a model server to select a served model.
 _Avoid_: servable, model name
 
 **Role**:
-What one Domino app is published as: a workflow app (`monolith` for the monolith topology, `workflow` for a split topology) or a model server (an OpenVINO Model Server or a FastAPI model server, for the reranker or the embedder).
+What one Domino app is published as: a workflow app (`monolith` for the monolith topology, `workflow` for a split topology) or a model server (an OpenVINO Model Server or a FastAPI model server, for the reranker or the embedder, or `ovms-generator`, OpenVINO Model Server serving the LLM).
 _Avoid_: mode, app type
 
 **App**:
@@ -104,7 +104,7 @@ What Domino publishes and serves behind its proxy, in one role; an Agent is an A
 _Avoid_: service, deployment
 
 **App part**:
-Which App of a topology it is: the workflow app (`workflow`), or the model server of the embedder (`embedder`) or of the reranker (`reranker`). A topology's App parts follow from the backends it implies; the App is named `rag-<part>`.
+Which App of a deploy it is: the workflow app (`workflow`), or the model server of the embedder (`embedder`), of the reranker (`reranker`) or of the LLM (`generator`). A topology's App parts follow from the backends it implies; the generator App is there when the deploy asks for one. The App is named `rag-<part>`.
 _Avoid_: role (a role also says what serves the model, and which workflow app), app name
 
 **Instance**:

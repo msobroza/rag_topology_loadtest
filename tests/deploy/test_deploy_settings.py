@@ -18,6 +18,7 @@ from rag_load_test.deploy.deploy_settings import (
     refuse_placeholders,
     refuse_secrets,
 )
+from rag_load_test.domain.roles import AppPart
 from repo_paths import REPO_ROOT
 
 
@@ -72,8 +73,18 @@ def test_kind_is_agent_for_the_workflow_and_app_for_model_servers_by_default(
 ) -> None:
     deploy_file.write_text("defaults: {environment_id: env-1}\n")
     settings = DeploySettings()
-    kinds = [settings.for_app(part).kind for part in ("workflow", "embedder")]
-    assert kinds == ["agent", "app"]
+    parts: tuple[AppPart, ...] = ("workflow", "embedder", "generator")
+    kinds = [settings.for_app(part).kind for part in parts]
+    assert kinds == ["agent", "app", "app"]
+
+
+def test_a_deploy_asks_for_no_generator_by_default(deploy_file: Path) -> None:
+    assert DeploySettings().generator_server == "none"
+
+
+def test_a_deploy_file_names_the_generators_server(deploy_file: Path) -> None:
+    deploy_file.write_text("generator_server: ovms\n")
+    assert DeploySettings().generator_server == "ovms"
 
 
 def test_a_kind_in_the_defaults_applies_to_every_app(deploy_file: Path) -> None:
@@ -137,6 +148,7 @@ def test_without_a_file_every_value_is_its_default(deploy_file: Path) -> None:
     assert settings.model_dump(exclude={"defaults", "apps"}) == {
         "topology": "split-all",
         "model_server": "fastapi",
+        "generator_server": "none",
         "project_id": "",
         "ovms_bundle": "",
         "domino_host": "",

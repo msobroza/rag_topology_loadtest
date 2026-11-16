@@ -147,7 +147,7 @@ src/rag_load_test/
     backends.py     the Backend and Runtime names, the variants every topology allows, the defaults
     topology.py     the topology rule: backends per topology, contradictions
     run_label.py    the run label: its default for a configuration, what a valid one is
-    roles.py        the Apps a topology needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind)
+    roles.py        the Apps a deploy needs and the Role each is published as (Role, AppPart, ModelServerPart, ModelServerKind, GeneratorServer)
     corpus.py       synthetic handbook corpus, its questions, chunking
   application/      use cases over the ports; imports domain and the adapters' ports only
     rag_dependencies.py  RagDependencies: one open port of each kind, what a workflow run needs
@@ -1134,7 +1134,10 @@ A model server App is OpenVINO Model Server or the FastAPI model server
 (`rag-model-server`, the same models on the same `/v3` routes and formats):
 `model_server` in `deploy.yaml` picks one for every model server App of a
 topology. Which Apps a topology needs and the Role of each follow from the
-backends the topology implies (`src/rag_load_test/domain/roles.py`).
+backends the topology implies (`src/rag_load_test/domain/roles.py`). The
+generator App (`ovms-generator`) does not depend on the topology: any topology
+gets one when `deploy.yaml` names its server (see "Deploy on Domino in a few
+commands").
 
 | Topology | App | `RAG_ROLE`: OVMS / FastAPI | Environment variables | Image: OVMS / FastAPI |
 | --- | --- | --- | --- | --- |
@@ -1269,7 +1272,7 @@ project that hosts all the Apps:
 
 ```bash
 cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, model server
-make deploy                           # model server Apps first, then rag-workflow with their URLs
+make deploy                           # model server Apps (and the generator) first, then rag-workflow with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
 make compare
@@ -1277,25 +1280,28 @@ make compare
 
 `rag-deploy` (behind these targets) calls Domino's beta Apps API through
 `DOMINO_API_PROXY` and publishes `rag-embedder`, `rag-reranker` and `rag-workflow`
-as the topology needs. The Apps install their own dependencies when they start
+as the topology needs, and `rag-generator` when `generator_server` asks for one. The Apps install their own dependencies when they start
 (`domino/app.sh` with `RAG_BOOTSTRAP=1`), into a virtualenv on Python 3.11, so any
 environment with `uv` works, but the first start is slower and needs access to
 the package index and the Hugging Face Hub. An environment without Python 3.11
-also needs access to GitHub, where `uv` downloads it from. For `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
-`bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
-example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
-root or `sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
+also needs access to GitHub, where `uv` downloads it from. When an OVMS App is
+deployed (`model_server: ovms`, or `generator_server: ovms`), `ovms_bundle` points
+at the OVMS bundle (a folder with `bin/ovms` and `lib/`, or the release `.tar.gz`)
+at a path both the Workspace that runs `rag-deploy` (which checks it exists) and
+the OVMS Apps (which read it as `RAG_OVMS_BUNDLE`) can read, for example
+`/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs root or
+`sudo` for `apt-get`. Each App runs `domino/app.sh` by its absolute path in
 the directory `rag-deploy` runs from, so run it from the repository root (the Apps
 mount the repository at the same path); elsewhere it refuses to publish.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
-`model_server`, `project_id`, `ovms_bundle`, `domino_host`) and how to talk to
+`model_server`, `generator_server`, `project_id`, `ovms_bundle`, `domino_host`) and how to talk to
 Domino (`wait_timeout_s`, `poll_interval_s`, `no_instance_grace_s`,
 `http_timeout_s`, `http_retries`, `run_token_url`); a `RAG_DEPLOY_<KEY>` variable
 overrides one, e.g. `RAG_DEPLOY_TOPOLOGY=monolith make deploy`, and
 `RAG_DEPLOY_FILE` names another file. `defaults` applies to every App and
-`apps.<embedder|reranker|workflow>` to one, each App taking its own value, else the
+`apps.<embedder|reranker|generator|workflow>` to one, each App taking its own value, else the
 default:
 
 ```yaml
@@ -1328,6 +1334,22 @@ whose name ends in `_API_KEY` (such as `RAG_GENERATION_API_KEY` or
 `RAG_ES_API_KEY`) unless its value is empty or `domino`, which names the run's
 token and is not a secret. A misspelt key is refused with its name.
 
+**The generator App.** `generator_server: ovms` (default `none`) adds
+`rag-generator`, served by OpenVINO Model Server whatever `model_server` says:
+`rag-deploy` publishes it after the topology's model servers and before
+`rag-workflow`, and `make deploy-generator` publishes it alone. Its launch script
+exports `RAG_ROLE=ovms-generator` and `RAG_OVMS_BUNDLE`; the workflow App's then
+also exports `RAG_GENERATION_BACKEND=api`, `RAG_GENERATION_API_URL` (the generator
+App's URL plus `/v3/chat/completions`) and `RAG_GENERATION_API_KEY=domino`, which
+win over its settings. `RAG_RUN_LABEL` is set as before, only for a topology with
+model servers. With `generator_server: none` no script changes, `make
+deploy-generator` is refused, and generation calls what the workflow App's
+settings name. `make deploy-workflow` with a generator asked for but not deployed
+stops and says to run `make deploy-generator`. The model and its two OVMS options
+are the `RAG_OVMS_GENERATION_*` settings (see "The generator is pulled, not
+exported"); `RAG_GENERATION_API_MODEL` in `defaults.settings` names it alike for
+both Apps.
+
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
 that field is the only API-level difference), `kind: app` with `STANDARD`. The
@@ -1357,8 +1379,8 @@ is what the workflow App gets as `RAG_RERANK_API_URL` / `RAG_EMBEDDING_API_URL`;
 the URL alone is what `rag-deploy url <part>` prints, what `make status` shows and
 checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
 own `url` stays in the messages that point at its page or logs. The instance id
-changes at every redeploy, so after `make deploy-embedder` or `make
-deploy-reranker` alone, `rag-deploy` reminds you that `rag-workflow` still calls
+changes at every redeploy, so after `make deploy-embedder`, `make
+deploy-reranker` or `make deploy-generator` alone, `rag-deploy` reminds you that `rag-workflow` still calls
 the previous instance: run `make deploy-workflow`. Every model server call in a
 split topology goes through Domino's proxy: it is part of what the split
 topologies measure on Domino.

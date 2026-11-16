@@ -27,6 +27,7 @@ from rag_load_test.deploy.publish import (
     entry_script,
     launch_script_in,
 )
+from rag_load_test.domain.roles import apps_for_topology
 
 # Which Apps a topology needs is tested in tests/domain/test_roles.py; that each
 # Role the scripts export starts the right server, in
@@ -289,3 +290,129 @@ def test_no_note_when_the_workflow_is_also_deployed_or_absent(
 ) -> None:
     run_deploy(FakeDominoApps(["Running"]), make_settings(topology="split-reranker"), target)  # fmt: skip
     assert "still calls" not in capsys.readouterr().out
+
+
+# --- the generator App ---
+
+BUNDLE = "/mnt/code/ovms.tar.gz"
+GENERATOR_URL = "https://domino.test/apps/g1/"  # its "/" is not doubled
+GENERATION_EXPORTS = (
+    "export RAG_GENERATION_BACKEND=api\n"
+    "export RAG_GENERATION_API_URL=https://domino.test/apps/g1/v3/chat/completions\n"
+    "export RAG_GENERATION_API_KEY=domino\n"
+)
+
+
+def test_the_generator_script_exports_its_role_and_the_bundle() -> None:
+    settings = with_settings(
+        "generator",
+        {"RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS": "8192"},
+        generator_server="ovms",
+        ovms_bundle=BUNDLE,
+    )
+    assert script("generator", settings, {}) == (
+        "export RAG_OVMS_GENERATION_MAX_BATCHED_TOKENS=8192\n"
+        "export RAG_ROLE=ovms-generator\n"
+        f"export RAG_OVMS_BUNDLE={BUNDLE}\n"
+        f"{BOOTSTRAP_AND_EXEC}"
+    )
+
+
+def test_a_monolith_workflow_calls_the_generator_on_its_chat_route() -> None:
+    settings = make_settings(topology="monolith", generator_server="ovms")
+    assert script("workflow", settings, {"generator": GENERATOR_URL}) == (
+        "export RAG_ROLE=monolith\n"
+        "export RAG_TOPOLOGY=monolith\n"
+        f"{GENERATION_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
+    )
+
+
+def test_a_split_workflow_adds_the_generator_after_what_it_exports_today() -> None:
+    settings = make_settings(topology="split-reranker", generator_server="ovms")
+    urls = {"reranker": "https://domino.test/apps/r1", "generator": GENERATOR_URL}
+    assert script("workflow", settings, urls) == (
+        "export RAG_ROLE=workflow\n"
+        "export RAG_TOPOLOGY=split-reranker\n"
+        "export RAG_RERANK_API_URL=https://domino.test/apps/r1/v3/rerank\n"
+        "export RAG_RUN_LABEL=split-reranker-fastapi\n"
+        f"{GENERATION_EXPORTS}{AGENT_EXPORTS}{BOOTSTRAP_AND_EXEC}"
+    )
+
+
+@pytest.mark.parametrize("topology", ["monolith", "split-reranker", "split-all"])
+def test_without_a_generator_no_script_touches_the_generation(topology: str) -> None:
+    settings = make_settings(topology=topology)
+    urls = {"embedder": "https://e", "reranker": "https://r"}
+    scripts = [script(part, settings, urls) for part in apps_for_topology(topology)]  # type: ignore[arg-type]
+    lines = "\n".join(scripts).splitlines()
+    assert [line for line in lines if line.startswith("export RAG_GENERATION_")] == []
+
+
+def test_deploying_a_generator_the_deploy_does_not_ask_for_is_refused() -> None:
+    apps = FakeDominoApps(["Running"])
+    with pytest.raises(DominoDeployError, match="generator_server") as caught:
+        run_deploy(apps, make_settings(), "generator")
+    assert str(caught.value) == (
+        "deploy.yaml asks for no generator App (generator_server: none): set "
+        "generator_server: ovms in deploy.yaml to deploy rag-generator"
+    )
+    assert apps.received == []
+
+
+@pytest.mark.parametrize("target", ["generator", "all"])
+def test_a_generator_on_ovms_needs_the_bundle_before_anything_is_sent(
+    target: str,
+) -> None:
+    apps = FakeDominoApps(["Running"])
+    settings = make_settings(generator_server="ovms", model_server="fastapi")
+    with pytest.raises(DominoDeployError, match="ovms_bundle="):
+        run_deploy(apps, settings, target)
+    assert apps.received == []
+
+
+def test_a_workflow_that_calls_a_generator_not_deployed_names_the_make_target() -> None:
+    apps = FakeDominoApps(["Running"])
+    settings = make_settings(topology="monolith", generator_server="ovms")
+    with pytest.raises(DominoDeployError) as caught:
+        run_deploy(apps, settings, "workflow")
+    assert str(caught.value) == (
+        "App rag-generator is not deployed in project proj-1: "
+        "run make deploy-generator"
+    )
+    assert (apps.creates, apps.new_versions) == ([], [])
+
+
+def test_deploy_all_publishes_the_generator_before_the_workflow(
+    tmp_path: Path,
+) -> None:
+    apps = FakeDominoApps(["Running"])
+    settings = make_settings(
+        topology="split-all", generator_server="ovms", ovms_bundle=str(tmp_path)
+    )
+    run_deploy(apps, settings, "all")
+    assert [body.name for body in apps.creates] == [
+        "rag-embedder",
+        "rag-reranker",
+        "rag-generator",
+        "rag-workflow",
+    ]
+    workflow = str(apps.creates[3].version.entryScript)
+    route = f"{INSTANCES_URL}/app-3-v1-i/v3/chat/completions"
+    assert f"export RAG_GENERATION_API_URL={route}\n" in workflow
+    assert "export RAG_ROLE=fastapi-embedder\n" in str(apps.creates[0].version.entryScript)  # fmt: skip
+
+
+def test_redeploying_the_generator_says_the_workflow_calls_the_old_instance(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    apps = FakeDominoApps(["Running"])
+    add_app(apps, "rag-generator")
+    add_app(apps, "rag-workflow", configuration_type="AISYSTEM")
+    settings = make_settings(
+        topology="monolith", generator_server="ovms", ovms_bundle=str(tmp_path)
+    )
+    run_deploy(apps, settings, "generator")
+    assert capsys.readouterr().out.endswith(
+        "rag-workflow still calls the previous rag-generator instance: "
+        "run make deploy-workflow\n"
+    )

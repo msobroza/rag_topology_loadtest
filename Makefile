@@ -1,6 +1,6 @@
 # rag_load_test — developer tasks (run from this directory)
 .DEFAULT_GOAL := help
-.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test ingest serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino fake-domino deploy-dry-run experiment-charts
+.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test ingest serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-generator deploy-workflow status loadtest-domino fake-domino deploy-dry-run experiment-charts
 
 # A .venv in this directory is used without activating it; without one, commands
 # come from the PATH as usual. Two lines because make 3.81 (macOS) looks a recipe's
@@ -96,6 +96,9 @@ deploy-embedder: ## On Domino: publish (or redeploy) the rag-embedder App only
 
 deploy-reranker: ## On Domino: publish (or redeploy) the rag-reranker App only
 	$(BIN)rag-deploy deploy reranker
+
+deploy-generator: ## On Domino: publish (or redeploy) the rag-generator App only (generator_server in deploy.yaml)
+	$(BIN)rag-deploy deploy generator
 
 deploy-workflow: ## On Domino: publish (or redeploy) the rag-workflow App only
 	$(BIN)rag-deploy deploy workflow

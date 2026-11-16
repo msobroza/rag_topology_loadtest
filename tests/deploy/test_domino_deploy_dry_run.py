@@ -146,3 +146,44 @@ def test_dry_run_of_the_example_with_real_values_publishes_every_app(
     assert out.startswith(deployed_lines(3))
     assert "    export RAG_ES_URL=https://real:9200\n" in out
     assert "  kind: agent (configurationType AISYSTEM)\n" in out
+
+
+@pytest.mark.parametrize(
+    ("topology", "names"),
+    [
+        (
+            "split-all",
+            ["rag-embedder", "rag-reranker", "rag-generator", "rag-workflow"],
+        ),
+        ("monolith", ["rag-generator", "rag-workflow"]),
+    ],
+)
+def test_dry_run_with_a_generator_publishes_it_before_the_workflow(
+    run_main: RunMain,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    topology: str,
+    names: list[str],
+) -> None:
+    monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", topology)
+    monkeypatch.setenv("RAG_DEPLOY_GENERATOR_SERVER", "ovms")
+    monkeypatch.setenv("RAG_DEPLOY_OVMS_BUNDLE", str(tmp_path))
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert (code, err) == (0, "")
+    assert out.startswith(deployed_lines(len(names), names))
+    route = f"{INSTANCES_URL}/app-{len(names) - 1}-v1-i/v3/chat/completions"
+    assert f"    export RAG_GENERATION_API_URL={route}\n" in out
+    assert "    export RAG_ROLE=ovms-generator\n" in out
+
+
+def test_dry_run_status_lists_the_generator_when_asked_for(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOMINO_API_PROXY")
+    monkeypatch.setenv("RAG_DEPLOY_TOPOLOGY", "monolith")
+    monkeypatch.setenv("RAG_DEPLOY_GENERATOR_SERVER", "ovms")
+    code, out, _ = run_main(["--dry-run", "status"], None)
+    assert (code, out) == (
+        0,
+        "rag-generator  not deployed\nrag-workflow   not deployed\n",
+    )

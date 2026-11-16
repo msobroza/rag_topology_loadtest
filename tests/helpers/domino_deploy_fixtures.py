@@ -25,7 +25,14 @@ def domino_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "domino").mkdir()
     (tmp_path / "domino" / "app.sh").write_text("#!/bin/bash\n")
     (tmp_path / "deploy.yaml").write_text(ENV_1)
-    for name in ("TOPOLOGY", "PROJECT_ID", "FILE", "MODEL_SERVER", "OVMS_BUNDLE"):
+    for name in (
+        "TOPOLOGY",
+        "PROJECT_ID",
+        "FILE",
+        "MODEL_SERVER",
+        "OVMS_BUNDLE",
+        "GENERATOR_SERVER",
+    ):
         monkeypatch.delenv(f"RAG_DEPLOY_{name}", raising=False)
     monkeypatch.delenv("RAG_DEPLOY_DOMINO_HOST", raising=False)
     monkeypatch.setenv("DOMINO_API_PROXY", PROXY)

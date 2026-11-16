@@ -26,7 +26,7 @@ from pydantic_settings import (
 )
 
 from ..domain.api_endpoint import DOMINO_RUN_TOKEN
-from ..domain.roles import AppPart, ModelServerKind
+from ..domain.roles import AppPart, GeneratorServer, ModelServerKind, apps_for_topology
 from ..domain.topology import Topology
 from .apps_client import DominoDeployError, WaitLimits
 
@@ -38,6 +38,7 @@ DEPLOY_FILE = (
 DEFAULT_KIND: dict[AppPart, AppKind] = {
     "embedder": "app",
     "reranker": "app",
+    "generator": "app",
     "workflow": "agent",
 }
 
@@ -131,8 +132,12 @@ class DeploySettings(BaseSettings):
 
     topology: Topology = "split-all"
     model_server: ModelServerKind = "fastapi"
+    # What serves a generator App; "none" = no generator App, and the workflow
+    # App's generation calls whatever its own settings name.
+    generator_server: GeneratorServer = "none"
     project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
-    ovms_bundle: str = ""  # required for ``ovms``: bin/ovms + lib/, or its .tar.gz
+    # Required when an OVMS App is deployed: bin/ovms + lib/, or its .tar.gz
+    ovms_bundle: str = ""
     domino_host: str = ""  # "" = the scheme and host of each App's own url
     wait_timeout_s: float = 600.0
     poll_interval_s: float = 5.0
@@ -176,6 +181,20 @@ class DeploySettings(BaseSettings):
         # The example's `project_id: ""` means "not set", not "".
         self.project_id = self.project_id or os.environ.get("DOMINO_PROJECT_ID", "")
         return self
+
+    def app_parts(self) -> list[AppPart]:
+        """List the Apps this deploy publishes, in order: the workflow App last.
+
+        Returns:
+            The topology's model servers, the generator when ``generator_server``
+            names one, then ``workflow``.
+
+        Example:
+            >>> DeploySettings(topology="monolith", generator_server="ovms").app_parts()
+            ['generator', 'workflow']
+        """
+        generator = self.generator_server != "none"
+        return apps_for_topology(self.topology, generator=generator)
 
     def for_app(self, part: AppPart) -> AppSettings:
         """Merge ``rag-<part>``'s settings: its own value, else the default.
