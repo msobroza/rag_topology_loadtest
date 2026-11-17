@@ -71,6 +71,9 @@ class LoadTestSettings(BaseSettings):
     retrieve_weight: int = 3
     wait_min_s: float = Field(default=0.2, ge=0)  # each user waits between requests
     wait_max_s: float = Field(default=1.0, ge=0)
+    # How long a user waits for an answer before Locust records a failure; an
+    # answer of a few hundred tokens on CPUs can take longer than a minute.
+    request_timeout_s: float = Field(default=60.0, gt=0)
     # --- the load shape: unset = Locust's -u and -r; step = the steps below -------
     shape: Literal["step"] | None = None
     step_users: Annotated[tuple[int, ...], NoDecode] = (5, 10, 20, 40)  # "5,10,20,40"

@@ -4,9 +4,10 @@ A run writes ``<csv prefix>_target.json`` as it stops: its target, and each
 topology alias and run label the target reported in its headers, with how many
 responses carried each. A workflow app given no topology alias sends no
 ``X-RAG-Topology`` header, and its topology is recorded as ``null``, never as a
-name nobody chose. ``qp-compare`` reads the record back through the same
-class, so a record that is not of this shape fails with a message naming the
-file.
+name nobody chose. When any answer reported its tokens, the record also holds
+their total. ``qp-compare`` reads the record back through the same class, so a
+record that is not of this shape fails with a message naming the file. A record
+written before tokens were counted has no ``tokens`` key, and still reads.
 
 Example:
     >>> write_target_record("results/monolith", "rag", Counter({("monolith", "m"): 3}))
@@ -23,11 +24,14 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .loadtest_settings import LoadTarget
+from .response_checks import AnswerTokens
 
 RECORD_SUFFIX = "_target.json"  # after Locust's --csv prefix
 RECORD_SHAPE = (
     '{"target": "rag" | "rerank" | "embeddings", '
-    '"seen": [{"topology": str | null, "run_label": str, "responses": int >= 0}]}'
+    '"seen": [{"topology": str | null, "run_label": str, "responses": int >= 0}], '
+    '"tokens"?: {"answers": int >= 0, "prompt": int >= 0, "completion": int >= 0, '
+    '"llm_ms": float >= 0}}'
 )
 # What one response reported: its topology alias (None without the header) and
 # its run label.
@@ -47,13 +51,50 @@ class TargetSighting(BaseModel):
     responses: int = Field(ge=0)
 
 
+class TokenTotals(BaseModel):
+    """The tokens of a run's answers, added up, with the time the LLM took on them.
+
+    Example:
+        >>> TokenTotals(answers=0, prompt=0, completion=0, llm_ms=0.0).plus(
+        ...     AnswerTokens(829, 128, 7474.0)).completion
+        128
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    answers: int = Field(ge=0)
+    prompt: int = Field(ge=0)
+    completion: int = Field(ge=0)
+    llm_ms: float = Field(ge=0)
+
+    def plus(self, answer: AnswerTokens) -> TokenTotals:
+        """Return these totals with one more answer counted.
+
+        Args:
+            answer: The answer's token counts and the time of its stages.
+
+        Returns:
+            New totals; these are left as they are.
+        """
+        return TokenTotals(
+            answers=self.answers + 1,
+            prompt=self.prompt + answer.prompt,
+            completion=self.completion + answer.completion,
+            llm_ms=self.llm_ms + answer.llm_ms,
+        )
+
+
 class TargetRecord(BaseModel):
-    """What one run observed its target reporting; ``seen`` is most responses first."""
+    """What one run observed its target reporting; ``seen`` is most responses first.
+
+    ``tokens`` is None when no answer of the run reported its tokens.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     target: LoadTarget
     seen: list[TargetSighting]
+    tokens: TokenTotals | None = None
 
 
 def target_pair(headers: Mapping[str, str] | None) -> TargetPair | None:
@@ -84,7 +125,10 @@ def target_pair(headers: Mapping[str, str] | None) -> TargetPair | None:
 
 
 def write_target_record(
-    csv_prefix: str | None, target: LoadTarget, counts: Mapping[TargetPair, int]
+    csv_prefix: str | None,
+    target: LoadTarget,
+    counts: Mapping[TargetPair, int],
+    tokens: TokenTotals | None = None,
 ) -> None:
     """Write ``<csv_prefix>_target.json``, most responses first.
 
@@ -96,6 +140,8 @@ def write_target_record(
         target: The run's ``QP_LOADTEST_TARGET``.
         counts: Responses per ``(topology alias, run label)``; ties are ordered
             by the pair, no topology alias first.
+        tokens: The run's token totals; the record has no ``tokens`` key when
+            they are None or count no answer, never a total of zeros.
 
     Example:
         >>> write_target_record("results/monolith", "rag", Counter({("m", "m"): 3}))
@@ -108,9 +154,12 @@ def write_target_record(
         for (topology, label), n in ordered
         if target == "rag"
     ]
-    record = TargetRecord(target=target, seen=seen)
+    counted = tokens if tokens is not None and tokens.answers > 0 else None
+    record = TargetRecord(target=target, seen=seen, tokens=counted)
+    # Only the absent total is left out: a None topology alias is written.
+    left_out = {"tokens"} if counted is None else set()
     path = Path(f"{csv_prefix}{RECORD_SUFFIX}")
-    path.write_text(json.dumps(record.model_dump(), indent=2))
+    path.write_text(json.dumps(record.model_dump(exclude=left_out), indent=2))
 
 
 def _most_responses_first(item: tuple[TargetPair, int]) -> tuple[int, str, str]:

@@ -13,13 +13,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .response_checks import STAGE_REQUEST_TYPE
+from .response_checks import ANSWER_ENDPOINT, STAGE_REQUEST_TYPE
 from .target_record import (
     RECORD_SUFFIX,
     TargetRecord,
     TargetSighting,
+    TokenTotals,
     read_target_record,
 )
+
+# The row whose throughput turns the run's completion tokens into tokens served
+# per second.
+QUERY_ROW_KEY = f"POST {ANSWER_ENDPOINT}"
 
 # --- qp-compare: locust *_stats.csv files -> one markdown table per row ------
 
@@ -90,7 +95,8 @@ def render_markdown(
     Returns:
         The markdown: a title, the run list with the topology and run label each
         run saw, then one table per row key, request rows first, STAGE rows next
-        and ``Aggregated`` last.
+        and ``Aggregated`` last; then, when any run's record has tokens, a
+        ``## Tokens`` table with one row per such run.
 
     Example:
         >>> render_markdown({"monolith": load_stats(Path("results/monolith"))})
@@ -112,6 +118,7 @@ def render_markdown(
             delta = _delta(row, base, label == baseline)
             lines.append(f"| {label} | {_cells(row)} | {delta} |")
         lines.append("")
+    lines += _token_lines(runs, targets or {})
     return "\n".join(lines)
 
 
@@ -139,6 +146,52 @@ def _described(sighting: TargetSighting) -> str:
     # A target given no topology alias reported none, and none is shown.
     label = f"run label `{sighting.run_label}`"
     return f"topology `{sighting.topology}`, {label}" if sighting.topology else label
+
+
+# The ``## Tokens`` table: one row per run whose record has tokens, none at all
+# when no run has; a run without them is left out, not shown as zeros.
+def _token_lines(
+    runs: Mapping[str, Mapping[str, RowStats]], targets: Mapping[str, TargetRecord]
+) -> list[str]:
+    rows = [
+        f"| {label} | {_token_cells(tokens, runs[label].get(QUERY_ROW_KEY))} |"
+        for label in runs
+        if (tokens := _tokens_of(targets.get(label))) is not None
+    ]
+    if not rows:
+        return []
+    header = (
+        "| run | answers | prompt tokens per answer | completion tokens per answer "
+        "| tokens/s as a caller sees them | tokens/s served |"
+    )
+    return ["## Tokens", "", header, "| --- |" + " ---: |" * 5, *rows, ""]
+
+
+def _tokens_of(record: TargetRecord | None) -> TokenTotals | None:
+    # A total of no answers has no per-answer figure; a run writes none, but a
+    # record edited by hand could hold one.
+    if record is None or record.tokens is None or record.tokens.answers == 0:
+        return None
+    return record.tokens
+
+
+def _token_cells(tokens: TokenTotals, query: RowStats | None) -> str:
+    # A caller waits llm_ms, the time of the stages that spent the tokens, for
+    # its completion. Served is the run's completion tokens over its seconds
+    # (requests / rps): Locust counts failed requests in rps, so tokens per
+    # answer times rps would credit each failure with an answer.
+    per_caller = (
+        f"{tokens.completion / (tokens.llm_ms / 1000):.1f}" if tokens.llm_ms else "n/a"
+    )
+    served = (
+        f"{tokens.completion * query.rps / query.requests:.1f}"
+        if query and query.requests
+        else "n/a"
+    )
+    return (
+        f"{tokens.answers} | {tokens.prompt / tokens.answers:.1f} | "
+        f"{tokens.completion / tokens.answers:.1f} | {per_caller} | {served}"
+    )
 
 
 def _row_order(key: str) -> tuple[int, str]:

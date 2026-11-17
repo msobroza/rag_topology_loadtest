@@ -1050,6 +1050,7 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | `QP_LOADTEST_TARGET` | the user class: `rag` (default), `rerank` or `embeddings` |
 | `QP_LOADTEST_QUERY_WEIGHT` / `QP_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3`; a whole number of 0 or more |
 | `QP_LOADTEST_WAIT_MIN_S` / `QP_LOADTEST_WAIT_MAX_S` | each user waits a random time in this range between requests, default `0.2` / `1.0` s |
+| `QP_LOADTEST_REQUEST_TIMEOUT_S` | how long a user waits for one answer before Locust records a failure (its `network_timeout`), default `60` s, above 0 |
 | `QP_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more); any other value but unset is refused |
 | `QP_LOADTEST_STEP_USERS` / `QP_LOADTEST_STEP_SECONDS` | the steps of the step shape, default `5,10,20,40` / `60` |
 | `QP_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
@@ -1084,6 +1085,14 @@ A workflow app given no topology alias (a laptop run, unless `QP_TOPOLOGY_ALIAS`
 is set) sends no `X-RAG-Topology`, and its responses are counted with
 `"topology": null`, never under a topology nobody chose.
 
+The record also holds `tokens` when any answer reported them: `answers`, the
+successful `/query` responses whose `tokens` map names a stage with both
+counts, and their `prompt` and `completion` tokens, summed over every stage of
+the map, with `llm_ms`, the `timings_ms` of those same stages. A `/query` whose
+`tokens` is `{}` counts no answer, and no `/retrieve` does, not even one whose
+rewrite spent tokens. A record written before tokens were counted has no
+`tokens` and still reads.
+
 A run straight at a model server (`make loadtest-models`) writes
 `{"target": "rerank", "seen": []}` (or `embeddings`), since model servers send
 no such headers.
@@ -1100,6 +1109,15 @@ the app reported one) and run label it saw beside the run name, and a warning li
 flags any run that saw more than one pair, because its numbers mix
 configurations (for example an app redeployed mid-run). A run without the file
 is listed by its run name alone, as before.
+
+When a run's record has tokens, `qp-compare` adds a `## Tokens` table, one row
+per such run: answers, prompt and completion tokens per answer, tokens a second
+as a caller sees them (completion tokens over `llm_ms`) and tokens a second
+served (the run's completion tokens over its seconds, from the `POST /query`
+row's requests and RPS, so a failed request adds none). A run that measures the
+LLM retries as the LLM component's `http.retries` says, which also bounds how
+often an answer that does not match its schema is asked again: set it to `0`
+(`QP_COMPONENTS__LLM__HTTP__RETRIES=0`) so each answer is asked once.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
