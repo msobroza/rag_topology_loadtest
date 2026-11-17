@@ -136,6 +136,15 @@ apps:
   # llm:
   #   server: ovms
   #   hardware_tier_id: <a tier with 16 cores>
+  #   settings:
+  #     # A folder this App can write, where OVMS pulls the model on its first
+  #     # start (2 GB):
+  #     QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-llm
+  #     # OVMS's --dynamic_split_fuse and --max_num_batched_tokens: false and
+  #     # 8192 read each prompt in one pass, better under load on the check of
+  #     # 16 November 2026; at their defaults, true and 0, both flags are left out.
+  #     QP_OVMS_DYNAMIC_SPLIT_FUSE: false
+  #     QP_OVMS_MAX_BATCHED_TOKENS: 8192
 
 # This site's values of the workflow file, in its own shape (components, graph,
 # local_models, calibration, http, domino, run_label), for every App: each one is
@@ -177,8 +186,13 @@ overrides:
       source_id: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
       # What qp-calibrate printed for it, so no App calibrates at start-up:
       # local: {threads: 2, batch_size: 1}
-    # How patiently one component is called, over the shared http block below:
-    # llm: {http: {timeout_s: 120}}
+    # How patiently one component is called, over the shared http block below.
+    # A run that measures the LLM asks each answer once (an answer asked again
+    # is timed as one slow stage; the LLM's retries also bound how often an
+    # answer that misses its schema is asked again) and waits longer for it,
+    # raising the load test's QP_LOADTEST_REQUEST_TIMEOUT_S with it (README,
+    # "The waits on the path of an answer"):
+    # llm: {http: {timeout_s: 300, retries: 0}}
     # For an LLM endpoint that imposes no schema: the rewrite's schema is then
     # written in the messages and the answer parsed, where the default,
     # json_schema, sends it as response_format (one llm entry holds both keys
@@ -196,6 +210,9 @@ overrides:
   # key of the same block (the workflow file may state it instead); an OVMS
   # folder exported at another format stops its App (see the README):
   # local_models: {openvino_weight_format: fp32}
+  # The most tokens the generate stage's answer may hold (no cap by default),
+  # sent to the LLM's endpoint:
+  # graph: {stages: {generate: {max_tokens: 128}}}
   # The default timeout, retries and backoff of every call to a served or api
   # component:
   # http: {timeout_s: 30, retries: 2, backoff_s: 0.2}

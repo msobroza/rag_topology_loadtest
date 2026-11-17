@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
@@ -134,6 +135,15 @@ def uncommented(lines: str) -> str:
     return "".join(line.replace("# ", "", 1) + "\n" for line in lines.splitlines())
 
 
+def uncomment_each(example: Path, pieces: Iterable[str]) -> None:
+    """Uncomment each piece of the example, which must hold it once."""
+    text = example.read_text()
+    for lines in pieces:
+        assert text.count(lines) == 1
+        text = text.replace(lines, uncommented(lines))
+    example.write_text(text)
+
+
 def test_the_two_commented_site_values_pass_the_dry_run_once_uncommented(
     filled_example: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -170,11 +180,7 @@ def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    text = filled_example.read_text()
-    for lines in SERVED_LLM:
-        assert text.count(lines) == 1
-        text = text.replace(lines, uncommented(lines))
-    filled_example.write_text(text)
+    uncomment_each(filled_example, SERVED_LLM)
     monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "split-all-llm")
     monkeypatch.setenv("QP_DEPLOY_OVMS_BUNDLE", str(tmp_path))
 
@@ -190,6 +196,62 @@ def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
     assert [u.endswith("/v3/chat/completions") for u in url] == [True]
     label = "split-all-llm+embedder=fastapi+reranker=fastapi+llm=ovms"
     assert f"    export QP_RUN_LABEL={label}\n" in out
+
+
+# The LLM App's own settings, commented under its block: where OVMS pulls the
+# model, and the two batching options the check of 16 November 2026 chose.
+LLM_APP_VALUES = {
+    "QP_OVMS_MODELS_DIR": "/domino/datasets/local/real/ovms-llm",
+    "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
+    "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
+}
+LLM_APP_SETTINGS = "  #   settings:\n" + "".join(
+    f"  #     {name}: {value}\n" for name, value in LLM_APP_VALUES.items()
+)
+
+
+def test_the_llm_apps_commented_settings_reach_its_app_once_uncommented(
+    filled_example: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The settings' own comment lines go first, so the settings are contiguous.
+    text = re.sub(r"^  #     # .*\n", "", filled_example.read_text(), flags=re.M)
+    filled_example.write_text(text)
+    uncomment_each(filled_example, (*SERVED_LLM, LLM_APP_SETTINGS))
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "split-all-llm")
+    monkeypatch.setenv("QP_DEPLOY_OVMS_BUNDLE", str(tmp_path))
+
+    code, out, err = dry_run(capsys)
+
+    assert (code, err) == (0, "")
+    for name, value in LLM_APP_VALUES.items():
+        assert out.count(f"    export {name}={value}\n") == 1  # the LLM's App alone
+
+
+# A run that measures the LLM, commented under the overrides: each answer asked
+# once, a longer wait for it, and a cap on the generate stage's answer.
+MEASURING_THE_LLM = (
+    "    # llm: {http: {timeout_s: 300, retries: 0}}\n",
+    "  # graph: {stages: {generate: {max_tokens: 128}}}\n",
+)
+
+
+def test_the_commented_settings_of_a_run_measuring_the_llm_reach_every_app(
+    filled_example: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    uncomment_each(filled_example, MEASURING_THE_LLM)
+
+    code, out, err = dry_run(capsys)
+
+    assert (code, err) == (0, "")
+    for export in (
+        "QP_COMPONENTS__LLM__HTTP__TIMEOUT_S=300",
+        "QP_COMPONENTS__LLM__HTTP__RETRIES=0",
+        "QP_GRAPH__STAGES__GENERATE__MAX_TOKENS=128",
+    ):
+        assert out.count(f"    export {export}\n") == len(TOPOLOGY_APPS["split-all"])
 
 
 def test_every_app_runs_the_toolkits_launch_script_in_this_directory(

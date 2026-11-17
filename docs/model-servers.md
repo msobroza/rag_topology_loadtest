@@ -1,6 +1,7 @@
 # The two model servers: OpenVINO Model Server and the FastAPI model server
 
-A model server serves the reranker or the embedder on the /v3 routes. There are two:
+A model server serves the reranker or the embedder on the /v3 routes, and OVMS an LLM
+too, on its chat completions route. There are two:
 OpenVINO Model Server (OVMS), a product, and `qp-model-server`, this project's own
 server built on FastAPI. Both run the same engine, OpenVINO, on the same model. This
 page says what the documentation of OVMS and of FastAPI says about serving, how each
@@ -240,8 +241,8 @@ A reading of the results above, not a measurement.
   gained only once it read each prompt in one pass (`--dynamic_split_fuse false
   --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. An
   `ovms` App now serves an LLM, with those two flags set by `QP_OVMS_DYNAMIC_SPLIT_FUSE`
-  and `QP_OVMS_MAX_BATCHED_TOKENS` (the README's "An LLM on OVMS"); it has not run on
-  a machine in this layout. The FastAPI model server serves no LLM.
+  and `QP_OVMS_MAX_BATCHED_TOKENS` (the README's "An LLM on OVMS"; what of it is not
+  verified: its "A served LLM"). The FastAPI model server serves no LLM.
 
 ## Limits
 

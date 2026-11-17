@@ -99,7 +99,7 @@ A process of ours that serves one component: a model on the /v3 routes (OpenVINO
 _Avoid_: inference service, OVMS app (when the FastAPI one is also meant)
 
 **/v3 routes**:
-The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings and rerank, each in an API format, and the model probe.
+The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings, rerank and chat completions, each in an API format, and the model probe. OpenVINO Model Server answers all three; the FastAPI model server the first two.
 _Avoid_: /v3 contract, OVMS API, model API
 
 **Call route**:
@@ -107,7 +107,7 @@ The HTTP path a model server answers on for a component that has no outside API 
 _Avoid_: /v3 route (those are OpenVINO Model Server's), endpoint (that is the whole of where a component is called)
 
 **Served model**:
-A model as a model server exposes it: a source id paired with an alias.
+A model as a model server exposes it: a source id paired with an alias. An LLM's source id names an OpenVINO conversion that OpenVINO Model Server pulls as published, with no export of ours.
 
 **Source id**:
 The Hugging Face id of a served model's weights.
@@ -130,7 +130,7 @@ What Domino publishes and serves behind its proxy, in one role; an Agent is an A
 _Avoid_: service, deployment
 
 **App part**:
-Which App of a topology it is: the workflow app (`workflow`), or the model server of one served component, named after it (`embedder`, `reranker`). A topology's App parts are the components it serves, plus the workflow app. The App is named by the use case's prefix and the part, such as `qp-rag-reranker`.
+Which App of a topology it is: the workflow app (`workflow`), or the model server of one served component, named after it (`embedder`, `reranker`, `llm`). A topology's App parts are the components it serves, plus the workflow app. The App is named by the use case's prefix and the part, such as `qp-rag-reranker`.
 _Avoid_: role (a role says only workflow app or model server, not which component), app name
 
 **Instance**:
@@ -202,6 +202,14 @@ _Avoid_: node type, stage adapter (a stage implements no port)
 **Plain call**:
 A stage of no stage type, which only calls its component: a key of the stage that names an attribute of the request fills it, its reads fill the other attributes in order, and its writes take the answer's. The RAG's embed_for_route, route, embed and rerank stages are plain calls.
 _Avoid_: call stage, default stage, passthrough
+
+**Token counts**:
+The tokens an LLM's endpoint reported for one answer: those of the prompt and those of the completion, each unknown when it reported none. The response reports them under each stage whose LLM reported both.
+_Avoid_: usage (that is the endpoint's own field), cost
+
+**Answer cap**:
+The most tokens a stage's answer may hold, sent to the LLM's endpoint as `max_tokens`. A generate stage states it or has none; a plain call on an LLM states it, as none or a number.
+_Avoid_: max length, token limit
 
 **CPU-bound stage**:
 A stage whose work runs in the App's own process, on its CPUs: embed and rerank when their model is local. Retrieve and generate wait on another service.
@@ -302,7 +310,7 @@ The free-form name the workflow app reports for the configuration being measured
 _Avoid_: deployment, topology label, run name
 
 **Target record**:
-What a run observed its target reporting about itself: each topology and run label seen, and how often.
+What a run observed its target reporting about itself: each topology and run label seen, and how often, and, when its answers reported their token counts, their totals and the time of the stages that reported them.
 
 **Target**:
 What a run drives: the workflow app, or a model server directly.

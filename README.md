@@ -383,10 +383,12 @@ stage or a plain call states, None for none: the API LLM sends it to its
 endpoint, the fake LLM ignores it. It answers a `GenerateAnswer`: the
 text, and the token counts its model reported, `prompt_tokens` and
 `completion_tokens`, each None when the model reported none. `ainvoke`
-returns that answer as it is, so a plain call on an LLM can write the counts
-to fields of its own, listed after the text in its `writes`; a generate stage
-writes the text alone, or its schema's fields, and reports the counts, when
-the answer carries both, in the response's `tokens` under the stage's name.
+returns that answer as it is. A plain call on an LLM fills every attribute of
+its request, so its keys state `output_schema: null` and `max_tokens`, `null`
+or a cap; its `reads` fill the messages, and it can write the counts to fields
+of its own, listed after the text in its `writes`. A generate stage writes the
+text alone, or its schema's fields, and reports the counts in the response's
+`tokens` ([HTTP API](#http-api)).
 The toolkit's API LLM reads the counts from the endpoint's `usage`; when it
 asks again for an answer that did
 not match its output schema, it reports the sum over every attempt, since each
@@ -1114,10 +1116,10 @@ When a run's record has tokens, `qp-compare` adds a `## Tokens` table, one row
 per such run: answers, prompt and completion tokens per answer, tokens a second
 as a caller sees them (completion tokens over `llm_ms`) and tokens a second
 served (the run's completion tokens over its seconds, from the `POST /query`
-row's requests and RPS, so a failed request adds none). A run that measures the
-LLM retries as the LLM component's `http.retries` says, which also bounds how
-often an answer that does not match its schema is asked again: set it to `0`
-(`QP_COMPONENTS__LLM__HTTP__RETRIES=0`) so each answer is asked once.
+row's requests and RPS, so a failed request adds none). With the LLM on `fake`
+the counts are words of the echo, not tokens of a model, so its token figures
+say nothing of a server. The settings of a run that measures the LLM: "The
+waits on the path of an answer" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
@@ -1259,8 +1261,8 @@ block, and `qp-ingest` fills the one the file declares.
 | --- | --- | --- | --- |
 | every type | `backend` | `local`, `local`, `local`, `local`, `api`, `elasticsearch` | how it runs, one of the backends registered for its type: `local` \| `served` \| `api` \| `fake` for an embedder, the same and `none` (no rerank) for a reranker, `served` \| `api` \| `fake` for an LLM, `elasticsearch` \| `chroma` \| `fake` for a vector store, `served` \| `fake` for a router and `local` when the use case's extension registers it, as the RAG's does; `served` is a model server of ours, `api` an endpoint we do not run; an unknown one is refused at start-up, naming the known ones. Nothing else decides it: `qp-deploy` sets it for each component the topology alias names, and on a laptop you set it |
 | every type | `type` | the router's embedder's: `embedder`; not written for the others: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` \| `router`, or a type an extension registers |
-| every model | `source_id` | the three models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker |
-| every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
+| every model | `source_id` | the three models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker; an LLM's is the model OVMS pulls when it serves the LLM ("A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)), and the RAG's file writes none |
+| every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends |
 | `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
 | `embedder` | `local.normalize` | not written: `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. The RAG's embedder ends its own pipeline with a normalisation step, so its vectors are unit-length whatever this says (measured: length 1.000000 with it off and on). It does not change OVMS: its own export normalises on its side (the exporter's default) |
@@ -1887,10 +1889,11 @@ after one real minimal request to its endpoint, sent once without retry; on a
 metered API that request is billed like any other.
 
 An OVMS or FastAPI model server is called as a `served` component, as in the
-split topologies on a laptop ([The real run](#the-real-run)). Nothing of ours
-serves an LLM yet: the LLM's `served` backend takes a URL and
-an alias (`QP_COMPONENTS__LLM__ALIAS`, since an LLM has no `source_id`) and is
-called in OpenAI's chat format, for when something does.
+split topologies on a laptop ([The real run](#the-real-run)). The LLM's
+`served` backend takes a URL and an alias (`QP_COMPONENTS__LLM__ALIAS`, else
+the last part of its `source_id`) and is called in OpenAI's chat format; OVMS
+is the one model server of ours that serves an LLM, in an App of its own on
+Domino ("A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)).
 
 An OpenAI-compatible gateway, for generation and embeddings:
 
@@ -2232,9 +2235,8 @@ asks `qp-served-models` the component's type, then has OVMS pull its
 into `QP_OVMS_MODELS_DIR`, which it creates
 first, and serve it under its `alias`: `ovms --source_model <source id>
 --model_name <alias> --model_repository_path <folder> --task text_generation
---target_device CPU`. The model is named in the workflow file (or the deploy
-file's `overrides`) and nowhere else; an empty `source_id` stops the App,
-naming the component and the field. Nothing is exported or calibrated, and
+--target_device CPU`. An empty `source_id` stops the App, naming the component
+and the field. Nothing is exported or calibrated, and
 a pinned `QP_OVMS_NUM_STREAMS` or `QP_OVMS_THREADS` on an LLM's App is
 refused. Two options of the App's block of `deploy.yaml`, checked by
 `qp-ovms-config --serve-llm` before OVMS starts, set OVMS's batching:
@@ -2243,8 +2245,8 @@ pass) and `QP_OVMS_MAX_BATCHED_TOKENS` (default `0`, OVMS's own choice; at
 least `0`). Each flag is passed only away from OVMS's default; on an
 embedder's or a reranker's App either option is refused. It needs the
 generic environment with `QP_BOOTSTRAP=1` and `QP_OVMS_BUNDLE`, not the
-prebuilt `ovms` image. Not verified: an LLM App on OVMS has never run on a
-machine in this layout; its tests run the script against a stand-in `ovms`.
+prebuilt `ovms` image. What a served LLM is, how it is deployed and what is not
+verified of it: "A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
 
 **Compose** (`make infra-up`) mounts `ovms/models` read-only at `/workspace` and
 starts the reranker with `--rest_port 8001 --config_path /workspace/config_reranker.json`,
@@ -2301,8 +2303,8 @@ toolkit took its current names are not found again: see
 
 An App has one of two roles: the workflow app (`QP_ROLE=workflow`, the
 default), or a model server (`QP_ROLE=model-server`), which is told the
-component it serves (`QP_MODEL_SERVER_COMPONENT`, any embedder or reranker of
-the workflow file) and its model-server kind (`QP_MODEL_SERVER_KIND`).
+component it serves (`QP_MODEL_SERVER_COMPONENT`, any component of the
+workflow file its kind serves, an LLM on `ovms` alone) and its model-server kind (`QP_MODEL_SERVER_KIND`).
 `app.sh` sources the kind's own launch script, `domino/model_servers/<kind>.sh`,
 which holds its bootstrap and its command: `fastapi` runs the FastAPI model
 server (`qp-model-server`, the component's local model on the `/v3` routes and
@@ -2614,11 +2616,51 @@ the App's URL plus `/v3/chat/completions`, and calls it with the run token as it
 calls any served component; the run label gains `+llm=ovms`, and `make
 deploy-llm` publishes that App alone. The model OVMS serves is the LLM's
 `source_id` and the name it is served and asked for under its `alias`, both under
-`overrides.components.llm`, in one place. The RAG's rewrite sends its schema as
-`response_format` by default; whether OVMS honours it has not been checked. For
-an endpoint that imposes no schema, the setting is the LLM's `structured_output:
-format_instructions` (`overrides.components.llm.served.structured_output` for a
-served LLM). An LLM App on OVMS has not run on a machine.
+`overrides.components.llm`, in one place. How the App starts and its two
+batching options: "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server).
+The workflow App's `/readyz` does not check the LLM, so it can report ready
+while OVMS still pulls the model on the LLM App's first start; a run started
+then records failed requests.
+
+**Not verified.** An LLM App on OVMS has never run on a machine: not the App,
+not its launch script (its tests run it against a stand-in `ovms`), not the
+deploy. What has run is the bare `ovms` command, by hand, on 16 November 2026
+(`experiments/`): OVMS 2026.4.1 pulled the model `deploy.example.yaml` names (2.0 GB) and
+served it on `/v3/chat/completions` 60 s after its first start and 5 s
+after a later one; an App's first start adds its bootstrap and the install of
+the project. OVMS writes its `graph.pbtxt` again at every start with
+`--source_model`, so a changed option takes effect on a model already pulled.
+Whether OVMS honours `response_format` is unknown: the RAG's rewrite sends its
+schema that way by default. For an endpoint that does not, the setting is the
+LLM's `structured_output: format_instructions`
+(`overrides.components.llm.served.structured_output` for a served LLM;
+[Structured output](#structured-output)).
+
+**The waits on the path of an answer.** A `/query` that generates passes these
+waits, in order:
+
+| Wait | Default | Set by |
+| --- | --- | --- |
+| The load-test user | 60 s | `QP_LOADTEST_REQUEST_TIMEOUT_S` |
+| Domino's proxy, to the workflow App, then to a served LLM's App | Domino's own; the emulated Domino's 30 s | not a setting of this project; on the emulation, `forward_timeout_seconds` ([emulation/README.md](emulation/README.md)) |
+| One call to the LLM | 120 s in the RAG's workflow file | the LLM's `http.timeout_s` |
+| Attempts of that call | 3 (2 retries), 0.2 s then 0.4 s between | the LLM's `http.retries` and `http.backoff_s`, else the top-level `http` block's |
+| nginx in front of OVMS, with `QP_OVMS_PREFIX_PROXY=1` | 300 s | `proxy_read_timeout` in `domino/ovms-proxy.conf`, not a setting |
+
+A call that outlasts its timeout or a proxy's wait is sent again: a timeout is
+a transport error and a proxy that gave up answers a 5xx, and both are
+retried. No log line records a retry that succeeded: the stage's time is the sum
+of every attempt, and so is the time that tokens a second as a caller sees them
+are computed from. The user, who is not retried, has left
+at 60 s, while the workflow App may keep the call going for three attempts of
+120 s. A run that measures the LLM therefore sets the LLM's retries to `0`,
+so each answer is asked once, one that misses its schema too ([Structured
+output](#structured-output)); the setting is the LLM's alone, and the
+embedder's and the reranker's calls keep theirs. It also raises the user's patience together
+with the LLM's timeout, so the user does not leave an answer the workflow App
+still waits for; on the emulation, raise `forward_timeout_seconds` too.
+`deploy.example.yaml` shows these settings, commented, under
+`overrides.components.llm`.
 
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
