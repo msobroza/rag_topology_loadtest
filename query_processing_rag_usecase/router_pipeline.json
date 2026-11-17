@@ -1,0 +1,16 @@
+{
+  "pipeline_file": "router_pipeline.joblib",
+  "pipeline_sha256": "3249bd78719779afac7c0cfddfa2feb0ce8a8efa003e15b0043e5174efc2e347",
+  "scikit_learn_version": "1.9.1",
+  "routes": [
+    "leans_on_history",
+    "self_contained"
+  ],
+  "utterances_sha256": "3aa7367350a6aa9a10cdb1585b16c0f895960f78f0d964024f700b6ff593918f",
+  "embedder_alias": "Solon-embeddings-large-0.1",
+  "embedder_query_prefix": "query : ",
+  "vector_size": 1024,
+  "n_neighbors": 3,
+  "metric": "cosine",
+  "leave_one_out_accuracy": 0.8125
+}

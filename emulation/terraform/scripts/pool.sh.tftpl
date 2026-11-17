@@ -13,13 +13,16 @@ DOMINO_PORT='${domino_port}'
 CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 
-# warm_app_dependencies: app.sh's install_project, run once at boot. app.sh runs
-# these two commands at every App start; done here they fill uv's cache, so an
-# App's own install takes seconds. ".[domino]" because an Agent's launch script asks
-# for that extra (RAG_BOOTSTRAP_EXTRAS) and it is a superset of the plain install.
+# warm_app_dependencies: app.sh's install_project, run once at boot with what an
+# App's launch script asks for, by the same absolute paths (the clone has the same
+# path on every machine): the toolkit, then the use case of QP_USE_CASE_DIR, the
+# directory qp-deploy runs from on the Workspace. app.sh runs these two commands
+# at every App start; done here they fill uv's cache, so an App's own install
+# takes seconds. "[domino]" because an Agent's launch script asks for that extra
+# (QP_BOOTSTRAP_EXTRAS) and it is a superset of the plain install.
 warm_app_dependencies() {
-  retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv "$HOME/rag-venv" --python "$(cat .python-version)"' _ "$REPO_PATH"
-  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python "$HOME/rag-venv/bin/python" ".[domino]"' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 900 bash -c 'uv venv "$HOME/qp-venv" --python "$(cat "$1/.python-version")"' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'uv pip install --python "$HOME/qp-venv/bin/python" "$1/query_processing[domino]" "$1/query_processing_rag_usecase"' _ "$REPO_PATH"
 }
 
 ensure_ubuntu_user
@@ -31,7 +34,7 @@ sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
 write_cache_config "$CACHE_BUCKET" "$DATASET_PATH"
 restore_cached_models "$CACHE_BUCKET" "$CACHE_MODELS_PREFIX" "$DATASET_PATH"
 warm_app_dependencies
-fetch_ovms_bundle "$REPO_PATH" "$OVMS_BUNDLE"
+fetch_ovms_bundle "$REPO_PATH/query_processing" "$OVMS_BUNDLE"
 
 # Domino's sidecar on localhost:8899 (run token, Domino API) is the fake Domino on
 # the Workspace machine: Apps reach it at the same address as on Domino.

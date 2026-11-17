@@ -1,0 +1,191 @@
+# Sitting of 16 November 2026, 19:31 to 20:42 UTC: the RAG's router pipeline trained
+# on Solon's vectors with make train-router, then the workflow app started on its real
+# backends with it. No Locust run: every entry is a measurement, taken once, by hand,
+# on the Workspace. See README.md.
+
+common:
+  code: &code branch claude/use-case-components at commit c58e0f5 on every machine
+  hardware: &hardware
+    workspace: {machine_type: n2-standard-4, vcpus: 4, memory_gib: 16, spot: false, role: everything ran here}
+    elasticsearch: {machine_type: n2-standard-2, vcpus: 2, spot: true, version: 9.0.0}
+    pool: {machines: 1, machine: {machine_type: n2-standard-2, vcpus: 2, hardware_tier: cpu-2, spot: true}, idle: no App was published}
+  settings: &settings
+    files: the RAG use case's workflow.yaml, routes.yaml and prompts.yaml as committed at c58e0f5
+    router: {backend: local, implementation: kNN router, n_neighbors: 3, metric: cosine}
+    router_embedder: {backend: local, source_id: OrdalieTech/Solon-embeddings-large-0.1, query_prefix: "query : ", runtime: openvino}
+    libraries: {scikit-learn: 1.9.1, joblib: 1.6.0}
+  index: &index the cached snapshot of the corpus quebec-insurance (analyzer french, retrieval embedder Snowflake/snowflake-arctic-embed-l-v2.0), restored; 1592 passages in rag_passages
+
+experiments:
+  - id: t-train-router
+    question: Does make train-router train the router's pipeline on Solon's vectors, and how well does it route its own utterances?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    measurements:
+      command: make train-router
+      wall_time: 1 min 49 s, Solon's download and its conversion to OpenVINO included
+      peak_memory_kb: 11827848
+      pipeline_file: {name: router_pipeline.joblib, bytes: 132349, sha256: 3249bd78719779afac7c0cfddfa2feb0ce8a8efa003e15b0043e5174efc2e347}
+      manifest:
+        scikit_learn_version: 1.9.1
+        routes: [leans_on_history, self_contained]
+        embedder_alias: Solon-embeddings-large-0.1
+        embedder_query_prefix: "query : "
+        vector_size: 1024
+        n_neighbors: 3
+        metric: cosine
+        leave_one_out_accuracy: 0.8125
+      leave_one_out: {right: 13, utterances: 16}
+      missed:
+        - {utterance: "Et pour un véhicule loué ?", route: leans_on_history, routed: self_contained}
+        - {utterance: "Et si c'est l'autre conducteur qui est responsable ?", route: leans_on_history, routed: self_contained}
+        - {utterance: "Quel est le montant dans ce cas ?", route: leans_on_history, routed: self_contained}
+    notes:
+      - Each missed utterance names a subject that utterances of the other route also name.
+      - The eight utterances of self_contained and the five other utterances of leans_on_history are routed right when left out.
+      - The pipeline file and its manifest are the ones committed in query_processing_rag_usecase/.
+
+  - id: t-train-router-again
+    question: Does a second training on the same inputs write the same files?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    measurements:
+      command: make train-router, a second time
+      result: the same pipeline file and the same manifest, byte for byte
+
+  - id: t-solon-vectors
+    question: What vectors does Solon give through the app's embedder?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    measurements:
+      texts: 28
+      vector_size: 1024
+      length: 1.0000 for each text
+      mean_cosine_within_a_route: 0.338
+      mean_cosine_across_routes: 0.238
+    notes:
+      - The model's own pipeline normalises its vectors.
+
+  - id: t-corpus-questions
+    question: Where does the trained router send the corpus's questions, which all stand alone?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    measurements:
+      command: qp-rag-train-router --check-questions
+      questions: 82
+      self_contained: 81
+      leans_on_history: 1
+      routed_leans_on_history: ["Qu'est-ce qu'un avenant?"]
+    notes:
+      - The questions file is never committed.
+
+  - id: t-probe-messages
+    question: Where does the trained router send messages written for the check, not of the corpus?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    measurements:
+      lean_on_a_history:
+        messages:
+          - "Et pour un locataire ?"
+          - "Et si c'est moi qui suis responsable ?"
+          - "Combien ça coûte dans ce cas ?"
+          - "Pourquoi ?"
+          - "Est-ce que ça s'applique aussi à mon conjoint ?"
+          - "Et dans l'autre cas ?"
+          - "Peux-tu préciser le deuxième point ?"
+          - "Et c'est obligatoire ?"
+        routed_leans_on_history: 8
+        of_the_training_set: ["Est-ce que ça s'applique aussi à mon conjoint ?", "Peux-tu préciser le deuxième point ?"]
+      stand_alone:
+        messages:
+          - "Quelle est la franchise habituelle d'une assurance habitation au Québec ?"
+          - "Comment déclarer un sinistre automobile à mon assureur ?"
+          - "Qu'est-ce que l'indemnisation directe en assurance automobile ?"
+          - "Quels documents faut-il fournir pour résilier un contrat d'assurance ?"
+        routed_self_contained: 4
+    notes:
+      - Six of the eight messages that lean on a history are new to the router.
+
+  - id: t-app-start-real-backends
+    question: Does the workflow app start on its real backends with the trained pipeline?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      how: qp-serve on the Workspace, every component on the backend the workflow file states; no App published
+    measurements:
+      index: *index
+      run_label: embedder=local+router_embedder=local+router=local+reranker=local+llm=api+vector_store=elasticsearch
+      readyz: HTTP 200 about 125 s after the start
+      checks_passed: [router_embedder, embedder, vector_store, reranker]
+      vector_store_check: 1592 passages in rag_passages
+      memory_used_gib: {used: 5, of: 15, with: the three models loaded}
+      first_message:
+        route: /retrieve
+        message: "Comment déclarer un sinistre automobile à mon assureur ?"
+        timings_ms: {embed: 682, retrieve: 247, rerank: 2275, total: 3220}
+        passages: 10
+      errors_in_log: none
+    notes:
+      - Start-up accepted the router's pipeline file against its manifest.
+      - The LLM on api was not called.
+
+  - id: t-three-paths-llm-fake
+    question: How long does each conversation path take, the LLM alone on fake?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      how: the same app as t-app-start-real-backends, with QP_COMPONENTS__LLM__BACKEND=fake
+    measurements:
+      index: *index
+      readyz: about 110 s after the start
+      route: /query
+      requests:
+        - path: a first message
+          message: "Que couvre la garantie de responsabilité civile ?"
+          timings_ms: {embed: 392, retrieve: 61, rerank: 2332, generate: 1, total: 2796}
+        - path: a message that leans on its history, after a history of two messages
+          message: "Et pour un locataire ?"
+          timings_ms: {embed_for_route: 294, route: 14, rewrite: 1, embed: 117, retrieve: 32, rerank: 1852, total: 2319}
+        - path: a message that stands alone, with the same history
+          message: "Comment la SAAQ indemnise-t-elle les blessures corporelles ?"
+          timings_ms: {embed_for_route: 133, route: 3, embed: 121, retrieve: 33, rerank: 2440, total: 2737}
+      errors_in_log: none
+    notes:
+      - A stage that did not run shows 0 and is left out.
+      - The first message has no routing stage; the message that stands alone has no rewrite.
+      - The message that stands alone is an utterance of the training set.
+      - One request each.
+
+  - id: t-real-llm-requests
+    question: What does the client get with every component on its real backend, the LLM on its endpoint?
+    code: *code
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      how: the app of t-app-start-real-backends started again, every component on the backend the workflow file states, after the measurements above
+    measurements:
+      index: *index
+      readyz: about 110 s after the start
+      route: /query
+      requests:
+        - path: a first message
+          answer: 'HTTP 503, {"error": "llm_unavailable"}'
+        - path: a message that leans on its history
+          answer: 'HTTP 503, {"error": "llm_unavailable"}'
+        - path: a follow-up in a conversation that names a source
+          answer: 'HTTP 503, {"error": "llm_unavailable"}'
+      detail: names the endpoint and the endpoint's own answer, HTTP 401 "Incorrect API key provided"
+      log: three rag_request lines with status 503, no traceback
+      llm_answered: none; nothing was generated
+    notes:
+      - Asked by the owner after the measurements above.
+      - The value of the Project environment variable for the LLM's key was not a bare key, so the endpoint refused it.
+      - An LLM endpoint that refuses the key gives the client a 503 that names the endpoint, on the first message as on the routed ones, and not a 500.
+      - "Still not checked: the rewrite on a real LLM, with the schema narrowed to the store's fields."

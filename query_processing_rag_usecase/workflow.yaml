@@ -1,0 +1,175 @@
+# The RAG use case's workflow (ADR 0004, ADR 0005): its models, sizes and
+# store, the one place they are pinned, since the toolkit defaults none of
+# them; its prompts are in prompts.yaml and its routes in routes.yaml, beside
+# this file, which a stage and the router name. A command run from this
+# directory reads this file; QP_WORKFLOW_FILE names another, such as a
+# variant, instead. Each top-level key is a setting,
+# and each value is overridden by the variable its path names, its levels
+# joined by __, such as QP_GRAPH__STAGES__RERANK__TOP_K=5 or
+# QP_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
+# set it by its path, such as QP_COMPONENTS__LLM__API__API_KEY or
+# QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
+
+# The packages of this use case whose classes register before the components
+# are read (ADR 0006): its kNN router, the router's local backend.
+extensions: [query_processing_rag_usecase]
+
+# What the components share is four top-level blocks (the README lists them):
+# local_models (runtime, openvino_dir, openvino_weight_format: fp32 | int8,
+# workers, cpus), written here for its runtime, and three left out, so each
+# takes its defaults: calibration (budget_s, rounds, users), http (timeout_s,
+# retries, backoff_s: the default of every component's own http block) and
+# domino (token_url, token_ttl_s, tracing).
+# For example QP_LOCAL_MODELS__RUNTIME=torch or QP_HTTP__RETRIES=0.
+local_models:
+  runtime: openvino # openvino | torch, for every component on the local backend
+
+components:
+  # Each component is of the type of its name (embedder, reranker, llm,
+  # vector_store or router) unless `type` names it, and states its backend. A
+  # model's source_id is its Hugging Face id or a folder; its alias, the name a
+  # model server serves it under, is the last part of the source_id unless
+  # `alias` says otherwise. The settings of one backend sit in a block named
+  # after it (local, served, api): served is a model server of ours, api an
+  # endpoint we do not run. How patiently a served or api component is called
+  # is its http block: timeout_s, retries and backoff_s, each left out being
+  # the default every component shares (the top-level http block). Nothing else
+  # decides a backend: a component is moved behind a model server by setting
+  # its backend and its URL, such as QP_COMPONENTS__RERANKER__BACKEND=served and
+  # QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank, which
+  # qp-deploy writes for each component its topology alias serves.
+  embedder:
+    backend: local # local | served | api | fake
+    source_id: Snowflake/snowflake-arctic-embed-l-v2.0
+    query_prefix: "query: " # in front of every query, never of a passage
+  # The embedder the router reads: a second embedder, so it states its type.
+  # Its vectors never reach the vector store, which `embedder` fills and
+  # searches (make ingest names it).
+  router_embedder:
+    type: embedder
+    backend: local
+    source_id: OrdalieTech/Solon-embeddings-large-0.1
+    query_prefix: "query : " # Solon's own, with a space before the colon
+  # Says whether a message with a conversational history can be understood
+  # without it. Its routes are two of routes.yaml. Its local backend is this
+  # use case's kNN router: it loads the committed pipeline file and refuses it
+  # once trained with other values, routes, utterances or embedder than these;
+  # then `make train-router`, on a machine that has Solon, writes it again
+  # with its manifest, and both are committed together.
+  router:
+    backend: local # local | served | fake (always the first of its routes)
+    embedder: router_embedder
+    routes: [self_contained, leans_on_history]
+    local:
+      pipeline_file: router_pipeline.joblib # its manifest beside it, in .json
+      n_neighbors: 3
+      metric: cosine
+  reranker:
+    backend: local # local | served | api | fake | none
+    source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR
+  llm:
+    backend: api # served | api | fake
+    api:
+      url: https://api.openai.com/v1/chat/completions
+      api_format: openai
+      model: gpt-4o-mini
+      # structured_output: json_schema # the default; format_instructions for an endpoint that imposes no schema
+    http:
+      timeout_s: 120 # an answer takes longer than a model-server call
+  vector_store:
+    # elasticsearch | chroma | fake (in memory, seeded with the synthetic
+    # corpus when it opens). Only the block of the backend in use is written;
+    # where the passages are kept has no default, so another store's block
+    # names it (chroma: its collection).
+    backend: elasticsearch
+    # No prefilter here: an index qp-ingest filled has neither of its fields.
+    # A site whose passages carry them states it in deploy.yaml.
+    elasticsearch:
+      url: http://localhost:9200 # http://user:password@host:9200 for basic auth
+      index: rag_passages # an index or an alias
+    # The metadata fields a request's metadata filter, or the rewrite, can name.
+    metadata_field_info:
+      - name: source
+        type: string
+        description: The reference the passage comes from.
+        allowed_values: [A-25, AMF, CHAD, GAA, code_securite_routiere, educaloi, infoassurances]
+
+graph:
+  # Each stage calls the component that `call` names, and states the workflow
+  # state fields it reads and writes. It is an instance of the stage type
+  # `type` names, else of the stage type of its name (retrieve, generate),
+  # else a plain call: a key that names a request attribute fills it, reads
+  # fill the other attributes in order, and writes take the answer's.
+  stages:
+    # A message with a conversational history is embedded for the router, which
+    # writes the name of the route it chose.
+    embed_for_route:
+      call: router_embedder
+      reads: [conversational_query]
+      writes: [routing_embedding]
+    route:
+      call: router
+      reads: [routing_embedding]
+      writes: [route]
+    # A message that leans on the conversational history is rewritten to stand
+    # alone, with conditions on the store's declared fields when the
+    # conversation names one of their values: one LLM call writes both, in the
+    # toolkit's schema narrowed to those fields.
+    rewrite:
+      type: generate
+      call: llm
+      prompt: rewrite_as_standalone
+      output_schema: standalone_query_with_filter
+      metadata_fields_of: vector_store
+      reads: [conversational_query, conversational_history]
+      writes: [standalone_query, metadata_filter]
+    embed:
+      call: embedder
+      reads: [standalone_query]
+      writes: [query_embedding]
+    retrieve:
+      call: vector_store
+      # dense | lexical | hybrid; a lexical workflow has no embed stage
+      retrieval_mode: dense
+      top_k: 20 # candidates from the store
+      # [query_embedding] for dense, [standalone_query] for lexical,
+      # [query_embedding, standalone_query] for hybrid; then metadata_filter,
+      # the request's conditions and the rewrite's, which every passage found
+      # meets
+      reads: [query_embedding, metadata_filter]
+      writes: [candidates]
+    rerank:
+      call: reranker
+      top_k: 10 # passages kept and sent to the LLM
+      reads: [standalone_query, candidates]
+      writes: [reranked]
+    generate:
+      call: llm
+      # what the user asked, then the passages; the answer
+      reads: [conversational_query, reranked]
+      writes: [answer]
+      # A prompt of prompts.yaml, whose variables are the fields it reads.
+      prompt: answer_from_context
+  # Chains of plain edges, one edge per pair; START and END are reserved.
+  edges:
+    - [embed_for_route, route]
+    - [rewrite, embed, retrieve, rerank]
+    - [generate, END]
+  # A registered edge condition, the fields it is asked about, and where each
+  # of its answers leads: true and false, or for `label` each value of the
+  # field it reads, here each route of the router.
+  conditional_edges:
+    # A first message is answered as it is; one with a conversational history
+    # is routed.
+    - source: START
+      path: has_history
+      reads: [conversational_history]
+      path_map: {true: embed_for_route, false: embed}
+    - source: route
+      path: label
+      reads: [route]
+      path_map: {self_contained: embed, leans_on_history: rewrite}
+    - source: rerank
+      path: is_query_mode
+      reads: [mode]
+      path_map: {true: generate, false: END}

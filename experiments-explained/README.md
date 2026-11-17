@@ -561,7 +561,7 @@ People read the answer first. Ten such users stand for many more people.
 | The technical comparison of the two model servers, for the reranker and the embedder | [`docs/model-servers.md`](../docs/model-servers.md) |
 | The table behind each chart | [`data/`](data/), one CSV file per chart, each row with the id of its experiment |
 | The charts | [`figures/`](figures/), each in a light and a dark version |
-| The program that draws them | `src/experiment_charts/`, run by `make experiment-charts` |
+| The program that draws them | [`experiment_charts/`](../experiment_charts/), run by `make experiment-charts` |
 
 To redraw everything after a new sitting is registered:
 

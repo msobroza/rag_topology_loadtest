@@ -72,15 +72,17 @@ throw-away script that is not kept in the repository.
 | 15 November 2026 | [2026-11-15-scale-out-against-scale-up-8-vcpus](2026-11-15-scale-out-against-scale-up-8-vcpus/README.md) | Do four machines of 2 vCPUs serve what one machine of 8 vCPUs serves? | 6 x 2 vCPUs and 1 x 8 vCPUs, Spot | 14 | 46 |
 | 16 November 2026 | [2026-11-16-generator-ovms-pytorch-vllm-16-vcpus](2026-11-16-generator-ovms-pytorch-vllm-16-vcpus/README.md) | Which server answers fastest when the generation stage runs a language model on a CPU? | 1 x 16 vCPUs, by hand | 10 | 10 |
 | 16 November 2026 | [2026-11-16-ovms-embedder-on-a-real-ovms](2026-11-16-ovms-embedder-on-a-real-ovms/README.md) | Does a real OVMS follow `RAG_EMBEDDING_NORMALIZE` for the embedder? | 1 x 2 vCPUs, Spot | 4 | 0 |
+| 16 November 2026 | [2026-11-16-router-pipeline-trained-on-solon](2026-11-16-router-pipeline-trained-on-solon/README.md) | Does `make train-router` train the router's pipeline on a machine that has its embedder's model, how well does it route, and does the workflow app start on its real backends with it? | none: everything ran on the Workspace (4 vCPUs), by hand | 8 | 0 |
 
 The sittings of 14 and 15 November ran on the Google Cloud emulation of Domino
 (`emulation/`), with the French corpus (1,223 documents, 1,592 passages), the reranker
 `antoinelouis/crossencoder-camembert-base-mmarcoFR` and the embedder
-`Snowflake/snowflake-arctic-embed-l-v2.0`. Their runs last 2 minutes. Of the two
+`Snowflake/snowflake-arctic-embed-l-v2.0`. Their runs last 2 minutes. Of the three
 sittings of 16 November, one checks the embedder on a real OVMS, on the emulation,
-and holds no run. The other is the first on the generate stage: one machine, by hand,
+and holds no run. Another is the first on the generate stage: one machine, by hand,
 outside the emulation, with the fake embedder, reranker and vector store, and
-3-minute runs.
+3-minute runs. The third trains the router's pipeline and starts the workflow app on
+the emulation's Workspace, by hand, and holds no run.
 Sittings ran on different machine sizes and code: compare figures within a sitting.
 
 ## Adding a sitting or an experiment

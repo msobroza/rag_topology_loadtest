@@ -1,3 +1,3 @@
 {
-  "runner": "PATH=\"$PWD/.venv/bin:$PATH\" pytest {files}"
+  "runner": "PATH=\"$PWD/.venv/bin:$PATH\"; for d in query_processing query_processing_rag_usecase experiment_charts; do set --; for f in {files}; do case \"$f\" in \"$d\"/*) set -- \"$@\" \"${f#\"$d\"/}\";; esac; done; [ $# -eq 0 ] || (cd \"$d\" && pytest \"$@\") || exit 1; done"
 }

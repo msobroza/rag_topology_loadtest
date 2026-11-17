@@ -1,0 +1,219 @@
+# The RAG use case's qp-deploy settings: cp deploy.example.yaml deploy.yaml in
+# this directory, then edit (deploy.yaml is git-ignored). Run `make deploy` /
+# `make status` from this directory (for example
+# /repos/<project>/query_processing_rag_usecase) in a Domino Workspace of the one
+# project that hosts all the Apps: every App runs the toolkit's
+# query_processing/domino/app.sh, found from here, by its absolute path, and runs
+# its role's command here (QP_USE_CASE_DIR), where it finds workflow.yaml.
+#
+# Secrets do NOT go here: every `settings` and `overrides` value is written into
+# an App's launch script. Keep every API key
+# (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
+# QP_COMPONENTS__LLM__API__API_KEY,
+# any bearer token for QP_COMPONENTS__EMBEDDER__API__API_KEY or
+# QP_COMPONENTS__RERANKER__API__API_KEY) in Domino's project or user environment
+# variables: qp-deploy refuses a setting ending with _API_KEY, or an api_key
+# under overrides, unless it is empty or `domino`.
+#
+# Unknown keys are refused. A QP_DEPLOY_<KEY> environment variable overrides a
+# top-level key, e.g. `QP_DEPLOY_TOPOLOGY=monolith make deploy`; QP_DEPLOY_FILE
+# names another file. qp-deploy also reads the workflow file the workflow App
+# reads (QP_WORKFLOW_FILE in its settings, else as qp-serve finds it), to know
+# the components a topology alias names and to check the overrides.
+
+# The topology deployed: one of the topology aliases below.
+topology: split-all
+# Each topology alias says where the components it names run: local, in the
+# workflow App's process, or served, by a model server App of its own (named
+# <app_name_prefix>-<component>). The names are the workflow file's components.
+# A component an alias does not name keeps the backend the workflow file (or the
+# overrides below) gives it (here the LLM, on api, and the router and its
+# embedder, local in the workflow App of every topology). A served component is
+# served by the model-server kind of its App (`server` below), of any name; a
+# component its App's kind cannot serve (an LLM on fastapi: only ovms serves
+# one), or put on a backend its type does not have (the vector store or the LLM
+# on local), is refused before anything is published. A new alias
+# is one more row: qp-deploy publishes one App per served component, then the
+# workflow App, and writes each named component's backend and served URL into
+# the workflow App's launch script (the workflow app has no topology rule of its
+# own), the alias (QP_TOPOLOGY_ALIAS, which it reports as X-RAG-Topology) and
+# the run label: the alias, then +<component>=<server> for each served one, each
+# with its own App's kind (split-all+embedder=fastapi+reranker=fastapi).
+topology_alias:
+  monolith: {embedder: local, reranker: local}
+  split-reranker: {embedder: local, reranker: served}
+  split-all: {embedder: served, reranker: served}
+  # The LLM served too, by OVMS in an App of its own (apps.llm below, and its
+  # model under overrides.components.llm); its run label ends +llm=ovms:
+  # split-all-llm: {embedder: served, reranker: served, llm: served}
+# The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
+project_id: ""
+# Each App is named <app_name_prefix>-<part> (part: workflow or a served component),
+# so two use cases with two prefixes share one project. Required: the toolkit has
+# no default, since the prefix names the use case. Lowercase letters and
+# digits in words joined by single hyphens, starting with a letter, e.g. qp-rag:
+# qp-deploy's own rule (we found none of Domino's), checked before anything is
+# published. An App is found by its name, so a new prefix creates new Apps; delete
+# the old ones by hand in Domino.
+app_name_prefix: qp-rag
+# Required by an App served by ovms: the OVMS bundle as the Apps see it (project
+# files or a Dataset),
+# either a folder with bin/ovms and lib/ or the release .tar.gz, for example
+# /domino/datasets/local/<dataset>/ovms.tar.gz
+ovms_bundle: ""
+# Where Apps answer: {domino_host}/{owner}/{project}/r/notebookSession/{instance id}.
+# "" = the scheme and host of the App's own url.
+domino_host: ""
+# Rarely changed: waiting for an App, and talking to Domino.
+# wait_timeout_s: 600
+# poll_interval_s: 5
+# no_instance_grace_s: 60   # an App with no instance after this long is reported
+# http_timeout_s: 30
+# http_retries: 2
+# run_token_url: http://localhost:8899/access-token
+
+# Every App, unless its own block below says otherwise. qp-deploy refuses to
+# deploy while a value still holds an <angle-bracket> placeholder.
+defaults:
+  # Required: the Domino compute environment (its id is in the URL of the
+  # environment's page in Domino). Any environment with `uv` works: the Apps
+  # install their own dependencies when they start, on Python 3.11 (uv downloads
+  # it when the environment has none).
+  environment_id: "<environment id>"
+  # Optional: holds the Apps to one build of that environment, by the id of one of
+  # its revisions (sent to Domino as environmentRevisionId); "" = Domino chooses.
+  # It goes only with the environment above: an App that sets its own
+  # environment_id does not take it, and without environment_id it is refused.
+  environment_revision_id: ""
+  # The hardware tier id; "" = the project's default.
+  hardware_tier_id: ""
+  # The model-server kind of every model server App, unless its block sets its
+  # own: fastapi (qp-model-server) | ovms (OpenVINO Model Server). Each kind is
+  # one registered class and one launch script, the toolkit's
+  # domino/model_servers/<kind>.sh.
+  server: fastapi
+  # The variables the launch script reads that are no value of the workflow
+  # file, exported by the App's launch script: QP_OVMS_MODELS_DIR,
+  # QP_BOOTSTRAP_EXTRAS, QP_WORKFLOW_FILE (the workflow file the Apps read,
+  # from this directory), an OVMS App's QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS
+  # (in that App's own block below), ... A value of the workflow file goes under
+  # overrides below: written here, it is refused, naming its place there.
+  # qp-deploy itself sets QP_ROLE (workflow or model-server),
+  # QP_MODEL_SERVER_COMPONENT and QP_MODEL_SERVER_KIND, QP_OVMS_BUNDLE,
+  # QP_USE_CASE_DIR (this directory) and QP_BOOTSTRAP (those win).
+  # settings:
+  #   # The folder holding config_<component>.json of each component ovms serves:
+  #   QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
+
+# One block per App, keyed by workflow or by the name of a served component (a
+# key that is neither is refused), for what really differs per App: kind (app | agent),
+# environment_id, environment_revision_id (a revision of this App's environment,
+# its own or the default one), hardware_tier_id, autoscaling {min_replicas
+# (default 1), max_replicas, target_cpu_pct (1..100)}, server (a model server
+# App's model-server kind; the workflow App has none) and settings (merged with
+# the defaults' settings, this block's winning).
+apps:
+  # The orchestrator is published as a Domino Agent (configurationType AISYSTEM).
+  # An Agent also gets QP_DOMINO__TRACING=1 unless the overrides set
+  # domino.tracing, and QP_BOOTSTRAP_EXTRAS=domino unless its settings set it.
+  workflow:
+    kind: agent
+    autoscaling: {min_replicas: 1, max_replicas: 2}
+  # The model servers are plain Apps.
+  embedder:
+    kind: app
+    # hardware_tier_id: <a tier with 8 cores>
+  reranker:
+    kind: app
+    # server: ovms  # this App alone served by OVMS (needs ovms_bundle)
+    # hardware_tier_id: <a tier with 16 cores>
+    # What qp-calibrate --ovms-models printed for this App's tier, so its OVMS
+    # starts without calibrating its streams and threads (one OVMS App serves
+    # one component, so they are this App's, not every App's):
+    # settings: {QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8}
+  # The LLM's App, published only under an alias that says llm: served, and
+  # served by ovms alone (needs ovms_bundle): fastapi serves no LLM.
+  # llm:
+  #   server: ovms
+  #   hardware_tier_id: <a tier with 16 cores>
+  #   settings:
+  #     # A folder this App can write, where OVMS pulls the model on its first
+  #     # start (2 GB):
+  #     QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-llm
+  #     # OVMS's --dynamic_split_fuse and --max_num_batched_tokens: false and
+  #     # 8192 read each prompt in one pass, better under load on the check of
+  #     # 16 November 2026; at their defaults, true and 0, both flags are left out.
+  #     QP_OVMS_DYNAMIC_SPLIT_FUSE: false
+  #     QP_OVMS_MAX_BATCHED_TOKENS: 8192
+
+# This site's values of the workflow file, in its own shape (components, graph,
+# local_models, calibration, http, domino, run_label), for every App: each one is
+# exported under the variable its path names (QP_COMPONENTS__LLM__HTTP__TIMEOUT_S
+# for components.llm.http.timeout_s) and wins over the workflow file. They are
+# checked against the workflow settings before anything is published: a key the
+# workflow file has no place for, a component or stage it does not declare, an
+# api_key, or a value the workflow app would refuse stops the deploy, naming its
+# place. qp-deploy's own exports win over them: QP_TOPOLOGY_ALIAS, and the
+# backend and served URL of each component the topology alias names. The run
+# label is the alias plus each served component's kind unless run_label is set
+# here (to name a variant, such as a hardware tier).
+overrides:
+  components:
+    vector_store:
+      # Required: the Elasticsearch cluster every workflow App queries.
+      elasticsearch: {url: "https://<elasticsearch host>:9200"}
+      # The passages this site's workflow can read at all: conditions every
+      # search applies before a request's own, on fields a client cannot name.
+      # A value of the site, since which ingestion pipeline version is live
+      # differs from one site to another; the workflow file states none, and an
+      # index qp-ingest filled has neither field, so it would return nothing.
+      # prefilter:
+      #   - {attribute: ingestion_pipeline_version, comparator: eq, value: "1"}
+      #   - {attribute: active, comparator: eq, value: true}
+    # The model paths (each component's source_id) are here, for every App,
+    # because which App loads a model depends on the topology (the workflow
+    # loads the embedder in split-reranker and both models in monolith). A
+    # Hugging Face id works as well as a folder; a model server serves it under
+    # its alias, the folder's last part, as the workflow App calls it.
+    embedder:
+      source_id: /domino/datasets/local/<dataset>/models/snowflake-arctic-embed-l-v2.0
+    # The router's embedder, which the workflow App loads in every topology.
+    # Keep the folder's last part: the router's pipeline file records the
+    # alias it was trained with, and the router refuses another.
+    router_embedder:
+      source_id: /domino/datasets/local/<dataset>/models/Solon-embeddings-large-0.1
+    reranker:
+      source_id: /domino/datasets/local/<dataset>/models/crossencoder-camembert-base-mmarcoFR
+      # What qp-calibrate printed for it, so no App calibrates at start-up:
+      # local: {threads: 2, batch_size: 1}
+    # The LLM's values, in one llm entry: uncommented as separate llm entries,
+    # YAML would keep only the last. Uncomment the entry and the keys you need.
+    # llm:
+    #   # How patiently it is called, over the shared http block below. A run
+    #   # that measures the LLM asks each answer once (an answer asked again is
+    #   # timed as one slow stage; the LLM's retries also bound how often an
+    #   # answer that misses its schema is asked again) and waits longer for it,
+    #   # raising the load test's QP_LOADTEST_REQUEST_TIMEOUT_S with it (README,
+    #   # "The waits on the path of an answer"):
+    #   http: {timeout_s: 300, retries: 0}
+    #   # For a served LLM whose endpoint imposes no schema: the rewrite's schema
+    #   # is then written in the messages and the answer parsed, where the
+    #   # default, json_schema, sends it as response_format (an LLM on its api
+    #   # backend reads the same key in its api block instead):
+    #   served: {structured_output: format_instructions}
+    #   # The LLM an OVMS App serves (an alias that says llm: served): OVMS
+    #   # serves the model source_id names under the name alias gives, and the
+    #   # workflow App asks for it by that name. Both are said here alone, for
+    #   # every App:
+    #   source_id: OpenVINO/Qwen3.5-2B-int4-ov
+    #   alias: qwen3.5-2b
+  # Where qp-export-openvino wrote the in-process models (a model without a
+  # folder there is converted in memory at every start), and how many model
+  # calls run at once (torch only; openvino runs one call at a time):
+  # local_models: {openvino_dir: /domino/datasets/local/<dataset>/openvino, workers: 2}
+  # The most tokens the generate stage's answer may hold (no cap by default),
+  # sent to the LLM's endpoint:
+  # graph: {stages: {generate: {max_tokens: 128}}}
+  # The default timeout, retries and backoff of every call to a served or api
+  # component:
+  # http: {timeout_s: 30, retries: 2, backoff_s: 0.2}

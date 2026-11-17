@@ -1,14 +1,18 @@
 # The two model servers: OpenVINO Model Server and the FastAPI model server
 
-A model server serves the reranker or the embedder on the /v3 routes. There are two:
-OpenVINO Model Server (OVMS), a product, and `rag-model-server`, this project's own
+A model server serves the reranker or the embedder on the /v3 routes, OVMS an LLM
+too, on its chat completions route, and the FastAPI model server a component of a
+registered type on its call route (`POST /call/<component type>`). There are two:
+OpenVINO Model Server (OVMS), a product, and `qp-model-server`, this project's own
 server built on FastAPI. Both run the same engine, OpenVINO, on the same model. This
 page says what the documentation of OVMS and of FastAPI says about serving, how each
-is set up here, and what the two sittings of 15 November 2026 measured.
+is set up here, what the two sittings of 15 November 2026 measured of the reranker,
+and what one sitting of 16 November 2026 measured of text generation. The settings
+are named as they are today; the sittings ran them under the names of that day.
 
 Read for this page: OVMS's documentation at 2026.3.1, the version pinned in
-`ovms/versions.env` when the page was written (the pin is 2026.4.1 since the
-generator; the documentation was not read again), and FastAPI's pages on concurrency
+`query_processing/ovms/versions.env` when the page was written (the pin is 2026.4.1
+now; the documentation was not read again), and FastAPI's pages on concurrency
 and deployment as they stood on 15 November 2026. The pages are listed at the end.
 
 ## What their documentation says
@@ -37,10 +41,10 @@ stream count should not exceed the cores.
 
 | | OVMS | FastAPI model server |
 |---|---|---|
-| Weights | Its own export, at `RAG_OPENVINO_WEIGHT_FORMAT` | The in-process export, at the same setting |
-| Requests at once | Its streams (`RAG_OVMS_NUM_STREAMS`) | One under `openvino`: a loaded model holds one inference request. `RAG_MODEL_WORKERS` under `torch` |
-| Calibration | Streams and threads, for `RAG_CALIBRATION_USERS` requests in flight | Threads and batch size, on one request |
-| Batch size of a rerank request | The whole request, 20 passages: its rerank endpoint has no such setting | `RAG_RERANK_BATCH_SIZE`, calibrated |
+| Weights | Its own export, at `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` | The in-process export, at the same setting |
+| Requests at once | Its streams (`QP_OVMS_NUM_STREAMS`) | One under `openvino`: a loaded model holds one inference request. `QP_LOCAL_MODELS__WORKERS` under `torch` |
+| Calibration | Streams and threads, for `QP_CALIBRATION__USERS` requests in flight | Threads and batch size, on one request |
+| Batch size of a rerank request | The whole request, 20 passages: its rerank endpoint has no such setting | The reranker's `local.batch_size` (`QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE`), calibrated |
 | More load | More streams, or more replicas | More replicas |
 
 Compare the two on the same weight format: see "Experiment 2" in the README.
@@ -49,7 +53,8 @@ Compare the two on the same weight format: see "Experiment 2" in the README.
 
 Two sittings on the Google Cloud emulation, 15 November 2026: one reranker instance of
 2 vCPUs in the morning, then of 8 and of 16 vCPUs (4 and 8 cores, the same CPU model).
-Runs last 2 minutes. "Alone" means Locust straight at the reranker, with the load
+Runs last 2 minutes, those of the larger reranker 3 ("A larger reranker did not turn
+the result"). "Alone" means Locust straight at the reranker, with the load
 test's uniform passages (303 to 380 characters). "End to end" means `/retrieve` through
 the proxy and two workflow replicas, with corpus passages (137 to 816 characters).
 
@@ -146,7 +151,7 @@ the tail grew: 3.6 s and 15 s at 16 users, and 4 requests failed at 32.
 
 ### `torch` workers did not replace streams
 
-The FastAPI model server under `torch` runs several calls at once (`RAG_MODEL_WORKERS`,
+The FastAPI model server under `torch` runs several calls at once (`QP_LOCAL_MODELS__WORKERS`,
 4 here). Alone, `fp32`, requests a second: 0.90 at 4 users and 0.98 at 16 on 8 vCPUs,
 against 1.00 and 1.01 under `openvino`; 1.61 and 1.94 on 16 vCPUs, against 1.81 and 1.80.
 
@@ -237,13 +242,15 @@ A reading of the results above, not a measurement.
   weights on OVMS 2026.4.1, on PyTorch behind a stand-in FastAPI server and on vLLM.
   OVMS answered one user soonest (7.9 s against 13 s and 19 s). At 4 users its batching
   gained only once it read each prompt in one pass (`--dynamic_split_fuse false
-  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. OVMS can
-  now serve a generator as an App of its own (`generator_server: ovms` in the deploy
-  file); the FastAPI model server serves none.
+  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. An
+  `ovms` App now serves an LLM, with those two flags set by `QP_OVMS_DYNAMIC_SPLIT_FUSE`
+  and `QP_OVMS_MAX_BATCHED_TOKENS` (the README's "An LLM on OVMS"; what of it is not
+  verified: its "A served LLM"). The FastAPI model server serves no LLM.
 
 ## Limits
 
-- Each figure is one 2-minute run. The stream timings are one or two rounds each.
+- Each figure is one run: of 2 minutes for the small reranker, of 3 minutes for the
+  Qwen3 reranker and for text generation. The stream timings are one or two rounds each.
 - Two models at 20 passages a request: `crossencoder-camembert-base-mmarcoFR` for
   every figure but the last section's, and Qwen3 with 0.6 B parameters there, whose
   runs hold 14 to 60 requests each.
@@ -252,13 +259,14 @@ A reading of the results above, not a measurement.
 - The text-generation figures are one sitting on one machine, with runs of 11 to 30
   requests and a stand-in server for PyTorch.
 - Ranking quality on `int8` weights was not checked.
-- Everything here is about the reranker. OVMS could not serve the default embedder: it
+- Everything here but text generation is about the reranker. OVMS could not serve the default embedder: it
   crashes while loading it (the check of 16 November 2026 in `experiments/`).
 
 ## Where the runs are
 
 Every run behind these figures, with its settings and its statistics, is registered in
-`experiments/` (the sittings of 15 November 2026).
+`experiments/` (the sittings of 15 November 2026, and that of 16 November 2026 for
+text generation).
 
 ## Pages read
 

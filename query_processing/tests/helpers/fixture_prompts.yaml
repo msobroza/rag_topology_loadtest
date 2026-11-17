@@ -1,0 +1,18 @@
+# The prompts of the tests' workflow file (conftest.py names this file in
+# QP_PROMPTS_FILE for every test), as a use case writes its prompts.yaml: each
+# prompt by its name, a list of messages whose contents are Jinja2 templates.
+answer_from_context:
+  - role: system
+    content: Answer from the numbered fixture passages only.
+  # The passages numbered one per line, as the generate stage's user_prompt
+  # setting gave them before this file: nothing between the two blank lines
+  # when no passage is kept.
+  - role: user
+    content: |-
+      Context:
+      {% for passage in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {%- endfor %}
+
+
+      Question: {{ conversational_query }}

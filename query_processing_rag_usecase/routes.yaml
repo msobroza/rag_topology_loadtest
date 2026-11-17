@@ -1,0 +1,28 @@
+# The RAG's routes (spec 8): a catalogue that a router lists some of by name.
+# A route's utterances are the messages its router learns it from; changing
+# one makes the trained pipeline file stale, and start-up refuses it until
+# qp-rag-train-router is run again. They were written from general knowledge
+# of Quebec automobile insurance, not from the corpus, which states no licence.
+routes:
+  - name: self_contained
+    description: A message that can be understood without the conversation.
+    utterances:
+      - Quelle est la franchise habituelle en cas de collision ?
+      - Comment faire une réclamation après un accident de la route au Québec ?
+      - Que couvre la garantie de responsabilité civile ?
+      - Mon assurance couvre-t-elle un véhicule de location ?
+      - Quel est le montant minimal d'assurance responsabilité obligatoire au Québec ?
+      - Que faire si l'autre conducteur n'est pas assuré ?
+      - Comment la SAAQ indemnise-t-elle les blessures corporelles ?
+      - Puis-je résilier mon contrat d'assurance automobile avant son échéance ?
+  - name: leans_on_history
+    description: A message that needs the earlier turns to be understood.
+    utterances:
+      - Et pour un véhicule loué ?
+      - Est-ce que ça s'applique aussi à mon conjoint ?
+      - Combien de temps ai-je pour le faire ?
+      - Et si c'est l'autre conducteur qui est responsable ?
+      - Peux-tu préciser le deuxième point ?
+      - Quel est le montant dans ce cas ?
+      - Pourquoi est-ce obligatoire ?
+      - Et sinon, que se passe-t-il ?

@@ -1,0 +1,371 @@
+"""``WorkflowSettings``: the tunables, their validation, and the graph of the workflow file."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from query_processing.config.searched_embedder import seeding_embedder
+from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.graph_description import GraphDescription
+from rag_graphs import fixture_graph, rag_graph, write_workflow_file
+
+SettingsFactory = Callable[..., WorkflowSettings]
+
+
+def stage_settings(settings: WorkflowSettings) -> dict[str, dict[str, object]]:
+    """Each stage's own settings, by stage name."""
+    return {name: stage.stage_settings for name, stage in settings.graph.stages.items()}
+
+
+def local_threads(settings: WorkflowSettings) -> tuple[int, int]:
+    """The embedder's and the reranker's thread counts, from their local blocks."""
+    components = settings.components
+    embedder, reranker = components["embedder"], components["reranker"]
+    return embedder.local.threads, reranker.local.threads
+
+
+# --- tunables ------------------------------------------------------------------
+
+
+def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
+    s = settings_factory()
+
+    store = s.components["vector_store"]
+    # The index is the file's: where the passages are kept has no default.
+    assert (store.elasticsearch.index, store.fake.seed_documents) == (
+        "fixture_passages",
+        200,
+    )
+    assert s.local_models.workers == 4
+    assert (s.calibration.budget_s, s.calibration.rounds) == (90.0, 1)
+    assert (s.http.timeout_s, s.http.retries, s.http.backoff_s) == (30.0, 2, 0.2)
+    assert s.domino.token_url == "http://localhost:8899/access-token"
+    assert s.domino.token_ttl_s == 240.0
+
+
+def test_tunables_read_qp_prefixed_env(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = {
+        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX": "passages_v2",
+        "QP_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS": "30",
+        "QP_LOCAL_MODELS__WORKERS": "2",
+        "QP_HTTP__TIMEOUT_S": "5.5",
+        "QP_HTTP__RETRIES": "0",
+        "QP_HTTP__BACKOFF_S": "0.5",
+        "QP_DOMINO__TOKEN_URL": "http://token.test/t",
+        "QP_DOMINO__TOKEN_TTL_S": "60",
+        "QP_CALIBRATION__BUDGET_S": "12.5",
+        "QP_CALIBRATION__ROUNDS": "3",
+    }
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    s = settings_factory()
+    store = s.components["vector_store"]
+    assert (store.elasticsearch.index, store.fake.seed_documents) == ("passages_v2", 30)
+    assert s.local_models.workers == 2
+    assert (s.http.timeout_s, s.http.retries, s.http.backoff_s) == (5.5, 0, 0.5)
+    assert (s.domino.token_url, s.domino.token_ttl_s) == ("http://token.test/t", 60.0)
+    assert (s.calibration.budget_s, s.calibration.rounds) == (12.5, 3)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "components__reranker__local__calibration_passages",
+        "components__vector_store__fake__seed_documents",
+        "local_models__workers",
+    ],
+)
+def test_counts_below_one_are_rejected(
+    settings_factory: SettingsFactory, field: str
+) -> None:
+    with pytest.raises(ValidationError, match=field.split("__")[-1]):
+        settings_factory(**{field: 0})
+
+
+# --- the workflow file -------------------------------------------------------------
+
+
+def test_the_fixture_file_reads_into_stages_edges_and_a_conditional_edge(
+    settings_factory: SettingsFactory,
+) -> None:
+    s = settings_factory()
+
+    assert stage_settings(s) == {
+        "embed": {},
+        "retrieve": {"retrieval_mode": "dense", "top_k": 20},
+        "rerank": {"top_k": 10},
+        "generate": {"prompt": "answer_from_context"},
+    }
+    calls = {name: stage.call for name, stage in s.graph.stages.items()}
+    assert calls == {
+        "embed": "embedder",
+        "retrieve": "vector_store",
+        "rerank": "reranker",
+        "generate": "llm",
+    }
+    assert s.graph.edge_pairs() == [
+        ("START", "embed"),
+        ("embed", "retrieve"),
+        ("retrieve", "rerank"),
+        ("generate", "END"),
+    ]
+    (branch,) = s.graph.conditional_edges
+    assert (branch.source, branch.path) == ("rerank", "is_query_mode")
+    assert branch.path_map == {True: "generate", False: "END"}
+    assert branch.reads == ["mode"]
+    # The type of each stage is its name.
+    assert all(stage.type is None for stage in s.graph.stages.values())
+
+
+def test_a_variable_names_another_prompt_for_the_generate_stage(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QP_GRAPH__STAGES__GENERATE__PROMPT", "terse")
+
+    generate = stage_settings(settings_factory())["generate"]
+
+    assert generate == {"prompt": "terse"}
+
+
+def test_the_sources_win_in_their_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # One key per source, each set by that source and every source below it.
+    graph = fixture_graph()
+    graph["stages"]["retrieve"].update(top_k=7, rrf_k=61)
+    graph["stages"]["rerank"]["top_k"] = 5
+    workflow = write_workflow_file(tmp_path / "workflow.yaml", graph)
+    with workflow.open("a", encoding="utf-8") as file:
+        file.write("local_models: {openvino_dir: from_the_file}\n")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "QP_GRAPH__STAGES__RETRIEVE__TOP_K=8\n"
+        "QP_GRAPH__STAGES__RERANK__TOP_K=6\n"
+        "QP_GRAPH__STAGES__RETRIEVE__RRF_K=62\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QP_GRAPH__STAGES__RERANK__TOP_K", "4")
+    monkeypatch.setenv("QP_GRAPH__STAGES__RETRIEVE__RRF_K", "63")
+
+    s = WorkflowSettings(
+        _env_file=dotenv,  # type: ignore[call-arg]
+        graph={"stages": {"retrieve": {"rrf_k": 64}}},
+    )
+
+    retrieve, rerank = stage_settings(s)["retrieve"], stage_settings(s)["rerank"]
+    assert int(retrieve["rrf_k"]) == 64  # constructor > environment
+    assert int(rerank["top_k"]) == 4  # environment > .env
+    assert int(retrieve["top_k"]) == 8  # .env > the workflow file
+    # The workflow file > the class default, which keeps the block's other keys.
+    assert s.local_models.openvino_dir == "from_the_file"
+    assert s.local_models.workers == 4  # the class default
+    assert retrieve["retrieval_mode"] == "dense"  # each source sets only its keys
+
+
+def test_an_unknown_top_level_key_of_the_file_is_refused_naming_it(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workflow = write_workflow_file(tmp_path / "workflow.yaml", fixture_graph())
+    with workflow.open("a", encoding="utf-8") as file:
+        file.write("top_k_retrieve: 20\n")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+
+    with pytest.raises(ValueError, match=r"unknown key.*'top_k_retrieve'"):
+        settings_factory()
+
+
+def test_an_unknown_key_of_the_graph_is_refused_naming_it(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QP_GRAPH__STAGEZ__RERANK__TOP_K", "3")
+
+    with pytest.raises(ValidationError, match=r"graph\.stagez"):
+        settings_factory()
+
+
+def test_a_file_without_a_graph_is_refused_naming_it(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workflow = tmp_path / "workflow.yaml"
+    workflow.write_text("http: {retries: 0}\n", encoding="utf-8")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+
+    with pytest.raises(ValidationError, match="graph"):
+        settings_factory()
+
+
+# --- thread budget inputs ---------------------------------------------------------
+
+
+def test_thread_budget_inputs_default_to_find_out(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOMINO_API_PROXY", raising=False)
+    monkeypatch.delenv("DOMINO_HARDWARE_TIER_ID", raising=False)
+
+    s = settings_factory()
+    assert (s.local_models.cpus, *local_threads(s)) == (0, 0, 0)
+    assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("", "")
+
+
+def test_thread_budget_inputs_read_qp_env_and_domino_variables(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QP_LOCAL_MODELS__CPUS", "2.5")
+    monkeypatch.setenv("QP_COMPONENTS__EMBEDDER__LOCAL__THREADS", "3")
+    monkeypatch.setenv("QP_COMPONENTS__RERANKER__LOCAL__THREADS", "1")
+    monkeypatch.setenv("DOMINO_API_PROXY", "http://localhost:8899")
+    monkeypatch.setenv("DOMINO_HARDWARE_TIER_ID", "small-k8s")
+
+    s = settings_factory()
+    assert (s.local_models.cpus, *local_threads(s)) == (2.5, 3, 1)
+    assert s.domino_api_proxy == "http://localhost:8899"
+    assert s.domino_hardware_tier_id == "small-k8s"
+
+
+def test_domino_variables_are_not_read_with_the_qp_prefix(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DOMINO_API_PROXY", raising=False)
+    monkeypatch.setenv("QP_DOMINO_API_PROXY", "http://wrong")
+
+    assert settings_factory().domino_api_proxy == ""
+
+
+def test_domino_variables_can_be_passed_by_field_name(
+    settings_factory: SettingsFactory,
+) -> None:
+    s = settings_factory(domino_api_proxy="http://p", domino_hardware_tier_id="t")
+    assert (s.domino_api_proxy, s.domino_hardware_tier_id) == ("http://p", "t")
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "local_models__cpus",
+        "components__embedder__local__threads",
+        "components__reranker__local__threads",
+    ],
+)
+def test_negative_thread_budget_inputs_are_rejected(
+    settings_factory: SettingsFactory, field: str
+) -> None:
+    with pytest.raises(ValidationError, match=field.split("__")[-1]):
+        settings_factory(**{field: -1})
+
+
+def test_each_value_names_the_variable_it_is_read_from() -> None:
+    path = ("components", "reranker", "local", "threads")
+    assert (
+        WorkflowSettings.variable_of(*path) == "QP_COMPONENTS__RERANKER__LOCAL__THREADS"
+    )
+    assert (
+        WorkflowSettings.variable_of("local_models", "cpus") == "QP_LOCAL_MODELS__CPUS"
+    )
+    assert WorkflowSettings.variable_of("domino_api_proxy") == "DOMINO_API_PROXY"
+
+
+def test_a_field_that_does_not_exist_names_no_variable() -> None:
+    with pytest.raises(ValueError, match="'rerank_threads'"):
+        WorkflowSettings.variable_of("rerank_threads")
+
+
+# --- the embedder a store's searches use -----------------------------------------
+
+# A second embedder, called by a stage the retrieve stage does not read from.
+ROUTER_EMBEDDER = {"type": "embedder", "backend": "fake", "source_id": "org/router"}
+
+
+def test_with_two_embedders_the_searched_one_is_read_from_the_graph(
+    settings_factory: SettingsFactory,
+) -> None:
+    embed_for_route = {
+        "call": "router_embedder",
+        "reads": ["conversational_query"],
+        "writes": ["routing_embedding"],
+    }
+    settings = settings_factory(
+        components={"router_embedder": ROUTER_EMBEDDER},
+        graph={"stages": {"embed_for_route": embed_for_route}},
+    )
+    assert settings.searched_embedder() == "embedder"
+
+
+def test_a_lexical_graph_has_no_searched_embedder(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(graph=rag_graph("lexical"))
+    assert settings.searched_embedder() is None
+
+
+def test_a_hybrid_graph_searches_with_the_embedder_it_reads_first(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(graph=rag_graph("hybrid"))
+    assert settings.searched_embedder() == "embedder"
+
+
+def test_a_retrieve_stage_named_otherwise_is_found_by_its_type(
+    settings_factory: SettingsFactory,
+) -> None:
+    graph = fixture_graph()
+    graph["stages"]["search"] = {**graph["stages"].pop("retrieve"), "type": "retrieve"}
+    # A description, not a dict: it replaces the file's graph, retrieve included.
+    settings = settings_factory(graph=GraphDescription.model_validate(graph))
+    assert list(settings.graph.stages) == ["embed", "rerank", "generate", "search"]
+    assert settings.searched_embedder() == "embedder"
+
+
+def test_two_embedders_writing_the_searched_embedding_leave_none_searched(
+    settings_factory: SettingsFactory,
+) -> None:
+    embed_again = {
+        "call": "router_embedder",
+        "reads": ["standalone_query"],
+        "writes": ["query_embedding"],
+    }
+    settings = settings_factory(
+        components={"router_embedder": ROUTER_EMBEDDER},
+        graph={"stages": {"embed_again": embed_again}},
+    )
+    assert settings.searched_embedder() is None
+    assert seeding_embedder(settings.graph, settings.component_types()) is None
+
+
+def test_a_lexical_graph_seeds_the_store_with_the_first_embedder_declared(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(
+        components={"router_embedder": ROUTER_EMBEDDER}, graph=rag_graph("lexical")
+    )
+    assert seeding_embedder(settings.graph, settings.component_types()) == "embedder"
+
+
+def test_a_dense_graph_seeds_the_store_with_the_embedder_its_searches_use(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(components={"router_embedder": ROUTER_EMBEDDER})
+    types = {"router_embedder": "embedder", **settings.component_types()}
+    # The router's embedder first in the file: the searches' embedder still seeds.
+    assert seeding_embedder(settings.graph, types) == "embedder"
+
+
+def test_the_vector_stores_are_listed_by_name_and_the_models_left_out(
+    settings_factory: SettingsFactory,
+) -> None:
+    archive = {"type": "vector_store", "backend": "fake"}
+    settings = settings_factory(components={"archive": archive})
+    assert list(settings.vector_stores()) == ["vector_store", "archive"]

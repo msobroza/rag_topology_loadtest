@@ -1,0 +1,41 @@
+# The RAG use case's prompts (spec 4), each by the name a stage of workflow.yaml
+# gives it. A command run from this directory reads this file; QP_PROMPTS_FILE
+# names another instead. A prompt is a list of messages, as OpenAI writes them;
+# each content is a Jinja2 template whose variables are the fields its stage
+# reads. A variable named by a prompt's path replaces the whole prompt, as JSON:
+# QP_PROMPTS__ANSWER_FROM_CONTEXT='[{"role": "user", "content": "..."}]'.
+answer_from_context:
+  - role: system
+    content: >-
+      You answer questions using only the numbered context passages.
+      Cite passages as [n]. If the context is insufficient, say so.
+  # The passages kept, numbered one per line, then the user's message.
+  - role: user
+    content: |-
+      Context:
+      {% for passage in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {%- endfor %}
+
+
+      Question: {{ conversational_query }}
+# What the rewrite stage asks, for a message that leans on the conversational
+# history. metadata_field_info holds the fields the stage's vector store
+# declares (its metadata_fields_of), each with its allowed values when it states
+# them, since a field may leave them out; an earlier message carries the conditions
+# that applied to it; the earlier messages are spliced at the placeholder, each
+# with its role and content only.
+rewrite_as_standalone:
+  - role: system
+    content: |-
+      Rewrite the last user message so that it needs no conversation to be understood.
+      Add a condition on a metadata field only when the conversation names one of its values.
+      {% for field in metadata_field_info %}
+      - {{ field.name }}: {{ field.description }}{{ " Values: " ~ field.allowed_values | join(", ") if field.allowed_values else "" }}
+      {% endfor %}
+      {% for message in conversational_history if message.metadata_filter %}
+      An earlier message was restricted to: {{ message.metadata_filter | tojson }}
+      {% endfor %}
+  - placeholder: conversational_history
+  - role: user
+    content: "{{ conversational_query }}"

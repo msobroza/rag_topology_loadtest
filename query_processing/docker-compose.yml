@@ -1,0 +1,39 @@
+# Local infrastructure for the split topologies and for ingestion, started from a
+# use case's directory, the project directory, by its Makefile (make infra-up):
+#   docker compose -f ../query_processing/docker-compose.yml --project-directory . \
+#     --env-file ../query_processing/ovms/versions.env up -d
+# Elasticsearch: single node, security off (dev only). OVMS: the model repository
+# ovms/export_models.sh produced in that directory (ovms/models), mounted read-only.
+# The workflow app finds each service through the workflow file (its components
+# block), or through the variable a value's path names:
+#   elasticsearch  components.vector_store.elasticsearch.url, such as
+#                  http://localhost:9200 (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL)
+#   ovms-reranker  components.reranker.served.url with backend: served
+#                  (QP_COMPONENTS__RERANKER__SERVED__URL=http://localhost:8001/v3/rerank)
+#   ovms-embedder  components.embedder.served.url with backend: served
+#                  (QP_COMPONENTS__EMBEDDER__SERVED__URL=http://localhost:8002/v3/embeddings)
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+
+  ovms-reranker:
+    image: ${OVMS_IMAGE}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ovms/models:/workspace:ro
+    command: ["--rest_port", "8001", "--config_path", "/workspace/config_reranker.json"]
+
+  ovms-embedder:
+    image: ${OVMS_IMAGE}
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./ovms/models:/workspace:ro
+    command: ["--rest_port", "8002", "--config_path", "/workspace/config_embedder.json"]

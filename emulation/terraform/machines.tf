@@ -1,7 +1,7 @@
 # The machines: the fake Domino with its Workspace, Elasticsearch, and one pool
 # of machines per hardware tier. None has a public address, and each deletes
 # itself after var.max_run_hours (scheduling below). Terraform never creates an
-# App: rag-deploy publishes them through the fake Domino, which places each on a
+# App: qp-deploy publishes them through the fake Domino, which places each on a
 # pool machine of its hardware tier.
 #
 # Startup scripts go in metadata["startup-script"] (updated in place, re-run at the
@@ -11,7 +11,7 @@
 locals {
   common_script = file("${path.module}/scripts/common.sh")
 
-  # What the fake Domino reads from --placement (the contract with rag-domino-emulation).
+  # What the fake Domino reads from --placement (the contract with qp-domino-emulation).
   placement = {
     ssh      = { user = local.ssh_user, key = local.ssh_key }
     app_port = local.app_port

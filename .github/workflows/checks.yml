@@ -1,7 +1,10 @@
 # The same gates as `make check` locally: lint, typecheck, complexity, deadcode,
-# deps and test, stopping at the first failure. They run inside the image
-# domino/Dockerfile builds from (Domino's Ubuntu), in a virtualenv on the Python of
-# .python-version, as the Apps do when they start.
+# deps and test over the toolkit in query_processing/, then the RAG use case's
+# gates and tests in query_processing_rag_usecase/, then the charts package's in
+# experiment_charts/, stopping at the first failure. They run
+# inside the image query_processing/domino/Dockerfile builds from (Domino's
+# Ubuntu), in a virtualenv on the Python of .python-version, as the Apps do when
+# they start.
 name: checks
 
 on:
@@ -14,7 +17,7 @@ permissions:
 
 jobs:
   image:
-    # One place names the image: the BASE_IMAGE line of domino/Dockerfile.
+    # One place names the image: the BASE_IMAGE line of query_processing/domino/Dockerfile.
     runs-on: ubuntu-22.04
     outputs:
       base: ${{ steps.dockerfile.outputs.base }}
@@ -22,8 +25,8 @@ jobs:
       - uses: actions/checkout@v4
       - id: dockerfile
         run: |
-          base=$(sed -n 's/^ARG BASE_IMAGE=//p' domino/Dockerfile)
-          test -n "$base" || { echo "no ARG BASE_IMAGE= line in domino/Dockerfile"; exit 1; }
+          base=$(sed -n 's/^ARG BASE_IMAGE=//p' query_processing/domino/Dockerfile)
+          test -n "$base" || { echo "no ARG BASE_IMAGE= line in query_processing/domino/Dockerfile"; exit 1; }
           echo "base=$base" >> "$GITHUB_OUTPUT"
 
   check:
@@ -40,11 +43,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python -m pip install --quiet uv && chown -R ubuntu .
-      # A virtualenv of its own: the image's packages (an old urllib3) break locust.
-      # uv reads the Python version from .python-version.
+      # A virtualenv of its own, the repository's one at its root: the image's
+      # packages (an old urllib3) break locust. uv reads the Python version from
+      # .python-version, at the root too.
       - run: $AS_UBUNTU uv venv
       # CPU-only torch first, so sentence-transformers does not pull the CUDA wheels.
       - run: $AS_UBUNTU uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - run: $AS_UBUNTU uv pip install -e ".[dev]"
-      # The Makefile uses the .venv in this directory.
+      # The toolkit and the use case in one command, the toolkit first: no package
+      # index has the toolkit the use case depends on. The charts package with
+      # them, as make install-dev does: its tests need its matplotlib.
+      - run: $AS_UBUNTU uv pip install -e "./query_processing[dev]" -e ./query_processing_rag_usecase -e ./experiment_charts
+      # The root Makefile uses the .venv beside it, hands check to the toolkit's,
+      # then runs the use case's gates and tests, then the charts package's.
       - run: $AS_UBUNTU make check

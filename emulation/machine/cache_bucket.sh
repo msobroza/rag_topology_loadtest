@@ -6,11 +6,11 @@
 #   cache_bucket.sh results-save <folder>  upload <folder> as results/<UTC time>.tar.gz
 #   cache_bucket.sh status                 each model's and result archive's name, size and last change
 # The bucket and the dataset folder come from the file the startup script wrote
-# (/etc/rag-emulation/cache.env; RAG_EMULATION_CACHE_ENV names another, for tests).
+# (/etc/rag-emulation/cache.env; QP_EMULATION_CACHE_ENV names another, for tests).
 set -euo pipefail
 
 # common.sh is the startup scripts' prelude; with this set it only defines functions.
-export RAG_EMULATION_SOURCED=1
+export QP_EMULATION_SOURCED=1
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../terraform/scripts/common.sh

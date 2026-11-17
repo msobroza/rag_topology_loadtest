@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# The charts of the measurements: not the product (the README's "Where a file
+# goes"). It draws the figures of experiments-explained/ and the table behind
+# each from the registry in experiments/, both at the repository's root, one
+# level up. It depends on nothing of the product: not the toolkit, not the fake
+# Domino, not a use case (tests/test_experiment_charts_imports.py). The gates
+# run over it with the toolkit's configuration (the root Makefile).
+[project]
+name = "experiment-charts"
+version = "0.1.0"
+description = "Draws experiments-explained/ (one chart per finding, in a light and a dark theme, and the table behind each) from the registry of measurements in experiments/."
+requires-python = ">=3.11"  # the version in .python-version, at the repository's root
+license = { text = "Apache-2.0" }
+dependencies = [
+    "matplotlib>=3.9",  # the figures
+    "pyyaml>=6",  # each sitting's experiments*.yaml, read by registry_reading.py
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"experiment_charts" = ["py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# What several test files share (the repository's registry, a chart by its slug)
+# lives in tests/helpers, on the path so it is imported by plain module name.
+pythonpath = ["src", "tests/helpers"]
+addopts = "-ra --strict-markers"
