@@ -112,9 +112,11 @@ toolkit and a use case are two distributions),
 [ADR 0006](docs/adr/0006-a-use-case-holds-the-implementations-that-are-its-own.md)
 (a use case holds the implementations that are its own),
 [ADR 0007](docs/adr/0007-an-edge-condition-can-answer-with-a-label.md) (an
-edge condition can answer with a label) and
+edge condition can answer with a label),
 [ADR 0008](docs/adr/0008-every-component-is-called-the-same-way.md) (every
-component is called the same way), the vocabulary in
+component is called the same way) and
+[ADR 0009](docs/adr/0009-a-served-llm-is-asked-for-as-any-served-component.md)
+(a served LLM is asked for as any served component is), the vocabulary in
 [CONTEXT.md](CONTEXT.md).
 
 ## Overview
@@ -1518,6 +1520,8 @@ before the app serves, with one line in the server's log.
 | `QP_OVMS_NUM_STREAMS` | `0` | an OVMS model server App's own, no value of the workflow file: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs. Set in that App's block of `deploy.yaml` (`apps.<component>.settings`) |
 | `QP_OVMS_THREADS` | `0` | an OVMS App's own: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `QP_OVMS_NUM_STREAMS` is refused |
 | `QP_OVMS_START_TIMEOUT_S` | `120` | an OVMS App's own: how long one OVMS start may take to answer before its calibration fails (> 0) |
+| `QP_OVMS_DYNAMIC_SPLIT_FUSE` | `true` | an LLM's OVMS App's own: `false` has OVMS read a prompt in one pass (`--dynamic_split_fuse false`); refused on an embedder's or a reranker's App. See "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server) |
+| `QP_OVMS_MAX_BATCHED_TOKENS` | `0` | an LLM's OVMS App's own: the tokens OVMS batches in one step (`--max_num_batched_tokens`), `0` = OVMS's own choice, at least `0`; refused on an embedder's or a reranker's App, like `QP_OVMS_DYNAMIC_SPLIT_FUSE` |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | Domino's own run variables, not settings of ours: read as-is (no `QP_` prefix) to look up the run's hardware tier |
 | `QP_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `QP_TOP_K_RETRIEVE`, `QP_TOP_K_RERANK` | none: required by the `rerank` target | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the use case's sizes, which its `.env.example` states (the RAG's: `20`, `10`, its stages' `top_k`), and the workflow app does not read either. The aliases a model-server target sends default to the workflow file's, which only that target reads |
@@ -2859,12 +2863,22 @@ set, in Project → Settings → Environment variables:
 | `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
 | `rag-ovms-reranker` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
+| `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `QP_DOMINO__TRACING` identical across projects
-(unset, or `true` everywhere).
+(unset, or `true` everywhere). With a `rag-ovms-llm` project made by hand, the
+`rag-workflow` project, whose App asks the LLM, must hold what `qp-deploy` would
+export for an alias whose row says `llm: served`: `QP_COMPONENTS__LLM__BACKEND=served`,
+`QP_COMPONENTS__LLM__SERVED__URL` (the LLM App's URL plus
+`/v3/chat/completions`), `QP_COMPONENTS__LLM__ALIAS` set to the same name in
+both projects (the name the LLM is served and asked for under), and
+`QP_TOPOLOGY_ALIAS` set to that alias (such as `split-all-llm`) to report the
+topology. A served LLM is called with the run token, so that project needs no
+`QP_COMPONENTS__LLM__API__API_KEY` for it. What a served LLM is and what of it is
+not verified: "A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
 
 **3. OVMS models Dataset (once, OVMS projects only).** In `rag-ovms-reranker`
 create a Dataset `ovms-models`, open a Workspace with the `rag` environment and run:

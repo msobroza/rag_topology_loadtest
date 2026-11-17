@@ -2,7 +2,7 @@
 
 The toolkit `query_processing` and its first use case, a RAG. Read `CONTEXT.md`
 for the vocabulary, the README's "Where a file goes" for the layout and its
-rules, and `docs/adr/0003` to `0008` for the design.
+rules, and `docs/adr/0003` to `0009` for the design.
 
 - `query_processing/`: the toolkit, one distribution holding what any use case
   can assemble (package `query_processing`, commands `qp-*`, variables `QP_*`):

@@ -16,7 +16,11 @@
 #   ovms  for the model servers of kind ovms (QP_ROLE=model-server,
 #         QP_MODEL_SERVER_KIND=ovms): the ovms binary tarball pinned in
 #         ovms/versions.env, unpacked under /opt/ovms, plus nginx for the
-#         optional prefix proxy (QP_OVMS_PREFIX_PROXY=1).
+#         optional prefix proxy (QP_OVMS_PREFIX_PROXY=1). Not for an LLM's
+#         App: this image holds neither uv nor the toolkit, which that App
+#         needs to read the LLM's model and options. It runs on the generic
+#         environment qp-deploy publishes into, with QP_BOOTSTRAP=1 and the
+#         OVMS bundle (QP_OVMS_BUNDLE).
 #
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's

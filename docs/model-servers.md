@@ -1,11 +1,13 @@
 # The two model servers: OpenVINO Model Server and the FastAPI model server
 
-A model server serves the reranker or the embedder on the /v3 routes, and OVMS an LLM
-too, on its chat completions route. There are two:
+A model server serves the reranker or the embedder on the /v3 routes, OVMS an LLM
+too, on its chat completions route, and the FastAPI model server a component of a
+registered type on its call route (`POST /call/<component type>`). There are two:
 OpenVINO Model Server (OVMS), a product, and `qp-model-server`, this project's own
 server built on FastAPI. Both run the same engine, OpenVINO, on the same model. This
 page says what the documentation of OVMS and of FastAPI says about serving, how each
-is set up here, and what the two sittings of 15 November 2026 measured. The settings
+is set up here, what the two sittings of 15 November 2026 measured of the reranker,
+and what one sitting of 16 November 2026 measured of text generation. The settings
 are named as they are today; the sittings ran them under the names of that day.
 
 Read for this page: OVMS's documentation at 2026.3.1, the version pinned in
@@ -51,7 +53,8 @@ Compare the two on the same weight format: see "Experiment 2" in the README.
 
 Two sittings on the Google Cloud emulation, 15 November 2026: one reranker instance of
 2 vCPUs in the morning, then of 8 and of 16 vCPUs (4 and 8 cores, the same CPU model).
-Runs last 2 minutes. "Alone" means Locust straight at the reranker, with the load
+Runs last 2 minutes, those of the larger reranker 3 ("A larger reranker did not turn
+the result"). "Alone" means Locust straight at the reranker, with the load
 test's uniform passages (303 to 380 characters). "End to end" means `/retrieve` through
 the proxy and two workflow replicas, with corpus passages (137 to 816 characters).
 
@@ -246,7 +249,8 @@ A reading of the results above, not a measurement.
 
 ## Limits
 
-- Each figure is one 2-minute run. The stream timings are one or two rounds each.
+- Each figure is one run: of 2 minutes for the small reranker, of 3 minutes for the
+  Qwen3 reranker and for text generation. The stream timings are one or two rounds each.
 - Two models at 20 passages a request: `crossencoder-camembert-base-mmarcoFR` for
   every figure but the last section's, and Qwen3 with 0.6 B parameters there, whose
   runs hold 14 to 60 requests each.
@@ -255,13 +259,14 @@ A reading of the results above, not a measurement.
 - The text-generation figures are one sitting on one machine, with runs of 11 to 30
   requests and a stand-in server for PyTorch.
 - Ranking quality on `int8` weights was not checked.
-- Everything here is about the reranker. OVMS could not serve the default embedder: it
+- Everything here but text generation is about the reranker. OVMS could not serve the default embedder: it
   crashes while loading it (the check of 16 November 2026 in `experiments/`).
 
 ## Where the runs are
 
 Every run behind these figures, with its settings and its statistics, is registered in
-`experiments/` (the sittings of 15 November 2026).
+`experiments/` (the sittings of 15 November 2026, and that of 16 November 2026 for
+text generation).
 
 ## Pages read
 
