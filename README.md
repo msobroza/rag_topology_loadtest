@@ -1034,6 +1034,7 @@ emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino 
 experiments/        the registry of every measurement: one folder per sitting (README.md, experiments*.yaml, results.csv)
 experiments-explained/  the measurements told to a newcomer: README.md, and figures/ and data/ drawn by experiment_charts/
 docs/adr/           the decisions
+docs/plans/         dated records: a plan as it was approved, and what became of it
 Makefile            installs the toolkit and the use case in one command, and the charts package with them for development; hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; the one .venv here
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
