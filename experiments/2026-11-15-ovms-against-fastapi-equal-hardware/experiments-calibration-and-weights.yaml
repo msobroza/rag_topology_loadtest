@@ -1,0 +1,262 @@
+# Sitting of 15 November 2026, 03:17 to 06:26 UTC, second part (phases R8 to R11):
+# calibration, equal weight formats, and OVMS's own throughput settings. Every entry runs
+# on the split-reranker layout (2 workflows, 2 rerankers); only the reranker App is
+# redeployed between them. The first part is experiments-defaults.yaml. See README.md.
+
+common:
+  code: &code >-
+    pool machines on branch claude/local-model-calibration at commit 8573501 (pull request
+    14, calibration), moved there by phase R8; the Workspace at commit ec600e6
+  workspace: &workspace {machine_type: n2-standard-4, vcpus: 4}
+  elasticsearch: &elasticsearch {machine_type: n2-standard-2, vcpus: 2, spot: true}
+  app_machine: &app_machine
+    machine_type: n2-highmem-2
+    vcpus: 2
+    cores: 1
+    memory_gib: 16
+    spot: true
+    hardware_tier: cpu-2
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+  hardware: &hardware
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 2, machine: *app_machine, embedder: in its process}
+    reranker: {replicas: 2, machine: *app_machine}
+  deploy_defaults: &deploy_defaults
+    environment_id: emulation-environment
+    hardware_tier_id: cpu-2
+    settings:
+      RAG_ES_URL: the Elasticsearch machine (address not recorded here)
+      RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino
+      RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models
+  workflow_block: &workflow_block
+    autoscaling: {min_replicas: 2, max_replicas: 2}
+    settings: {RAG_RUN_LABEL: split-reranker-calibrated-2w-2r}
+  alone: &alone
+    target: the first reranker machine, port 8888, without the emulated Domino's proxy
+    route: POST /v3/rerank
+    command: make loadtest-models TARGET=rerank
+    duration: 2m
+    spawn_rate: 5
+    passages: the load test's 20 synthetic passages per request, 303 to 380 characters
+  int8_folder: &int8_folder >-
+    /domino/datasets/local/emulation/openvino-int8: a copy of the in-process export whose
+    openvino_model.xml and .bin were replaced by OVMS's 8-bit files (107 MB)
+  ovms_variant_note: &ovms_variant_note >-
+    A copy of the 8-bit OVMS export whose graph.pbtxt carries another plugin_config, written
+    on each reranker machine by remote/ovms_variant.sh.
+
+experiments:
+  - id: m7-calibrated-fastapi-rerank
+    question: How much does calibration add to one FastAPI reranker replica alone, 32-bit weights?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      deploy_target: deploy
+    server: {weights: "fp32, the in-process export, 442.5 MB of f32 constants", thread_budget: {runtime: openvino, workers: 1, reranker_threads: 2}}
+    calibration: &m7_calibration
+      # stage_calibrated lines of the App logs at start, seconds for one request.
+      rerank_first_reranker:
+        chosen: {threads: 2, batch_size: 2}
+        trials:
+          - {threads: 2, batch_size: 20, seconds: 7.132}
+          - {threads: 2, batch_size: 10, seconds: 5.809}
+          - {threads: 2, batch_size: 5, seconds: 5.269}
+          - {threads: 2, batch_size: 2, seconds: 4.674}
+          - {threads: 2, batch_size: 1, seconds: 4.705}
+          - {threads: 1, batch_size: 2, seconds: 4.818}
+        seconds: 71.636
+        budget_s: 90
+      rerank_second_reranker:
+        chosen: {threads: 2, batch_size: 2}
+        trials:
+          - {threads: 2, batch_size: 20, seconds: 6.951}
+          - {threads: 2, batch_size: 10, seconds: 5.632}
+          - {threads: 2, batch_size: 5, seconds: 5.153}
+          - {threads: 2, batch_size: 2, seconds: 4.608}
+          - {threads: 2, batch_size: 1, seconds: 4.651}
+          - {threads: 1, batch_size: 2, seconds: 4.815}
+        seconds: 70.642
+        budget_s: 90
+      embed_on_each_workflow:
+        chosen: {threads: 1, batch_size: 64}
+        trials: ["2 threads 0.207 s and 1 thread 0.176 s", "2 threads 0.200 s and 1 thread 0.176 s"]
+    load: {<<: *alone, users: [1, 2, 4, 8]}
+    runs: [m7-calibrated-fastapi-rerank-u1, m7-calibrated-fastapi-rerank-u2,
+           m7-calibrated-fastapi-rerank-u4, m7-calibrated-fastapi-rerank-u8]
+
+  - id: m7-split-reranker-calibrated
+    question: How much does calibration add to split-reranker end to end?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      deploy_target: deploy
+    calibration: *m7_calibration
+    run_label: split-reranker-calibrated-2w-2r
+    load:
+      target: the workflow App through the emulated Domino's proxy, balancing rule round-robin
+      route: POST /retrieve only (RAG_LOADTEST_QUERY_WEIGHT=0)
+      command: make -C emulation loadtest
+      users: [1, 2, 4, 8]
+      duration: 2m
+      spawn_rate: 5
+      passages: the corpus's, 20 candidates from the index per request, 137 to 816 characters
+    runs: [m7-split-reranker-calibrated-u1, m7-split-reranker-calibrated-u2,
+           m7-split-reranker-calibrated-u4, m7-split-reranker-calibrated-u8]
+
+  - id: m8-fastapi-int8-rerank
+    question: On OVMS's own 8-bit file, does the FastAPI model server serve as OVMS does?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings:
+            RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino-int8
+            RAG_RERANK_THREADS: "1"
+            RAG_RERANK_BATCH_SIZE: "32"
+      deploy_target: deploy-reranker
+    server:
+      weights: *int8_folder
+      thread_budget: {runtime: openvino, workers: 1, reranker_threads: 1}
+      note: 1 thread and one batch per request, pinned, so no calibration ran; what the server did in m1-fastapi-rerank
+    load: {<<: *alone, users: [1, 2, 4, 8]}
+    runs: [m8-fastapi-int8-rerank-u1, m8-fastapi-int8-rerank-u2, m8-fastapi-int8-rerank-u4, m8-fastapi-int8-rerank-u8]
+
+  - id: m8-ovms-fp32-rerank
+    question: On 32-bit weights, does OVMS serve as the FastAPI model server does?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-reranker
+      model_server: "ovms (the file said fastapi; RAG_DEPLOY_MODEL_SERVER=ovms)"
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models-fp32}
+      deploy_target: deploy-reranker
+    server:
+      weights: fp32, exported by hand on each reranker machine with OVMS's exporter (--weight-format fp32), 426 MB
+      plugin_config: '{"NUM_STREAMS": "1"}'
+    load: {<<: *alone, users: [1, 2, 4, 8]}
+    runs: [m8-ovms-fp32-rerank-u1, m8-ovms-fp32-rerank-u2, m8-ovms-fp32-rerank-u4, m8-ovms-fp32-rerank-u8]
+    notes:
+      - Neither this export nor the 8-bit folder of m8-fastapi-int8-rerank was a supported setting then.
+
+  - id: m8-fastapi-int8-calibrated-rerank
+    question: On OVMS's 8-bit file and calibrated, how much does the FastAPI model server serve?
+    code: *code
+    hardware: *hardware
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino-int8}
+      deploy_target: deploy-reranker
+    server: {weights: *int8_folder}
+    calibration:
+      rerank_first_reranker:
+        chosen: {threads: 2, batch_size: 1}
+        trials:
+          - {threads: 2, batch_size: 20, seconds: 4.619}
+          - {threads: 2, batch_size: 10, seconds: 3.716}
+          - {threads: 2, batch_size: 5, seconds: 3.374}
+          - {threads: 2, batch_size: 2, seconds: 3.013}
+          - {threads: 2, batch_size: 1, seconds: 2.953}
+          - {threads: 1, batch_size: 1, seconds: 3.295}
+        seconds: 49.246
+        budget_s: 90
+    load: {<<: *alone, users: [1, 4]}
+    runs: [m8-fastapi-int8-calibrated-rerank-u1, m8-fastapi-int8-calibrated-rerank-u4]
+
+  - id: m9-ovms-plugin-configs
+    question: Do OVMS's documented throughput settings help on one core (first attempt)?
+    code: *code
+    hardware: *hardware
+    deploy: same as the m10 entries below
+    void: >-
+      The plugin_config JSON reached the machines cut at its first space; OVMS logged a parsing
+      error and ran its defaults. Its six runs (m9-ovms-streams2, -throughput and -threads2 at 1
+      and 4 users) were set aside and are not in results.csv. Phase R11 ran them again as m10.
+
+  - id: m10-ovms-streams2-rerank
+    question: Does OVMS serve more with two streams on one core?
+    code: *code
+    hardware: *hardware
+    deploy: &m10_deploy
+      topology: split-reranker
+      model_server: "ovms (the file said fastapi; RAG_DEPLOY_MODEL_SERVER=ovms)"
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models-streams2}
+      deploy_target: deploy-reranker
+    server:
+      weights: int8, OVMS's own export
+      plugin_config: '{"NUM_STREAMS": "2"}'
+      folder: *ovms_variant_note
+    load: {<<: *alone, users: [1, 4]}
+    runs: [m10-ovms-streams2-rerank-u1, m10-ovms-streams2-rerank-u4]
+
+  - id: m10-ovms-throughput-rerank
+    question: Does OpenVINO's throughput hint make OVMS serve more on one core?
+    code: *code
+    hardware: *hardware
+    deploy:
+      <<: *m10_deploy
+      apps:
+        workflow: *workflow_block
+        reranker:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models-throughput}
+    server:
+      weights: int8, OVMS's own export
+      plugin_config: '{"PERFORMANCE_HINT": "THROUGHPUT"}'
+      folder: *ovms_variant_note
+    load: {<<: *alone, users: [1, 4]}
+    runs: [m10-ovms-throughput-rerank-u1, m10-ovms-throughput-rerank-u4]
+
+  - id: m10-ovms-threads2-rerank
+    question: Does OVMS serve more with both hyper-threads on one request?
+    code: *code
+    hardware: *hardware
+    deploy:
+      <<: *m10_deploy
+      apps:
+        workflow: *workflow_block
+        reranker:
+          autoscaling: {min_replicas: 2, max_replicas: 2}
+          settings: {RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models-threads2}
+    server:
+      weights: int8, OVMS's own export
+      plugin_config: '{"NUM_STREAMS": "1", "INFERENCE_NUM_THREADS": "2", "ENABLE_HYPER_THREADING": "YES"}'
+      folder: *ovms_variant_note
+    load: {<<: *alone, users: [1, 4]}
+    runs: [m10-ovms-threads2-rerank-u1, m10-ovms-threads2-rerank-u4]
+    notes:
+      - OVMS logged no plugin_config parsing error for any of the three m10 variants.

@@ -1,0 +1,7 @@
+panel,server,experiment,seconds
+Reading a 781-token prompt,OVMS,g16-probe-ovms-settings,3.94
+Reading a 781-token prompt,PyTorch,g16-probe-pytorch-threads,1.14
+Reading a 781-token prompt,vLLM,g16-probe-vllm,7.91
+"A whole request: a 922-token prompt, 128 tokens written",OVMS,g16-probe-ovms-settings,8.56
+"A whole request: a 922-token prompt, 128 tokens written",PyTorch,g16-probe-pytorch-threads,9.58
+"A whole request: a 922-token prompt, 128 tokens written",vLLM,g16-probe-vllm,19.85

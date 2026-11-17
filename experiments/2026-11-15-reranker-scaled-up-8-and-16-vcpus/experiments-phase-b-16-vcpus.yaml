@@ -1,0 +1,368 @@
+# Sitting of 15 November 2026, phase B from 15:58 UTC: the reranker (or the monolith) on
+# one machine of 16 vCPUs, which replaced the 8-vCPU machine. Phase A is
+# experiments-phase-a-8-vcpus.yaml. See README.md and the conventions there.
+
+common:
+  code: &code >-
+    the 16-vCPU machine and the Workspace at commit f42b13e of branch
+    claude/ovms-stream-calibration (with the fix of the calibration defect found in phase A);
+    the two 2-vCPU workflow machines at commit 01670af
+  workspace: &workspace {machine_type: n2-standard-4, vcpus: 4, spot: false}
+  elasticsearch: &elasticsearch {machine_type: n2-standard-2, vcpus: 2, spot: true}
+  small_machine: &small_machine
+    machine_type: n2-highmem-2
+    vcpus: 2
+    cores: 1
+    hardware_tier: cpu-2
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+  big_machine: &big_machine
+    machine_type: n2-standard-16
+    vcpus: 16
+    cores: 8
+    memory_gb: 62
+    hardware_tier: cpu-16
+    cpu: Intel Xeon 2.80 GHz with AVX-512 VNNI
+  hardware_split: &hardware_split
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 2, machine: *small_machine, embedder: in its process}
+    reranker: {replicas: 1, machine: *big_machine}
+  hardware_mono: &hardware_mono
+    workspace: *workspace
+    elasticsearch: *elasticsearch
+    workflow: {replicas: 1, machine: *big_machine, embedder: in its process, reranker: in its process}
+    idle: the two 2-vCPU machines
+  deploy_defaults: &deploy_defaults
+    environment_id: emulation-environment
+    hardware_tier_id: cpu-2
+    settings:
+      RAG_ES_URL: the Elasticsearch machine (address not recorded here)
+      RAG_OPENVINO_MODELS_DIR: /domino/datasets/local/emulation/openvino
+      RAG_OVMS_MODELS_DIR: /domino/datasets/local/emulation/ovms-models
+  workflow_block: &workflow_block
+    autoscaling: {min_replicas: 2, max_replicas: 2}
+    settings: {RAG_RUN_LABEL: split-reranker-2w-1r-cpu-16}
+  reranker_scaling: &reranker_scaling {min_replicas: 1, max_replicas: 1}
+  alone: &alone
+    target: the reranker's machine, port 8888, without the emulated Domino's proxy
+    route: POST /v3/rerank
+    command: make loadtest-models TARGET=rerank
+    duration: 2m
+    spawn_rate: 5
+    passages: the load test's 20 synthetic passages per request, 303 to 380 characters
+  end_to_end: &end_to_end
+    target: the workflow App through the emulated Domino's proxy, balancing rule round-robin
+    route: POST /retrieve only (RAG_LOADTEST_QUERY_WEIGHT=0)
+    command: make -C emulation loadtest
+    duration: 2m
+    spawn_rate: 5
+    passages: the corpus's, 20 candidates from the index per request, 137 to 816 characters
+  fastapi_calibration_fp32: &fastapi_calibration_fp32
+    chosen: {threads: 16, batch_size: 5, seconds_per_request: 0.683}
+    trials_on_16_threads: {batch_20: 0.975, batch_10: 0.721, batch_5: 0.683, batch_2: 0.729, batch_1: 0.783}
+    trials_at_batch_5: {threads_8: 0.703, threads_4: 1.341}
+  ovms_fp32_dir: &ovms_fp32_dir /domino/datasets/local/emulation/ovms-models-fp32
+  deploy_ovms_cal16: &deploy_ovms_cal16
+    topology: split-reranker
+    model_server: ovms
+    defaults: *deploy_defaults
+    apps:
+      workflow: *workflow_block
+      reranker:
+        hardware_tier_id: cpu-16
+        autoscaling: *reranker_scaling
+        settings: {RAG_OVMS_MODELS_DIR: *ovms_fp32_dir, RAG_OVMS_NUM_STREAMS: "4", RAG_OVMS_THREADS: "16"}
+    deploy_target: deploy
+    origin: the choice of v16-ovms-fp32-cal16-on-demand, pinned
+
+experiments:
+  - id: v16-alone-fastapi-fp32
+    question: How much does the FastAPI model server serve on 16 vCPUs, 32-bit weights, calibrated?
+    code: *code
+    hardware: *hardware_split
+    deploy: &deploy_fastapi
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker: {hardware_tier_id: cpu-16, autoscaling: *reranker_scaling}
+      deploy_target: deploy
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *fastapi_calibration_fp32
+    load: {<<: *alone, users: [1, 4, 8, 16, 32]}
+    runs: [v16-alone-fastapi-fp32-u1, v16-alone-fastapi-fp32-u4, v16-alone-fastapi-fp32-u8,
+           v16-alone-fastapi-fp32-u16, v16-alone-fastapi-fp32-u32]
+
+  - id: v16-e2e-fastapi-fp32
+    question: End to end, how much does split-reranker serve with that reranker?
+    code: *code
+    hardware: *hardware_split
+    deploy: *deploy_fastapi
+    server: {weights: "fp32, the in-process export", runtime: openvino}
+    calibration: *fastapi_calibration_fp32
+    run_label: split-reranker-2w-1r-cpu-16
+    load: {<<: *end_to_end, users: [4, 16, 32]}
+    runs: [v16-e2e-fastapi-fp32-u4, v16-e2e-fastapi-fp32-u16, v16-e2e-fastapi-fp32-u32]
+    notes:
+      - No failure. The workflow machines were 9 to 26% busy.
+
+  - id: v16-alone-ovms-fp32-cal4
+    question: How much does OVMS serve on 16 vCPUs, 32-bit weights, calibrated for 4 requests in flight?
+    code: *code
+    hardware: *hardware_split
+    deploy:
+      topology: split-reranker
+      model_server: ovms
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: *reranker_scaling
+          settings: {RAG_OVMS_MODELS_DIR: *ovms_fp32_dir, RAG_CALIBRATION_BUDGET_S: "300"}
+      deploy_target: deploy-reranker
+    server: {weights: "fp32, exported at the App's first start"}
+    calibration:
+      requests_in_flight: 4
+      chosen: {streams: 1, threads: 16}
+      trials_seconds_for_4_at_once:
+        {streams_1_threads_16: 3.78, streams_2_threads_16: 3.80, streams_4_threads_16: 5.66,
+         streams_8_threads_16: 11.61, streams_16_threads_16: 14.81, streams_1_threads_8: 3.94,
+         streams_1_threads_4: 7.64}
+    load: {<<: *alone, users: [1, 4, 8, 16, 32]}
+    runs: [v16-alone-ovms-fp32-cal4-u1, v16-alone-ovms-fp32-cal4-u4, v16-alone-ovms-fp32-cal4-u8,
+           v16-alone-ovms-fp32-cal4-u16, v16-alone-ovms-fp32-cal4-u32]
+
+  - id: v16-ovms-fp32-cal16-default-budget
+    question: With the fix, does the App start when calibrating for 16 in flight under the default budget?
+    code: *code
+    hardware: *hardware_split
+    deploy:
+      topology: split-reranker
+      model_server: ovms
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: *reranker_scaling
+          settings: {RAG_OVMS_MODELS_DIR: *ovms_fp32_dir, RAG_CALIBRATION_USERS: "16"}
+      deploy_target: deploy-reranker
+    measurements:
+      app_started: true
+      search: cut short after two candidates in 90.7 s (cut_short true)
+      trials_seconds_for_16_at_once: {streams_1: 14.91, streams_2: 14.67}
+      chosen: {streams: 2}
+
+  - id: v16-ovms-fp32-cal16-on-demand
+    question: What does the whole calibration choose for OVMS with 16 requests in flight?
+    code: *code
+    hardware: {machine: *big_machine, note: the App stopped}
+    deploy: >-
+      none; rag-calibrate --ovms-models /domino/datasets/local/emulation/ovms-models-fp32
+      --only reranker, with RAG_CALIBRATION_USERS=16 and RAG_CALIBRATION_BUDGET_S=1800
+    calibration:
+      chosen: {streams: 4, threads: 16}
+      trials_seconds_for_16_at_once:
+        {streams_1_threads_16: 14.78, streams_2_threads_16: 14.51, streams_4_threads_16: 14.43,
+         streams_8_threads_16: 18.25, streams_16_threads_16: 29.38, streams_4_threads_8: 19.17,
+         streams_4_threads_4: 37.82}
+      search: 7 candidates in 304.5 s
+      output: "# rerank: timed on 16 CPUs under ovms, 14.432 s for 16 requests at once; tried 7 candidates in 304.5 s"
+    notes:
+      - 1, 2 and 4 streams are within 2.4% of each other.
+
+  - id: v16-alone-ovms-fp32-cal16
+    question: Alone, how much does OVMS serve on the choice for 16 in flight (4 streams)?
+    code: *code
+    hardware: *hardware_split
+    deploy: *deploy_ovms_cal16
+    server: {weights: fp32, streams: 4, threads: 16, pinned: "yes"}
+    load: {<<: *alone, users: [1, 16, 32]}
+    runs: [v16-alone-ovms-fp32-cal16-u1, v16-alone-ovms-fp32-cal16-u16, v16-alone-ovms-fp32-cal16-u32]
+
+  - id: v16-e2e-ovms-fp32-cal16
+    question: End to end, how much does split-reranker serve with OVMS on 4 streams?
+    code: *code
+    hardware: *hardware_split
+    deploy: *deploy_ovms_cal16
+    server: {weights: fp32, streams: 4, threads: 16, pinned: "yes"}
+    run_label: split-reranker-2w-1r-cpu-16
+    load: {<<: *end_to_end, users: [4, 16, 32]}
+    runs: [v16-e2e-ovms-fp32-cal16-u4, v16-e2e-ovms-fp32-cal16-u16, v16-e2e-ovms-fp32-cal16-u32]
+    notes:
+      - The 47 failures at 32 users are the proxy's 30-second limit.
+
+  - id: v16-alone-ovms-fp32-1stream
+    question: Does OVMS serve in arrival order on one stream with every CPU?
+    code: *code
+    hardware: *hardware_split
+    deploy:
+      topology: split-reranker
+      model_server: ovms
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: *reranker_scaling
+          settings: {RAG_OVMS_MODELS_DIR: *ovms_fp32_dir, RAG_OVMS_NUM_STREAMS: "1", RAG_OVMS_THREADS: "16"}
+      deploy_target: deploy-reranker
+    server: {weights: fp32, streams: 1, threads: 16}
+    load: {<<: *alone, users: [4, 16]}
+    runs: [v16-alone-ovms-fp32-1stream-u4, v16-alone-ovms-fp32-1stream-u16]
+
+  - id: v16-alone-fastapi-torch
+    question: Does the FastAPI model server serve more under torch on 16 vCPUs?
+    code: *code
+    hardware: *hardware_split
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: *reranker_scaling
+          settings: {RAG_LOCAL_MODEL_RUNTIME: torch}
+      deploy_target: deploy-reranker
+    server: {weights: fp32, runtime: torch, workers: 4, threads_per_worker: 4}
+    calibration: {chosen: {threads: 4, batch_size: 2}}
+    load: {<<: *alone, users: [4, 16]}
+    runs: [v16-alone-fastapi-torch-u4, v16-alone-fastapi-torch-u16]
+
+  - id: v16-alone-fastapi-int8
+    question: How much does the FastAPI model server serve on 8-bit weights, 16 vCPUs, calibrated?
+    code: *code
+    hardware: *hardware_split
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: *reranker_scaling
+          settings: {RAG_OPENVINO_WEIGHT_FORMAT: int8}
+      deploy_target: deploy-reranker
+    server: {weights: "int8, the in-process export"}
+    calibration: {chosen: {threads: 16, batch_size: 5, seconds_per_request: 0.431}, batch_20_seconds: 0.658}
+    load: {<<: *alone, users: [4, 16]}
+    runs: [v16-alone-fastapi-int8-u4, v16-alone-fastapi-int8-u16]
+
+  - id: v16-alone-ovms-int8-cal4
+    question: How much does OVMS serve on 8-bit weights, 16 vCPUs, calibrated for 4 in flight?
+    code: *code
+    hardware: *hardware_split
+    deploy:
+      topology: split-reranker
+      model_server: ovms
+      defaults: *deploy_defaults
+      apps:
+        workflow: *workflow_block
+        reranker:
+          hardware_tier_id: cpu-16
+          autoscaling: *reranker_scaling
+          settings: {RAG_OPENVINO_WEIGHT_FORMAT: int8, RAG_CALIBRATION_BUDGET_S: "300"}
+      deploy_target: deploy-reranker
+    server: {weights: "int8, OVMS's export from the default models folder"}
+    calibration:
+      requests_in_flight: 4
+      chosen: {streams: 2, threads: 16}
+      trials_seconds_for_4_at_once:
+        {streams_1_threads_16: 2.54, streams_2_threads_16: 2.39, streams_4_threads_16: 2.40,
+         streams_8_threads_16: 4.81, streams_16_threads_16: 9.64, streams_2_threads_8: 2.74,
+         streams_2_threads_4: 5.25}
+    load: {<<: *alone, users: [4, 16]}
+    runs: [v16-alone-ovms-int8-cal4-u4, v16-alone-ovms-int8-cal4-u16]
+
+  - id: v16-e2e-monolith-openvino
+    question: End to end, how much does the monolith serve alone on the 16-vCPU machine?
+    code: *code
+    hardware: *hardware_mono
+    deploy:
+      topology: monolith
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          hardware_tier_id: cpu-16
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+          settings: {RAG_RUN_LABEL: monolith-1w-cpu-16}
+      deploy_target: deploy, after the emulated Domino was restarted and every App stopped
+    server: {weights: fp32, runtime: openvino}
+    calibration: {rerank_chosen: {threads: 16, batch_size: 5}}
+    run_label: monolith-1w-cpu-16
+    load: {<<: *end_to_end, users: [1, 4, 16, 32]}
+    runs: [v16-e2e-monolith-openvino-u1, v16-e2e-monolith-openvino-u4, v16-e2e-monolith-openvino-u16,
+           v16-e2e-monolith-openvino-u32]
+
+  - id: v16-e2e-monolith-torch
+    question: End to end, does the monolith serve more under torch on 16 vCPUs?
+    code: *code
+    hardware: *hardware_mono
+    deploy:
+      topology: monolith
+      model_server: fastapi
+      defaults: *deploy_defaults
+      apps:
+        workflow:
+          hardware_tier_id: cpu-16
+          autoscaling: {min_replicas: 1, max_replicas: 1}
+          settings: {RAG_RUN_LABEL: monolith-torch-1w-cpu-16, RAG_LOCAL_MODEL_RUNTIME: torch}
+      deploy_target: deploy, after the emulated Domino was restarted and every App stopped
+    server: {weights: fp32, runtime: torch, workers: 4, threads_per_worker: 4}
+    calibration: {rerank_chosen: {threads: 4, batch_size: 2}}
+    run_label: monolith-torch-1w-cpu-16
+    load: {<<: *end_to_end, users: [4, 16]}
+    runs: [v16-e2e-monolith-torch-u4, v16-e2e-monolith-torch-u16]
+
+  - id: v16-rag-calibrate-on-demand
+    question: What does rag-calibrate print for the reranker on 16 vCPUs, under its default budget?
+    code: *code
+    hardware: {machine: *big_machine, note: the App left by the monolith runs idle}
+    deploy: none; rag-calibrate on the machine (remote/calibrate_on_demand.sh)
+    measurements:
+      - export: OVMS, fp32
+        output: "# rerank: timed on 16 CPUs under ovms, 3.674 s for 4 requests at once; tried 6 candidates in 90.3 s, cut short by RAG_CALIBRATION_BUDGET_S=90"
+        settings: {RAG_OVMS_NUM_STREAMS: 4}
+        note: >-
+          The App's own start an hour earlier kept 1 stream for the same load (1 stream 3.78 s,
+          2 streams 3.80, 4 streams 5.66). With one timed round, candidates within a few
+          percent swap places from run to run.
+      - export: OVMS, int8
+        output: "# rerank: timed on 16 CPUs under ovms, 2.460 s for 4 requests at once; tried 8 candidates in 75.7 s"
+        settings: {RAG_OVMS_NUM_STREAMS: 2}
+      - export: in-process, openvino
+        output: "# rerank: timed on 16 CPUs under openvino, 0.692 s per request; tried 9 candidates in 31.3 s"
+        settings: {RAG_RERANK_THREADS: 16, RAG_RERANK_BATCH_SIZE: 5}
+
+  - id: v16-alone-ovms-fp32-4streams-4workers
+    question: Does a smaller OVMS REST worker count (--rest_workers 4) shorten the tail on 4 streams?
+    code: *code
+    hardware: *hardware_split
+    deploy: &deploy_by_hand >-
+      none; the reranker App stopped and OVMS started by hand on the big machine (p7.sh):
+      ovms --rest_port 8888 --rest_workers <n> on the serving folder rag-ovms-config wrote
+      from /domino/datasets/local/emulation/ovms-models-fp32 with RAG_OVMS_NUM_STREAMS=<s>
+      and RAG_OVMS_THREADS=16
+    server: {weights: fp32, streams: 4, threads: 16, rest_workers: 4}
+    load: {<<: *alone, users: [16, 32]}
+    runs: [v16-alone-ovms-fp32-4streams-4workers-u16, v16-alone-ovms-fp32-4streams-4workers-u32]
+    notes:
+      - Compare with v16-alone-ovms-fp32-cal16 (4 streams, the default worker count).
+
+  - id: v16-alone-ovms-fp32-1streams-2workers
+    question: Does --rest_workers 2 on one stream shorten the tail?
+    code: *code
+    hardware: *hardware_split
+    deploy: *deploy_by_hand
+    server: {weights: fp32, streams: 1, threads: 16, rest_workers: 2}
+    load: {<<: *alone, users: [16, 32]}
+    runs: [v16-alone-ovms-fp32-1streams-2workers-u16, v16-alone-ovms-fp32-1streams-2workers-u32]
+    void: >-
+      Both runs are void. OVMS was not serving: the previous OVMS still held the port when this
+      one was started, a fault of the driving script. Every request failed in about 1 ms.

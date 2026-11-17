@@ -179,6 +179,14 @@ sitting the first start of each App is slow: it downloads and converts its model
 pool machine installs the Apps' dependencies once at boot, the same two `uv`
 commands as `domino/app.sh`, so an App's own install only reads uv's cache.
 
+The emulated Domino's proxy waits `forward_timeout_seconds` for an App's answer (30 by
+default, its `--forward-timeout`). A sitting on the generate stage raises it in
+`terraform.tfvars` before `apply`: a generated answer can take longer than 30 s, and
+the proxy then answers `502` in its place. On a standing emulation `apply` alone
+does not change it: the emulated Domino's unit is rewritten only when the
+Workspace's startup script runs again (reboot the Workspace machine, or run its
+startup script, as in "The 8-hour self-deletion and Terraform's state" below).
+
 From Cloud Shell, `make -C emulation tunnel-domino` forwards `localhost:8899` to
 the emulated Domino (Swagger at `/docs`, via Cloud Shell's web preview) and
 `make -C emulation tunnel-locust` forwards Locust's web UI on 8089 (for a
@@ -242,7 +250,8 @@ What the app receives, in place of the caller's own `Authorization`,
 
 The path prefix is stripped before forwarding; `--keep-prefix` sends the full
 path, which is the case `QP_OVMS_PREFIX_PROXY=1` exists for.
-`--forward-timeout` bounds a forwarded call (30 s). The fake has one user and
+`--forward-timeout` bounds a forwarded call (30 s; on the emulation's machines,
+the variable `forward_timeout_seconds`). The fake has one user and
 does not apply `visibility` or access lists: it stores and echoes them.
 
 Domino's documentation states the proxy, the two headers, the token's algorithm,

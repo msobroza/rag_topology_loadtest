@@ -1,0 +1,7 @@
+panel,topology,experiment,users,reranker_capacity,reranker_vcpus_total,requests_per_s,requests_per_s_per_reranker_vcpu
+"Three machines of 8 vCPUs, 10 users at once",monolith,pr8-monolith,10,"1 reranker, 8 vCPUs",8,0.652,0.082
+"Three machines of 8 vCPUs, 10 users at once",split-reranker,pr8-split-reranker,10,"1 reranker, 8 vCPUs",8,0.676,0.085
+"Three machines of 8 vCPUs, 10 users at once",split-all,pr8-split-all,10,"1 reranker, 8 vCPUs",8,0.696,0.087
+"Four machines of 2 vCPUs, 8 users at once",monolith,m2-monolith,8,"4 rerankers, 2 vCPUs each",8,0.649,0.081
+"Four machines of 2 vCPUs, 8 users at once",split-reranker,m2-split-reranker,8,"2 rerankers, 2 vCPUs each",4,0.336,0.084
+"Four machines of 2 vCPUs, 8 users at once",split-all,m2-split-all,8,"2 rerankers, 2 vCPUs each",4,0.36,0.09

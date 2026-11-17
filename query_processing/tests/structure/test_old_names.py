@@ -25,6 +25,9 @@ THIS_FILE = "query_processing/tests/structure/test_old_names.py"
 ALLOWED = {
     "docs/": "dated records (the ADRs, notes of past sittings) keep the names of "
     "their day and are never rewritten",
+    "experiments/": "the registry of measurements: a sitting's record holds the "
+    "settings and commands as they were named the day it ran, and is never "
+    "rewritten",
     THIS_FILE: "it names what it searches for",
 }
 # The README's section about moving from the old names, which has to name them.

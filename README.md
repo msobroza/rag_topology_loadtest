@@ -164,13 +164,15 @@ install both distributions in one command, the toolkit first, since no package
 index has it:
 
 ```bash
-make install-dev    # the toolkit with locust, pytest and the gate tools, and the use case
+make install-dev    # the toolkit with locust, pytest and the gate tools, the use case, and the charts package
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
 name, such as `qp-serve`, needs its `bin/` on your `PATH`
-(`. .venv/bin/activate`). `make install` leaves out locust and the gate tools,
-which [Development](#development) describes.
+(`. .venv/bin/activate`). `make install` leaves out locust, the gate tools,
+which [Development](#development) describes, and the charts package
+(`experiment_charts/`, which draws `experiments-explained/` and is not part of
+the product).
 
 ### First run, on fake backends
 
@@ -550,13 +552,14 @@ registered. Its implementations sit beside it, one directory per backend
 
 ### Where a file goes
 
-The repository holds two distributions (ADR 0005), each a directory of its own
-at its root:
+The repository holds the product's two distributions (ADR 0005), each a
+directory of its own at its root:
 
 - **The toolkit**, in `query_processing/`: what any use case can assemble.
   Every path of this section and of the tree below it is relative to that
   directory, except the use case's and the repository's own entries at the end
-  of the tree (`query_processing_rag_usecase/`, `emulation/`, `docs/`, the root
+  of the tree (`query_processing_rag_usecase/`, `experiment_charts/`,
+  `emulation/`, `experiments/`, `experiments-explained/`, `docs/`, the root
   `Makefile`, `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and
   `.github/`). It ships no workflow file and no default that is a use case's
   model, prompt, size, index or collection: its tests run on a fixture workflow
@@ -711,6 +714,22 @@ and no package imports it either, `extension_api` included.
 rule 4 (only component packages in `adapters/`, their layout with `api/` for
 both `served` and `api`, and no port implemented anywhere else) and rule 7. The fake Domino (`src/fake_domino/`) is a
 test double, not part of the product, and the rule does not apply to it.
+
+Measurements go in `experiments/`, at the repository's root, not in the code:
+one folder per sitting, with its question, its settings and the statistics of
+its runs (see [experiments/README.md](experiments/README.md)). They are records,
+which keep the names of their day, and the rules above do not apply to them.
+
+`experiments-explained/` explains those measurements to a reader who does not know the
+domain: a tour with one chart per finding (see
+[experiments-explained/README.md](experiments-explained/README.md)). Its charts and the
+table behind each are drawn from the registry by `experiment_charts/`, a third
+folder at the repository's root with a distribution of its own
+(`make experiment-charts`, from the root). That package is not part of the
+product: it depends on matplotlib and PyYAML, imports nothing from
+`query_processing`, `fake_domino` or a use case (its own
+`tests/test_experiment_charts_imports.py` checks it), and the rules above do not
+apply to it.
 
 ### The tree
 
@@ -965,9 +984,24 @@ query_processing_rag_usecase/   the RAG use case, one distribution that installs
   Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
   tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports
   results/            load-test output (git-ignored), as data/, models/, ovms/models/ and chroma/ written here
+experiment_charts/  the charts of the measurements, one distribution (experiment-charts): not the product, it draws experiments-explained/ from experiments/
+  pyproject.toml      the distribution: matplotlib and PyYAML, nothing of the product; its package under src/
+  src/experiment_charts/   its package; it imports nothing from query_processing, fake_domino or a use case
+    registry_reading.py  ExperimentRegistry: every results.csv row and every experiments*.yaml entry of the registry
+    chart_table.py    ChartTable: the table behind one chart, written to experiments-explained/data/
+    chart_theme.py    ChartTheme (light and dark) and the themed figure, axes, titles and legend
+    chart_marks.py    the marks several charts share: grouped bars, lines with ringed markers, value labels
+    chart_selections.py  the run selections the catalog passes to a chart
+    base_experiment_chart.py  BaseExperimentChart: a slug, a title, table() and draw()
+    *_chart.py        one module per chart, each an implementation of BaseExperimentChart
+    chart_catalog.py  experiment_charts(): the charts in the tour's order, the one place that names experiment ids
+    write_experiment_charts.py  writes every chart's two figures and its table; python -m experiment_charts
+  tests/              its own tests: its tables against the registry, every chart drawn, data/ kept current, its imports; helpers/ on pytest's path
 emulation/          TEMPORARY: Terraform and scripts for an emulation of Domino on Google Cloud
+experiments/        the registry of every measurement: one folder per sitting (README.md, experiments*.yaml, results.csv)
+experiments-explained/  the measurements told to a newcomer: README.md, and figures/ and data/ drawn by experiment_charts/
 docs/adr/           the decisions
-Makefile            installs both distributions in one command; hands check and each gate to query_processing/, then runs the use case's tests; the one .venv here
+Makefile            installs the toolkit and the use case in one command, and the charts package with them for development; hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; the one .venv here
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
@@ -1194,7 +1228,7 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends; an LLM on `served` needs one, having no `source_id` |
 | `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
-| `embedder` | `local.normalize` | not written: `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. It does not change OVMS: its own export normalises on its side (the exporter's default) |
+| `embedder` | `local.normalize` | not written: `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. The RAG's embedder ends its own pipeline with a normalisation step, so its vectors are unit-length whatever this says (measured: length 1.000000 with it off and on). It does not change OVMS: its own export normalises on its side (the exporter's default) |
 | `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | passages per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_passages` |
 | `reranker` | `local.calibration_passages` | not written: `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
 | every model | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `qp-serve --domino` and no key elsewhere |
@@ -2054,8 +2088,16 @@ compose with `--env-file`:
 
 | Key | Value |
 | --- | --- |
-| `OVMS_VERSION` / `OVMS_IMAGE` | `2026.3.1` / `openvino/model_server:2026.3.1` |
-| `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.3.1_python_off.tar.gz` from the GitHub release `v2026.3.1` (Domino `ovms` image) |
+| `OVMS_VERSION` / `OVMS_IMAGE` | `2026.4.1` / `openvino/model_server:2026.4.1` |
+| `OVMS_BINARY_URL` | `ovms_ubuntu22_2026.4.1_python_off.tar.gz` from the GitHub release `v2026.4.1` (Domino `ovms` image) |
+
+The pin moved from 2026.3.1 to 2026.4.1, for every OVMS App. That version was
+run on a machine once, by hand, serving a language model (the sitting of
+16 November 2026 on text generation, in `experiments/`). The reranker's and
+the embedder's OVMS at 2026.4.1 have not been run, nor the exporter fetched at
+that tag (`export_models.sh` fetches `export_model.py` from `v${OVMS_VERSION}`),
+so reranker and embedder figures taken after the move do not compare with those
+of 15 November 2026 without a re-run.
 
 The served models (source id and alias) are pinned once, by the embedders and
 rerankers of the workflow file, whatever their names (here `reranker`,
@@ -2068,6 +2110,15 @@ shell-quoted words each (name, type, source id, alias, then the weight format,
 the same on every line) for `export_models.sh`;
 the `rag` Domino image reads the source ids from the use case's workflow file,
 which it copies beside the use case it installs.
+
+**Known defect: OVMS does not start on the RAG's embedder.** On a real machine
+OVMS 2026.3.1, the pin at the time, crashed with a segmentation fault while it
+loaded `snowflake-arctic-embed-l-v2.0`, on the export exactly as written, so an
+OVMS App of the embedder failed at start (the check of 16 November 2026 in
+`experiments/`; the cause is not established). It has not been tried again at
+2026.4.1, the pin now. OVMS serves the reranker without trouble. Until this is
+fixed, serve the embedder with the FastAPI model server or in the workflow's
+process.
 
 **Export** (`make ovms-export` in the use case's directory = the toolkit's
 `ovms/export_models.sh [MODELS_DIR]`, default `ovms/models` in the working
@@ -2790,7 +2841,7 @@ Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
 ## Development
 
 ```bash
-make check         # every gate below, in order, stopping at the first failure, then the use case's tests
+make check         # every gate below, in order, stopping at the first failure, then the use case's tests and the charts package's
 make test          # pytest: fakes + httpx.MockTransport only; no weights, no network, no Elasticsearch
 make format        # ruff --fix + black
 ```
@@ -2801,7 +2852,12 @@ These run from the repository's root, whose `Makefile` hands them to
 use case's own tests, from `query_processing_rag_usecase/`, linted with ruff and
 black under the toolkit's configuration: its workflow file answers through the
 workflow app's HTTP API, and a dry run of each topology alias of its
-`deploy.example.yaml` publishes the expected Apps on the fake Domino.
+`deploy.example.yaml` publishes the expected Apps on the fake Domino. Last, it
+runs lint, typecheck, complexity and deps over `experiment_charts/` under the
+toolkit's configuration, then that package's tests, which also hold the
+committed tables of `experiments-explained/` to the registry: after a change to
+`experiments/`, `make experiment-charts` at the root draws the figures and the
+tables again.
 `make check` is the project's quality gate, and the GitHub Actions workflow
 `.github/workflows/checks.yml` runs the same command on every pull request and on
 every push to `main`. The verdict is deterministic: every gate tool is pinned to an

@@ -41,3 +41,7 @@ git_ref = "main"
 # domino_project_id = "emulation"
 # environment_id    = "emulation-environment"
 # ovms_bundle_path  = "/opt/rag-emulation/ovms.tar.gz"
+
+# How long the emulated Domino's proxy waits for an App's answer, in seconds. Raise it
+# (300, say) for a sitting on the generate stage: an answer can take longer than 30 s.
+# forward_timeout_seconds = 30

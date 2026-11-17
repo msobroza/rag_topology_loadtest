@@ -1,0 +1,17 @@
+panel,machine,experiment,batch_size,threads,streams,requests_at_once,seconds
+"Seconds for one request, by threads given to it",8-vCPU machine,v8-alone-fastapi-fp32,2,1,,1,4.93
+"Seconds for one request, by threads given to it",8-vCPU machine,v8-alone-fastapi-fp32,2,2,,1,2.51
+"Seconds for one request, by threads given to it",8-vCPU machine,v8-alone-fastapi-fp32,2,4,,1,1.34
+"Seconds for one request, by threads given to it",8-vCPU machine,v8-alone-fastapi-fp32,2,8,,1,1.24
+"Seconds for one request, by threads given to it",16-vCPU machine,v16-alone-fastapi-fp32,5,4,,1,1.341
+"Seconds for one request, by threads given to it",16-vCPU machine,v16-alone-fastapi-fp32,5,8,,1,0.703
+"Seconds for one request, by threads given to it",16-vCPU machine,v16-alone-fastapi-fp32,5,16,,1,0.683
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",8 vCPUs,v8-ovms-fp32-cal16-on-demand,,8,1,16,31.83
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",8 vCPUs,v8-ovms-fp32-cal16-on-demand,,8,2,16,30.81
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",8 vCPUs,v8-ovms-fp32-cal16-on-demand,,8,4,16,38.38
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",8 vCPUs,v8-ovms-fp32-cal16-on-demand,,8,8,16,45.27
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",16 vCPUs,v16-ovms-fp32-cal16-on-demand,,16,1,16,14.78
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",16 vCPUs,v16-ovms-fp32-cal16-on-demand,,16,2,16,14.51
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",16 vCPUs,v16-ovms-fp32-cal16-on-demand,,16,4,16,14.43
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",16 vCPUs,v16-ovms-fp32-cal16-on-demand,,16,8,16,18.25
+"Seconds until 16 requests sent at once are all answered, by OVMS streams",16 vCPUs,v16-ovms-fp32-cal16-on-demand,,16,16,16,29.38

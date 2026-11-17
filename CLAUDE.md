@@ -24,6 +24,12 @@ rules, and `docs/adr/0003` to `0008` for the design.
   adds"). The toolkit never imports nor names a use case, and ships no use
   case's values: its tests run on
   `query_processing/tests/helpers/fixture_workflow.yaml`.
+- `experiment_charts/`: not the product. A distribution of its own (package
+  `experiment_charts`, matplotlib and PyYAML) that draws the figures and tables
+  of `experiments-explained/` from the registry of measurements in
+  `experiments/`. It imports nothing from the toolkit, the fake Domino or a use
+  case, and the toolkit's `pyproject.toml` names nothing of it. The records in
+  `experiments/` keep the names of their day: never reword one.
 
 ## Commands
 
@@ -32,12 +38,16 @@ repository's root (one for the repository), and those on the PATH otherwise.
 
 From the repository's root:
 
-- `make install-dev`: install the toolkit with its test and gate tools and the use
-  case, in one command (no package index has the toolkit).
+- `make install-dev`: install the toolkit with its test and gate tools, the use
+  case and the charts package, in one command (no package index has the toolkit).
 - `make check`: the gate, every target of the Health Stack below in that order over
-  the toolkit, stopping at the first failure, then the use case's tests (linted
-  with the toolkit's configuration).
+  the toolkit, stopping at the first failure, then lint, typecheck, complexity
+  and deps over the use case with the toolkit's configuration and its tests,
+  then the same over the charts package and its tests.
 - `make -C query_processing check`: the same gates over the toolkit alone.
+- `make experiment-charts`: redraw `experiments-explained/` from `experiments/`,
+  after a change to the registry (the charts package's tests refuse a table
+  that is out of date).
 
 From `query_processing_rag_usecase/`, where the commands find `workflow.yaml`,
 `deploy.yaml` and `.env`:
@@ -62,3 +72,30 @@ From `query_processing_rag_usecase/`, where the commands find `workflow.yaml`,
 - deadcode: make deadcode
 - deps: make deps
 - test: make test
+
+## Defensive patterns
+
+Every network call has a timeout and bounded retries. Beyond that default this
+project uses one further pattern:
+
+- Backoff between the retries of an HTTP call: the wait doubles from
+  `backoff_s`. Timeout, retries and backoff come from the settings (the
+  workflow file's `http` block, `timeout_s`, `retries` and `backoff_s`, the
+  shared one or a component's own); a new call reuses them and adds no
+  constant of its own.
+
+No circuit breaker, no rate limit, no graceful degradation: add none unless the
+owner asks for one.
+
+## The tests /verify runs
+
+`.gstack/pregate.json` names the command for the tests a change selects. The
+repository has three tests folders, so the command sorts the selected files by
+the folder that holds them (`query_processing/`, `query_processing_rag_usecase/`,
+`experiment_charts/`) and runs pytest inside each, where its `pyproject.toml`
+is: pytest from `.venv/bin` when a `.venv` exists here, as every `make` target
+does.
+
+A green `/verify` is not a green suite. For a changed file under `src/` it selects
+the tests that name the file's path, not the tests that import it: a change to
+`domain/passages.py` alone ran one test file. `make check` is the gate.

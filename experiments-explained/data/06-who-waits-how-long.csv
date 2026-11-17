@@ -1,0 +1,8 @@
+panel,label,server,experiment,users,median_s,p95_s
+reranker on 8 vCPUs,FastAPI,FastAPI,v8-alone-fastapi-fp32,16,15,16
+reranker on 8 vCPUs,"OVMS, 1 stream",OVMS,v8-alone-ovms-fp32-1stream,16,13,27
+reranker on 8 vCPUs,"OVMS, 2 streams",OVMS,v8-alone-ovms-fp32-cal4,16,12,37
+reranker on 16 vCPUs,FastAPI,FastAPI,v16-alone-fastapi-fp32,16,8.2,8.6
+reranker on 16 vCPUs,"OVMS, 1 stream",OVMS,v16-alone-ovms-fp32-cal4,16,7.1,16
+reranker on 16 vCPUs,"OVMS, 1 stream, second run",OVMS,v16-alone-ovms-fp32-1stream,16,5.1,10
+reranker on 16 vCPUs,"OVMS, 4 streams",OVMS,v16-alone-ovms-fp32-cal16,16,5.4,11

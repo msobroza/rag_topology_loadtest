@@ -147,6 +147,16 @@ def test_the_machines_install_both_and_deploy_from_the_use_cases_directory() -> 
     assert (TOOLKIT_ROOT / "ovms" / "versions.env").is_file()
 
 
+def test_the_forward_timeout_is_a_variable_of_at_least_one_second() -> None:
+    # A generated answer can outlast the emulated Domino's 30 s forward timeout.
+    variable = variables()["forward_timeout_seconds"]
+    assert (variable["type"], variable["default"]) == ("number", 30)
+    (rule,) = variable["validation"]
+    assert rule["condition"] == "${var.forward_timeout_seconds >= 1}"
+    workspace = template_calls()["scripts/workspace.sh.tftpl"]
+    assert "forward_timeout_seconds" in workspace
+
+
 def test_the_generated_deploy_yaml_uses_only_documented_keys() -> None:
     deploy = yaml.safe_load(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
     example = (USE_CASE_ROOT / "deploy.example.yaml").read_text(encoding="utf-8")

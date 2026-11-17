@@ -1,6 +1,6 @@
 """The repository's Makefile and the toolkit's: the root installs the toolkit and
-the use case together, hands the gates to the toolkit's, then runs the use
-case's tests.
+the use case together, hands the gates to the toolkit's, then runs them over
+the use case and over the charts package, each followed by its own tests.
 
 ``make -n`` prints the commands without running them; a recursive ``$(MAKE)``
 still runs, under ``-n`` too, so the toolkit's commands are printed as well. The
@@ -24,6 +24,9 @@ GATES = ("lint", "typecheck", "complexity", "deadcode", "deps", "test")
 # The RAG use case's directory, beside the toolkit's: the root installs both and
 # runs the use case's tests. Named only: no test of the toolkit reads its files.
 USE_CASE = "query_processing_rag_usecase"
+# The charts package's directory, beside them: not the product, installed for
+# development only, its gates and tests run last. Named only, as the use case is.
+CHARTS = "experiment_charts"
 
 
 def dry_run(directory: Path, *args: str) -> list[str]:
@@ -57,17 +60,22 @@ def test_the_root_hands_each_gate_to_the_toolkit_with_the_tools_place(
 
 
 @pytest.mark.parametrize(
-    ("target", "toolkit"),
-    [("install", "./query_processing"), ("install-dev", '"./query_processing[dev]"')],
+    ("target", "toolkit", "for_development"),
+    [
+        ("install", "./query_processing", ""),
+        ("install-dev", '"./query_processing[dev]"', f" -e ./{CHARTS}"),
+    ],
 )
 def test_the_root_installs_the_toolkit_and_the_use_case_in_one_command(
-    target: str, toolkit: str
+    target: str, toolkit: str, for_development: str
 ) -> None:
     # No package index has the toolkit: the use case's dependency on it is met
-    # only when both directories are named, the toolkit first.
+    # only when both directories are named, the toolkit first. The charts
+    # package is no part of what runs: only install-dev adds it.
     lines = dry_run(REPO_ROOT, target, f"BIN={TOOLS}")
 
-    assert lines == [f"{TOOLS}python -m pip install -e {toolkit} -e ./{USE_CASE}"]
+    installed = f"-e {toolkit} -e ./{USE_CASE}{for_development}"
+    assert lines == [f"{TOOLS}python -m pip install {installed}"]
     assert (REPO_ROOT / toolkit.strip('"').removesuffix("[dev]")).resolve() == (
         TOOLKIT_ROOT
     )
@@ -79,34 +87,59 @@ def test_the_toolkit_alone_installs_from_its_directory() -> None:
     assert lines == [f'{TOOLS}python -m pip install -e ".[dev]"']
 
 
-def test_check_at_the_root_runs_the_toolkits_gates_then_the_use_cases_tests() -> None:
+def gates_beside_the_toolkit(directory: str) -> list[str]:
+    """What ``check`` runs over a distribution beside the toolkit, from its directory.
+
+    Its source and tests, linted and type-checked with the toolkit's
+    configuration, then its own tests.
+    """
+    pyproject = f"../{TOOLKIT_ROOT.name}/pyproject.toml"
+    config = f"--config {pyproject}"
+    return [
+        f"cd {directory} && {TOOLS}ruff check {config} src tests",
+        f"cd {directory} && {TOOLS}black --check {config} src tests",
+        f"cd {directory} && {TOOLS}pydoclint {config} src",
+        f"cd {directory} && {TOOLS}mypy --config-file {pyproject} src",
+        f"cd {directory} && {TOOLS}ty check src",
+        f"cd {directory} && {TOOLS}complexipy src --max-complexity-allowed 10 --failed",
+        f"cd {directory} && {TOOLS}deptry src",
+        f"cd {directory} && {TOOLS}pytest",
+    ]
+
+
+def test_check_at_the_root_runs_the_toolkits_gates_then_those_of_the_two_beside() -> (
+    None
+):
     from_root = dry_run(REPO_ROOT, "check", f"BIN={TOOLS}")[1:]
     from_toolkit = dry_run(TOOLKIT_ROOT, "check", f"BIN={TOOLS}")
 
     assert from_root[: len(from_toolkit)] == from_toolkit
     assert from_toolkit[0] == f"{TOOLS}ruff check src tests locustfile.py"
     assert from_toolkit[-1] == f"{TOOLS}pytest"
-    # The use case's source and tests, linted and type-checked with the
-    # toolkit's configuration, run from the use case's directory.
-    pyproject = f"../{TOOLKIT_ROOT.name}/pyproject.toml"
-    config = f"--config {pyproject}"
+    # The use case first, since it is the product's; the charts package last.
     assert from_root[len(from_toolkit) :] == [
-        f"cd {USE_CASE} && {TOOLS}ruff check {config} src tests",
-        f"cd {USE_CASE} && {TOOLS}black --check {config} src tests",
-        f"cd {USE_CASE} && {TOOLS}pydoclint {config} src",
-        f"cd {USE_CASE} && {TOOLS}mypy --config-file {pyproject} src",
-        f"cd {USE_CASE} && {TOOLS}ty check src",
-        f"cd {USE_CASE} && {TOOLS}complexipy src --max-complexity-allowed 10 --failed",
-        f"cd {USE_CASE} && {TOOLS}deptry src",
-        f"cd {USE_CASE} && {TOOLS}pytest",
+        *gates_beside_the_toolkit(USE_CASE),
+        *gates_beside_the_toolkit(CHARTS),
     ]
 
 
 @pytest.mark.parametrize("gate", ["lint", "typecheck", "complexity", "deps"])
-def test_a_gate_run_from_the_root_also_runs_over_the_use_case(gate: str) -> None:
+def test_a_gate_run_from_the_root_also_runs_over_the_two_beside(gate: str) -> None:
     lines = dry_run(REPO_ROOT, gate, f"BIN={TOOLS}")
 
-    assert lines[-1].startswith(f"cd {USE_CASE} && {TOOLS}")
+    beside = [line.split(" && ")[0] for line in lines if line.startswith("cd ")]
+    assert list(dict.fromkeys(beside)) == [f"cd {USE_CASE}", f"cd {CHARTS}"]
+    assert all(f" && {TOOLS}" in line for line in lines if line.startswith("cd "))
+
+
+def test_the_charts_are_redrawn_from_the_root() -> None:
+    # The command reads experiments/ and writes experiments-explained/ by those
+    # names, relative to where it runs: both folders are the root's.
+    lines = dry_run(REPO_ROOT, "experiment-charts", f"BIN={TOOLS}")
+
+    assert lines == [f"{TOOLS}python -m {CHARTS}"]
+    assert (REPO_ROOT / "experiments").is_dir()
+    assert (REPO_ROOT / "experiments-explained").is_dir()
 
 
 def test_the_toolkits_makefile_keeps_only_what_needs_no_use_case() -> None:

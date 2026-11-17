@@ -222,6 +222,21 @@ variable "ovms_bundle_path" {
   }
 }
 
+variable "forward_timeout_seconds" {
+  description = <<-EOT
+    How long the emulated Domino's proxy waits for an App's answer, in seconds
+    (qp-domino-emulation --forward-timeout). Raise it for a sitting on the generate
+    stage: a generated answer can take longer than the default 30 s.
+  EOT
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.forward_timeout_seconds >= 1
+    error_message = "forward_timeout_seconds must be at least 1."
+  }
+}
+
 variable "project_env_secret" {
   description = <<-EOT
     Optional: the id of an existing Secret Manager secret, in var.project_id, whose

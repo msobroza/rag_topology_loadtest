@@ -206,26 +206,27 @@ resource "google_compute_instance" "workspace" {
     startup-script = join("\n", [
       local.common_script,
       templatefile("${path.module}/scripts/workspace.sh.tftpl", {
-        repo_url           = var.repo_url
-        git_ref            = var.git_ref
-        repo_path          = var.repo_path
-        uv_version         = var.uv_version
-        project_id         = var.project_id
-        ssh_key_secret     = local.ssh_key_secret
-        ssh_key_path       = local.ssh_key
-        project_env_secret = var.project_env_secret
-        config_dir         = local.config_dir
-        placement_json     = jsonencode(local.placement)
-        pool_addresses     = join(" ", flatten([for tier in local.placement.tiers : tier.machines]))
-        domino_port        = local.domino_port
-        workspace_address  = local.workspace_address
-        es_url             = "http://${local.elasticsearch_address}:9200"
-        default_tier       = local.default_tier
-        environment_id     = var.environment_id
-        ovms_bundle_path   = var.ovms_bundle_path
-        domino_project_id  = var.domino_project_id
-        cache_bucket       = google_storage_bucket.cache.name
-        dataset_path       = var.dataset_path
+        repo_url                = var.repo_url
+        git_ref                 = var.git_ref
+        repo_path               = var.repo_path
+        uv_version              = var.uv_version
+        project_id              = var.project_id
+        ssh_key_secret          = local.ssh_key_secret
+        ssh_key_path            = local.ssh_key
+        project_env_secret      = var.project_env_secret
+        config_dir              = local.config_dir
+        placement_json          = jsonencode(local.placement)
+        pool_addresses          = join(" ", flatten([for tier in local.placement.tiers : tier.machines]))
+        domino_port             = local.domino_port
+        forward_timeout_seconds = var.forward_timeout_seconds
+        workspace_address       = local.workspace_address
+        es_url                  = "http://${local.elasticsearch_address}:9200"
+        default_tier            = local.default_tier
+        environment_id          = var.environment_id
+        ovms_bundle_path        = var.ovms_bundle_path
+        domino_project_id       = var.domino_project_id
+        cache_bucket            = google_storage_bucket.cache.name
+        dataset_path            = var.dataset_path
       }),
     ])
   }
