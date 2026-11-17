@@ -247,7 +247,11 @@ async def test_on_the_fake_llm_a_stage_with_a_schema_writes_its_fields() -> None
 
     update = await stage.run({"conversational_query": "and b?"})
 
-    assert update == {"standalone_query": "[fake-llm] and b?", "metadata_filter": []}
+    assert update == {
+        "standalone_query": "[fake-llm] and b?",
+        "metadata_filter": [],
+        "tokens": {"prompt": 2, "completion": 3},  # the fake's word counts
+    }
 
 
 async def test_an_answer_the_schema_refuses_fails_the_request_showing_it() -> None:
@@ -312,6 +316,9 @@ async def test_a_schema_with_an_alias_writes_its_fields_by_their_names(
         {"conversational_query": "and in May?"}
     )
 
+    # The fake LLM reports its counts; the scripted one reports none.
+    assert ("tokens" in update) == isinstance(llm, FakeLLM)
+    update.pop("tokens", None)
     assert update == dict(zip(writes, written, strict=True))
 
 

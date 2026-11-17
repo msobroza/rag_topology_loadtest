@@ -27,6 +27,9 @@ BODY_FIELDS = {
     "answer",
     "passages",
     "timings_ms",
+    # Added with the token counts: each stage whose LLM reported both, {} for
+    # a body with only a question on /retrieve.
+    "tokens",
     # Added with the metadata filter: the conditions applied, [] for a body
     # with only a question.
     "metadata_filter",

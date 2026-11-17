@@ -22,7 +22,13 @@ from langgraph.graph.state import CompiledStateGraph
 from ..domain.conversation import HistoryMessage
 from ..domain.metadata_filter import MetadataCondition
 from ..domain.passages import TOTAL_TIMING_KEY, RagMode, RagResult
-from .workflow_state import METADATA_FILTER_FIELD, initial_state
+from .workflow_state import (
+    METADATA_FILTER_FIELD,
+    TIMINGS_FIELD,
+    TOKENS_FIELD,
+    StageTokens,
+    initial_state,
+)
 
 
 class CompiledWorkflow:
@@ -61,7 +67,8 @@ class CompiledWorkflow:
 
         Returns:
             The result; ``timings_ms`` is ``stage_timings`` of what the stages
-            recorded and the wall time around the whole graph, and
+            recorded and the wall time around the whole graph, ``tokens`` the
+            counts of each stage that reported them, in the graph's order, and
             ``metadata_filter`` the conditions applied, the client's first.
 
         Example:
@@ -83,7 +90,8 @@ class CompiledWorkflow:
             answer=final.get("answer") if mode == "query" else None,
             passages=final.get("reranked", []),
             metadata_filter=final.get(METADATA_FILTER_FIELD, []),
-            timings_ms=stage_timings(self.stage_names, final["timings_ms"], total_ms),
+            timings_ms=stage_timings(self.stage_names, final[TIMINGS_FIELD], total_ms),
+            tokens=stage_tokens(self.stage_names, final[TOKENS_FIELD]),
         )
 
 
@@ -110,3 +118,26 @@ def stage_timings(
     timings = {stage: recorded.get(stage, 0.0) for stage in stage_names}
     timings[TOTAL_TIMING_KEY] = total_ms
     return timings
+
+
+def stage_tokens(
+    stage_names: Sequence[str], recorded: Mapping[str, StageTokens]
+) -> dict[str, StageTokens]:
+    """Return a result's tokens: each stage that reported them, in the graph's order.
+
+    Unlike the timings, a stage that reported none has no key: a missing count
+    is never mistaken for 0.
+
+    Args:
+        stage_names: The graph's stages, in the order of its description.
+        recorded: Each stage that reported tokens, by name, in the order it ran.
+
+    Returns:
+        The recorded tokens, in ``stage_names`` order.
+
+    Example:
+        >>> stage_tokens(["rewrite", "generate"],
+        ...              {"generate": {"prompt": 9, "completion": 2}})
+        {'generate': {'prompt': 9, 'completion': 2}}
+    """
+    return {stage: recorded[stage] for stage in stage_names if stage in recorded}

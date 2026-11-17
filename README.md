@@ -150,7 +150,8 @@ conversational history. A first message goes straight to `embed`; one with a
 conversational history goes to the router, and when it leans on that history,
 the `rewrite` stage makes it a standalone query and may add conditions to the
 metadata filter. `/retrieve` ends after rerank, where
-`is_query_mode` is false; `timings_ms` has one key per stage
+`is_query_mode` is false; `timings_ms` has one key per stage, and `tokens`
+one per stage whose LLM reported its counts, `rewrite` and `generate`
 ([HTTP API](#http-api)). Each component has alternatives a setting away:
 [Retrieval, stores and model endpoints](#retrieval-stores-and-model-endpoints).
 
@@ -199,7 +200,7 @@ curl -s localhost:18888/readyz
 curl -s -X POST localhost:18888/query -H 'Content-Type: application/json' \
   -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
 # {"request_id":"e1e69f34fa1844e19be2beec8510fcdf","topology":null,"run_label":"embedder=fake+router_embedder=fake+router=fake+reranker=fake+llm=fake+vector_store=fake",...,
-#  "timings_ms":{"embed_for_route":0.0,"route":0.0,"rewrite":0.0,"embed":0.2180000301450491,"retrieve":0.8875830098986626,"rerank":0.3361250273883343,"generate":0.3732079640030861,"total":9.341874858364463},"metadata_filter":[]}
+#  "timings_ms":{"embed_for_route":0.0,"route":0.0,"rewrite":0.0,"embed":0.2180000301450491,"retrieve":0.8875830098986626,"rerank":0.3361250273883343,"generate":0.3732079640030861,"total":9.341874858364463},"tokens":{"generate":{"prompt":605,"completion":32}},"metadata_filter":[]}
 make loadtest RUN_NAME=first-run HOST=http://localhost:18888 USERS=2 SPAWN_RATE=2 RUN_TIME=5s
 make compare
 sed 's/<[^<>]*>/example/g' deploy.example.yaml > deploy.yaml
@@ -384,8 +385,10 @@ text, and the token counts its model reported, `prompt_tokens` and
 `completion_tokens`, each None when the model reported none. `ainvoke`
 returns that answer as it is, so a plain call on an LLM can write the counts
 to fields of its own, listed after the text in its `writes`; a generate stage
-writes the text alone, or its schema's fields. The toolkit's API LLM reads the
-counts from the endpoint's `usage`; when it asks again for an answer that did
+writes the text alone, or its schema's fields, and reports the counts, when
+the answer carries both, in the response's `tokens` under the stage's name.
+The toolkit's API LLM reads the counts from the endpoint's `usage`; when it
+asks again for an answer that did
 not match its output schema, it reports the sum over every attempt, since each
 was paid for, and None for a count any attempt did not report.
 
@@ -779,7 +782,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       corpus.py       synthetic handbook corpus, its questions, chunking
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
-      workflow_state.py  WorkflowState, what a request carries from stage to stage by field name (the state's type is built in state_fields); REQUEST_FIELD_TYPES, the fields the request writes; RESPONSE_FIELDS, those the response reads; REQUEST_FIELDS, those a stage may read wherever it is; initial_state, merge_timings
+      workflow_state.py  WorkflowState, what a request carries from stage to stage by field name (the state's type is built in state_fields); REQUEST_FIELD_TYPES, the fields the request writes; RESPONSE_FIELDS, those the response reads; REQUEST_FIELDS, those a stage may read wherever it is; MEASURED_FIELDS, timings_ms and tokens, which no stage writes; initial_state, merge_by_stage
       state_fields.py  field_types_of: each field the request and the stages write, with its type; state_type: the LangGraph state built from them; WorkflowGraphError
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states: its stages, the field rule and the type rules, the edges through edge_check; fields_set_before
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
@@ -1166,8 +1169,8 @@ sittings measured (streams, batch size, order of service).
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`) |
-| `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`) |
+| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}` |
+| `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`, no `generate` key in `tokens`: `{}` unless `rewrite` ran) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `router_embedder`, `reranker`); `503` when a check fails |
 
@@ -1452,7 +1455,7 @@ mode needs). They refuse:
   refused by this rule:
 
 ```
-qp-serve: error: stage 'retrieve' reads the workflow state field 'query_embedding', which the request does not provide and is written by no stage of the graph (expected a field the request provides, one of: 'conversational_history', 'conversational_query', 'metadata_filter', 'mode', 'standalone_query', 'timings_ms', or one a stage writes on every path from START to 'retrieve')
+qp-serve: error: stage 'retrieve' reads the workflow state field 'query_embedding', which the request does not provide and is written by no stage of the graph (expected a field the request provides, one of: 'conversational_history', 'conversational_query', 'metadata_filter', 'mode', 'standalone_query', 'timings_ms', 'tokens', or one a stage writes on every path from START to 'retrieve')
 ```
 
 - a stage that reads a field as another type than what writes it: the
@@ -1468,11 +1471,13 @@ qp-serve: error: stage 'retrieve' reads 'query_embedding' as str, but 'embed' wr
   naming both;
 - a field a stage writes that no stage and no response reads (the response
   reads `answer`, `reranked` and `metadata_filter`), as a likely typo;
+- a stage that writes `timings_ms` or `tokens`, which the workflow measures
+  for each stage under its name;
 - a key of a plain call that does not fit the type of the request attribute it
   fills, such as `top_k: ten`, naming the key, its value and the type expected.
 
 The workflow state is built from the same fields: each field the request or a
-stage writes, with its type, and `timings_ms`
+stage writes, with its type, and `timings_ms` and `tokens`
 (`application/state_fields.py`).
 
 Only whether the vector store ranks text needs the store open, so a lexical

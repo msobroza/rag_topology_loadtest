@@ -199,6 +199,7 @@ def test_the_request_provides_the_fields_of_the_initial_state() -> None:
         "mode",
         "metadata_filter",
         "timings_ms",
+        "tokens",
     } == REQUEST_FIELDS
 
 
@@ -296,6 +297,25 @@ def test_two_writers_of_one_field_must_agree() -> None:
         WorkflowGraphError, match="'draft' is written as str by 'draft' and as bool by"
     ):
         check(graph)
+
+
+@pytest.mark.parametrize("measured", ["timings_ms", "tokens"])
+def test_a_stage_that_writes_a_measured_field_is_refused(measured: str) -> None:
+    # The workflow records the measures under each stage's name; a stage's own
+    # value would be lost, so a polish that reads it would read no draft.
+    drafted = {**DRAFT, "writes": [measured]}
+    polished = {**POLISH, "reads": [measured]}
+    graph = graph_of(
+        {"draft": drafted, "polish": polished}, [["START", "draft", "polish"]]
+    )
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(graph)
+
+    assert str(refused.value) == (
+        f"stage 'draft' writes {measured!r}, which the workflow measures for each "
+        "stage (expected a field other than 'timings_ms', 'tokens')"
+    )
 
 
 def test_a_field_nothing_reads_is_refused_as_a_likely_typo() -> None:

@@ -47,7 +47,7 @@ from .stages.base_stage import STAGE_TYPES, BaseStage, StageContext, StageTypes
 from .stages.call_stage import CallStage
 from .state_fields import field_types_of, state_type
 from .workflow import CompiledWorkflow
-from .workflow_state import WorkflowState
+from .workflow_state import TIMINGS_FIELD, TOKENS_FIELD, WorkflowState
 
 # The description's reserved names, as LangGraph spells them.
 _LANGGRAPH_NAMES = {START: LANGGRAPH_START, END: LANGGRAPH_END}
@@ -272,10 +272,13 @@ def open_call(description: StageDescription, component: object) -> CallStage:
 
 
 def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> LangGraphNode:
-    """Wrap a stage so its update also carries ``{"timings_ms": {name: ms}}``.
+    """Wrap a stage so its update carries its measures under its name.
+
+    The update gains ``{"timings_ms": {name: ms}}``, and the tokens the stage
+    hands unnamed, ``{"tokens": counts}``, become ``{"tokens": {name: counts}}``.
 
     Args:
-        name: The stage's name, the key its wall time is recorded under.
+        name: The stage's name, the key its measures are recorded under.
         stage: The stage to time.
 
     Returns:
@@ -288,7 +291,11 @@ def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> LangGraphNode:
     async def run(state: WorkflowState) -> WorkflowState:
         started = time.perf_counter()
         update = await stage.run(state)
-        return {**update, "timings_ms": {name: (time.perf_counter() - started) * 1000}}
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        measured: WorkflowState = {TIMINGS_FIELD: {name: elapsed_ms}}
+        if TOKENS_FIELD in update:
+            measured[TOKENS_FIELD] = {name: update[TOKENS_FIELD]}
+        return {**update, **measured}
 
     return run
 

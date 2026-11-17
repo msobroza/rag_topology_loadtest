@@ -16,8 +16,8 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, TypeVar
 
 from ..domain.conversation import HistoryMessage
 from ..domain.metadata_filter import MetadataCondition
@@ -29,8 +29,17 @@ from ..domain.passages import RagMode, ScoredPassage
 WorkflowState = dict[str, Any]
 
 # The field that holds each stage's wall time under the stage's name; a
-# LangGraph reducer, merge_timings, merges the stages' updates.
+# LangGraph reducer, merge_by_stage, merges the stages' updates.
 TIMINGS_FIELD = "timings_ms"
+# The field that holds the tokens each stage's LLM read and wrote, under the
+# stage's name, as {"prompt": n, "completion": m}; merged as the timings are.
+# A stage hands its counts unnamed in its update, and timed() puts them under
+# its name: a stage type never learns its own name.
+TOKENS_FIELD = "tokens"
+# The tokens one stage reports: "prompt" and "completion".
+StageTokens = dict[str, int]
+# The fields the workflow measures for each stage: no stage writes them.
+MEASURED_FIELDS: tuple[str, ...] = (TIMINGS_FIELD, TOKENS_FIELD)
 # The conditions a search must meet: the client's, then those stages add. The
 # one field that accumulates; state_fields.add_conditions is its reducer.
 METADATA_FILTER_FIELD = "metadata_filter"
@@ -59,19 +68,24 @@ RESPONSE_FIELD_TYPES: dict[str, Any] = {
 }
 RESPONSE_FIELDS: frozenset[str] = frozenset(RESPONSE_FIELD_TYPES)
 
+# What one stage measures: its wall time, or its tokens.
+_Measure = TypeVar("_Measure")
 
-def merge_timings(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:
-    """Merge two stage-timing dicts; the LangGraph reducer of ``timings_ms``.
+
+def merge_by_stage(
+    left: Mapping[str, _Measure], right: Mapping[str, _Measure]
+) -> dict[str, _Measure]:
+    """Merge two measures by stage; the reducer of ``timings_ms`` and ``tokens``.
 
     Args:
-        left: Timings recorded so far.
-        right: Timings from the latest update; they win on a shared key.
+        left: The measures recorded so far, by stage name.
+        right: The measures of the latest update; they win on a shared key.
 
     Returns:
         A new dict with the keys of both.
 
     Example:
-        >>> merge_timings({"embed": 1.0}, {"retrieve": 2.0})
+        >>> merge_by_stage({"embed": 1.0}, {"retrieve": 2.0})
         {'embed': 1.0, 'retrieve': 2.0}
     """
     return {**left, **right}
@@ -94,7 +108,7 @@ def initial_state(
         metadata_filter: The client's conditions, which every search meets.
 
     Returns:
-        The request's fields and no timings.
+        The request's fields, and no timings nor tokens.
 
     Example:
         >>> initial_state("vacation days?", "query")["conversational_history"]
@@ -106,10 +120,10 @@ def initial_state(
         CONVERSATIONAL_HISTORY_FIELD: list(conversational_history),
         "mode": mode,
         METADATA_FILTER_FIELD: list(metadata_filter),
-        TIMINGS_FIELD: {},
+        **{field: {} for field in MEASURED_FIELDS},
     }
 
 
 # The fields every request provides before the first stage runs: a stage may
 # read them wherever it is.
-REQUEST_FIELDS: frozenset[str] = frozenset({*REQUEST_FIELD_TYPES, TIMINGS_FIELD})
+REQUEST_FIELDS: frozenset[str] = frozenset({*REQUEST_FIELD_TYPES, *MEASURED_FIELDS})

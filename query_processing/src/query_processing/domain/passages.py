@@ -39,7 +39,15 @@ class RagResult(BaseModel):
     """Outcome of one workflow run.
 
     ``timings_ms`` has one key per stage of the graph, in the order of its
-    description, then ``TOTAL_TIMING_KEY``.
+    description, then ``TOTAL_TIMING_KEY``. ``tokens`` has one key per stage
+    whose LLM reported both counts in this run, in the same order, each
+    ``{"prompt": n, "completion": m}``; empty when none did, so a reader never
+    mistakes a missing count for 0.
+
+    Example:
+        >>> RagResult(question="q", mode="retrieve", answer=None, passages=[],
+        ...           timings_ms={}).tokens
+        {}
     """
 
     question: str
@@ -47,6 +55,7 @@ class RagResult(BaseModel):
     answer: str | None
     passages: list[ScoredPassage]
     timings_ms: dict[str, float]
+    tokens: dict[str, dict[str, int]] = Field(default_factory=dict)
     # The conditions applied: the client's, then those the stages added.
     metadata_filter: list[MetadataCondition] = Field(default_factory=list)
 

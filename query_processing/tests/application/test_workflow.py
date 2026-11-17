@@ -6,18 +6,26 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.adapters.reranker.none.no_reranker import NoReranker
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.stages.base_stage import StageContext
-from query_processing.application.workflow import CompiledWorkflow, stage_timings
+from query_processing.application.workflow import (
+    CompiledWorkflow,
+    stage_timings,
+    stage_tokens,
+)
 from query_processing.application.workflow_builder import build_workflow
 from query_processing.application.workflow_state import initial_state
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.component_requests import GenerateAnswer
 from query_processing.domain.corpus import synthetic_questions
+from query_processing.domain.graph_description import GraphDescription
+from query_processing.domain.passages import RagMode
 from query_processing.domain.prompts import Prompt, PromptMessage
-from rag_graphs import rag_graph
+from rag_graphs import fixture_graph, rag_graph
 from workflow_fakes import (
     ChainNameRecorder,
     DenseOnlyStore,
@@ -32,6 +40,17 @@ TIMING_KEYS = ["embed", "retrieve", "rerank", "generate", "total"]
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 WorkflowFor = Callable[..., CompiledWorkflow]
 # A prompt other than the fixture's: the question, then the passages.
+# A generate stage before the fixture's: it rewrites the question it searches with.
+REWRITE_STAGE = {
+    "type": "generate",
+    "call": "llm",
+    "reads": ["conversational_query"],
+    "writes": ["standalone_query"],
+    "prompt": "rewrite",
+}
+REWRITE_PROMPT = [
+    PromptMessage(role="user", content="Rewrite: {{ conversational_query }}")
+]
 ASKED_USING = "ASK {{ conversational_query }} USING {% for p in reranked %}[{{ loop.index }}] {{ p.text }} {% endfor %}"
 
 
@@ -115,6 +134,80 @@ async def test_retrieve_mode_skips_generation(
     assert result.timings_ms["generate"] == 0.0
     assert result.timings_ms["total"] > 0
     assert len(result.passages) == DEFAULT_TOP_K_RERANK
+
+
+async def test_a_query_reports_the_tokens_of_its_answer_under_its_stage(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
+) -> None:
+    result = await workflow_for(fake_deps).run(VACATION_QUESTION)
+
+    assert list(result.tokens) == ["generate"]
+    assert set(result.tokens["generate"]) == {"prompt", "completion"}
+    assert result.tokens["generate"]["completion"] > 0
+
+
+async def test_a_retrieve_reports_no_tokens(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
+) -> None:
+    result = await workflow_for(fake_deps).run(VACATION_QUESTION, mode="retrieve")
+
+    assert result.tokens == {}
+
+
+class UncountedLLM(FakeLLM):
+    """The fake LLM, whose endpoint reports one count of two, or none."""
+
+    def __init__(self, prompt_tokens: int | None) -> None:
+        super().__init__()
+        self.prompt_tokens = prompt_tokens
+
+    async def generate(
+        self,
+        messages: list[dict[str, str]],
+        output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
+    ) -> GenerateAnswer:
+        return GenerateAnswer(text="an answer", prompt_tokens=self.prompt_tokens)
+
+
+@pytest.mark.parametrize("prompt_tokens", [12, None], ids=["one-count", "none"])
+async def test_an_answer_without_both_counts_reports_no_tokens(
+    fake_deps: RagDependencies, workflow_for: WorkflowFor, prompt_tokens: int | None
+) -> None:
+    deps = with_ports(fake_deps, llm=UncountedLLM(prompt_tokens))
+
+    result = await workflow_for(deps).run(VACATION_QUESTION)
+
+    assert (result.answer, result.tokens) == ("an answer", {})
+
+
+def rewritten_first() -> GraphDescription:
+    """The fixture's graph, with a second generate stage that rewrites the question."""
+    graph = fixture_graph()
+    graph["stages"] = {"rewrite": REWRITE_STAGE, **graph["stages"]}
+    graph["edges"] = [["START", "rewrite", "embed"], *graph["edges"]]
+    graph["edges"][1] = [n for n in graph["edges"][1] if n != "START"]
+    return GraphDescription.model_validate(graph)
+
+
+@pytest.mark.parametrize(
+    ("mode", "reported"),
+    [("query", ["rewrite", "generate"]), ("retrieve", ["rewrite"])],
+)
+async def test_each_generate_stage_that_runs_reports_its_tokens_under_its_name(
+    fake_deps: RagDependencies,
+    fake_settings: WorkflowSettings,
+    mode: RagMode,
+    reported: list[str],
+) -> None:
+    context = StageContext({**fake_settings.prompts, "rewrite": REWRITE_PROMPT})
+    workflow = build_workflow(rewritten_first(), fake_deps.components(), context)
+
+    result = await workflow.run("How many vacation days?", mode=mode)
+
+    assert list(result.tokens) == reported  # in the graph's order
+    # The fake's word counts: "Rewrite: How many vacation days?", then its echo.
+    assert result.tokens["rewrite"] == {"prompt": 5, "completion": 6}
 
 
 async def test_no_reranker_keeps_retrieval_order(
@@ -306,3 +399,12 @@ def test_stage_timings_keys_every_stage_in_the_graph_s_order_then_the_total() ->
 
     assert timings == {"embed": 1.0, "rerank": 3.0, "generate": 0.0, "total": 9.5}
     assert list(timings) == ["embed", "rerank", "generate", "total"]
+
+
+def test_stage_tokens_keys_each_reporting_stage_in_the_graph_s_order() -> None:
+    late, early = {"prompt": 9, "completion": 2}, {"prompt": 5, "completion": 6}
+    recorded = {"generate": late, "rewrite": early}  # in no particular order
+
+    tokens = stage_tokens(["rewrite", "embed", "generate"], recorded)
+
+    assert list(tokens.items()) == [("rewrite", early), ("generate", late)]

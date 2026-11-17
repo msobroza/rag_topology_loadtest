@@ -4,8 +4,9 @@ A field exists because the request or a stage writes it, and its type is the
 type of what writes it (spec 3.2). Two writers that disagree on a field's type
 are refused; a writer of type ``Any`` is not compared. LangGraph is handed a
 ``TypedDict`` of those fields, built at run time, which always holds
-``timings_ms`` with its reducer. ``metadata_filter`` accumulates: a stage
-that writes it adds conditions and never removes the client's.
+``timings_ms`` and ``tokens`` with their reducer. ``metadata_filter``
+accumulates: a stage that writes it adds conditions and never removes the
+client's.
 
 Example:
     >>> types = field_types_of({"embed": FieldTypes(
@@ -35,7 +36,9 @@ from .workflow_state import (
     METADATA_FILTER_FIELD,
     REQUEST_FIELD_TYPES,
     TIMINGS_FIELD,
-    merge_timings,
+    TOKENS_FIELD,
+    StageTokens,
+    merge_by_stage,
 )
 
 # Who writes the request's fields, as a refusal names it.
@@ -201,15 +204,15 @@ def _class_accepts(given: Any, annotation: Any) -> bool:
 
 
 def state_type(field_types: Mapping[str, Any]) -> type[Any]:
-    """Return the LangGraph state of these fields, with ``timings_ms`` and its reducer.
+    """Return the LangGraph state of these fields, the measured ones with their reducer.
 
     Args:
         field_types: Each field's type, by name, as ``field_types_of`` gives.
 
     Returns:
         A ``TypedDict`` in which no field is required: a field is set when its
-        writer has run. ``metadata_filter`` and ``timings_ms`` are always
-        there, with their reducers.
+        writer has run. ``metadata_filter``, ``timings_ms`` and ``tokens``
+        are always there, with their reducers.
 
     Example:
         >>> get_type_hints(state_type({"draft": str}))["draft"]
@@ -218,7 +221,8 @@ def state_type(field_types: Mapping[str, Any]) -> type[Any]:
     fields = {
         **field_types,
         METADATA_FILTER_FIELD: Annotated[list[MetadataCondition], add_conditions],
-        TIMINGS_FIELD: Annotated[dict[str, float], merge_timings],
+        TIMINGS_FIELD: Annotated[dict[str, float], merge_by_stage],
+        TOKENS_FIELD: Annotated[dict[str, StageTokens], merge_by_stage],
     }
     # The functional form, since the fields are known only at run time; mypy
     # types only a literal dict there.

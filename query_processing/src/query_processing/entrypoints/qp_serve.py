@@ -57,7 +57,12 @@ logger = logging.getLogger("query_processing")
 
 
 class QueryResponse(BaseModel):
-    """The workflow's answer, the passages it used and the time each stage took."""
+    """The workflow's answer, its passages, the time and tokens of each stage.
+
+    ``tokens`` holds, under each stage whose LLM reported both counts, the
+    ``prompt`` and ``completion`` tokens; ``{}`` when no stage did, as on a
+    ``/retrieve`` that asks the LLM nothing.
+    """
 
     request_id: str
     # The topology alias, as X-RAG-Topology; None when none was given.
@@ -68,6 +73,7 @@ class QueryResponse(BaseModel):
     answer: str | None
     passages: list[ScoredPassage]
     timings_ms: dict[str, float]
+    tokens: dict[str, dict[str, int]]
     # The conditions applied: the client's, then those the stages added.
     metadata_filter: list[MetadataCondition]
 
@@ -364,6 +370,7 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
         run_label=settings.run_label,
         mode=mode,
         timings_ms=result.timings_ms,
+        tokens=result.tokens,
         status=HTTPStatus.OK.value,
     )
     return QueryResponse(
@@ -383,7 +390,8 @@ async def query(body: QueryRequest, request: Request) -> QueryResponse:
         request: The HTTP request, for its request id and the app's state.
 
     Returns:
-        The answer, the passages it used and the time each stage took.
+        The answer, the passages it used, the time each stage took and the
+        tokens of each stage whose LLM reported its counts.
     """
     return await _answer(request, body, "query")
 

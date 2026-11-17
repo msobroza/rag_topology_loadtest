@@ -264,7 +264,10 @@ async def test_the_generate_stage_reads_any_number_of_fields_as_its_variables() 
 
     update = await stage.run({**ASKED, "kept": [scored("a", "2 days.")], "n": 3})
 
-    assert update == {"reply": "[fake-llm] vacation in May|2 days.|3"}
+    assert update == {
+        "reply": "[fake-llm] vacation in May|2 days.|3",
+        "tokens": {"prompt": 4, "completion": 5},  # the fake's word counts
+    }
 
 
 def test_required_lexical_search_hands_back_a_store_that_ranks_text() -> None:
@@ -295,4 +298,8 @@ async def test_a_generate_stage_with_a_schema_writes_each_of_its_fields() -> Non
         {"conversational_query": "and b?", "conversational_history": []}
     )
 
-    assert update == {"standalone_query": "[fake-llm] and b?", "metadata_filter": []}
+    assert update == {
+        "standalone_query": "[fake-llm] and b?",
+        "metadata_filter": [],
+        "tokens": {"prompt": 2, "completion": 3},  # the fake's word counts
+    }

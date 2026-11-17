@@ -1,8 +1,8 @@
-"""The workflow state: what a request starts with, and how stage timings merge."""
+"""The workflow state: what a request starts with, and how stage measures merge."""
 
 from __future__ import annotations
 
-from query_processing.application.workflow_state import initial_state, merge_timings
+from query_processing.application.workflow_state import initial_state, merge_by_stage
 from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.metadata_filter import MetadataCondition
 
@@ -17,6 +17,7 @@ def test_the_question_is_both_queries_and_the_history_is_empty() -> None:
         "mode": "retrieve",
         "metadata_filter": [],
         "timings_ms": {},
+        "tokens": {},
     }
 
 
@@ -38,10 +39,10 @@ def test_the_clients_earlier_turns_are_the_conversational_history() -> None:
     assert state["standalone_query"] == "vacation days?"
 
 
-def test_merge_timings_merges_dicts_right_wins() -> None:
-    assert merge_timings({"embed": 1.0}, {"retrieve": 2.0}) == {
+def test_merge_by_stage_merges_dicts_right_wins() -> None:
+    assert merge_by_stage({"embed": 1.0}, {"retrieve": 2.0}) == {
         "embed": 1.0,
         "retrieve": 2.0,
     }
-    assert merge_timings({"embed": 1.0}, {"embed": 3.0}) == {"embed": 3.0}
-    assert merge_timings({}, {}) == {}
+    assert merge_by_stage({"embed": 1.0}, {"embed": 3.0}) == {"embed": 3.0}
+    assert merge_by_stage({}, {}) == {}

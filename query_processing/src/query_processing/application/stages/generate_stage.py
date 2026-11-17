@@ -10,7 +10,9 @@ for one instance of it and writes each of its fields to the field of
 fields (``narrowed_to``), and its prompt also gets them as
 ``metadata_field_info``. A stage that states ``max_tokens`` caps its answer:
 the LLM sends the cap to its endpoint. The cap is the stage's, not the LLM's,
-so a rewrite under a schema is not cut short by the cap of an answer.
+so a rewrite under a schema is not cut short by the cap of an answer. The
+stage hands the token counts its LLM reported to ``tokens``, which records
+them under the stage's name.
 
 Example:
     >>> stage = GenerateStage(llm, GenerateSettings(prompt="answer_from_context"),
@@ -29,12 +31,13 @@ from typing import Any
 from pydantic import BaseModel, ValidationError, field_validator
 
 from ...adapters.llm.base_llm import BaseLLM
+from ...domain.component_requests import GenerateAnswer
 from ...domain.errors import RagDependencyError
 from ...domain.metadata_filter import MetadataFieldInfo
 from ...domain.prompts import Prompt
 from ..output_schemas import OUTPUT_SCHEMAS, condition_fields, narrowed_to
 from ..prompt_rendering import prompt_placeholders, prompt_variables, render_prompt
-from ..workflow_state import MESSAGES_TYPE, WorkflowState
+from ..workflow_state import MESSAGES_TYPE, TOKENS_FIELD, WorkflowState
 from .base_stage import (
     STAGE_TYPES,
     BaseStage,
@@ -168,7 +171,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
 
         Returns:
             The field of ``writes``: the answer; under a schema, each of the
-            schema's fields, from the instance the LLM answered.
+            schema's fields, from the instance the LLM answered; with
+            ``answer_tokens`` of the answer, its token counts when it has both.
 
         Raises:
             RagDependencyError: Under a schema, the answer is not an instance
@@ -179,7 +183,10 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
             variables[METADATA_FIELD_INFO_VARIABLE] = list(self._field_info)
         messages = render_prompt(self._prompt, variables)
         cap = self.settings.max_tokens
-        text = (await self.component.generate(messages, self._asked, cap)).text
+        answered = await self.component.generate(messages, self._asked, cap)
+        return {**self._written(answered.text), **answer_tokens(answered)}
+
+    def _written(self, text: str) -> WorkflowState:
         # _asked is None only when _schema is: the second test is for the type checker.
         if self._schema is None or self._asked is None:
             return self.write_field(text)
@@ -189,6 +196,31 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
             # conditions. Dumped by alias, which the narrowed schema keeps.
             answer = self._schema.model_validate(answer.model_dump(by_alias=True))
         return {field: getattr(answer, field) for field in self.fields.writes}
+
+
+def answer_tokens(answer: GenerateAnswer) -> WorkflowState:
+    """Return the tokens an answer reports, unnamed, or nothing unless both counts are.
+
+    One count alone is left out with the other: a tokens-a-second figure needs
+    the completion count, and a prompt count alone would read as an answer of 0
+    tokens. ``timed`` puts the counts under the stage's name.
+
+    Args:
+        answer: The LLM's answer, whose counts sum the attempts of one asked again.
+
+    Returns:
+        ``{"tokens": {"prompt": n, "completion": m}}``, or ``{}`` when either
+        count is None.
+
+    Example:
+        >>> answer_tokens(GenerateAnswer(text="Paris.", prompt_tokens=829,
+        ...                              completion_tokens=128))
+        {'tokens': {'prompt': 829, 'completion': 128}}
+    """
+    prompt, completion = answer.prompt_tokens, answer.completion_tokens
+    if prompt is None or completion is None:
+        return {}
+    return {TOKENS_FIELD: {"prompt": prompt, "completion": completion}}
 
 
 def _named_prompt(name: str, context: StageContext) -> Prompt:

@@ -72,7 +72,12 @@ from .state_fields import (
     type_fits,
     written_fields,
 )
-from .workflow_state import REQUEST_FIELDS, RESPONSE_FIELD_TYPES, RESPONSE_FIELDS
+from .workflow_state import (
+    MEASURED_FIELDS,
+    REQUEST_FIELDS,
+    RESPONSE_FIELD_TYPES,
+    RESPONSE_FIELDS,
+)
 
 # A stage named like one of these could not be told from it.
 _RESERVED_STAGE_NAMES = {
@@ -143,7 +148,8 @@ def check_graph(  # noqa: PLR0913 - three of them are the tests' seams
             field that is not sure to be set when it runs, or a label edge has
             other rows than the labels of its field; a stage reads a
             field as another type than its writer writes; two writers write a
-            field as two types; or a stage writes a field nothing reads.
+            field as two types; a stage writes a field the workflow measures
+            for each stage; or a stage writes a field nothing reads.
 
     Example:
         >>> check_graph(settings.graph, settings.component_types(),
@@ -155,6 +161,7 @@ def check_graph(  # noqa: PLR0913 - three of them are the tests' seams
         name: _declared_fields(name, stage, declared, stage_types, context)
         for name, stage in graph.stages.items()
     }
+    _check_measured_fields_unwritten(fields)
     check_edges(graph, edge_conditions, field_labels(fields))
     _check_fields_read(graph, fields)
     _check_read_types(graph, fields, edge_conditions)
@@ -419,6 +426,18 @@ def _reads(
         for field, takes in RESPONSE_FIELD_TYPES.items()
     ]
     return [*stages, *edges, *response]
+
+
+def _check_measured_fields_unwritten(fields: Mapping[str, FieldTypes]) -> None:
+    # The workflow writes them under each stage's name; a stage's value is lost.
+    for name, declared in fields.items():
+        written = [field for field in MEASURED_FIELDS if field in declared.writes]
+        if written:
+            raise WorkflowGraphError(
+                f"stage {name!r} writes {written[0]!r}, which the workflow "
+                "measures for each stage (expected a field other than "
+                f"{quoted(MEASURED_FIELDS)})"
+            )
 
 
 def _check_fields_unread(

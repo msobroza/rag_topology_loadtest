@@ -442,6 +442,24 @@ async def test_timed_adds_the_stage_wall_time_under_its_name_to_its_update() -> 
 
     assert update["answer"] == "HI"
     assert set(update["timings_ms"]) == {"loud"}
+    assert "tokens" not in update  # a stage that hands no tokens reports none
+
+
+class CountingStage(ShoutStage):
+    """The shout stage, handing unnamed tokens as a generate stage does."""
+
+    async def run(self, state: WorkflowState) -> WorkflowState:
+        update = await super().run(state)
+        return {**update, "tokens": {"prompt": 7, "completion": 2}}
+
+
+async def test_timed_puts_the_tokens_a_stage_hands_under_its_name() -> None:
+    fields = StageFields(("answer",), ("answer",))
+    stage = CountingStage(FakeScribe(), NoSettings(), fields, StageContext())
+
+    update = await timed("loud", stage)({"answer": "hi"})
+
+    assert update["tokens"] == {"loud": {"prompt": 7, "completion": 2}}
 
 
 @pytest.mark.parametrize(

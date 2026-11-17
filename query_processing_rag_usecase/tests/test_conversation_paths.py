@@ -7,7 +7,8 @@ the router and the LLM. A first message is answered as before the router
 existed; a message with a conversational history is routed; and one the router
 says leans on it is rewritten first, into the standalone query the rest of the
 graph searches with, with conditions when the LLM names a source. ``timings_ms``
-cannot tell the paths apart: it keeps a key for a stage that did not run.
+cannot tell the paths apart: it keeps a key for a stage that did not run;
+``tokens`` can, since only a stage whose LLM reported its counts has a key.
 """
 
 from __future__ import annotations
@@ -129,12 +130,13 @@ def test_a_first_message_skips_the_router_and_the_rewrite(
 ) -> None:
     app = routed_to("leans_on_history")  # which nothing asks
 
-    app.query(all_fake, question=FIRST_MESSAGE)
+    answered = app.query(all_fake, question=FIRST_MESSAGE)
 
     assert app.router_embedder.queries == []
     assert app.router.embeddings == []
     assert app.llm.schemas() == [None]  # the answer alone
     assert app.embedder.queries == [FIRST_MESSAGE]
+    assert list(answered["tokens"]) == ["generate"]  # no rewrite key
 
 
 def test_a_follow_up_that_stands_alone_is_routed_and_not_rewritten(
@@ -142,7 +144,9 @@ def test_a_follow_up_that_stands_alone_is_routed_and_not_rewritten(
 ) -> None:
     app = routed_to("self_contained")
 
-    app.query(all_fake, question=FOLLOW_UP, conversational_history=EARLIER_TURNS)
+    answered = app.query(
+        all_fake, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
+    )
 
     # The router is asked about the message as the user sent it, embedded by
     # its own embedder; the store's embedder then embeds the same message.
@@ -150,6 +154,7 @@ def test_a_follow_up_that_stands_alone_is_routed_and_not_rewritten(
     assert app.router.embeddings == [FakeEmbedder().embed_text(FOLLOW_UP)]
     assert app.llm.schemas() == [None]
     assert app.embedder.queries == [FOLLOW_UP]
+    assert list(answered["tokens"]) == ["generate"]  # no rewrite key
 
 
 def test_a_follow_up_the_router_says_leans_on_the_conversation_is_rewritten(
@@ -176,6 +181,9 @@ def test_a_follow_up_the_router_says_leans_on_the_conversation_is_rewritten(
     # What is searched is the rewrite, here the fake LLM's echo of the message.
     assert app.embedder.queries == [f"[fake-llm] {FOLLOW_UP}"]
     assert answered["metadata_filter"] == []  # the fake names no source
+    # Both stages that called the LLM report its counts, in the graph's order.
+    assert list(answered["tokens"]) == ["rewrite", "generate"]
+    assert all(counts["completion"] > 0 for counts in answered["tokens"].values())
 
 
 def test_the_rewrite_is_asked_for_conditions_on_the_stores_source_only(
