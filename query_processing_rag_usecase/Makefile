@@ -4,7 +4,7 @@
 # pipeline file). The install and the gates are the repository root's: make
 # install-dev, make check there.
 .DEFAULT_GOAL := help
-.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-workflow status loadtest-domino deploy-dry-run
+.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run
 
 # The toolkit, beside this directory: its Locust file, its OVMS exporter and its
 # local infrastructure.
@@ -80,6 +80,9 @@ deploy-embedder: ## On Domino: publish (or redeploy) the embedder App only
 
 deploy-reranker: ## On Domino: publish (or redeploy) the reranker App only
 	$(BIN)qp-deploy deploy reranker
+
+deploy-llm: ## On Domino: publish (or redeploy) the LLM's App only (an alias that says llm: served)
+	$(BIN)qp-deploy deploy llm
 
 deploy-workflow: ## On Domino: publish (or redeploy) the workflow App only
 	$(BIN)qp-deploy deploy workflow

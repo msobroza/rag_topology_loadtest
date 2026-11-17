@@ -28,6 +28,9 @@ from domino_deploy_helpers import (
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.apps_client import DominoDeployError
 from query_processing.deploy.deploy_settings import DeploySettings
+from query_processing.deploy.model_server_kinds.fastapi_kind import (
+    FastApiModelServerKind,
+)
 from query_processing.deploy.publish import deploy
 from shout_components import SHOUT_EXTENSION, write_shout_workflow
 
@@ -126,6 +129,23 @@ def test_the_ovms_kind_refuses_a_registered_component(
         "with the model-server kind 'ovms' (apps.shouter.server, else "
         "defaults.server, in deploy.yaml), which cannot serve it: the kinds that "
         "can are 'fastapi'"
+    )
+
+
+def test_a_type_no_kind_serves_is_refused_naming_each_kind_and_what_it_serves(
+    shout_workflow: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every type with a served backend has a kind today, since only ovms serves
+    # an LLM and fastapi every registered type: a fastapi that served no
+    # registered type leaves the shouter with none.
+    monkeypatch.setattr(
+        FastApiModelServerKind, "serves_registered_types", property(lambda _: False)
+    )
+    assert refusal(shout_settings(shout_workflow, {"shouter": "served"})) == (
+        "topology alias 'shout' serves component 'shouter', of type 'shouter', "
+        "which no model-server kind can serve: fastapi serves embedder or "
+        "reranker, ovms serves embedder or reranker or llm; leave 'shouter' out "
+        "of the row to keep the backend the workflow file gives it"
     )
 
 

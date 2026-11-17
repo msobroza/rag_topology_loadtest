@@ -54,24 +54,32 @@ def test_each_launch_script_defines_the_bootstrap_and_the_command(kind: str) -> 
     assert result.stdout.split() == ["bootstrap_model_server", "serve_model_server"]
 
 
-@pytest.mark.parametrize("kind", MODEL_SERVER_KINDS.names())
-def test_each_kind_serves_an_embedder_and_a_reranker_and_no_llm(kind: str) -> None:
+@pytest.mark.parametrize(
+    ("kind", "serves_an_llm"), [("fastapi", False), ("ovms", True)]
+)
+def test_each_kind_serves_an_embedder_and_a_reranker_and_only_ovms_an_llm(
+    kind: str, serves_an_llm: bool
+) -> None:
     served = model_server_kind(kind)
     assert [served.serves(t) for t in ("embedder", "reranker", "llm")] == [
         True,
         True,
-        False,
+        serves_an_llm,
     ]
     assert served.route_of("embedder") == "/v3/embeddings"
     assert served.route_of("reranker") == "/v3/rerank"
 
 
+def test_ovms_serves_an_llm_on_its_chat_completions_route() -> None:
+    assert model_server_kind("ovms").route_of("llm") == "/v3/chat/completions"
+
+
 def test_a_type_a_kind_does_not_serve_has_no_route() -> None:
     with pytest.raises(ValueError, match="no component of type") as caught:
-        model_server_kind("ovms").route_of("llm")
+        model_server_kind("ovms").route_of("vector_store")
     assert str(caught.value) == (
-        "this model-server kind serves no component of type 'llm' "
-        "(expected one of: 'embedder', 'reranker')"
+        "this model-server kind serves no component of type 'vector_store' "
+        "(expected one of: 'embedder', 'reranker', 'llm')"
     )
 
 

@@ -1,10 +1,11 @@
 """The ``ovms`` model-server kind: OpenVINO Model Server.
 
-It serves an embedder or a reranker exported to OpenVINO IR, on its own /v3
-routes. Its launch script is ``domino/model_servers/ovms.sh``, which runs the
-OVMS binary of the bundle the deploy settings name (``ovms_bundle``): the
-deploy tool exports that path as ``QP_OVMS_BUNDLE`` and refuses, before
-anything is published, a bundle that does not exist.
+It serves an embedder or a reranker exported to OpenVINO IR, and an LLM, on
+its own /v3 routes: the LLM on its chat completions route. Its launch script
+is ``domino/model_servers/ovms.sh``, which runs the OVMS binary of the bundle
+the deploy settings name (``ovms_bundle``): the deploy tool exports that path
+as ``QP_OVMS_BUNDLE`` and refuses, before anything is published, a bundle that
+does not exist.
 
 Example:
     >>> OvmsModelServerKind().route_of("embedder")
@@ -18,6 +19,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from ...domain.api_endpoint import (
+    MODEL_SERVER_CHAT_PATH,
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,
@@ -31,7 +33,7 @@ if TYPE_CHECKING:  # deploy_settings checks a kind's name against the registry
 
 @MODEL_SERVER_KINDS.register("ovms")
 class OvmsModelServerKind(BaseModelServerKind):
-    """OpenVINO Model Server: an embedder or a reranker, from the OVMS bundle.
+    """OpenVINO Model Server: an embedder, a reranker or an LLM, from the OVMS bundle.
 
     Example:
         >>> OvmsModelServerKind().launch_exports(settings)
@@ -44,6 +46,7 @@ class OvmsModelServerKind(BaseModelServerKind):
         return {
             "embedder": MODEL_SERVER_EMBEDDINGS_PATH,
             "reranker": MODEL_SERVER_RERANK_PATH,
+            "llm": MODEL_SERVER_CHAT_PATH,
         }
 
     @property

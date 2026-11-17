@@ -209,6 +209,32 @@ def test_on_domino_a_served_component_is_called_with_the_run_token(
     assert (body["model"], auth) == (RERANKER_ALIAS, f"Bearer {RUN_TOKEN}")
 
 
+def test_on_domino_a_served_llm_is_called_with_the_run_token_under_its_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    qp_serve_apps: list[FastAPI],
+    endpoints: FakeModelEndpoints,
+) -> None:
+    # What qp-deploy hands the workflow App for an LLM in an OVMS App of its own.
+    set_environment(
+        monkeypatch,
+        {
+            **SERVED_RERANKER,
+            "QP_COMPONENTS__RERANKER__BACKEND": "fake",
+            "QP_COMPONENTS__LLM__BACKEND": "served",
+            "QP_COMPONENTS__LLM__SERVED__URL": CHAT_URL,
+            "QP_COMPONENTS__LLM__ALIAS": "llama-3",
+        },
+    )
+
+    assert qp_serve.main(["--domino"]) == 0
+    with TestClient(qp_serve_apps[0]) as client:
+        response = client.post("/query", json={"question": QUESTION})
+
+    assert response.status_code == 200, response.text
+    [(body, auth)] = endpoints.sent_to(CHAT_URL)
+    assert (body["model"], auth) == ("llama-3", f"Bearer {RUN_TOKEN}")
+
+
 def test_off_domino_a_served_component_is_called_with_no_key(
     monkeypatch: pytest.MonkeyPatch,
     qp_serve_apps: list[FastAPI],

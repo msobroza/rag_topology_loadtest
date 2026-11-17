@@ -154,6 +154,44 @@ def test_the_two_commented_site_values_pass_the_dry_run_once_uncommented(
     assert json.loads(shlex.split(prefilter)[0]) == PREFILTER_READ
 
 
+# The three commented pieces that serve the LLM by OVMS: the alias row, the
+# LLM's App block, and its model and served name under the overrides.
+LLM_SOURCE_ID, LLM_ALIAS = "OpenVINO/Qwen3.5-2B-int4-ov", "qwen3.5-2b"
+SERVED_LLM = (
+    "  # split-all-llm: {embedder: served, reranker: served, llm: served}\n",
+    "  # llm:\n  #   server: ovms\n  #   hardware_tier_id: real\n",
+    f"    # llm: {{source_id: {LLM_SOURCE_ID}, alias: {LLM_ALIAS}}}\n",
+)
+
+
+def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
+    filled_example: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    text = filled_example.read_text()
+    for lines in SERVED_LLM:
+        assert text.count(lines) == 1
+        text = text.replace(lines, uncommented(lines))
+    filled_example.write_text(text)
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "split-all-llm")
+    monkeypatch.setenv("QP_DEPLOY_OVMS_BUNDLE", str(tmp_path))
+
+    code, out, err = dry_run(capsys)
+
+    assert (code, err) == (0, "")
+    parts = ["embedder", "reranker", "llm", "workflow"]
+    assert published(out) == [f"qp-rag-{part}" for part in parts]
+    assert "    export QP_MODEL_SERVER_KIND=ovms\n" in out
+    for export in (f"SOURCE_ID={LLM_SOURCE_ID}", f"ALIAS={LLM_ALIAS}"):
+        assert out.count(f"    export QP_COMPONENTS__LLM__{export}\n") == 4
+    url = re.findall(r"export QP_COMPONENTS__LLM__SERVED__URL=(\S+)", out)
+    assert [u.endswith("/v3/chat/completions") for u in url] == [True]
+    label = "split-all-llm+embedder=fastapi+reranker=fastapi+llm=ovms"
+    assert f"    export QP_RUN_LABEL={label}\n" in out
+
+
 def test_every_app_runs_the_toolkits_launch_script_in_this_directory(
     filled_example: Path, use_case_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

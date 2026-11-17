@@ -305,7 +305,7 @@ Start from a copy of the RAG's:
 | `pyproject.toml` | A distribution of its own that depends on `query-processing`, which `domino/app.sh` installs with the toolkit: its package under `src/`, the libraries its implementations need and the commands it installs. With no code, `packages = []`. |
 | `src/query_processing_<name>_usecase/` | When it has code: its package, in the toolkit's layers (`domain`, `config`, `adapters`, `application`, `infrastructure`, `entrypoints`) and with no `composition`, since a class builds itself. It imports the toolkit through `query_processing.extension_api` alone, and its `__init__.py` files stay empty. The RAG's holds its kNN router (`adapters/router/local/knn_router.py`), its settings, the pipeline file it loads, and `qp-rag-train-router`. |
 | `.env.example` | The API keys, by their paths; `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a load test straight at a reranker. |
-| `Makefile` | Its run targets. The RAG's names the toolkit as `../query_processing`, the RAG's components in `deploy-embedder`, `deploy-reranker` and `SERVE ?= reranker`, and its own command in `train-router`. |
+| `Makefile` | Its run targets. The RAG's names the toolkit as `../query_processing`, the RAG's components in `deploy-embedder`, `deploy-reranker`, `deploy-llm` and `SERVE ?= reranker`, and its own command in `train-router`. |
 | `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. An implementation of its own is tested by a subclass of a test class the toolkit ships, and its imports by a structure test of its own (the RAG's `tests/test_layering.py`). |
 
 The root `Makefile` and the CI install and test the RAG use case only: install
@@ -906,7 +906,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         reranker_on_api.py  the reranker of an endpoint we do not run; open_reranker_at, which both use
         reranker_on_fake.py  FakeReranker
         reranker_on_none.py  NoReranker
-        llm_on_served.py  the LLM of a model server of ours (none serves one yet): its served URL, the standard format, its alias
+        llm_on_served.py  the LLM of a model server of ours (OVMS alone serves one): its served URL, the standard format, its alias
         llm_on_api.py  the LLM of an endpoint we do not run, under its own timeout; open_llm_at, which both use
         llm_on_fake.py  FakeLLM
         vector_store_on_elasticsearch.py  Elasticsearch, its client closed with the scope
@@ -2485,7 +2485,8 @@ its kind's script reads (`QP_OVMS_BUNDLE` for `ovms`), the workflow App's
 `QP_TOPOLOGY_ALIAS`, `QP_COMPONENTS__<COMPONENT>__BACKEND` of each component the
 topology alias names and `QP_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
 one (the model server App's URL plus the route its kind declares for its type,
-`/v3/rerank` or `/v3/embeddings`), and `QP_BOOTSTRAP` itself (they win over the
+`/v3/rerank`, `/v3/embeddings` or, for an LLM, `/v3/chat/completions`), and
+`QP_BOOTSTRAP` itself (they win over the
 settings and the overrides, which come first in the launch script), and
 `QP_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
 Domino's project or user environment variables, because `settings` and
@@ -2537,10 +2538,27 @@ type does not have (naming the type's backends: the vector store or the LLM on
 `local`, which the workflow App would otherwise refuse when it starts; a type's
 backends are its registered openers, rule 5), a model-server kind no class is registered
 under (naming the kinds), a served component its App's kind cannot serve (naming
-the kinds that can, or, when none can, each kind and what it serves: a served
-LLM is refused, since neither `fastapi` nor `ovms` serves one), and an alias
+the kinds that can, such as `ovms` for an LLM on `fastapi`, or, when none can,
+each kind and what it serves), and an alias
 whose run label the workflow app would refuse (letters, digits and `._+=:-`, up
 to 128 characters). Each message names the value and what was expected.
+
+**A served LLM.** The LLM can run in a model server App of its own, served by
+OpenVINO Model Server: a row that says `llm: served`, such as the example's
+commented `split-all-llm`, and `server: ovms` in `apps.llm` (or
+`defaults.server: ovms`), with `ovms_bundle` set. `ovms` is the one kind that
+serves an LLM, on its chat completions route; `fastapi` serves none. `qp-deploy`
+publishes `<app_name_prefix>-llm` (`qp-rag-llm`) after the other model servers
+and before the workflow App, which gets `QP_COMPONENTS__LLM__BACKEND=served` and
+the App's URL plus `/v3/chat/completions`, and calls it with the run token as it
+calls any served component; the run label gains `+llm=ovms`, and `make
+deploy-llm` publishes that App alone. The model OVMS serves is the LLM's
+`source_id` and the name it is served and asked for under its `alias`, both under
+`overrides.components.llm`, in one place. The RAG's rewrite sends its schema as
+`response_format` by default; whether OVMS honours it has not been checked. For
+an endpoint that imposes no schema, the setting is the LLM's `structured_output:
+format_instructions` (`overrides.components.llm.served.structured_output` for a
+served LLM). An LLM App on OVMS has not run on a machine.
 
 **App or Agent.** `kind: agent` publishes the App with `configurationType:
 AISYSTEM` (Domino: "Agents use the same hosting infrastructure as Domino Apps";
@@ -2597,8 +2615,8 @@ is what the workflow App gets as `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_CO
 the URL alone is what `qp-deploy url <part>` prints, what `make status` shows and
 checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
 own `url` stays in the messages that point at its page or logs. The instance id
-changes at every redeploy, so after `make deploy-embedder` or `make
-deploy-reranker` alone, `qp-deploy` reminds you that the workflow App
+changes at every redeploy, so after `make deploy-embedder`, `make
+deploy-reranker` or `make deploy-llm` alone, `qp-deploy` reminds you that the workflow App
 (`qp-rag-workflow` for the RAG use case) still calls the previous instance: run `make
 deploy-workflow`. Every model server call in a split topology goes through
 Domino's proxy: it is part of what the split topologies measure on Domino.

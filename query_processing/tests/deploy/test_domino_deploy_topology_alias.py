@@ -253,22 +253,20 @@ def test_a_row_naming_a_component_the_workflow_file_lacks_is_refused() -> None:
     )
 
 
-@pytest.mark.parametrize("server", ["fastapi", "ovms"])
-def test_a_served_llm_is_refused_naming_each_kind_and_what_it_serves(
-    tmp_path: Path, server: str
+@pytest.mark.parametrize(
+    "apps_blocks", [{}, {"llm": {"server": "fastapi"}}], ids=["default", "own"]
+)
+def test_a_served_llm_on_the_fastapi_kind_is_refused_naming_ovms(
+    apps_blocks: dict[str, dict[str, str]],
 ) -> None:
-    # No registered kind serves an LLM, whatever the App's own kind.
+    # Only ovms serves an LLM: fastapi, the default kind or the App's own, does not.
     settings = with_alias(
-        "with-llm",
-        {"reranker": "served", "llm": "served"},
-        apps={"llm": {"server": server}},
-        ovms_bundle=str(tmp_path),
+        "with-llm", {"reranker": "served", "llm": "served"}, apps=apps_blocks
     )
     assert refusal(FakeDominoApps(), settings) == (
-        "topology alias 'with-llm' serves component 'llm', of type 'llm', which no "
-        "model-server kind can serve: fastapi serves embedder or reranker, ovms "
-        "serves embedder or reranker; leave 'llm' out of the row to keep the "
-        "backend the workflow file gives it"
+        "topology alias 'with-llm' serves component 'llm', of type 'llm', with "
+        "the model-server kind 'fastapi' (apps.llm.server, else defaults.server, "
+        "in deploy.yaml), which cannot serve it: the kinds that can are 'ovms'"
     )
 
 

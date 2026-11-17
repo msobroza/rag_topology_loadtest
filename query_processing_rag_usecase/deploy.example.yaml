@@ -30,9 +30,9 @@ topology: split-all
 # overrides below) gives it (here the LLM, on api, and the router and its
 # embedder, local in the workflow App of every topology). A served component is
 # served by the model-server kind of its App (`server` below), of any name; a
-# component no registered kind can serve (an LLM, today), or put on a backend
-# its type does not have (the vector store or the LLM on local), is refused
-# before anything is published. A new alias
+# component its App's kind cannot serve (an LLM on fastapi: only ovms serves
+# one), or put on a backend its type does not have (the vector store or the LLM
+# on local), is refused before anything is published. A new alias
 # is one more row: qp-deploy publishes one App per served component, then the
 # workflow App, and writes each named component's backend and served URL into
 # the workflow App's launch script (the workflow app has no topology rule of its
@@ -43,6 +43,9 @@ topology_alias:
   monolith: {embedder: local, reranker: local}
   split-reranker: {embedder: local, reranker: served}
   split-all: {embedder: served, reranker: served}
+  # The LLM served too, by OVMS in an App of its own (apps.llm below, and its
+  # model under overrides.components.llm); its run label ends +llm=ovms:
+  # split-all-llm: {embedder: served, reranker: served, llm: served}
 # The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
 project_id: ""
 # Each App is named <app_name_prefix>-<part> (part: workflow or a served component),
@@ -128,6 +131,11 @@ apps:
     # starts without calibrating its streams and threads (one OVMS App serves
     # one component, so they are this App's, not every App's):
     # settings: {QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8}
+  # The LLM's App, published only under an alias that says llm: served, and
+  # served by ovms alone (needs ovms_bundle): fastapi serves no LLM.
+  # llm:
+  #   server: ovms
+  #   hardware_tier_id: <a tier with 16 cores>
 
 # This site's values of the workflow file, in its own shape (components, graph,
 # local_models, calibration, http, domino, run_label), for every App: each one is
@@ -176,6 +184,10 @@ overrides:
     # json_schema, sends it as response_format (one llm entry holds both keys
     # when both are set):
     # llm: {api: {structured_output: format_instructions}}
+    # The LLM an OVMS App serves (an alias that says llm: served): OVMS serves
+    # the model source_id names under the name alias gives, and the workflow
+    # App asks for it by that name. Both are said here alone, for every App:
+    # llm: {source_id: OpenVINO/Qwen3.5-2B-int4-ov, alias: qwen3.5-2b}
   # Where qp-export-openvino wrote the in-process models (a model without a
   # folder there is converted in memory at every start), and how many model
   # calls run at once (torch only; openvino runs one call at a time):
