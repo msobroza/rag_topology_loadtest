@@ -21,7 +21,8 @@ from query_processing.application.workflow_state import (
     METADATA_FILTER_FIELD,
     REQUEST_FIELD_TYPES,
     initial_state,
-    merge_by_stage,
+    sum_timings_by_stage,
+    sum_tokens_by_stage,
 )
 from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.metadata_filter import MetadataCondition
@@ -31,8 +32,8 @@ def test_the_state_type_holds_the_fields_the_timings_and_the_tokens() -> None:
     hints = get_type_hints(state_type({"draft": str}), include_extras=True)
 
     assert hints["draft"] is str
-    assert hints["timings_ms"].__metadata__ == (merge_by_stage,)
-    assert hints["tokens"].__metadata__ == (merge_by_stage,)
+    assert hints["timings_ms"].__metadata__ == (sum_timings_by_stage,)
+    assert hints["tokens"].__metadata__ == (sum_tokens_by_stage,)
 
 
 def test_the_fields_are_the_requests_and_those_the_stages_write() -> None:

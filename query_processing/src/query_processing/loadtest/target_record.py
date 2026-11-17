@@ -7,7 +7,9 @@ responses carried each. A workflow app given no topology alias sends no
 name nobody chose. When any answer reported its tokens, the record also holds
 their total. ``qp-compare`` reads the record back through the same class, so a
 record that is not of this shape fails with a message naming the file. A record
-written before tokens were counted has no ``tokens`` key, and still reads.
+written before tokens were counted has no ``tokens`` key, and still reads; one
+whose tokens name the LLM's time ``generate_ms``, as main's load test wrote
+it, reads it as ``llm_ms``.
 
 Example:
     >>> write_target_record("results/monolith", "rag", Counter({("monolith", "m"): 3}))
@@ -21,7 +23,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from .loadtest_settings import LoadTarget
 from .response_checks import AnswerTokens
@@ -65,7 +67,9 @@ class TokenTotals(BaseModel):
     answers: int = Field(ge=0)
     prompt: int = Field(ge=0)
     completion: int = Field(ge=0)
-    llm_ms: float = Field(ge=0)
+    # main's load test wrote this field as generate_ms (pull request 27): a
+    # record of it still compares, and is written back under llm_ms.
+    llm_ms: float = Field(ge=0, validation_alias=AliasChoices("llm_ms", "generate_ms"))
 
     def plus(self, answer: AnswerTokens) -> TokenTotals:
         """Return these totals with one more answer counted.

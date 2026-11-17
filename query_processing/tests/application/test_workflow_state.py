@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from query_processing.application.workflow_state import initial_state, merge_by_stage
+from query_processing.application.workflow_state import (
+    initial_state,
+    sum_timings_by_stage,
+    sum_tokens_by_stage,
+)
 from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.metadata_filter import MetadataCondition
 
@@ -39,10 +43,28 @@ def test_the_clients_earlier_turns_are_the_conversational_history() -> None:
     assert state["standalone_query"] == "vacation days?"
 
 
-def test_merge_by_stage_merges_dicts_right_wins() -> None:
-    assert merge_by_stage({"embed": 1.0}, {"retrieve": 2.0}) == {
+def test_the_timings_of_two_stages_are_kept_and_those_of_one_stage_added() -> None:
+    assert sum_timings_by_stage({"embed": 1.0}, {"retrieve": 2.0}) == {
         "embed": 1.0,
         "retrieve": 2.0,
     }
-    assert merge_by_stage({"embed": 1.0}, {"embed": 3.0}) == {"embed": 3.0}
-    assert merge_by_stage({}, {}) == {}
+    assert sum_timings_by_stage({"embed": 1.0}, {"embed": 3.0}) == {"embed": 4.0}
+    assert sum_timings_by_stage({}, {}) == {}
+
+
+def test_the_tokens_of_one_stage_are_added_count_by_count() -> None:
+    early = {"generate": {"prompt": 100, "completion": 7}}
+    late = {"generate": {"prompt": 100, "completion": 20}}
+
+    assert sum_tokens_by_stage(early, late) == {
+        "generate": {"prompt": 200, "completion": 27}
+    }
+    assert sum_tokens_by_stage(early, {}) == early
+
+
+def test_a_reducer_leaves_what_it_is_handed_as_it_was() -> None:
+    recorded = {"generate": {"prompt": 1, "completion": 1}}
+
+    sum_tokens_by_stage(recorded, recorded)
+
+    assert recorded == {"generate": {"prompt": 1, "completion": 1}}

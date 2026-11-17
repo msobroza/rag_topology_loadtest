@@ -17,11 +17,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from model_api_fakes import ScriptedRoute
 from output_schema_fakes import FIXTURE_SCHEMA, FixtureRewrite
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.composition.composition_root import CompositionRoot
@@ -174,6 +176,43 @@ def test_the_conditions_a_rewrite_writes_are_added_to_the_clients(
     assert answer["metadata_filter"] == [EITHER, NOT_ONBOARDING]
     assert answer["passages"]
     assert {p["metadata"]["topic"] for p in answer["passages"]} == {"remote-work"}
+
+
+def chat_completion(content: str, prompt: int, completion: int) -> httpx.Response:
+    """An OpenAI chat completion of ``content``, which reports its token counts."""
+    usage = {"prompt_tokens": prompt, "completion_tokens": completion}
+    choice = {"message": {"role": "assistant", "content": content}}
+    return httpx.Response(200, json={"choices": [choice], "usage": usage})
+
+
+def test_a_rewrite_asked_again_reports_the_tokens_of_both_attempts(
+    files: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    settings_factory: Callable[..., WorkflowSettings],
+) -> None:
+    # The seam between the LLM and the response: the LLM on its api backend,
+    # its first answer missing the schema, its second matching it.
+    workflow = write_workflow_file(files / "workflow.yaml", rewrite_graph())
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+    on_fakes = {k: v for k, v in FAKE_BACKENDS.items() if "__llm__" not in k}
+    settings = settings_factory(**on_fakes)
+    matched = json.dumps({"standalone_query": QUESTION, "metadata_filter": []})
+    route = ScriptedRoute(
+        chat_completion("not json", 100, 7),
+        chat_completion(matched, 100, 20),
+        chat_completion("Twenty-five days.", 900, 50),
+    )
+    root = CompositionRoot(settings, transport=httpx.MockTransport(route))
+
+    with TestClient(create_app(root)) as app:
+        response = app.post("/query", json={"question": QUESTION})
+
+    assert response.status_code == 200, response.text
+    assert len(route.requests) == 3
+    assert response.json()["tokens"] == {
+        "rewrite": {"prompt": 200, "completion": 27},
+        "generate": {"prompt": 900, "completion": 50},
+    }
 
 
 @pytest.mark.parametrize(

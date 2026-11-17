@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
-import pytest
+from collections.abc import Callable
 
-from query_processing.entrypoints.qp_serve import QueryResponse
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
+
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.component_requests import GenerateAnswer
+from query_processing.entrypoints.qp_serve import create_app
 from query_processing.loadtest.response_checks import (
     AnswerTokens,
     ResponseVerdict,
     judge_response,
 )
+from rag_components import FAKE_BACKENDS
 
 # --- what to record ---
 
@@ -156,24 +165,31 @@ def test_a_failure_has_no_tokens() -> None:
     assert judge_response("/query", 503, GENERATE_TOKENS).tokens is None
 
 
-def test_the_tokens_the_workflow_app_writes_are_the_tokens_the_load_test_reads() -> (
-    None
-):
+class FixedTokensLLM(FakeLLM):
+    """The fake LLM, whose every answer reports 829 prompt and 128 completion tokens."""
+
+    async def generate(
+        self,
+        messages: list[dict[str, str]],
+        output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
+    ) -> GenerateAnswer:
+        return GenerateAnswer(text="Paris.", prompt_tokens=829, completion_tokens=128)
+
+
+def test_the_tokens_the_workflow_app_writes_are_the_tokens_the_load_test_reads(
+    settings_factory: Callable[..., WorkflowSettings],
+) -> None:
     # The keys are written by the workflow app and read in
-    # loadtest/response_checks.py; a body qp-serve would send proves they agree.
-    served = QueryResponse(
-        request_id="r-1",
-        topology="monolith",
-        run_label="monolith",
-        question="What is the capital of France?",
-        mode="query",
-        answer="Paris.",
-        passages=[],
-        timings_ms={"embed": 3.0, "generate": 7474.0, "total": 7480.0},
-        tokens={"generate": {"prompt": 829, "completion": 128}},
-        metadata_filter=[],
-    )
+    # loadtest/response_checks.py; a body the app built proves they agree.
+    settings = settings_factory(**FAKE_BACKENDS)
+    root = CompositionRoot(settings, llm=FixedTokensLLM())
+    with TestClient(create_app(root)) as app:
+        response = app.post("/query", json={"question": "Capital of France?"})
+    assert response.status_code == 200, response.text
 
-    verdict = judge_response("/query", 200, served.model_dump_json())
+    verdict = judge_response("/query", response.status_code, response.text)
 
-    assert verdict.tokens == AnswerTokens(829, 128, 7474.0)
+    generate_ms = response.json()["timings_ms"]["generate"]
+    assert generate_ms > 0
+    assert verdict.tokens == AnswerTokens(829, 128, generate_ms)

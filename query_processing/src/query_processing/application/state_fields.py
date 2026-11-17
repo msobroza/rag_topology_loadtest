@@ -38,7 +38,8 @@ from .workflow_state import (
     TIMINGS_FIELD,
     TOKENS_FIELD,
     StageTokens,
-    merge_by_stage,
+    sum_timings_by_stage,
+    sum_tokens_by_stage,
 )
 
 # Who writes the request's fields, as a refusal names it.
@@ -221,8 +222,8 @@ def state_type(field_types: Mapping[str, Any]) -> type[Any]:
     fields = {
         **field_types,
         METADATA_FILTER_FIELD: Annotated[list[MetadataCondition], add_conditions],
-        TIMINGS_FIELD: Annotated[dict[str, float], merge_by_stage],
-        TOKENS_FIELD: Annotated[dict[str, StageTokens], merge_by_stage],
+        TIMINGS_FIELD: Annotated[dict[str, float], sum_timings_by_stage],
+        TOKENS_FIELD: Annotated[dict[str, StageTokens], sum_tokens_by_stage],
     }
     # The functional form, since the fields are known only at run time; mypy
     # types only a literal dict there.

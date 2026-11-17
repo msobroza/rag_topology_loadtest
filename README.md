@@ -251,7 +251,10 @@ trained on Solon's vectors of the utterances of `routes.yaml`; start-up loads
 them as they are. They are trained again, with `make train-router`, only after
 a change the manifest refuses: an utterance or a route of the router, its
 `n_neighbors` or `metric`, its embedder's alias or query prefix, or the
-scikit-learn pin. The use case's tests read the committed pipeline as start-up
+scikit-learn pin. Start-up accepts the pipeline whatever the weight format,
+runtime or backend of its embedder: the manifest records the embedder's alias
+and query prefix, never a runtime, since the format of a served embedder is not
+visible to the workflow app. The use case's tests read the committed pipeline as start-up
 does and fail on such a change, naming the command. It runs on a machine that
 has the router's embedder's model: it refuses to train on the fake embedder's
 vectors, which no model gives, and names the variable to unset. Commit both
@@ -1191,7 +1194,7 @@ sittings measured (streams, batch size, order of service).
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}` |
+| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}`; a stage that ran more than once in the request, in a loop or where two branches join at different depths, reports in both the sum of its runs |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`, no `generate` key in `tokens`: `{}` unless `rewrite` ran) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `router_embedder`, `reranker`); `503` when a check fails |

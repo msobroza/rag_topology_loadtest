@@ -353,3 +353,21 @@ def test_tokens_a_caller_sees_are_na_without_an_llm_time(tmp_path: Path) -> None
     row = _ovms_tokens_row(tmp_path, untimed, *OVMS_QUERY)
 
     assert row == "| ovms | 22 | 793.0 | 114.4 | n/a | 14.2 |"
+
+
+def test_a_record_mains_load_test_wrote_compares_beside_one_written_here(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # main's load test named the LLM's time generate_ms; it reads as llm_ms.
+    main_run = _stats_csv(tmp_path / "main", *OVMS_QUERY)
+    Path(f"{main_run}_target.json").write_text(
+        '{"target": "rag", "seen": [], "tokens": {"answers": 22, "prompt": 17446, '
+        '"completion": 2516, "generate_ms": 164428.0}}'
+    )
+    today = _stats_csv(tmp_path / "today", *OVMS_QUERY)
+    write_target_record(str(today), "rag", Counter(), OVMS_TOKENS)
+
+    assert compare_main([str(main_run), str(today)]) == 0
+    out = capsys.readouterr().out
+    assert "| main | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in out
+    assert "| today | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in out

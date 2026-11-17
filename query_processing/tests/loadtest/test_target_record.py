@@ -194,6 +194,38 @@ def test_a_negative_token_total_is_refused_naming_the_field(tmp_path: Path) -> N
     assert str(caught.value).startswith(f"{path}: tokens.prompt: ")
 
 
+@pytest.mark.parametrize("llm_time_key", ["llm_ms", "generate_ms"])
+def test_the_llm_time_reads_under_its_name_and_under_mains(
+    tmp_path: Path, llm_time_key: str
+) -> None:
+    # main's load test wrote the LLM's time as generate_ms (pull request 27).
+    path = tmp_path / "run_target.json"
+    path.write_text(
+        '{"target": "rag", "seen": [], "tokens": {"answers": 1, "prompt": 829, '
+        f'"completion": 128, "{llm_time_key}": 7474.0}}}}'
+    )
+
+    record = read_target_record(path)
+
+    assert record is not None
+    assert record.tokens == TokenTotals(
+        answers=1, prompt=829, completion=128, llm_ms=7474.0
+    )
+
+
+def test_another_unknown_key_of_the_tokens_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "bad_target.json"
+    path.write_text(
+        '{"target": "rag", "seen": [], "tokens": {"answers": 1, "prompt": 1, '
+        '"completion": 1, "llm_ms": 1.0, "rerank_ms": 1.0}}'
+    )
+
+    with pytest.raises(ValueError, match="expected a target record") as caught:
+        read_target_record(path)
+
+    assert str(caught.value).startswith(f"{path}: tokens.rerank_ms: ")
+
+
 def test_a_missing_record_reads_as_none(tmp_path: Path) -> None:
     assert read_target_record(tmp_path / "absent_target.json") is None
 

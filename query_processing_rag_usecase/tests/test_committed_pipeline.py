@@ -71,6 +71,30 @@ def test_the_committed_pipeline_matches_the_use_cases_files(
     assert list(pipeline.classes_) == ["leans_on_history", "self_contained"]
 
 
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {"QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT": "int8"},
+        {"QP_LOCAL_MODELS__RUNTIME": "torch"},
+        {
+            "QP_COMPONENTS__ROUTER_EMBEDDER__BACKEND": "served",
+            "QP_COMPONENTS__ROUTER_EMBEDDER__SERVED__URL": "http://e.test/v3/embeddings",
+        },
+    ],
+    ids=["int8-weights", "torch-runtime", "served-embedder"],
+)
+def test_the_committed_pipeline_is_accepted_however_its_embedder_runs(
+    use_case_dir: Path, monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]
+) -> None:
+    # The manifest records the embedder's alias and query prefix, never how its
+    # weights run: a served embedder's format is not visible to the workflow app.
+    del use_case_dir  # requested so the settings are read from this directory
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+
+    assert list(committed_pipeline().classes_) == ["leans_on_history", "self_contained"]
+
+
 def test_the_committed_pipeline_routes_a_vector_of_its_size_to_a_route(
     use_case_dir: Path,
 ) -> None:
