@@ -2,8 +2,8 @@
 
 It is called as an ``api`` LLM is, at the endpoint ``served_endpoint``
 resolves: the route of the ``served`` block, the standard chat format, the
-alias, and the run token on Domino. Nothing of ours serves an LLM yet; the
-backend is there so that a workflow app can call one when something does.
+alias, and the run token on Domino. An OVMS model server App serves one, which
+OVMS pulls from the Hub by its source id and serves under its alias.
 
 Example:
     >>> llm = await open_llm_on_served(llm_settings, shared)

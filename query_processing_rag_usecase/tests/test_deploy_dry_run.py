@@ -38,10 +38,8 @@ RUN_LABELS = {
     "split-reranker": "split-reranker+reranker=fastapi",
     "split-all": "split-all+embedder=fastapi+reranker=fastapi",
 }
-# The two site values the example shows commented, under its overrides: how an
-# LLM endpoint that imposes no schema is asked for one, and the passages this
-# site's workflow can read at all.
-STRUCTURED_OUTPUT = "    # llm: {api: {structured_output: format_instructions}}\n"
+# A site value the example shows commented, under its overrides: the passages
+# this site's workflow can read at all.
 PREFILTER = (
     "      # prefilter:\n"
     '      #   - {attribute: ingestion_pipeline_version, comparator: eq, value: "1"}\n'
@@ -144,34 +142,55 @@ def uncomment_each(example: Path, pieces: Iterable[str]) -> None:
     example.write_text(text)
 
 
-def test_the_two_commented_site_values_pass_the_dry_run_once_uncommented(
+def test_the_commented_prefilter_passes_the_dry_run_once_uncommented(
     filled_example: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    text = filled_example.read_text()
-    assert text.count(STRUCTURED_OUTPUT) == text.count(PREFILTER) == 1
-    for lines in (STRUCTURED_OUTPUT, PREFILTER):
-        text = text.replace(lines, uncommented(lines))
-    filled_example.write_text(text)
+    uncomment_each(filled_example, (PREFILTER,))
 
     code, out, err = dry_run(capsys)
 
     assert (code, err) == (0, "")
-    method = "QP_COMPONENTS__LLM__API__STRUCTURED_OUTPUT=format_instructions"
-    assert out.count(f"    export {method}\n") == len(TOPOLOGY_APPS["split-all"])
     (prefilter,) = set(
         re.findall(r"export QP_COMPONENTS__VECTOR_STORE__PREFILTER=(.+)", out)
     )
     assert json.loads(shlex.split(prefilter)[0]) == PREFILTER_READ
 
 
-# The three commented pieces that serve the LLM by OVMS: the alias row, the
-# LLM's App block, and its model and served name under the overrides.
+# The LLM's one commented entry under the overrides, each of its keys a value
+# the dry run exports to every App: the waits of a run that measures it, how a
+# served LLM is asked for a schema, and the model an OVMS App serves and the
+# name it serves it under. One entry: YAML keeps only the last of two llm keys.
 LLM_SOURCE_ID, LLM_ALIAS = "OpenVINO/Qwen3.5-2B-int4-ov", "qwen3.5-2b"
+LLM_OVERRIDES = (
+    "    # llm:\n"
+    "    #   http: {timeout_s: 300, retries: 0}\n"
+    "    #   served: {structured_output: format_instructions}\n"
+    f"    #   source_id: {LLM_SOURCE_ID}\n"
+    f"    #   alias: {LLM_ALIAS}\n"
+)
+LLM_EXPORTS = (
+    "HTTP__TIMEOUT_S=300",
+    "HTTP__RETRIES=0",
+    "SERVED__STRUCTURED_OUTPUT=format_instructions",
+    f"SOURCE_ID={LLM_SOURCE_ID}",
+    f"ALIAS={LLM_ALIAS}",
+)
+# The two commented pieces that serve the LLM by OVMS with its entry above: the
+# alias row and the LLM's App block.
 SERVED_LLM = (
     "  # split-all-llm: {embedder: served, reranker: served, llm: served}\n",
     "  # llm:\n  #   server: ovms\n  #   hardware_tier_id: real\n",
-    f"    # llm: {{source_id: {LLM_SOURCE_ID}, alias: {LLM_ALIAS}}}\n",
 )
+
+
+def uncomment_the_llm_entry(example: Path, *pieces: str) -> None:
+    """Uncomment the LLM's entry under the overrides, its own comments taken away.
+
+    Its comment lines go first, so its keys are contiguous; then ``pieces``.
+    """
+    text = re.sub(r"^    #   # .*\n", "", example.read_text(), flags=re.M)
+    example.write_text(text)
+    uncomment_each(example, (LLM_OVERRIDES, *pieces))
 
 
 def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
@@ -180,7 +199,7 @@ def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    uncomment_each(filled_example, SERVED_LLM)
+    uncomment_the_llm_entry(filled_example, *SERVED_LLM)
     monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "split-all-llm")
     monkeypatch.setenv("QP_DEPLOY_OVMS_BUNDLE", str(tmp_path))
 
@@ -190,7 +209,8 @@ def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
     parts = ["embedder", "reranker", "llm", "workflow"]
     assert published(out) == [f"qp-rag-{part}" for part in parts]
     assert "    export QP_MODEL_SERVER_KIND=ovms\n" in out
-    for export in (f"SOURCE_ID={LLM_SOURCE_ID}", f"ALIAS={LLM_ALIAS}"):
+    # Every value the entry shows reaches every App, none dropped by another.
+    for export in LLM_EXPORTS:
         assert out.count(f"    export QP_COMPONENTS__LLM__{export}\n") == 4
     url = re.findall(r"export QP_COMPONENTS__LLM__SERVED__URL=(\S+)", out)
     assert [u.endswith("/v3/chat/completions") for u in url] == [True]
@@ -219,7 +239,7 @@ def test_the_llm_apps_commented_settings_reach_its_app_once_uncommented(
     # The settings' own comment lines go first, so the settings are contiguous.
     text = re.sub(r"^  #     # .*\n", "", filled_example.read_text(), flags=re.M)
     filled_example.write_text(text)
-    uncomment_each(filled_example, (*SERVED_LLM, LLM_APP_SETTINGS))
+    uncomment_the_llm_entry(filled_example, *SERVED_LLM, LLM_APP_SETTINGS)
     monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "split-all-llm")
     monkeypatch.setenv("QP_DEPLOY_OVMS_BUNDLE", str(tmp_path))
 
@@ -230,28 +250,23 @@ def test_the_llm_apps_commented_settings_reach_its_app_once_uncommented(
         assert out.count(f"    export {name}={value}\n") == 1  # the LLM's App alone
 
 
-# A run that measures the LLM, commented under the overrides: each answer asked
-# once, a longer wait for it, and a cap on the generate stage's answer.
-MEASURING_THE_LLM = (
-    "    # llm: {http: {timeout_s: 300, retries: 0}}\n",
-    "  # graph: {stages: {generate: {max_tokens: 128}}}\n",
-)
+# A cap on the generate stage's answer, commented under the overrides.
+MAX_TOKENS = "  # graph: {stages: {generate: {max_tokens: 128}}}\n"
 
 
-def test_the_commented_settings_of_a_run_measuring_the_llm_reach_every_app(
+def test_the_llm_entry_and_the_cap_reach_every_app_with_the_llm_on_its_api(
     filled_example: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    uncomment_each(filled_example, MEASURING_THE_LLM)
+    uncomment_the_llm_entry(filled_example, MAX_TOKENS)
 
     code, out, err = dry_run(capsys)
 
     assert (code, err) == (0, "")
-    for export in (
-        "QP_COMPONENTS__LLM__HTTP__TIMEOUT_S=300",
-        "QP_COMPONENTS__LLM__HTTP__RETRIES=0",
-        "QP_GRAPH__STAGES__GENERATE__MAX_TOKENS=128",
-    ):
-        assert out.count(f"    export {export}\n") == len(TOPOLOGY_APPS["split-all"])
+    apps = len(TOPOLOGY_APPS["split-all"])
+    for export in LLM_EXPORTS:
+        assert out.count(f"    export QP_COMPONENTS__LLM__{export}\n") == apps
+    max_tokens = "QP_GRAPH__STAGES__GENERATE__MAX_TOKENS=128"
+    assert out.count(f"    export {max_tokens}\n") == apps
 
 
 def test_every_app_runs_the_toolkits_launch_script_in_this_directory(

@@ -140,6 +140,9 @@ def test_without_uv_an_llms_option_on_a_reranker_stops_the_app(
     [line] = [x for x in result.stderr.splitlines() if x.startswith("app.sh[")]
     assert option in line
     assert "apply to an LLM" in line
+    # The places a variable this script sees can come from (it reads no .env).
+    for place in ("apps.reranker.settings", "defaults.settings", "environment"):
+        assert place in line
     assert log(tmp_path, "ovms") == ""
 
 

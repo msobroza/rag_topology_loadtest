@@ -127,6 +127,9 @@ def test_an_llm_option_on_an_embedder_or_reranker_app_is_refused(
     assert variable in message
     assert "applies to an LLM" in message
     assert "reranker" in message
+    # Every place the option can have been set, for the deployer to unset it.
+    for place in ("apps.reranker.settings", "defaults.settings", ".env"):
+        assert place in message
 
 
 def test_no_llm_option_set_lets_an_embedder_app_start() -> None:

@@ -121,10 +121,24 @@ export_model() {
   echo "export_models.sh: $1 config -> $config"
 }
 
-fetch_if_missing export_model.py
-fetch_if_missing requirements.txt
+# needs_the_exporter: true when a served model is no LLM, so has to be exported
+# (one of an unknown type too, which export_model then refuses).
+needs_the_exporter() {
+  local served
+  while IFS= read -r served; do
+    [ -n "$served" ] || continue
+    eval "set -- $served"
+    [ "$2" = llm ] || return 0
+  done <<<"$SERVED_MODELS"
+  return 1
+}
 
-"$PYTHON" -m pip install -r "$EXPORT_DIR/requirements.txt"
+# Fetched and installed only for a model to export: OVMS pulls an LLM itself.
+if needs_the_exporter; then
+  fetch_if_missing export_model.py
+  fetch_if_missing requirements.txt
+  "$PYTHON" -m pip install -r "$EXPORT_DIR/requirements.txt"
+fi
 
 # One line per model, its words shell-quoted by qp-served-models: eval only
 # splits them back into the arguments. Read on fd 3, so that the exporter

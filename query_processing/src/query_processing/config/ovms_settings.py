@@ -112,7 +112,8 @@ class OvmsSettings(BaseSettings):
         self._refuse_set(
             ("dynamic_split_fuse", "max_batched_tokens"),
             f"{component} is no LLM, and the option applies to an LLM served by "
-            "OVMS only; unset it in this App's block of deploy.yaml",
+            "OVMS only; unset it where it was set: this App's block of deploy.yaml "
+            f"(apps.{component}.settings), its defaults.settings, or .env",
         )
 
     def require_no_stream_pin(self, component: str) -> None:

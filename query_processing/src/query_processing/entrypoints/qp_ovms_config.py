@@ -8,9 +8,10 @@ start per candidate, so ``ovms`` must be on ``PATH``), writes the serving folder
 for the choice in ``--serving-dir`` (the export in ``--models-dir`` is never
 written), and prints the config file's path. Standard output holds that path
 and nothing else, for the script to read; the logs go to standard error. A
-failure an operator can act on is one line on standard error and exit code 1; a
-``--serve`` that names no embedder or reranker of the workflow file is a usage
-error.
+failure an operator can act on is one line on standard error and exit code 1,
+such as a ``--serve`` of an LLM, whose config left in the models folder it names;
+a ``--serve`` that names no embedder, reranker or LLM of the workflow file is a
+usage error.
 
 An LLM is not exported nor calibrated: OVMS pulls it from the Hub itself. For
 its App, ``--serve-llm`` checks the settings (a source id to pull, no stream or
@@ -62,7 +63,8 @@ class ServingFolders(NamedTuple):
     serving_dir: Path  # the App's own folder, written for the choice
 
 
-# The component types OVMS's exporter exports, so the ones it can serve.
+# The component types OVMS's exporter exports, so the ones served on a config
+# of the export; OVMS serves an LLM too, pulled by itself (llm_components).
 SERVED_TYPES = ("embedder", "reranker")
 
 
@@ -215,6 +217,8 @@ def _serve_exported(
     args: argparse.Namespace,
 ) -> int:
     names = served_components(settings)
+    if args.serve in llm_components(settings):
+        return _refuse_an_llms_config(args.serve, args.models_dir)
     if args.serve not in names:
         parser.error(
             f"--serve {args.serve!r}: expected an embedder or a reranker of the "
@@ -236,6 +240,19 @@ def _serve_exported(
         return one_line_failure(PROG, f"cannot serve the {args.serve}", exc)
     folders = ServingFolders(args.models_dir, args.serving_dir)
     return asyncio.run(write_serving_config(settings, ovms, args.serve, folders))
+
+
+def _refuse_an_llms_config(name: str, models_dir: Path | None) -> int:
+    # ovms.sh asks --serve only when the folder holds config_<name>.json: an old
+    # export, or a folder shared with another App, which the LLM never needs.
+    config = (models_dir or Path()) / f"config_{name}.json"
+    reason = ValueError(
+        f"{config} is in its models folder, so its App took it for an export to "
+        f"serve, but {name} is an LLM, which OVMS pulls from the Hugging Face Hub: "
+        "an LLM is served without one; remove that file, or point "
+        "QP_OVMS_MODELS_DIR at a folder of the LLM's own"
+    )
+    return one_line_failure(PROG, f"cannot serve the {name}", reason)
 
 
 def _parser() -> argparse.ArgumentParser:

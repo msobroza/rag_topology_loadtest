@@ -55,7 +55,7 @@ from ..infrastructure.ovms.ovms_process import OvmsStartError
 
 PROG = "qp-calibrate"
 # The component types that run a model in-process, so can be calibrated; they
-# are the ones OVMS serves too.
+# are the ones OVMS serves on an export, and calibrates (it pulls an LLM itself).
 CALIBRATED_TYPES = ("embedder", "reranker")
 # Failures an operator can act on (a bad setting, a model that cannot be found,
 # downloaded or exported, a missing package or ovms, an ovms that would not

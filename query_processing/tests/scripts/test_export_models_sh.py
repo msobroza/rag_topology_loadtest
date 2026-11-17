@@ -142,6 +142,22 @@ def test_an_llm_is_skipped_for_ovms_pulls_it_itself(
     assert not (tmp_path / "models" / "config_llm.json").exists()
 
 
+def test_a_workflow_file_of_an_llm_alone_installs_no_exporter(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    # Nothing to export: neither the exporter's download nor its install runs.
+    write_fake(
+        bin_dir, "qp-served-models", "cat <<'EOF'\nllm llm org/chat chat fp32\nEOF\n"
+    )
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    assert calls(tmp_path, "curl") == []
+    assert calls(tmp_path, "python") == []
+    assert "llm is an LLM, which OVMS pulls itself; skipped" in result.stdout
+
+
 def test_a_served_model_of_an_unknown_type_stops_the_export(
     tmp_path: Path, bin_dir: Path
 ) -> None:

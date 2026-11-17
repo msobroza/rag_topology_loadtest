@@ -181,11 +181,12 @@ def test_an_export_of_another_weight_format_than_the_settings_ask_is_one_stderr_
     assert "QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT=fp32" in line
 
 
-@pytest.mark.parametrize("name", ["llm", "no-such-component"])
+@pytest.mark.parametrize("name", ["vector_store", "no-such-component"])
 def test_an_unknown_component_is_a_usage_error(
     models: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
 ) -> None:
-    # Only an embedder or a reranker of the workflow file can be served by OVMS.
+    # Only an embedder or a reranker of the workflow file is served on a config
+    # of the export; an LLM's --serve is refused naming its config (below).
     with pytest.raises(SystemExit) as exit_info:
         main(args(name, models, tmp_path / "s"))
 
@@ -289,6 +290,28 @@ def test_serve_llm_on_no_llm_is_a_usage_error(
 
     assert exit_info.value.code == 2
     assert "expected an LLM of the workflow file: llm" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("llm_from_the_hub")
+def test_an_llms_config_left_in_its_models_folder_is_named_and_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The script reaches --serve when the folder holds config_llm.json: an old
+    # export, or a folder shared with another App. OVMS pulls an LLM without one.
+    record = stand_in_on_path(tmp_path, monkeypatch)
+    stale = tmp_path / "models" / "config_llm.json"
+    stale.parent.mkdir()
+    stale.write_text("{}")
+
+    assert main(args("llm", stale.parent, tmp_path / "s")) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    [line] = captured.err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot serve the llm: ")
+    assert str(stale) in line
+    assert "without one" in line
+    assert ovms_starts(record) == []
 
 
 @pytest.mark.parametrize(

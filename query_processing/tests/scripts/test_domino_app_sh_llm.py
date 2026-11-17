@@ -10,6 +10,7 @@ stand-in prints the flags of FAKE_LLM_FLAGS.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,6 +22,7 @@ from launch_script_stand_ins import (
     log,
     make_stand_ins,
     model_server_env,
+    put_the_real_toolkit_command_on_path,
     stand_in_env,
     write_fake,
 )
@@ -254,4 +256,29 @@ def test_a_failing_toolkit_command_stops_the_llms_app(
 
     assert result.returncode == 1
     assert f"{failing}: cannot serve the llm: boom" in result.stderr
+    assert log(tmp_path, "ovms") == ""
+
+
+def test_an_llms_config_left_in_its_folder_stops_the_app_naming_the_file(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    # With a config there, the script takes the LLM for an export to serve;
+    # the real qp-ovms-config knows it is an LLM and says which file is in the way.
+    put_the_real_toolkit_command_on_path(bin_dir, "qp-ovms-config")
+    models = tmp_path / "llm-models"
+    models.mkdir()
+    (models / "config_llm.json").write_text("{}")
+    (models / "weight-format").write_text("fp32\n")
+
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        QP_OVMS_MODELS_DIR=str(models),
+        QP_COMPONENTS__LLM__SOURCE_ID="OpenVINO/Fixture-Chat-int4-ov",
+        QP_WORKFLOW_FILE=os.environ["QP_WORKFLOW_FILE"],
+    )
+
+    assert result.returncode == 1
+    assert f"{models / 'config_llm.json'}" in result.stderr
+    assert "an LLM is served without one" in result.stderr
     assert log(tmp_path, "ovms") == ""

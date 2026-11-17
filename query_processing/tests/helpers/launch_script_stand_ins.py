@@ -16,6 +16,7 @@ Example::
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from repo_paths import TOOLKIT_ROOT
@@ -73,6 +74,25 @@ def write_ovms_config_stand_in(
         'echo "$dir/config_$part.json"\n'
     )
     path.chmod(0o755)
+
+
+def put_the_real_toolkit_command_on_path(bin_dir: Path, name: str) -> None:
+    """Replace the stand-in ``name`` (``qp-ovms-config``, ...) by the real command.
+
+    It runs this interpreter on ``query_processing.entrypoints.<module>``, the
+    module named like the command, so it reads the settings the script's
+    variables and the workflow file give, as the App's own command would.
+    """
+    module = name.replace("-", "_")
+    run_main = (
+        f"from query_processing.entrypoints.{module} import main; "
+        "raise SystemExit(main())"
+    )
+    script = bin_dir / name
+    script.write_text(
+        f"#!/usr/bin/env bash\nexec '{sys.executable}' -c '{run_main}' \"$@\"\n"
+    )
+    script.chmod(0o755)
 
 
 def served_config(tmp_path: Path, name: str = "qp-ovms-config") -> str:

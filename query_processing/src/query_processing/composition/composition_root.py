@@ -323,7 +323,7 @@ class CompositionRoot:
             The config file to start OVMS with.
 
         Raises:
-            ValueError: If ``name`` is no component, or one OVMS cannot serve,
+            ValueError: If ``name`` is no component, or no embedder or reranker,
                 or the export holds another weight format than the settings'
                 ``local_models.openvino_weight_format``.
 
@@ -352,7 +352,7 @@ class CompositionRoot:
             variables that pin the choice.
 
         Raises:
-            ValueError: If ``name`` is no component, or one OVMS cannot serve.
+            ValueError: If ``name`` is no component, or no embedder or reranker.
 
         Example:
             >>> (await composition.ovms_calibration("reranker", ovms, models)).pinned
@@ -366,8 +366,8 @@ class CompositionRoot:
         if isinstance(component, (EmbedderSettings, RerankerSettings)):
             return OvmsServedComponent(name, component, models_dir)
         raise ValueError(
-            f"component {name!r} is of type {component.type!r}: OVMS serves only "
-            "an embedder or a reranker"
+            f"component {name!r} is of type {component.type!r}: OVMS serves an "
+            "export of an embedder or a reranker only (it pulls an LLM itself)"
         )
 
     async def _open(self, name: str) -> object:

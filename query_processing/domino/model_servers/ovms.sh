@@ -202,7 +202,7 @@ ovms_serving_config() {
       || die "QP_OVMS_NUM_STREAMS / QP_OVMS_THREADS are set but cannot be applied: 'qp-ovms-config' is not on PATH and 'uv' is not there to install it; install the toolkit and the use case, or unset both"
     # Nor an LLM's option, which qp-ovms-config would refuse on this App.
     [ -z "${QP_OVMS_DYNAMIC_SPLIT_FUSE:-}${QP_OVMS_MAX_BATCHED_TOKENS:-}" ] \
-      || die "QP_OVMS_DYNAMIC_SPLIT_FUSE / QP_OVMS_MAX_BATCHED_TOKENS are set, but $1 is no LLM, and they apply to an LLM served by OVMS only; unset them in this App's block of deploy.yaml"
+      || die "QP_OVMS_DYNAMIC_SPLIT_FUSE / QP_OVMS_MAX_BATCHED_TOKENS are set, but $1 is no LLM, and they apply to an LLM served by OVMS only; unset them where they were set: this App's block of deploy.yaml (apps.$1.settings), its defaults.settings, or the App's own environment variables (this script reads no .env)"
     echo "app.sh[$WHO]: 'qp-ovms-config' not on PATH and no 'uv' to install it; serving $2 as exported (one stream, not calibrated)" >&2
     echo "$2"
     return

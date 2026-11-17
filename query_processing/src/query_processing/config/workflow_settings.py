@@ -325,7 +325,8 @@ class WorkflowSettings(BaseSettings):
         """Fail at start-up when a component on ``served`` has no alias.
 
         A model server of ours serves a model under its alias, the model name a
-        served component sends. An LLM has no source id to default it from.
+        served component sends. An LLM's, like any model's, defaults to the
+        last part of its source id, which the toolkit's defaults leave empty.
 
         Returns:
             The settings, unchanged.

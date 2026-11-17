@@ -14,6 +14,12 @@ the three a use case compares and a fourth added to the table; the kinds are
 every registered one for every model server App, and FastAPI beside OVMS. And the overrides, written in the workflow file's shape, reach
 the workflow App and a model server App as variables that their settings read
 back to the same values, over the workflow file.
+
+An alias row that serves the LLM, by OVMS, the one kind that serves it, is run
+with the toolkit's real ``qp-served-models`` and ``qp-ovms-config`` in place of
+their stand-ins, so what the deploy tool exports is read by the commands the
+script calls: the LLM's App starts OVMS on its model, and the workflow App
+calls it there.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from launch_script_stand_ins import (
     make_stand_ins,
     models_dir,
     ovms_bundle,
+    put_the_real_toolkit_command_on_path,
     served_config,
     stand_in_env,
     started_env,
@@ -50,8 +57,13 @@ from query_processing.domain.component_requests import RerankRequest
 APP_URLS = {
     "embedder": "https://domino.test/apps/e1",
     "reranker": "https://domino.test/apps/r1",
+    "llm": "https://domino.test/apps/l1",
 }
-ROUTES = {"embedder": "/v3/embeddings", "reranker": "/v3/rerank"}
+ROUTES = {
+    "embedder": "/v3/embeddings",
+    "reranker": "/v3/rerank",
+    "llm": "/v3/chat/completions",
+}
 # The example's three, and one more added to the table with no change in code.
 ALIASES = {
     **TOPOLOGY_ALIASES,
@@ -125,6 +137,22 @@ def run_entry_script(
     """Write ``rag-<part>``'s entry script as qp-deploy would, then run it."""
     bin_dir, models = make_stand_ins(tmp_path), models_dir(tmp_path)
     settings = settings_for(alias, kinds, str(ovms_bundle(tmp_path)), overrides)
+    return run_script_of(tmp_path, settings, part, bin_dir, models)
+
+
+def run_script_of(
+    tmp_path: Path,
+    settings: DeploySettings,
+    part: str,
+    bin_dir: Path,
+    models: Path,
+    **extra_env: str,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run the entry script qp-deploy writes for ``part`` under ``settings``.
+
+    ``run_entry_script`` builds the settings from a combination of the table;
+    this runs any settings, with ``extra_env`` beside the stand-ins' own.
+    """
     topology = resolve_topology(settings)
     servers = topology.served if part == "workflow" else []
     urls = {server: APP_URLS[server] for server in servers}
@@ -132,7 +160,7 @@ def run_entry_script(
     use_case.mkdir()
     launch = LaunchPaths(str(APP_SH), str(use_case))
     script = entry_script(settings.for_app(part), settings, topology, urls, launch)
-    env = stand_in_env(tmp_path, bin_dir, QP_OVMS_MODELS_DIR=str(models))
+    env = stand_in_env(tmp_path, bin_dir, QP_OVMS_MODELS_DIR=str(models), **extra_env)
     result = subprocess.run(
         ["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60
     )
@@ -279,3 +307,84 @@ def test_every_app_reads_each_override_back_to_its_value_over_the_file(
     request = RerankRequest.model_validate({"query": "q", "passages": [], **rerank})
     assert request.top_k == 5
     assert settings.run_label == "site-a"
+
+
+# --- an LLM served by OVMS: the join with the real toolkit commands ---------------
+
+# The alias row that serves the LLM, by OVMS: the only kind that serves one.
+LLM_ALIAS = "split-all-llm"
+LLM_ROW = {"embedder": "served", "reranker": "served", "llm": "served"}
+LLM_SOURCE_ID, LLM_SERVED_NAME = "OpenVINO/Fixture-Chat-int4-ov", "fixture-chat"
+# The LLM App's own block: OVMS, and both batching options away from OVMS's own.
+LLM_APP = {
+    "server": "ovms",
+    "settings": {
+        "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
+        "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
+    },
+}
+
+
+def run_llm_deploy_script(
+    tmp_path: Path, part: str
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run ``rag-<part>``'s script of a deploy serving the LLM, real qp-* commands.
+
+    ``qp-served-models`` and ``qp-ovms-config`` are the toolkit's own, reading
+    the tests' workflow file and what the script exports; ``ovms`` is the
+    bundle's stand-in, and ``uv`` a stand-in that is never needed.
+    """
+    bin_dir, models = make_stand_ins(tmp_path), models_dir(tmp_path)
+    for command in ("qp-served-models", "qp-ovms-config"):
+        put_the_real_toolkit_command_on_path(bin_dir, command)
+    kinds = {"embedder": {"server": "ovms"}, "reranker": {"server": "ovms"}}
+    settings = make_settings(
+        topology=LLM_ALIAS,
+        topology_alias={**ALIASES, LLM_ALIAS: LLM_ROW},
+        apps={**kinds, "llm": LLM_APP},
+        ovms_bundle=str(ovms_bundle(tmp_path)),
+        overrides={
+            "components": {
+                "llm": {"source_id": LLM_SOURCE_ID, "alias": LLM_SERVED_NAME}
+            }
+        },
+    )
+    workflow = os.environ[WORKFLOW_FILE_VARIABLE]  # the tests' workflow file
+    return run_script_of(
+        tmp_path, settings, part, bin_dir, models, QP_WORKFLOW_FILE=workflow
+    )
+
+
+def test_the_llms_entry_script_starts_ovms_on_its_model_through_app_sh(
+    tmp_path: Path,
+) -> None:
+    result, models = run_llm_deploy_script(tmp_path, "llm")
+
+    assert result.returncode == 0, result.stderr
+    # The bundle's OVMS pulls the model the overrides name, under their alias,
+    # with the two batching flags of the LLM App's block: no export, no config.
+    assert log(tmp_path, "bundle-ovms").strip() == (
+        f"--rest_port 8888 --source_model {LLM_SOURCE_ID} "
+        f"--model_name {LLM_SERVED_NAME} --model_repository_path {models} "
+        "--task text_generation --target_device CPU "
+        "--dynamic_split_fuse false --max_num_batched_tokens 8192"
+    )
+    assert log(tmp_path, "uv") == ""
+    assert not (models / "config_llm.json").exists()
+
+
+def test_the_workflow_app_calls_the_llm_at_its_apps_chat_route_by_its_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result, _ = run_llm_deploy_script(tmp_path, "workflow")
+    assert result.returncode == 0, result.stderr
+
+    settings = read_back(tmp_path, monkeypatch, "venv-qp-serve")
+
+    llm = settings.model_components()["llm"]
+    assert (llm.backend, llm.served.url, llm.alias) == (
+        "served",
+        APP_URLS["llm"] + ROUTES["llm"],
+        LLM_SERVED_NAME,
+    )
+    assert settings.run_label == f"{LLM_ALIAS}+embedder=ovms+reranker=ovms+llm=ovms"
