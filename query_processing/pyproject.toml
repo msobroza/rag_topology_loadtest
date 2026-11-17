@@ -39,12 +39,14 @@ dependencies = [
 emulation = ["pyjwt>=2.8", "cryptography>=42"]
 # QP_COMPONENTS__VECTOR_STORE__BACKEND=chroma (embedded on disk, or a Chroma server).
 chroma = ["chromadb>=1.0"]
-# Driving the load test (locust monkey-patches gevent at import; keep it optional).
-loadtest = ["locust>=2.29"]
+# Driving the load test (locust monkey-patches gevent at import; keep it optional),
+# and ROUGE-L for qp-compare-answers, which the Apps never run.
+loadtest = ["locust>=2.29", "rouge-score>=0.1.2"]
 # Domino 6.2 agent tracing (`domino.agents.tracing.add_tracing`).
 domino = ["dominodatalab[agents]>=2.2.0"]
 dev = [
     "locust>=2.29",
+    "rouge-score>=0.1.2",  # qp-compare-answers' ROUGE-L, as the loadtest extra
     "chromadb>=1.0",  # the Chroma store's tests run a real embedded Chroma
     # TEMPORARY, with the emulation: its tests sign tokens and parse Terraform.
     "pyjwt>=2.8",

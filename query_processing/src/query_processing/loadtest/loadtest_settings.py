@@ -86,9 +86,11 @@ class LoadTestSettings(BaseSettings):
     # The largest difference between two scores of a passage that still counts
     # as equal; a model run on other CPUs or threads moves the last digits.
     score_tolerance: float = Field(default=1e-4, ge=0)
-    # An LLM behind an API does not repeat itself, so its text is left out
-    # unless this says otherwise.
-    compare_answer_text: bool = False
+    # An LLM can word an answer otherwise at temperature 0, so its text is
+    # never compared exactly: with this on, an answer is the baseline's when its
+    # ROUGE-L F-measure against it is at or above the threshold.
+    answer_rouge_l: bool = False
+    answer_rouge_l_threshold: float = 0.9
     # --- the load shape: unset = Locust's -u and -r; step = the steps below -------
     shape: Literal["step"] | None = None
     step_users: Annotated[tuple[int, ...], NoDecode] = (5, 10, 20, 40)  # "5,10,20,40"
@@ -183,6 +185,21 @@ class LoadTestSettings(BaseSettings):
     def _whole_number(cls, value: object, info: ValidationInfo) -> int:
         minimum = 1 if info.field_name == "question_count" else 0
         return _at_least(cls.variable_of(str(info.field_name)), value, minimum)
+
+    @field_validator("answer_rouge_l_threshold", mode="before")
+    @classmethod
+    def _between_0_and_1(cls, value: object) -> float:
+        variable = cls.variable_of("answer_rouge_l_threshold")
+        message = f"{variable}={value!r}; expected a number between 0 and 1"
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(message)
+        try:
+            number = float(value)
+        except ValueError:
+            raise ValueError(message) from None
+        if not 0 <= number <= 1:
+            raise ValueError(message)
+        return number
 
     @field_validator("shape", mode="before")
     @classmethod

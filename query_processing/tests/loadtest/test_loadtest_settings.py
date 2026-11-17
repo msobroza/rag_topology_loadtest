@@ -273,15 +273,18 @@ def test_the_answer_records_settings_and_their_defaults(
             "QP_LOADTEST_RETRIES": "5",
             "QP_LOADTEST_BACKOFF_S": "0",
             "QP_LOADTEST_SCORE_TOLERANCE": "0.01",
-            "QP_LOADTEST_COMPARE_ANSWER_TEXT": "true",
+            "QP_LOADTEST_ANSWER_ROUGE_L": "true",
+            "QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD": "0.8",
         },
     )
 
     # The retries of a recording are the workflow file's shared http block's.
     assert (defaults.retries, defaults.backoff_s) == (shared.retries, shared.backoff_s)
-    assert (defaults.score_tolerance, defaults.compare_answer_text) == (1e-4, False)
+    assert (defaults.score_tolerance, defaults.answer_rouge_l) == (1e-4, False)
+    assert defaults.answer_rouge_l_threshold == 0.9
     assert (told.retries, told.backoff_s) == (5, 0.0)
-    assert (told.score_tolerance, told.compare_answer_text) == (0.01, True)
+    assert (told.score_tolerance, told.answer_rouge_l) == (0.01, True)
+    assert told.answer_rouge_l_threshold == 0.8
 
 
 @pytest.mark.parametrize(
@@ -294,6 +297,15 @@ def test_a_negative_retry_count_backoff_or_tolerance_is_refused(
     field = variable.removeprefix("QP_LOADTEST_").lower()
     with pytest.raises(ValueError, match=f"{field}\n.*greater than or equal to 0"):
         settings_from(monkeypatch, {variable: "-1"})
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1.5", "near"])
+def test_a_rouge_l_threshold_outside_0_to_1_is_refused_naming_variable_and_value(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    variable = "QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD"
+    with pytest.raises(ValueError, match=f"{variable}='{value}'; expected a number"):
+        settings_from(monkeypatch, {variable: value})
 
 
 def test_each_field_names_the_variable_it_is_read_from() -> None:

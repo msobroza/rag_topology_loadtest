@@ -313,7 +313,7 @@ _Avoid_: deployment, topology label, run name
 What a run observed its target reporting about itself: each topology and run label seen, and how often, and, for each stage whose responses reported their token counts, named as its STAGE row is, how many did, their totals and the stage's time over those responses.
 
 **Answer record**:
-What a target answered to each request of the load test's request pool, sent once each by `qp-record-answers`, without what changes from run to run: the endpoint, the body and the status, then the mode, the metadata filter applied, the answer and each passage's id, text hash, metadata and scores, and the topology aliases and run labels reported. `qp-compare-answers` holds records of the same requests against the first, to check that a refactor or another topology answers the same.
+What a target answered to each request of the load test's request pool, sent once each by `qp-record-answers`, without what changes from run to run: the endpoint, the body and the status, then the mode, the metadata filter applied, the answer and each passage's id, text hash, metadata and scores, and the topology aliases and run labels reported. `qp-compare-answers` holds records of the same requests against the first, to check that a refactor or another topology answers the same: what the deterministic components give exactly, the answer an LLM wrote with ROUGE-L against a threshold when asked, never text for text.
 _Avoid_: golden file, snapshot, fixture (it is a deployment's answers, recorded on demand, not a test's expectation)
 
 **Target**:

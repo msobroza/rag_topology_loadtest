@@ -121,10 +121,10 @@ def test_an_absent_score_equals_only_an_absent_one(baseline: Path) -> None:
 
 @pytest.mark.parametrize(
     ("variables", "expected"),
-    [({}, 0), ({"QP_LOADTEST_COMPARE_ANSWER_TEXT": "true"}, 1)],
-    ids=["ignored-by-default", "compared-when-set"],
+    [({}, 0), ({"QP_LOADTEST_ANSWER_ROUGE_L": "true"}, 1)],
+    ids=["ignored-by-default", "rouge-l-when-set"],
 )
-def test_the_answer_text_is_compared_only_when_the_setting_says_so(
+def test_the_answer_text_is_held_with_rouge_l_only_when_the_setting_says_so(
     baseline: Path,
     monkeypatch: pytest.MonkeyPatch,
     variables: dict[str, str],
@@ -140,7 +140,37 @@ def test_the_answer_text_is_compared_only_when_the_setting_says_so(
     status, report = compared(baseline, run)
 
     assert status == expected
-    assert ("| answer |" in report) is bool(expected)
+    assert ("| answer (ROUGE-L 0.000) |" in report) is bool(expected)
+
+
+CONDITION = [{"field": "year", "op": "eq", "value": 2024}]
+
+
+@pytest.mark.parametrize(
+    ("ours", "theirs", "expected"),
+    [(None, [], 0), (None, CONDITION, 1), ([], CONDITION, 1)],
+    ids=["absent-against-empty", "absent-against-a-condition", "empty-against-one"],
+)
+def test_an_absent_metadata_filter_equals_only_an_empty_one(
+    baseline: Path, ours: list[Any] | None, theirs: list[Any], expected: int
+) -> None:
+    # An app from before the field existed records no filter: no condition.
+    def set_filter(value: list[Any] | None) -> Edit:
+        def edit(document: dict[str, Any]) -> None:
+            document["answers"][QUERY]["metadata_filter"] = value
+
+        return edit
+
+    run = run_edited(baseline, set_filter(theirs))
+    record_file = Path(f"{baseline}_answers.json")
+    document = json.loads(record_file.read_text(encoding="utf-8"))
+    set_filter(ours)(document)
+    record_file.write_text(json.dumps(document), encoding="utf-8")
+
+    status, report = compared(baseline, run)
+
+    assert status == expected, report
+    assert ("| metadata_filter |" in report) is bool(expected)
 
 
 def test_records_of_different_requests_are_refused_naming_the_first_that_differs(

@@ -168,12 +168,13 @@ install both distributions in one command, the toolkit first, since no package
 index has it:
 
 ```bash
-make install-dev    # the toolkit with locust, pytest and the gate tools, the use case, and the charts package
+make install-dev    # the toolkit with locust, rouge-score, pytest and the gate tools, the use case, and the charts package
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
 name, such as `qp-serve`, needs its `bin/` on your `PATH`
-(`. .venv/bin/activate`). `make install` leaves out locust, the gate tools,
+(`. .venv/bin/activate`). `make install` leaves out locust and rouge-score
+(the toolkit's `loadtest` extra: `pip install -e "./query_processing[loadtest]"`), the gate tools,
 which [Development](#development) describes, and the charts package
 (`experiment_charts/`, which draws `experiments-explained/` and is not part of
 the product).
@@ -972,7 +973,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers
       target_client.py  TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings
       qp_record_answers.py  qp-record-answers: each request of the request pool sent once, its answer recorded
-      answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answer's text on demand
+      answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answers' text with a metric on demand
+      rouge_l.py      ROUGE-L between two answers an LLM wrote, the one module importing rouge-score (the loadtest extra), with a tokenizer that keeps accented letters
       qp_compare_answers.py  qp-compare-answers: answer records against the first, to markdown; status 1 when an answer differs
     testing/          the tests the toolkit ships, which a user runs on a component of their own; a use case's tests import them from query_processing.testing, no package imports them
       component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
@@ -1068,6 +1070,8 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | `QP_LOADTEST_SHAPE=step` | step load 5 → 10 → 20 → 40 users, 60 s each (set `RUN_TIME=4m` or more); any other value but unset is refused |
 | `QP_LOADTEST_STEP_USERS` / `QP_LOADTEST_STEP_SECONDS` | the steps of the step shape, default `5,10,20,40` / `60` |
 | `QP_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
+| `QP_LOADTEST_ANSWER_ROUGE_L` | `qp-compare-answers` holds the answers an LLM wrote with ROUGE-L, default `false`: their text is not compared |
+| `QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD` | the lowest ROUGE-L F-measure at which an answer is the baseline's, default `0.9`; a number between 0 and 1 |
 | `QP_LOADTEST_BEARER_TOKEN` | sent as `Authorization: Bearer ...` (Domino run token) |
 | `DOMINO_API_KEY` | sent as `X-Domino-Api-Key` (from outside Domino) |
 
@@ -1207,9 +1211,21 @@ its prefix, as `qp-compare` does:
 
 | What | How |
 | --- | --- |
-| status, mode, metadata filter, the passages' ids in order, their text hashes and metadata | exactly |
+| status, mode, metadata filter, the passages' ids in order, their text hashes and metadata | exactly; an absent metadata filter equals an empty one, since both apply no condition (an app from before the field records none) |
 | the retrieval and rerank scores | within `QP_LOADTEST_SCORE_TOLERANCE` (default `0.0001`, 0 or more); an absent score equals only an absent one |
-| the answer's text | only with `QP_LOADTEST_COMPARE_ANSWER_TEXT=true`: an LLM behind an API does not repeat itself |
+| the answer the LLM wrote | only with `QP_LOADTEST_ANSWER_ROUGE_L=true`, with ROUGE-L's F-measure against the baseline's at or above `QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD` (default `0.9`); two equal texts are the same, two empty ones included, as are two absent ones (on `/retrieve`), and a text on one side only is different |
+
+What the deterministic components give is compared exactly. The answer an
+LLM wrote never is: asked twice, even at temperature 0, it can word an answer
+otherwise, so its text is held with ROUGE-L (from `rouge-score`, of the
+toolkit's `loadtest` extra, given a tokenizer that keeps accented letters), a
+metric computed the same way every time. Run the LLM at temperature 0, the
+default of its `served` and `api` blocks. Off, the report says in one line
+that the text was not compared, so "identical" never reads as covering the
+LLM; on, each run's row adds the lowest and the mean ROUGE-L of its answers,
+and each answer under the threshold is listed with its score and both texts.
+Asked for without the `loadtest` extra, the command stops with status 2,
+naming the extra to install.
 
 The report lists the runs with the topology alias and run label each saw, one
 row per run (requests, identical, different), then every answer that differs
