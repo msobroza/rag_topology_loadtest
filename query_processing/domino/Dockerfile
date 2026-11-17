@@ -53,8 +53,9 @@ COPY query_processing/src /opt/qp/query_processing/src
 COPY ${USE_CASE}/pyproject.toml ${USE_CASE}/workflow.yaml ${USE_CASE}/prompts.yaml ${USE_CASE}/routes.yaml /opt/qp/${USE_CASE}/
 COPY ${USE_CASE}/src /opt/qp/${USE_CASE}/src
 # The toolkit and the use case in one command, the toolkit first: no package index
-# has the toolkit. [loadtest] adds locust; [domino] adds dominodatalab[agents] for
-# QP_DOMINO__TRACING=true.
+# has the toolkit. [loadtest] adds locust and rouge-score, for the Workspaces
+# that run the load test and compare answers (an App runs neither);
+# [domino] adds dominodatalab[agents] for QP_DOMINO__TRACING=true.
 RUN pip install --no-cache-dir uv \
     && UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv /opt/qp-venv \
         --python "$(cat /opt/qp/.python-version)" \
