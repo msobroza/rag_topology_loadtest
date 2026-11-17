@@ -66,9 +66,15 @@ class GenerateRequest(_FrozenStrictModel):
 
 
 class GenerateAnswer(_FrozenStrictModel):
-    """The model's answer text."""
+    """The model's answer text, and the token counts its endpoint reported.
+
+    A count is None when the endpoint reported none: a load test reads tokens
+    a second from them, so a count of the toolkit's own would mislead it.
+    """
 
     text: str
+    prompt_tokens: int | None = None  # the tokens of the conversation sent
+    completion_tokens: int | None = None  # the tokens of the answer
 
 
 class SearchRequest(_FrozenStrictModel):

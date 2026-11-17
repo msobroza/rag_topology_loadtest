@@ -9,7 +9,8 @@ application depends on it, and on nothing else of the adapters.
 
 Example:
     >>> class MyLLM(BaseLLM):
-    ...     async def generate(self, messages, output_schema=None): return "..."
+    ...     async def generate(self, messages, output_schema=None):
+    ...         return GenerateAnswer(text="...")
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
-    ) -> str:
+    ) -> GenerateAnswer:
         """Answer a conversation, as text or as one instance of a schema.
 
         Args:
@@ -41,12 +42,13 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
                 free text.
 
         Returns:
-            The model's answer text; under ``output_schema``, the JSON object
-            alone, which the schema accepts.
+            The model's answer text, under ``output_schema`` the JSON object
+            alone, which the schema accepts; with the token counts the model
+            reported, each None when it reported none.
 
         Example:
             >>> await llm.generate(messages, output_schema=Verdict)
-            '{"ok": true}'
+            GenerateAnswer(text='{"ok": true}', prompt_tokens=31, completion_tokens=4)
         """
 
     async def ainvoke(self, request: GenerateRequest) -> GenerateAnswer:
@@ -57,12 +59,11 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
                 and the optional schema the answer must follow.
 
         Returns:
-            The model's answer text.
+            What ``generate`` answered: the text and its token counts.
 
         Example:
             >>> await llm.ainvoke(GenerateRequest(
             ...     messages=[{"role": "user", "content": "Hi"}]))
-            GenerateAnswer(text='Hello!')
+            GenerateAnswer(text='Hello!', prompt_tokens=9, completion_tokens=2)
         """
-        text = await self.generate(request.messages, request.output_schema)
-        return GenerateAnswer(text=text)
+        return await self.generate(request.messages, request.output_schema)

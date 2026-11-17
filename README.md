@@ -375,6 +375,17 @@ metadata filter, and `RagDependencyError`, which a component raises, naming
 itself, when its model or service fails, and which the app answers with 503,
 or 504 with `kind="timeout"`.
 
+An LLM of a use case subclasses `BaseLLM`, also in `extension_api`, and
+writes `generate` rather than `invoke`. It answers a `GenerateAnswer`: the
+text, and the token counts its model reported, `prompt_tokens` and
+`completion_tokens`, each None when the model reported none. `ainvoke`
+returns that answer as it is, so a plain call on an LLM can write the counts
+to fields of its own, listed after the text in its `writes`; a generate stage
+writes the text alone, or its schema's fields. The toolkit's API LLM reads the
+counts from the endpoint's `usage`; when it asks again for an answer that did
+not match its output schema, it reports the sum over every attempt, since each
+was paid for, and None for a count any attempt did not report.
+
 Every component type made this way has a `served` backend with no code: the
 toolkit builds the class that calls a model server of ours on the type's call
 route, and an API format that mirrors its request and its answer, and

@@ -195,7 +195,7 @@ async def test_the_api_llm_calls_its_endpoint_with_its_own_timeout(
     ) as composition:
         llm = (await composition.workflow_dependencies()).by_name["llm"]
         messages = [{"role": "user", "content": "How many vacation days?"}]
-        assert await llm.generate(messages) == "Twenty-five days."
+        assert (await llm.generate(messages)).text == "Twenty-five days."
 
     expected_body = {"model": "llama-3", "messages": messages, "temperature": 0.7}
     assert routes.sent() == [(CHAT_URL, expected_body, "Bearer sk-key", 90.0)]
@@ -239,7 +239,7 @@ async def test_the_llm_takes_a_schema_the_way_its_block_names(
         messages = [{"role": "user", "content": "Is it ok?"}]
         answer = await llm.generate(messages, output_schema=Verdict)
 
-    assert json.loads(answer) == {"ok": True}
+    assert json.loads(answer.text) == {"ok": True}
     [body] = sent
     assert ("response_format" in body) is sends_a_response_format
     assert len(body["messages"]) == 1 + instructions  # type: ignore[arg-type]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from query_processing.domain.standard_formats import (
     CohereRerankRequest,
+    OpenAIChatResponse,
     OpenAIEmbeddingsRequest,
 )
 
@@ -34,3 +35,18 @@ def test_requests_parse_from_plain_json() -> None:
     assert (parsed.documents, parsed.top_n) == (["a", "b"], None)
     embeddings = OpenAIEmbeddingsRequest.model_validate({"model": "e", "input": "x"})
     assert embeddings.input == ["x"]
+
+
+# --- OpenAI chat -------------------------------------------------------------
+
+
+def test_a_chat_response_reads_its_usage_and_does_without_one() -> None:
+    choices = [{"message": {"content": "Paris."}}]
+    usage = {"prompt_tokens": 829, "completion_tokens": 128, "total_tokens": 957}
+    response = OpenAIChatResponse.model_validate({"choices": choices, "usage": usage})
+    assert response.usage is not None
+    assert (response.usage.prompt_tokens, response.usage.completion_tokens) == (
+        829,
+        128,
+    )
+    assert OpenAIChatResponse.model_validate({"choices": choices}).usage is None

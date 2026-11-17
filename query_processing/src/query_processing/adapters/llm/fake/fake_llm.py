@@ -4,9 +4,12 @@ Under an output schema it answers a valid instance of the schema, its first
 text field holding the echo, so a workflow that asks for a schema runs with no
 model.
 
+Its token counts are word counts: no tokenizer is loaded, and a load test of
+the fake LLM only needs counts that grow with the text.
+
 Example:
     >>> await FakeLLM().generate([{"role": "user", "content": "Hi"}])
-    '[fake-llm] Hi'
+    GenerateAnswer(text='[fake-llm] Hi', prompt_tokens=1, completion_tokens=2)
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import Any, Literal, Union, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
+from ....domain.component_requests import GenerateAnswer
 from ..base_llm import BaseLLM
 
 # The value of each plain type of a field the fake fills; a field of another
@@ -43,7 +47,7 @@ class FakeLLM(BaseLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
-    ) -> str:
+    ) -> GenerateAnswer:
         """Echo the last user message, after ``latency_ms``; counts the calls.
 
         Args:
@@ -56,14 +60,15 @@ class FakeLLM(BaseLLM):
             ("" when there is none). Under ``output_schema``, the JSON of an
             instance it accepts: its first required text field holds the echo,
             each list and dict is empty, each optional is null, and a field
-            with a default keeps it.
+            with a default keeps it. As token counts, the whitespace-separated
+            words of every message's content and of the answer's text.
 
         Raises:
             TypeError: A required field of the schema has a type the fake
                 cannot fill; the message names the field and its type.
 
         Example:
-            >>> await FakeLLM().generate(messages, output_schema=Verdict)
+            >>> (await FakeLLM().generate(messages, output_schema=Verdict)).text
             '{"ok":false}'
         """
         self.calls += 1
@@ -73,9 +78,13 @@ class FakeLLM(BaseLLM):
             (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
         )
         echo = f"[fake-llm] {user[:200]}"
-        if output_schema is None:
-            return echo
-        return fake_instance_json(output_schema, echo)
+        text = echo
+        if output_schema is not None:
+            text = fake_instance_json(output_schema, echo)
+        prompt_words = sum(len(message["content"].split()) for message in messages)
+        return GenerateAnswer(
+            text=text, prompt_tokens=prompt_words, completion_tokens=len(text.split())
+        )
 
 
 def fake_instance_json(schema: type[BaseModel], text: str) -> str:

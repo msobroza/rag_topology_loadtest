@@ -15,14 +15,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from ....domain.component_requests import GenerateAnswer
 from ....domain.registry import Registry
 
 
 class BaseGenerationApiFormat(ABC):
-    """A chat wire shape: messages in, the answer text out.
+    """A chat wire shape: messages in, the answer and its token counts out.
 
     Example:
-        >>> OpenAIChatFormat().answer({"choices": [{"message": {"content": "Hi"}}]})
+        >>> chat = OpenAIChatFormat()
+        >>> chat.answer({"choices": [{"message": {"content": "Hi"}}]}).text
         'Hi'
     """
 
@@ -48,14 +50,15 @@ class BaseGenerationApiFormat(ABC):
         """
 
     @abstractmethod
-    def answer(self, body: object) -> str:
-        """Read the answer text out of a decoded answer.
+    def answer(self, body: object) -> GenerateAnswer:
+        """Read the answer and its token counts out of a decoded answer.
 
         Args:
             body: The decoded JSON answer.
 
         Returns:
-            The answer text; "" when the answer carries no content.
+            The answer text ("" when the answer carries no content) and the
+            token counts the answer reports (None for each one it does not).
 
         Raises:
             pydantic.ValidationError: If ``body`` is not this format's answer.

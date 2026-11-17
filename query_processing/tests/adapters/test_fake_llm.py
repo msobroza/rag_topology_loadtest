@@ -23,8 +23,9 @@ async def test_fake_llm_echoes_last_user_message_and_counts_calls() -> None:
         {"role": "user", "content": "second"},
     ]
 
-    assert await llm.generate(messages) == "[fake-llm] second"
-    assert await llm.generate([{"role": "system", "content": "x"}]) == "[fake-llm] "
+    assert (await llm.generate(messages)).text == "[fake-llm] second"
+    answer = await llm.generate([{"role": "system", "content": "x"}])
+    assert answer.text == "[fake-llm] "
     assert llm.calls == 2
 
 
@@ -54,9 +55,10 @@ Rewritten = create_model(
 async def test_under_a_schema_the_fake_llm_answers_an_instance_it_accepts() -> None:
     llm = FakeLLM()
 
-    text = await llm.generate(
+    answer = await llm.generate(
         [{"role": "user", "content": "and b?"}], output_schema=Rewritten
     )
+    text = answer.text
 
     assert json.loads(text) == {
         "standalone_query": "[fake-llm] and b?",
@@ -89,3 +91,12 @@ async def test_fake_llm_honours_latency() -> None:
     await llm.generate([{"role": "user", "content": "hi"}])
 
     assert time.perf_counter() - start >= 0.025
+
+
+async def test_the_fake_llm_counts_words_as_tokens() -> None:
+    answer = await FakeLLM().generate([{"role": "user", "content": "How many days"}])
+    assert (answer.text, answer.prompt_tokens, answer.completion_tokens) == (
+        "[fake-llm] How many days",
+        3,
+        4,
+    )

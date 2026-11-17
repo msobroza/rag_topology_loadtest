@@ -11,8 +11,12 @@ import asyncio
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from query_processing import extension_api
+from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.domain.component_requests import GenerateAnswer, GenerateRequest
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.registry import Registry
@@ -80,11 +84,60 @@ def test_the_extension_api_exports_what_a_use_case_names_in_its_code() -> None:
     assert {"MetadataCondition", "RagDependencyError"} <= set(extension_api.__all__)
 
 
+def test_the_extension_api_exports_what_a_use_cases_llm_names() -> None:
+    # A use case's LLM subclasses BaseLLM and answers a GenerateAnswer.
+    assert extension_api.BaseLLM is BaseLLM
+    assert extension_api.GenerateAnswer is GenerateAnswer
+    assert extension_api.GenerateRequest is GenerateRequest
+    exported = {"BaseLLM", "GenerateAnswer", "GenerateRequest"}
+    assert exported <= set(extension_api.__all__)
+
+
 def test_the_contract_catches_an_answer_of_the_wrong_shape() -> None:
     wrong = ContractOf(ReturningADict())
 
     with pytest.raises(AssertionError, match="expected a Shouted"):
         asyncio.run(wrong.test_the_answer_has_the_shape_of_its_component_type())
+
+
+class AnsweringText(BaseLLM):
+    """An LLM written to the port of before: ``generate`` returns its text."""
+
+    model_name = "text-llm"
+
+    async def generate(
+        self,
+        messages: list[dict[str, str]],
+        output_schema: type[BaseModel] | None = None,
+    ) -> GenerateAnswer:
+        return "Paris."  # type: ignore[return-value]
+
+
+class LLMContractOf(ComponentContract):
+    """The contract of one ready-made LLM, asked one message."""
+
+    def __init__(self, llm: BaseLLM) -> None:
+        self.llm = llm
+
+    def make_component(self) -> BaseLLM:
+        return self.llm
+
+    def make_request(self) -> GenerateRequest:
+        return GenerateRequest(messages=[{"role": "user", "content": "Capital?"}])
+
+
+def test_the_contract_catches_an_llm_that_answers_bare_text() -> None:
+    wrong = LLMContractOf(AnsweringText())
+
+    with pytest.raises(AssertionError, match="expected a GenerateAnswer"):
+        asyncio.run(wrong.test_the_answer_has_the_shape_of_its_component_type())
+
+
+def test_an_llm_answer_and_its_token_counts_survive_the_api_format() -> None:
+    contract = LLMContractOf(FakeLLM())
+
+    asyncio.run(contract.test_the_answer_has_the_shape_of_its_component_type())
+    asyncio.run(contract.test_the_answer_survives_the_api_format())
 
 
 def test_the_contract_catches_an_answer_the_api_format_loses() -> None:

@@ -27,6 +27,7 @@ from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.routes import RouteChoice, RouteRequest
 from query_processing.entrypoints.qp_serve import create_app
+from query_processing.extension_api import GenerateAnswer
 from workflow_on_fakes import all_fake_settings
 
 FIRST_MESSAGE = "Que dit l'AMF sur la franchise ?"
@@ -83,10 +84,10 @@ class RecordingLLM(FakeLLM):
 
     async def generate(
         self, messages: Messages, output_schema: type[BaseModel] | None = None
-    ) -> str:
+    ) -> GenerateAnswer:
         self.asked.append((messages, output_schema))
         if output_schema is not None and self.rewrite is not None:
-            return json.dumps(self.rewrite)
+            return GenerateAnswer(text=json.dumps(self.rewrite))
         return await super().generate(messages, output_schema)
 
     def schemas(self) -> list[type[BaseModel] | None]:

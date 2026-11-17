@@ -22,6 +22,7 @@ from query_processing.adapters.llm.api.json_schema_method import JsonSchemaMetho
 from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
 from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.component_requests import GenerateAnswer
 from query_processing.domain.errors import RagDependencyError
 
 URL = "https://gateway.test/v1/chat/completions"
@@ -61,9 +62,14 @@ def make(
     return llm, route
 
 
-def completion(content: str | None) -> httpx.Response:
+def completion(
+    content: str | None, usage: dict[str, int] | None = None
+) -> httpx.Response:
     choice = {"index": 0, "message": {"role": "assistant", "content": content}}
-    return httpx.Response(200, json={"id": "c1", "choices": [choice]})
+    body: dict[str, object] = {"id": "c1", "choices": [choice]}
+    if usage is not None:
+        body["usage"] = usage
+    return httpx.Response(200, json=body)
 
 
 @pytest.mark.parametrize("temperature", [0.0, 0.7])
@@ -73,7 +79,7 @@ async def test_returns_content_and_sends_model_and_temperature(
     llm, route = make(clients, completion("Paris."), temperature=temperature)
     assert isinstance(llm, BaseLLM)
     assert llm.model_name == MODEL
-    assert await llm.generate(MESSAGES) == "Paris."
+    assert await llm.generate(MESSAGES) == GenerateAnswer(text="Paris.")
     [request] = route.requests
     assert (request.method, request.url) == ("POST", URL)
     assert request.json == {
@@ -86,7 +92,15 @@ async def test_returns_content_and_sends_model_and_temperature(
 
 async def test_null_content_reads_as_empty(clients: HttpClients) -> None:
     llm, _ = make(clients, completion(None))
-    assert await llm.generate(MESSAGES) == ""
+    assert (await llm.generate(MESSAGES)).text == ""
+
+
+async def test_the_token_counts_come_back(clients: HttpClients) -> None:
+    usage = {"prompt_tokens": 829, "completion_tokens": 128, "total_tokens": 957}
+    llm, _ = make(clients, completion("Paris.", usage))
+    assert await llm.generate(MESSAGES) == GenerateAnswer(
+        text="Paris.", prompt_tokens=829, completion_tokens=128
+    )
 
 
 @pytest.mark.parametrize(
@@ -137,7 +151,8 @@ async def test_a_schema_is_sent_as_openais_response_format(
 ) -> None:
     llm, route = make(clients, completion(' {"ok": true}\n'))
 
-    assert await llm.generate(MESSAGES, output_schema=Verdict) == '{"ok": true}'
+    answer = await llm.generate(MESSAGES, output_schema=Verdict)
+    assert answer.text == '{"ok": true}'
     [request] = route.requests
     assert request.json["messages"] == MESSAGES
     assert request.json["response_format"] == {
@@ -156,7 +171,8 @@ async def test_an_answer_that_does_not_match_is_asked_again(
     fenced = '```json\n{"ok": true}\n```'
     llm, route = make(clients, completion(fenced), completion('{"ok": false}'))
 
-    assert await llm.generate(MESSAGES, output_schema=Verdict) == '{"ok": false}'
+    answer = await llm.generate(MESSAGES, output_schema=Verdict)
+    assert answer.text == '{"ok": false}'
     assert len(route.requests) == 2
     assert route.requests[0].json == route.requests[1].json
 
@@ -196,7 +212,7 @@ async def test_format_instructions_writes_the_schema_in_the_messages(
     )
 
     answer = await llm.generate(MESSAGES, output_schema=Verdict)
-    assert json.loads(answer) == {"ok": True}
+    assert json.loads(answer.text) == {"ok": True}
     [request] = route.requests
     assert "response_format" not in request.json
     sent = request.json["messages"]
@@ -212,7 +228,7 @@ async def test_format_instructions_leave_free_text_alone(
         clients, completion("Paris."), structured_output="format_instructions"
     )
 
-    assert await llm.generate(MESSAGES) == "Paris."
+    assert (await llm.generate(MESSAGES)).text == "Paris."
     [request] = route.requests
     assert request.json == {"model": MODEL, "messages": MESSAGES, "temperature": 0.0}
 
@@ -226,7 +242,7 @@ async def test_an_object_with_text_around_it_is_asked_again(
     )
 
     answer = await llm.generate(MESSAGES, output_schema=Verdict)
-    assert json.loads(answer) == {"ok": False}
+    assert json.loads(answer.text) == {"ok": False}
     assert len(route.requests) == 2
 
 
@@ -263,3 +279,34 @@ def test_each_method_is_one_registered_class_and_another_is_refused() -> None:
     )
     with pytest.raises(ValueError, match=re.escape(message)):
         STRUCTURED_OUTPUT_METHODS.get("grammar")
+
+
+# --- the token counts of an answer asked again -------------------------------------
+
+
+async def test_an_answer_asked_again_reports_the_counts_of_every_attempt(
+    clients: HttpClients,
+) -> None:
+    # The refused attempt was paid for: its tokens count.
+    refused = completion("not json", {"prompt_tokens": 100, "completion_tokens": 7})
+    matched = completion('{"ok": true}', {"prompt_tokens": 100, "completion_tokens": 5})
+    llm, route = make(clients, refused, matched)
+
+    answer = await llm.generate(MESSAGES, output_schema=Verdict)
+
+    assert answer == GenerateAnswer(
+        text='{"ok": true}', prompt_tokens=200, completion_tokens=12
+    )
+    assert len(route.requests) == 2
+
+
+async def test_a_count_one_attempt_did_not_report_is_none(
+    clients: HttpClients,
+) -> None:
+    refused = completion("not json", {"prompt_tokens": 100})
+    matched = completion('{"ok": true}', {"prompt_tokens": 100, "completion_tokens": 5})
+    llm, _ = make(clients, refused, matched)
+
+    answer = await llm.generate(MESSAGES, output_schema=Verdict)
+
+    assert (answer.prompt_tokens, answer.completion_tokens) == (200, None)

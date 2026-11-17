@@ -14,10 +14,13 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import httpx
 from pydantic import BaseModel, ValidationError
 
 from ....domain.api_endpoint import ApiEndpoint
+from ....domain.component_requests import GenerateAnswer
 from ....domain.errors import RagDependencyError
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
 from ....infrastructure.endpoint.open_endpoint_client import (
@@ -50,7 +53,7 @@ class ApiLLM(BaseLLM):
     Example:
         >>> llm = ApiLLM(endpoint_client, OpenAIChatFormat(), temperature=0.0,
         ...              retries=2, structured_output=JsonSchemaMethod())
-        >>> await llm.generate([{"role": "user", "content": "Hi"}])
+        >>> (await llm.generate([{"role": "user", "content": "Hi"}])).text
         'Hello!'
     """
 
@@ -72,7 +75,7 @@ class ApiLLM(BaseLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
-    ) -> str:
+    ) -> GenerateAnswer:
         """Answer a conversation at the configured temperature.
 
         Args:
@@ -81,8 +84,11 @@ class ApiLLM(BaseLLM):
                 way the structured output method says; None for free text.
 
         Returns:
-            The model's answer text; "" when the answer carries no content.
-            Under ``output_schema``, the JSON object alone, which it accepts.
+            The model's answer text ("" when the answer carries no content),
+            with the token counts the endpoint reported. Under
+            ``output_schema``, the text is the JSON object alone, which it
+            accepts, and each count is the sum over every attempt, the ones
+            asked again included; None if any attempt did not report it.
 
         Raises:
             RagDependencyError: If the request fails (a timeout has kind
@@ -91,14 +97,14 @@ class ApiLLM(BaseLLM):
                 message shows the last one).
 
         Example:
-            >>> await llm.generate(messages, output_schema=Verdict)
+            >>> (await llm.generate(messages, output_schema=Verdict)).text
             '{"ok": true}'
         """
         if output_schema is None:
             return await self._answer(PreparedRequest(messages, None))
         return await self._answer_matching(messages, output_schema)
 
-    async def _answer(self, prepared: PreparedRequest) -> str:
+    async def _answer(self, prepared: PreparedRequest) -> GenerateAnswer:
         body = self._api_format.request_body(
             self.model_name,
             prepared.messages,
@@ -113,19 +119,23 @@ class ApiLLM(BaseLLM):
 
     async def _answer_matching(
         self, messages: list[dict[str, str]], schema: type[BaseModel]
-    ) -> str:
-        # Asked once, then once per retry, until an answer matches.
+    ) -> GenerateAnswer:
+        # Asked once, then once per retry, until an answer matches. Every
+        # attempt was paid for, so the answer reports the counts of them all.
         method = self._structured_output
         prepared = method.prepare(messages, schema)
+        paid: list[GenerateAnswer] = []
         for _ in range(self._retries):
-            text = method.json_text(await self._answer(prepared))
+            paid.append(await self._answer(prepared))
+            text = method.json_text(paid[-1].text)
             if _mismatch(schema, text) is None:
-                return text
-        text = method.json_text(await self._answer(prepared))
+                return _summed(text, paid)
+        paid.append(await self._answer(prepared))
+        text = method.json_text(paid[-1].text)
         mismatch = _mismatch(schema, text)
         if mismatch is not None:
             raise self._unmatched(schema, text, mismatch)
-        return text
+        return _summed(text, paid)
 
     def _unmatched(
         self, schema: type[BaseModel], text: str, mismatch: ValidationError
@@ -139,6 +149,25 @@ class ApiLLM(BaseLLM):
         return RagDependencyError(
             "llm", detail, target=self._endpoint_client.endpoint.url
         )
+
+
+def _summed(text: str, paid: list[GenerateAnswer]) -> GenerateAnswer:
+    # The matching text, with the counts of every attempt added up.
+    return GenerateAnswer(
+        text=text,
+        prompt_tokens=_total(answer.prompt_tokens for answer in paid),
+        completion_tokens=_total(answer.completion_tokens for answer in paid),
+    )
+
+
+def _total(counts: Iterable[int | None]) -> int | None:
+    # One attempt that reported no count leaves the sum unknown.
+    total = 0
+    for count in counts:
+        if count is None:
+            return None
+        total += count
+    return total
 
 
 def _mismatch(schema: type[BaseModel], text: str) -> ValidationError | None:

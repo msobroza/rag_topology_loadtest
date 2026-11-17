@@ -5,12 +5,17 @@ speak it.
 
 Example:
     >>> OpenAIChatFormat().answer({"choices": [{"message": {"content": "Paris."}}]})
-    'Paris.'
+    GenerateAnswer(text='Paris.', prompt_tokens=None, completion_tokens=None)
 """
 
 from __future__ import annotations
 
-from ....domain.standard_formats import OpenAIChatRequest, OpenAIChatResponse
+from ....domain.component_requests import GenerateAnswer
+from ....domain.standard_formats import (
+    OpenAIChatRequest,
+    OpenAIChatResponse,
+    OpenAIChatUsage,
+)
 from .base_generation_api_format import GENERATION_API_FORMATS, BaseGenerationApiFormat
 
 
@@ -50,18 +55,24 @@ class OpenAIChatFormat(BaseGenerationApiFormat):
         )
         return request.to_wire()
 
-    def answer(self, body: object) -> str:
-        """Read ``choices[0].message.content``.
+    def answer(self, body: object) -> GenerateAnswer:
+        """Read ``choices[0].message.content`` and the ``usage`` token counts.
 
         Args:
             body: The decoded JSON answer.
 
         Returns:
-            The answer text; "" when the content is null.
+            The answer text ("" when the content is null) and its token counts
+            (None for each one ``usage`` lacks, both when there is no ``usage``).
 
         Raises:
             pydantic.ValidationError: If ``body`` is not a chat answer, or has no
                 choice.
         """
         response = OpenAIChatResponse.model_validate(body)
-        return response.choices[0].message.content or ""
+        usage = response.usage or OpenAIChatUsage()  # not every server reports one
+        return GenerateAnswer(
+            text=response.choices[0].message.content or "",
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+        )

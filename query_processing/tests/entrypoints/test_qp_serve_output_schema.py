@@ -28,6 +28,7 @@ from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.prompts_file import PROMPTS_FILE_VAR
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.component_requests import GenerateAnswer
 from query_processing.entrypoints import qp_serve
 from query_processing.entrypoints.qp_serve import create_app
 from rag_components import FAKE_BACKEND_VARIABLES, FAKE_BACKENDS, shell_settings
@@ -61,7 +62,7 @@ class RecordingLLM(FakeLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
-    ) -> str:
+    ) -> GenerateAnswer:
         self.schemas.append(output_schema)
         return await super().generate(messages, output_schema)
 
@@ -77,13 +78,13 @@ class RewritingLLM(RecordingLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
-    ) -> str:
+    ) -> GenerateAnswer:
         if output_schema is None:
             return await super().generate(messages, output_schema)
         self.schemas.append(output_schema)
         self.prompts.append(messages[-1]["content"])
         rewrite = {"standalone_query": QUESTION, "metadata_filter": [NOT_ONBOARDING]}
-        return json.dumps(rewrite)
+        return GenerateAnswer(text=json.dumps(rewrite))
 
 
 def rewrite_graph(**rewrite: object) -> Graph:

@@ -146,7 +146,18 @@ class OpenAIChatChoice(BaseModel):
     message: OpenAIChatMessage
 
 
+class OpenAIChatUsage(BaseModel):
+    """The token counts of one answer; a server may report either, or neither."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
 class OpenAIChatResponse(BaseModel):
-    """The answer; an empty ``choices`` list carries no answer, so it is malformed."""
+    """The answer; an empty ``choices`` list carries no answer, so it is malformed.
+
+    ``usage`` is optional: not every server reports one.
+    """
 
     choices: list[OpenAIChatChoice] = Field(min_length=1)
+    usage: OpenAIChatUsage | None = None

@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from echo_components import BaseEcho, EchoRequest, Upper
+from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.adapters.router.base_router import BaseRouter
 from query_processing.adapters.router.fake.fake_router import FakeRouter
 from query_processing.application.stage_binding import bind_call
@@ -29,6 +31,24 @@ async def test_a_key_fills_its_attribute_and_the_state_is_not_read_for_it() -> N
 
     assert await stage.run({}) == {"shout": "HI"}
     assert echo.asked == [EchoRequest(text="hi")]
+
+
+async def test_a_plain_call_on_an_llm_writes_its_token_counts() -> None:
+    fields = StageFields(("messages",), ("reply", "read", "written"))
+    stage = CallStage(FakeLLM(), bind_call(BaseLLM, {"output_schema": None}, fields))
+
+    written = await stage.run({"messages": [{"role": "user", "content": "how many"}]})
+
+    assert written == {"reply": "[fake-llm] how many", "read": 2, "written": 3}
+
+
+async def test_a_plain_call_on_an_llm_can_write_its_text_alone() -> None:
+    fields = StageFields(("messages",), ("reply",))
+    stage = CallStage(FakeLLM(), bind_call(BaseLLM, {"output_schema": None}, fields))
+
+    written = await stage.run({"messages": [{"role": "user", "content": "hi"}]})
+
+    assert written == {"reply": "[fake-llm] hi"}
 
 
 def routing_stage(router: FakeRouter) -> CallStage:

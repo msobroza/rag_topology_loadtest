@@ -163,7 +163,7 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
         if self._field_info is not None:
             variables[METADATA_FIELD_INFO_VARIABLE] = list(self._field_info)
         messages = render_prompt(self._prompt, variables)
-        text = await self.component.generate(messages, self._asked)
+        text = (await self.component.generate(messages, self._asked)).text
         # _asked is None only when _schema is: the second test is for the type checker.
         if self._schema is None or self._asked is None:
             return self.write_field(text)

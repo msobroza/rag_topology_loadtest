@@ -32,6 +32,11 @@ mirrors its request and its answer. A use case redefines the format by
 registering a ``BaseApiFormat`` under the type's name, and the served class by
 naming ``backend="served"`` on a subclass of ``ServedCallMixin`` and the type.
 
+An LLM, a subclass of ``BaseLLM``, writes ``generate`` rather than
+``invoke``, and answers a ``GenerateAnswer``: the text, and the token counts
+its model reported (``prompt_tokens``, ``completion_tokens``), None for each
+one it did not.
+
 A component whose model or service fails raises ``RagDependencyError``,
 naming itself, and the app answers 503, or 504 with ``kind="timeout"``. An
 output schema whose fields hold a metadata filter types them with
@@ -55,6 +60,7 @@ Example:
 
 from __future__ import annotations
 
+from .adapters.llm.base_llm import BaseLLM
 from .adapters.router.base_router import BaseRouter
 from .application.edge_conditions.edge_condition import EDGE_CONDITIONS
 from .application.output_schemas import OUTPUT_SCHEMAS
@@ -72,7 +78,12 @@ from .config.settings_blocks import SettingsBlock
 from .config.workflow_settings import WorkflowSettings
 from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.base_component import BaseComponent
-from .domain.component_requests import EmbedAnswer, EmbedRequest
+from .domain.component_requests import (
+    EmbedAnswer,
+    EmbedRequest,
+    GenerateAnswer,
+    GenerateRequest,
+)
 from .domain.component_resources import ComponentResources
 from .domain.errors import RagDependencyError
 from .domain.metadata_filter import MetadataCondition
@@ -86,6 +97,7 @@ __all__ = [
     "STAGE_TYPES",
     "BaseApiFormat",
     "BaseComponent",
+    "BaseLLM",
     "BaseRouter",
     "BaseStage",
     "ComponentResources",
@@ -93,6 +105,8 @@ __all__ = [
     "EmbedAnswer",
     "EmbedRequest",
     "FieldTypes",
+    "GenerateAnswer",
+    "GenerateRequest",
     "MetadataCondition",
     "RagDependencyError",
     "Route",
