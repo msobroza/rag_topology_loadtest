@@ -2,9 +2,10 @@
 # The ovms model-server kind: OpenVINO Model Server. Sourced by domino/app.sh for
 # QP_MODEL_SERVER_KIND=ovms (registered by
 # src/query_processing/deploy/model_server_kinds/ovms_kind.py), it defines the two
-# functions every kind's script defines. It serves one component, exported as
-# config_<component>.json in QP_OVMS_MODELS_DIR (/mnt/data/ovms-models by default),
-# from a folder of the App's own (see below).
+# functions every kind's script defines. It serves one component: an embedder or
+# a reranker exported as config_<component>.json in QP_OVMS_MODELS_DIR
+# (/mnt/data/ovms-models by default), from a folder of the App's own (see below),
+# or an LLM, which OVMS pulls itself (see "An LLM" below).
 #
 # Bootstrap (QP_BOOTSTRAP=1): apt-get libxml2 and curl (plus nginx with
 # QP_OVMS_PREFIX_PROXY=1, via sudo unless root), and run ovms from QP_OVMS_BUNDLE
@@ -49,6 +50,18 @@
 # 0.0.0.0:8888 strips the prefix (settings: domino/ovms-proxy.conf). Check first with
 #   curl -i -H "Authorization: Bearer $(curl -s localhost:8899/access-token)" <App URL>/v3/models/<alias>
 # (200 = prefix stripped, no proxy needed; 404 = enable the proxy).
+#
+# An LLM: when the component has no config, the script asks `qp-served-models`
+# its type, source id and alias (installing the toolkit and the use case into
+# $HOME/qp-venv first with uv when the command is missing; with neither it
+# stops). For an LLM, OVMS pulls the source id from the Hub into
+# QP_OVMS_MODELS_DIR on its first start (created here first) and serves it under
+# the alias: no export, no calibration, no weight-format record. Its two batching
+# options, QP_OVMS_DYNAMIC_SPLIT_FUSE and QP_OVMS_MAX_BATCHED_TOKENS, come as flags
+# from `qp-ovms-config --serve-llm`, which checks them (and refuses an empty
+# source id or a pinned stream or thread count) before OVMS starts. It runs on the
+# generic environment with QP_BOOTSTRAP=1 and QP_OVMS_BUNDLE, not on the prebuilt
+# `ovms` image.
 
 OVMS_MODELS_DIR=${QP_OVMS_MODELS_DIR:-/mnt/data/ovms-models}
 OVMS_UPSTREAM_PORT=9000
@@ -76,6 +89,12 @@ bootstrap_model_server() {
 serve_model_server() {
   local component=$1 config="$OVMS_MODELS_DIR/config_$1.json"
   if [ ! -f "$config" ]; then
+    # No config: an LLM, served as OVMS pulls it, or a model to export first.
+    ovms_learn_component "$component" "$config"
+    if [ "$OVMS_COMPONENT_TYPE" = llm ]; then
+      ovms_serve_llm "$component"
+      return
+    fi
     ovms_provision_models "$config"
   elif [ -n "${QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT:-}" ]; then
     # Set, the variable is what the settings ask: checked before anything else.
@@ -90,14 +109,62 @@ serve_model_server() {
   fi
   # set -e stops the App when the substitution fails (die only ends the subshell).
   config=$(ovms_serving_config "$component" "$config")
+  ovms_run --config_path "$config"
+}
+
+# ovms_learn_component <component> <config>: set OVMS_COMPONENT_TYPE,
+# OVMS_SOURCE_ID and OVMS_ALIAS from the component's line of qp-served-models;
+# all three "" when it prints none for it.
+ovms_learn_component() {
+  local name=$1 config=$2 served line
+  OVMS_COMPONENT_TYPE="" OVMS_SOURCE_ID="" OVMS_ALIAS=""
+  if ! command -v qp-served-models >/dev/null 2>&1; then
+    command -v uv >/dev/null 2>&1 \
+      || die "OVMS config not found: $config, and neither 'qp-served-models' (to learn what $name is) nor 'uv' (to install it and export the models) is on PATH; install uv, or mount a folder holding the config and set QP_OVMS_MODELS_DIR"
+    install_this_project >&2
+  fi
+  # Assigned first so a failing command stops the App (a pipe would hide it).
+  served=$(qp-served-models)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    eval "set -- $line"  # words shell-quoted by qp-served-models
+    if [ "$1" = "$name" ]; then
+      OVMS_COMPONENT_TYPE=$2 OVMS_SOURCE_ID=$3 OVMS_ALIAS=$4
+      return
+    fi
+  done <<<"$served"
+}
+
+# ovms_serve_llm <component>: serve the LLM OVMS pulls from the Hub itself into
+# $OVMS_MODELS_DIR (no export of ours), with the batching flags qp-ovms-config prints.
+ovms_serve_llm() {
+  # The prebuilt image built from domino/Dockerfile --target ovms cannot run it.
+  command -v ovms >/dev/null 2>&1 \
+    || die "'ovms' binary not on PATH; serve an LLM on the generic environment with QP_BOOTSTRAP=1 and QP_OVMS_BUNDLE set to the OVMS bundle"
+  # Checked in Python first: a source id to pull, the options, no stream pin.
+  local flags
+  flags=$(qp-ovms-config --serve-llm "$1")
+  local -a args=(--source_model "$OVMS_SOURCE_ID" --model_name "$OVMS_ALIAS"
+    --model_repository_path "$OVMS_MODELS_DIR" --task text_generation --target_device CPU)
+  eval "args+=($flags)"  # words shell-quoted by qp-ovms-config
+  # Made here: on the only machine check the folder existed before OVMS started,
+  # so nobody has seen OVMS create it itself.
+  mkdir -p "$OVMS_MODELS_DIR" \
+    || die "cannot create the LLM's models folder $OVMS_MODELS_DIR (QP_OVMS_MODELS_DIR); point QP_OVMS_MODELS_DIR at a folder this App can write"
+  ovms_run "${args[@]}"
+}
+
+# ovms_run <ovms argument>...: start ovms with them on 0.0.0.0:8888, or behind
+# nginx on the prefix proxy (QP_OVMS_PREFIX_PROXY=1).
+ovms_run() {
   if [ "${QP_OVMS_PREFIX_PROXY:-}" != 1 ]; then
-    exec ovms --rest_port 8888 --config_path "$config"
+    exec ovms --rest_port 8888 "$@"
   fi
   command -v nginx >/dev/null 2>&1 \
     || die "QP_OVMS_PREFIX_PROXY=1 needs nginx (installed by domino/Dockerfile --target ovms)"
   local conf=/tmp/ovms-proxy.conf
   ovms_render_proxy_config "$conf"
-  ovms --rest_bind_address 127.0.0.1 --rest_port "$OVMS_UPSTREAM_PORT" --config_path "$config" &
+  ovms --rest_bind_address 127.0.0.1 --rest_port "$OVMS_UPSTREAM_PORT" "$@" &
   local ovms_pid=$!
   nginx -c "$conf" -g 'daemon off;' &
   local nginx_pid=$!
@@ -133,6 +200,9 @@ ovms_serving_config() {
     # A pin that cannot be applied must not be silently ignored.
     [ -z "${QP_OVMS_NUM_STREAMS:-}${QP_OVMS_THREADS:-}" ] \
       || die "QP_OVMS_NUM_STREAMS / QP_OVMS_THREADS are set but cannot be applied: 'qp-ovms-config' is not on PATH and 'uv' is not there to install it; install the toolkit and the use case, or unset both"
+    # Nor an LLM's option, which qp-ovms-config would refuse on this App.
+    [ -z "${QP_OVMS_DYNAMIC_SPLIT_FUSE:-}${QP_OVMS_MAX_BATCHED_TOKENS:-}" ] \
+      || die "QP_OVMS_DYNAMIC_SPLIT_FUSE / QP_OVMS_MAX_BATCHED_TOKENS are set, but $1 is no LLM, and they apply to an LLM served by OVMS only; unset them in this App's block of deploy.yaml"
     echo "app.sh[$WHO]: 'qp-ovms-config' not on PATH and no 'uv' to install it; serving $2 as exported (one stream, not calibrated)" >&2
     echo "$2"
     return

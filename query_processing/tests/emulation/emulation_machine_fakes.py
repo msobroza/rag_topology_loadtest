@@ -43,6 +43,7 @@ RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
 SERVED_MODEL_LINES = (
     f"reranker reranker {RERANKER} crossencoder-camembert-base-mmarcoFR fp32",
     f"embedder embedder {EMBEDDER} snowflake-arctic-embed-l-v2.0 fp32",
+    "llm llm '' '' fp32",  # an LLM a vendor serves has no source id
 )
 PASSAGES = 1592
 

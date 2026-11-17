@@ -203,3 +203,124 @@ def test_the_command_is_a_project_script() -> None:
     assert (
         scripts["qp-ovms-config"] == "query_processing.entrypoints.qp_ovms_config:main"
     )
+
+
+# --- an LLM: OVMS pulls it itself, so its App needs only the batching flags ----------
+
+
+@pytest.fixture
+def llm_from_the_hub(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """No QP_* from the shell, no ``.env``, the fixture's LLM given a source id."""
+    for name in shell_settings(os.environ, ("QP_", "DOMINO_")):
+        monkeypatch.delenv(name)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("QP_COMPONENTS__LLM__SOURCE_ID", "fixture-org/fixture-chat-ov")
+
+
+@pytest.mark.usefixtures("llm_from_the_hub")
+@pytest.mark.parametrize(
+    ("env", "printed"),
+    [
+        ({}, ""),  # OVMS's own defaults: no flag
+        (
+            {
+                "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
+                "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
+            },
+            "--dynamic_split_fuse false --max_num_batched_tokens 8192",
+        ),
+    ],
+    ids=["defaults", "both-set"],
+)
+def test_an_llm_gets_its_batching_flags_and_no_calibration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    env: dict[str, str],
+    printed: str,
+) -> None:
+    record = stand_in_on_path(tmp_path, monkeypatch)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    assert main(["--serve-llm", "llm"]) == 0
+
+    assert capsys.readouterr().out == f"{printed}\n"
+    assert ovms_starts(record) == []  # nothing is calibrated for an LLM
+
+
+@pytest.mark.usefixtures("llm_from_the_hub")
+def test_an_llm_with_no_source_id_is_refused_naming_the_component_and_the_field(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("QP_COMPONENTS__LLM__SOURCE_ID")
+
+    assert main(["--serve-llm", "llm"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    [line] = captured.err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot serve the llm: ")
+    assert "source_id" in line
+    assert "QP_COMPONENTS__LLM__SOURCE_ID" in line
+
+
+@pytest.mark.usefixtures("llm_from_the_hub")
+@pytest.mark.parametrize("pin", ["QP_OVMS_NUM_STREAMS", "QP_OVMS_THREADS"])
+def test_a_stream_pin_on_an_llm_is_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pin: str
+) -> None:
+    monkeypatch.setenv(pin, "2")
+
+    assert main(["--serve-llm", "llm"]) == 1
+
+    [line] = capsys.readouterr().err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot serve the llm: ")
+    assert f"{pin}=2" in line
+
+
+@pytest.mark.usefixtures("llm_from_the_hub")
+@pytest.mark.parametrize("name", ["reranker", "no-such-component"])
+def test_serve_llm_on_no_llm_is_a_usage_error(
+    capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--serve-llm", name])
+
+    assert exit_info.value.code == 2
+    assert "expected an LLM of the workflow file: llm" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [("QP_OVMS_DYNAMIC_SPLIT_FUSE", "false"), ("QP_OVMS_MAX_BATCHED_TOKENS", "512")],
+)
+def test_an_llm_option_on_a_reranker_app_is_refused_before_any_ovms_starts(
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    variable: str,
+    value: str,
+) -> None:
+    record = stand_in_on_path(tmp_path, monkeypatch)
+    monkeypatch.setenv(variable, value)
+
+    assert main(args("reranker", models, tmp_path / "s")) == 1
+
+    [line] = capsys.readouterr().err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot serve the reranker: ")
+    assert variable in line
+    assert "applies to an LLM" in line
+    assert ovms_starts(record) == []
+
+
+@pytest.mark.usefixtures("models")
+def test_serve_without_its_folders_is_a_usage_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--serve", "reranker"])
+
+    assert exit_info.value.code == 2
+    assert "--models-dir" in capsys.readouterr().err

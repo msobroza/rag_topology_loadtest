@@ -25,16 +25,19 @@ def test_each_line_names_a_component_its_type_source_id_alias_and_weight_format(
         components__embedder__alias="embed",
         components__reranker__source_id="org/rerank",
         components__reranker__alias="rerank",
+        components__llm__source_id="org/chat-int4-ov",
+        components__llm__alias="chat",
         local_models__openvino_weight_format="int8",
     )
 
     assert served_model_lines(settings) == [
         "embedder embedder org/embed embed int8",
         "reranker reranker org/rerank rerank int8",
+        "llm llm org/chat-int4-ov chat int8",
     ]
 
 
-def test_an_embedder_or_reranker_of_any_name_is_listed_and_an_llm_is_not(
+def test_every_model_of_any_name_is_listed_and_a_vector_store_is_not(
     settings_factory: Callable[..., WorkflowSettings],
 ) -> None:
     coarse = {"type": "reranker", "backend": "fake", "source_id": "/models/coarse-rr/"}
@@ -43,6 +46,7 @@ def test_an_embedder_or_reranker_of_any_name_is_listed_and_an_llm_is_not(
     assert served_model_lines(settings) == [
         "embedder embedder fixture-org/fixture-embedder fixture-embedder fp32",
         "reranker reranker fixture-org/fixture-reranker fixture-reranker fp32",
+        "llm llm '' '' fp32",  # the fixture's LLM is a vendor's: no source id
         "coarse reranker /models/coarse-rr/ coarse-rr fp32",
     ]
 
@@ -64,6 +68,7 @@ def test_qp_served_models_prints_the_workflow_files_components(
     assert capsys.readouterr().out.splitlines() == [  # fp32 is the default
         "embedder embedder fixture-org/fixture-embedder fixture-embedder fp32",
         "reranker reranker fixture-org/fixture-reranker fixture-reranker fp32",
+        "llm llm '' '' fp32",
     ]
 
 
@@ -81,6 +86,7 @@ def test_qp_served_models_honours_overrides_and_quotes_for_eval(
     assert capsys.readouterr().out.splitlines() == [
         "embedder embedder 'org/embed v2' embed fp32",
         "reranker reranker org/rerank 'it'\"'\"'s; rm -rf $HOME' fp32",
+        "llm llm '' '' fp32",
     ]
 
 
@@ -89,6 +95,7 @@ def test_qp_served_models_output_round_trips_through_bash_eval(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("QP_COMPONENTS__RERANKER__ALIAS", "it's; echo pwned")
+    monkeypatch.setenv("QP_COMPONENTS__LLM__SOURCE_ID", "org/chat-int4-ov")
     main([])
     # What ovms/export_models.sh does with each line.
     script = (
@@ -107,6 +114,7 @@ def test_qp_served_models_output_round_trips_through_bash_eval(
     assert result.stdout.splitlines() == [
         "embedder|embedder|fixture-org/fixture-embedder|fixture-embedder|fp32|",
         "reranker|reranker|fixture-org/fixture-reranker|it's; echo pwned|fp32|",
+        "llm|llm|org/chat-int4-ov|chat-int4-ov|fp32|",
     ]
 
 

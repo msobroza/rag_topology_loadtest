@@ -4,7 +4,7 @@ PATH is the fakes plus /usr/bin:/bin only, so neither a real ``curl``, a real
 exporter Python nor an installed ``qp-served-models`` can be reached, and the
 models directory is under ``tmp_path``: nothing touches the network or the repo.
 Each embedder and reranker ``qp-served-models`` lists is exported under its
-component's name, whatever the name.
+component's name, whatever the name; an LLM is skipped, for OVMS pulls it itself.
 """
 
 from __future__ import annotations
@@ -127,18 +127,34 @@ def test_without_a_folder_the_models_land_in_the_working_directorys_ovms_models(
     assert (models / ".export").is_dir()
 
 
-def test_a_served_model_of_another_type_stops_the_export(
+def test_an_llm_is_skipped_for_ovms_pulls_it_itself(
     tmp_path: Path, bin_dir: Path
 ) -> None:
-    lines = "llm llm org/chat chat fp32\n"
+    lines = "llm llm org/chat chat fp32\n" + FAKE_SERVED_MODELS
+    write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{lines}EOF\n")
+
+    result = run_export(tmp_path, bin_dir)
+
+    assert result.returncode == 0, result.stderr
+    exports = [c for c in calls(tmp_path, "python") if "<--source_model>" in c]
+    assert len(exports) == 2  # the embedder and the reranker, not the LLM
+    assert not any("org/chat" in c for c in exports)
+    assert not (tmp_path / "models" / "config_llm.json").exists()
+
+
+def test_a_served_model_of_an_unknown_type_stops_the_export(
+    tmp_path: Path, bin_dir: Path
+) -> None:
+    lines = "tagger tagger org/tag tag fp32\n"
     write_fake(bin_dir, "qp-served-models", f"cat <<'EOF'\n{lines}EOF\n")
 
     result = run_export(tmp_path, bin_dir)
 
     assert result.returncode == 1
-    assert "component 'llm' is of type 'llm'; expected an embedder or a reranker" in (
-        result.stderr
-    )
+    assert (
+        "component 'tagger' is of type 'tagger'; expected an embedder, a reranker "
+        "or an LLM"
+    ) in result.stderr
 
 
 def test_without_qp_served_models_the_export_fails_before_any_download(

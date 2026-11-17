@@ -238,8 +238,10 @@ A reading of the results above, not a measurement.
   weights on OVMS 2026.4.1, on PyTorch behind a stand-in FastAPI server and on vLLM.
   OVMS answered one user soonest (7.9 s against 13 s and 19 s). At 4 users its batching
   gained only once it read each prompt in one pass (`--dynamic_split_fuse false
-  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. Neither
-  model server of this project serves a generator yet.
+  --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. An
+  `ovms` App now serves an LLM, with those two flags set by `QP_OVMS_DYNAMIC_SPLIT_FUSE`
+  and `QP_OVMS_MAX_BATCHED_TOKENS` (the README's "An LLM on OVMS"); it has not run on
+  a machine in this layout. The FastAPI model server serves no LLM.
 
 ## Limits
 

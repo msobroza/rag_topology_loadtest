@@ -78,3 +78,74 @@ def test_streams_are_checked_against_threads_only_when_both_are_pinned(
     s = ovms_settings(num_streams=streams, threads=threads)
 
     assert (s.num_streams, s.threads) == (streams, threads)
+
+
+# --- the LLM's two batching options (OVMS's own flags) -------------------------------
+
+
+def test_the_llms_batching_options_keep_ovmss_defaults() -> None:
+    s = ovms_settings()
+
+    assert (s.dynamic_split_fuse, s.max_batched_tokens) == (True, 0)
+    assert s.llm_flags() == []  # at OVMS's defaults, no flag is passed
+
+
+def test_the_llms_batching_options_come_from_their_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QP_OVMS_DYNAMIC_SPLIT_FUSE", "false")
+    monkeypatch.setenv("QP_OVMS_MAX_BATCHED_TOKENS", "8192")
+
+    s = ovms_settings()
+
+    assert s.llm_flags() == [
+        "--dynamic_split_fuse",
+        "false",
+        "--max_num_batched_tokens",
+        "8192",
+    ]
+
+
+def test_a_negative_batched_token_count_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        ovms_settings(max_batched_tokens=-1)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [("QP_OVMS_DYNAMIC_SPLIT_FUSE", "false"), ("QP_OVMS_MAX_BATCHED_TOKENS", "512")],
+)
+def test_an_llm_option_on_an_embedder_or_reranker_app_is_refused(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match="applies to an LLM") as raised:
+        ovms_settings().require_no_llm_option("reranker")
+
+    message = str(raised.value)
+    assert variable in message
+    assert "applies to an LLM" in message
+    assert "reranker" in message
+
+
+def test_no_llm_option_set_lets_an_embedder_app_start() -> None:
+    ovms_settings().require_no_llm_option("embedder")
+
+
+@pytest.mark.parametrize("variable", ["QP_OVMS_NUM_STREAMS", "QP_OVMS_THREADS"])
+def test_a_pinned_stream_or_thread_count_on_an_llm_app_is_refused(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    monkeypatch.setenv(variable, "2")
+
+    with pytest.raises(ValueError, match="serves it uncalibrated") as raised:
+        ovms_settings().require_no_stream_pin("llm")
+
+    message = str(raised.value)
+    assert variable in message
+    assert "llm" in message
+
+
+def test_no_stream_pin_lets_an_llm_app_start() -> None:
+    ovms_settings().require_no_stream_pin("llm")

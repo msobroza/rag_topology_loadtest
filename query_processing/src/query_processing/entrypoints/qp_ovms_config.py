@@ -12,7 +12,15 @@ failure an operator can act on is one line on standard error and exit code 1; a
 ``--serve`` that names no embedder or reranker of the workflow file is a usage
 error.
 
+An LLM is not exported nor calibrated: OVMS pulls it from the Hub itself. For
+its App, ``--serve-llm`` checks the settings (a source id to pull, no stream or
+thread count pinned) and prints the flags of the LLM's two batching options,
+as shell words on one line, empty at OVMS's own defaults. An embedder's or a
+reranker's App refuses either option.
+
 Example:
+    $ QP_OVMS_DYNAMIC_SPLIT_FUSE=false qp-ovms-config --serve-llm llm
+    --dynamic_split_fuse false
     $ qp-ovms-config --serve reranker --models-dir /mnt/data/ovms-models
           --serving-dir "$(mktemp -d)"
     /tmp/tmp.x1/config_reranker.json
@@ -23,6 +31,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import shlex
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -73,6 +82,54 @@ def served_components(settings: WorkflowSettings) -> list[str]:
     return [n for n, c in settings.components.items() if c.type in SERVED_TYPES]
 
 
+def llm_components(settings: WorkflowSettings) -> list[str]:
+    """Return the LLMs of the workflow file, which OVMS pulls and serves itself.
+
+    Args:
+        settings: The settings whose workflow file declares the components.
+
+    Returns:
+        Their names, in the file's order.
+
+    Example:
+        >>> llm_components(WorkflowSettings())
+        ['llm']
+    """
+    return [n for n, c in settings.components.items() if c.type == "llm"]
+
+
+def llm_ovms_flags(settings: WorkflowSettings, ovms: OvmsSettings, name: str) -> str:
+    """Check an LLM's App, then return its batching flags as one line of shell words.
+
+    Args:
+        settings: The workflow settings the LLM is read from.
+        ovms: The OVMS App's own settings.
+        name: An LLM component of the workflow file.
+
+    Returns:
+        The flags of ``ovms.llm_flags()``, shell-quoted; "" at OVMS's defaults.
+
+    Raises:
+        ValueError: If the LLM has no source id for OVMS to pull, or a stream
+            or thread count is pinned, which an LLM's App would ignore.
+
+    Example:
+        >>> settings = WorkflowSettings(components={"llm": {"source_id": "org/m-ov"}})
+        >>> llm_ovms_flags(settings, OvmsSettings(max_batched_tokens=512), "llm")
+        '--max_num_batched_tokens 512'
+    """
+    if not settings.model_components()[name].source_id:
+        variable = settings.variable_of("components", name, "source_id")
+        raise ValueError(
+            f"components.{name}.source_id is empty ({variable}), and OVMS pulls the "
+            "model it names from the Hugging Face Hub; set it in the workflow file, "
+            "or in the deploy file's overrides, to an OpenVINO model such as "
+            "OpenVINO/<model>-int4-ov"
+        )
+    ovms.require_no_stream_pin(name)
+    return shlex.join(ovms.llm_flags())
+
+
 async def write_serving_config(
     settings: WorkflowSettings, ovms: OvmsSettings, name: str, folders: ServingFolders
 ) -> int:
@@ -110,8 +167,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
 
     Returns:
-        The exit status: 0 when the config path was printed, else 1; a name
-        that is no embedder or reranker exits as a usage error.
+        The exit status: 0 when the config path (or an LLM's flags) was
+        printed, else 1; a name that is no component of the asked type exits
+        as a usage error.
 
     Example:
         >>> main(["--serve", "reranker", "--models-dir", "m", "--serving-dir", "s"])
@@ -125,12 +183,57 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings, ovms = WorkflowSettings(), OvmsSettings()
     except ValueError as exc:  # pydantic's ValidationError is one
         return one_line_failure(PROG, "cannot read the settings", exc)
+    if args.serve_llm is not None:
+        return _serve_llm(parser, settings, ovms, args.serve_llm)
+    return _serve_exported(parser, settings, ovms, args)
+
+
+def _serve_llm(
+    parser: argparse.ArgumentParser,
+    settings: WorkflowSettings,
+    ovms: OvmsSettings,
+    name: str,
+) -> int:
+    names = llm_components(settings)
+    if name not in names:
+        parser.error(
+            f"--serve-llm {name!r}: expected an LLM of the workflow file: "
+            f"{', '.join(names)}"
+        )
+    try:
+        flags = llm_ovms_flags(settings, ovms, name)
+    except ValueError as exc:
+        return one_line_failure(PROG, f"cannot serve the {name}", exc)
+    print(flags, flush=True)
+    return 0
+
+
+def _serve_exported(
+    parser: argparse.ArgumentParser,
+    settings: WorkflowSettings,
+    ovms: OvmsSettings,
+    args: argparse.Namespace,
+) -> int:
     names = served_components(settings)
     if args.serve not in names:
         parser.error(
             f"--serve {args.serve!r}: expected an embedder or a reranker of the "
             f"workflow file: {', '.join(names)}"
         )
+    missing = [
+        flag
+        for flag, value in (
+            ("--models-dir", args.models_dir),
+            ("--serving-dir", args.serving_dir),
+        )
+        if value is None
+    ]
+    if missing:
+        parser.error(f"--serve {args.serve} needs {' and '.join(missing)}")
+    try:
+        ovms.require_no_llm_option(args.serve)
+    except ValueError as exc:
+        return one_line_failure(PROG, f"cannot serve the {args.serve}", exc)
     folders = ServingFolders(args.models_dir, args.serving_dir)
     return asyncio.run(write_serving_config(settings, ovms, args.serve, folders))
 
@@ -140,18 +243,24 @@ def _parser() -> argparse.ArgumentParser:
         prog=PROG,
         description="Calibrate OpenVINO Model Server's streams and threads left at "
         "0 by QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS, write the folder it "
-        "serves one component from, and print the config file to start it with.",
+        "serves one component from, and print the config file to start it with; "
+        "or, for an LLM, print the flags of its batching options.",
     )
-    parser.add_argument(
+    served = parser.add_mutually_exclusive_group(required=True)
+    served.add_argument(
         "--serve",
         metavar="NAME",
-        required=True,
         help="the embedder or reranker component OVMS serves, such as reranker",
     )
-    parser.add_argument(
-        "--models-dir", type=Path, required=True, help="OVMS's export, read only"
+    served.add_argument(
+        "--serve-llm",
+        metavar="NAME",
+        help="the LLM component OVMS pulls and serves: print its batching flags",
     )
     parser.add_argument(
-        "--serving-dir", type=Path, required=True, help="the App's own folder"
+        "--models-dir", type=Path, help="with --serve: OVMS's export, read only"
+    )
+    parser.add_argument(
+        "--serving-dir", type=Path, help="with --serve: the App's own folder"
     )
     return parser

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Export each embedder and reranker of the workflow file to OpenVINO IR in an OVMS
+# Export each embedder and reranker of the workflow file (an LLM is skipped: OVMS
+# pulls it itself when its App starts) to OpenVINO IR in an OVMS
 # model repository, using the export_model.py helper shipped with the pinned OVMS
 # tag. Each component gets config_<component>.json, the config an OVMS
 # model-server App of that component serves (domino/model_servers/ovms.sh).
@@ -107,8 +108,13 @@ export_model() {
         --config_file_path "$config" \
         --model_repository_path "$MODELS_DIR"
       ;;
+    llm)
+      # OVMS pulls an LLM itself when its App starts (domino/model_servers/ovms.sh).
+      echo "export_models.sh: $1 is an LLM, which OVMS pulls itself; skipped"
+      return
+      ;;
     *)
-      echo "export_models.sh: component '$1' is of type '$2'; expected an embedder or a reranker" >&2
+      echo "export_models.sh: component '$1' is of type '$2'; expected an embedder, a reranker or an LLM" >&2
       exit 1
       ;;
   esac

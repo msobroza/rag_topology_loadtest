@@ -1,17 +1,20 @@
 """``qp-served-models``: print the served models, one line of shell words each.
 
-The workflow file is the one pin for the served models: each embedder and
-reranker it declares, by any name, with a source id and an alias, is a model an
-OVMS model-server App may serve. Its ``local_models`` block is the one pin for
-the weight format they are exported at, the same for all, which the in-process
-export reads too. ``ovms/export_models.sh`` reads this command's output to
-export each one under its component's name and at the format printed, instead
-of repeating the names.
+The workflow file is the one pin for the served models: each embedder,
+reranker and LLM it declares, by any name, with a source id and an alias, is a
+model an OVMS model-server App may serve. Its ``local_models`` block is the one
+pin for the weight format the embedders and rerankers are exported at, the same
+for all, which the in-process export reads too. ``ovms/export_models.sh`` reads
+this command's output to export each embedder and reranker under its
+component's name and at the format printed, instead of repeating the names, and
+skips an LLM, which OVMS pulls itself; ``domino/model_servers/ovms.sh`` reads it
+to learn the type, source id and alias of the component its App serves.
 
 Example:
     >>> qp-served-models
     embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 snowflake-arc... fp32
     reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR cross... fp32
+    llm llm '' '' fp32
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from ..config.workflow_settings import WorkflowSettings
 
 
 def served_model_lines(settings: WorkflowSettings) -> list[str]:
-    """Return one line per embedder and reranker, ending with the weight format.
+    """Return one line per embedder, reranker and LLM, ending with the weight format.
 
     A line holds the component's name, type, source id and alias, then the
     OpenVINO weight format, the same on every line: it is one setting. Each
@@ -36,20 +39,18 @@ def served_model_lines(settings: WorkflowSettings) -> list[str]:
             format (its ``local_models`` block).
 
     Returns:
-        The lines, in the file's order; an LLM or a vector store has none.
+        The lines, in the file's order; a vector store has none.
 
     Example:
         >>> served_model_lines(WorkflowSettings())[1]
         'reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR ... fp32'
     """
-    exported = ("embedder", "reranker")  # the types the OVMS exporter exports
     weight_format = settings.local_models.openvino_weight_format
     return [
         shlex.join(
             [name, component.type, component.source_id, component.alias, weight_format]
         )
         for name, component in settings.model_components().items()
-        if component.type in exported
     ]
 
 
@@ -69,9 +70,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(
         prog="qp-served-models",
-        description="Print each embedder and reranker of the workflow file as one "
-        "line of shell words (name, type, source id, alias, OpenVINO weight "
-        "format), for ovms/export_models.sh.",
+        description="Print each embedder, reranker and LLM of the workflow file as "
+        "one line of shell words (name, type, source id, alias, OpenVINO weight "
+        "format), for ovms/export_models.sh and domino/model_servers/ovms.sh.",
     )
     parser.parse_args(argv)
     try:

@@ -127,6 +127,22 @@ def test_without_uv_a_pin_that_cannot_be_applied_stops_the_app(
     assert log(tmp_path, "ovms") == ""
 
 
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [("QP_OVMS_DYNAMIC_SPLIT_FUSE", "false"), ("QP_OVMS_MAX_BATCHED_TOKENS", "512")],
+)
+def test_without_uv_an_llms_option_on_a_reranker_stops_the_app(
+    tmp_path: Path, bin_dir: Path, option: str, value: str
+) -> None:
+    result = run_app(tmp_path, bin_dir, **{option: value})
+
+    assert result.returncode == 1
+    [line] = [x for x in result.stderr.splitlines() if x.startswith("app.sh[")]
+    assert option in line
+    assert "apply to an LLM" in line
+    assert log(tmp_path, "ovms") == ""
+
+
 def test_a_failing_qp_ovms_config_stops_the_app_and_names_the_pins(
     tmp_path: Path, bin_dir: Path
 ) -> None:

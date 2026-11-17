@@ -798,7 +798,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
       router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
       endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
-      ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout), no value of the workflow file
+      ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options), no value of the workflow file
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder
@@ -915,10 +915,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     entrypoints/      the RAG system's commands: FastAPI apps and CLIs
       qp_serve.py     qp-serve: the FastAPI app (/query /retrieve /healthz /readyz), --domino, Domino tracing, JSON logs, a refused graph as one line
       qp_model_server.py  qp-model-server: the FastAPI model server of one named component on OpenVINO Model Server's /v3 routes, or on its call route (POST /call/<component type>) for a registered type; its answers, UNKNOWN_MODEL_ERROR
-      qp_served_models.py  qp-served-models: each embedder and reranker of the workflow file (name, type, source id, alias, then the weight format), one line of shell words each
+      qp_served_models.py  qp-served-models: each embedder, reranker and LLM of the workflow file (name, type, source id, alias, then the weight format), one line of shell words each
       qp_export_openvino.py  qp-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
       qp_calibrate.py  qp-calibrate: calibrate the in-process models (or OVMS) here, print the environment paths (or the OVMS App's variables) that pin them
-      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its export held to the weight format asked, its streams and threads calibrated first
+      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its export held to the weight format asked, its streams and threads calibrated first; with --serve-llm, an LLM's batching flags
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
@@ -1493,8 +1493,9 @@ or a setting of a stage of the graph, each read from the workflow file and its
 environment path; only the topology alias and the run label, two labels, are
 flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
 get the values as constructor arguments from the `composition/` package. An OVMS
-model server App's own three variables (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`,
-`QP_OVMS_START_TIMEOUT_S`) are no value of the workflow file: they belong to one
+model server App's own variables (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`,
+`QP_OVMS_START_TIMEOUT_S`, and an LLM's `QP_OVMS_DYNAMIC_SPLIT_FUSE` and
+`QP_OVMS_MAX_BATCHED_TOKENS`) are no value of the workflow file: they belong to one
 App and its hardware, so they are flat, the fields of `OvmsSettings` in
 `config/ovms_settings.py`, and set in that App's block of `deploy.yaml`. Sources
 win in the order the workflow file's section gives. An invalid runtime or
@@ -2107,7 +2108,8 @@ rerankers of the workflow file, whatever their names (here `reranker`,
 `snowflake-arctic-embed-l-v2.0`: each alias is the source id's last part).
 `qp-served-models` prints them, `QP_*` overrides included, one line of
 shell-quoted words each (name, type, source id, alias, then the weight format,
-the same on every line) for `export_models.sh`;
+the same on every line) for `export_models.sh`, with a line for each LLM
+too, which the exporter skips (see "An LLM on OVMS" below);
 the `rag` Domino image reads the source ids from the use case's workflow file,
 which it copies beside the use case it installs.
 
@@ -2185,6 +2187,26 @@ follows the linked model files of the serving folder, and it takes
 `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and `ENABLE_HYPER_THREADING` together.
 The prefix proxy and the start without `uv` have only run against stand-ins,
 and so has all of it since the command took the toolkit's names and settings.
+
+**An LLM on OVMS.** An `ovms` App of an LLM has no config to find: the script
+asks `qp-served-models` the component's type, then has OVMS pull its
+`source_id` (an OpenVINO conversion on the Hub, `OpenVINO/<model>-int4-ov`)
+into `QP_OVMS_MODELS_DIR`, which it creates
+first, and serve it under its `alias`: `ovms --source_model <source id>
+--model_name <alias> --model_repository_path <folder> --task text_generation
+--target_device CPU`. The model is named in the workflow file (or the deploy
+file's `overrides`) and nowhere else; an empty `source_id` stops the App,
+naming the component and the field. Nothing is exported or calibrated, and
+a pinned `QP_OVMS_NUM_STREAMS` or `QP_OVMS_THREADS` on an LLM's App is
+refused. Two options of the App's block of `deploy.yaml`, checked by
+`qp-ovms-config --serve-llm` before OVMS starts, set OVMS's batching:
+`QP_OVMS_DYNAMIC_SPLIT_FUSE` (default `true`; `false` reads a prompt in one
+pass) and `QP_OVMS_MAX_BATCHED_TOKENS` (default `0`, OVMS's own choice; at
+least `0`). Each flag is passed only away from OVMS's default; on an
+embedder's or a reranker's App either option is refused. It needs the
+generic environment with `QP_BOOTSTRAP=1` and `QP_OVMS_BUNDLE`, not the
+prebuilt `ovms` image. Not verified: an LLM App on OVMS has never run on a
+machine in this layout; its tests run the script against a stand-in `ovms`.
 
 **Compose** (`make infra-up`) mounts `ovms/models` read-only at `/workspace` and
 starts the reranker with `--rest_port 8001 --config_path /workspace/config_reranker.json`,
