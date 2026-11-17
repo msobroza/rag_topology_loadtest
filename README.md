@@ -376,7 +376,10 @@ itself, when its model or service fails, and which the app answers with 503,
 or 504 with `kind="timeout"`.
 
 An LLM of a use case subclasses `BaseLLM`, also in `extension_api`, and
-writes `generate` rather than `invoke`. It answers a `GenerateAnswer`: the
+writes `generate` rather than `invoke`. Besides the messages and the output
+schema, `generate` takes `max_tokens`, the cap on the answer that a generate
+stage or a plain call states, None for none: the API LLM sends it to its
+endpoint, the fake LLM ignores it. It answers a `GenerateAnswer`: the
 text, and the token counts its model reported, `prompt_tokens` and
 `completion_tokens`, each None when the model reported none. `ainvoke`
 returns that answer as it is, so a plain call on an LLM can write the counts
@@ -1332,6 +1335,7 @@ QP_LOCAL_MODELS__RUNTIME=torch QP_LOCAL_MODELS__CPUS=4 make serve
 | `generate` | `prompt` | `rewrite_as_standalone`, `answer_from_context` | the prompt of `prompts.yaml` it renders; the fields of its `reads` are the prompt's variables, any number of them, and it writes one field, the text, unless it names an output schema |
 | `generate` | `output_schema` | the rewrite's: `standalone_query_with_filter`; not written for `generate` | a registered output schema the LLM answers in; the stage writes each of its fields to the field of `writes` of the same name, and `writes` lists them all ([Structured output](#structured-output)) |
 | `generate` | `metadata_fields_of` | the rewrite's: `vector_store` | a vector store whose declared fields narrow the output schema's conditions, and which the prompt gets as `metadata_field_info` |
+| `generate` | `max_tokens` | not written: no cap | the most tokens the stage's answer may hold (>= 1), sent to the LLM's endpoint as `max_tokens`; the stage's, not the LLM's: a cap on `generate` leaves `rewrite`, whose answer must match its schema, uncut |
 
 The prompts are in a file of their own, `prompts.yaml`, beside the workflow
 file: the one `QP_PROMPTS_FILE` names, else `prompts.yaml` in the working

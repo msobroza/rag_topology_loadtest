@@ -47,6 +47,7 @@ class FakeLLM(BaseLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         """Echo the last user message, after ``latency_ms``; counts the calls.
 
@@ -54,6 +55,8 @@ class FakeLLM(BaseLLM):
             messages: OpenAI-style messages, each with ``role`` and ``content``.
             output_schema: The pydantic model the answer must follow; None for
                 the echo as text.
+            max_tokens: Ignored: the echo is never cut, so an answer under a
+                schema stays an instance of it.
 
         Returns:
             ``"[fake-llm] "`` and the first 200 characters of the last user message
@@ -71,6 +74,7 @@ class FakeLLM(BaseLLM):
             >>> (await FakeLLM().generate(messages, output_schema=Verdict)).text
             '{"ok":false}'
         """
+        del max_tokens  # the port's signature; the echo is never cut
         self.calls += 1
         if self.latency_ms > 0:
             await asyncio.sleep(self.latency_ms / 1000.0)

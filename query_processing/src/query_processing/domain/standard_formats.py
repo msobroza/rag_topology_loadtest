@@ -125,13 +125,15 @@ class OpenAIChatRequest(BaseApiRequest):
     """``{model, messages, temperature}`` of ``POST /v1/chat/completions``.
 
     ``response_format``, sent only when set, states the JSON schema the answer
-    must follow.
+    must follow. ``max_tokens``, sent only when set, caps the answer's tokens;
+    left out, the server's own limit applies.
     """
 
     model: str
     messages: list[dict[str, str]]
     temperature: float
     response_format: dict[str, object] | None = None
+    max_tokens: int | None = None
 
 
 class OpenAIChatMessage(BaseModel):

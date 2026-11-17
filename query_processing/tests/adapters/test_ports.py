@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -33,6 +33,7 @@ from query_processing.domain.component_requests import (
 )
 from query_processing.domain.passages import ScoredPassage
 from workflow_fakes import (
+    CapRecordingLLM,
     DenseOnlyStore,
     RecordingEmbedder,
     RecordingReranker,
@@ -112,6 +113,22 @@ async def test_the_llm_answers_its_request_under_the_requests_output_schema() ->
     )
 
     assert (await FakeLLM().ainvoke(request)).text == '{"text":"[fake-llm] hi"}'
+
+
+async def test_the_llm_is_given_the_cap_its_request_states() -> None:
+    llm = CapRecordingLLM()
+    messages = [{"role": "user", "content": "hi"}]
+
+    await llm.ainvoke(GenerateRequest(messages=messages))
+    await llm.ainvoke(GenerateRequest(messages=messages, max_tokens=32))
+
+    assert llm.caps == [None, 32]
+
+
+@pytest.mark.parametrize("cap", [0, -1])
+def test_a_request_refuses_a_cap_below_one(cap: int) -> None:
+    with pytest.raises(ValidationError, match="max_tokens"):
+        GenerateRequest(messages=[], max_tokens=cap)
 
 
 def test_the_four_ports_are_the_registered_component_types() -> None:

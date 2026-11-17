@@ -109,6 +109,7 @@ class AnsweringText(BaseLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         return "Paris."  # type: ignore[return-value]
 

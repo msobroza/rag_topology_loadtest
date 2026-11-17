@@ -34,9 +34,14 @@ class BaseGenerationApiFormat(ABC):
         model: str,
         messages: list[dict[str, str]],
         temperature: float,
+        *,
         response_format: dict[str, object] | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, object]:
         """Build the body that asks ``model`` to answer ``messages``.
+
+        The two optional parameters are keyword-only, so a call cannot put a
+        cap where the response format goes.
 
         Args:
             model: The model name sent with the request.
@@ -44,6 +49,7 @@ class BaseGenerationApiFormat(ABC):
             temperature: The sampling temperature.
             response_format: OpenAI's ``response_format`` object, which states
                 the schema the answer must follow; None sends none.
+            max_tokens: The most tokens the answer may hold; None sends no cap.
 
         Returns:
             The JSON body.

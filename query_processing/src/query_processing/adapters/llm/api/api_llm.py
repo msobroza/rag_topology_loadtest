@@ -75,6 +75,7 @@ class ApiLLM(BaseLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         """Answer a conversation at the configured temperature.
 
@@ -82,6 +83,8 @@ class ApiLLM(BaseLLM):
             messages: OpenAI-style messages, each with ``role`` and ``content``.
             output_schema: The pydantic model the answer must follow, sent the
                 way the structured output method says; None for free text.
+            max_tokens: The cap on the answer's tokens, sent with every
+                attempt; None sends none.
 
         Returns:
             The model's answer text ("" when the answer carries no content),
@@ -101,15 +104,18 @@ class ApiLLM(BaseLLM):
             '{"ok": true}'
         """
         if output_schema is None:
-            return await self._answer(PreparedRequest(messages, None))
-        return await self._answer_matching(messages, output_schema)
+            return await self._answer(PreparedRequest(messages, None), max_tokens)
+        return await self._answer_matching(messages, output_schema, max_tokens)
 
-    async def _answer(self, prepared: PreparedRequest) -> GenerateAnswer:
+    async def _answer(
+        self, prepared: PreparedRequest, max_tokens: int | None
+    ) -> GenerateAnswer:
         body = self._api_format.request_body(
             self.model_name,
             prepared.messages,
             self._temperature,
-            prepared.response_format,
+            response_format=prepared.response_format,
+            max_tokens=max_tokens,
         )
         answer = await self._endpoint_client.post(body)
         try:
@@ -118,7 +124,10 @@ class ApiLLM(BaseLLM):
             raise self._endpoint_client.malformed(exc) from exc
 
     async def _answer_matching(
-        self, messages: list[dict[str, str]], schema: type[BaseModel]
+        self,
+        messages: list[dict[str, str]],
+        schema: type[BaseModel],
+        max_tokens: int | None,
     ) -> GenerateAnswer:
         # Asked once, then once per retry, until an answer matches. Every
         # attempt was paid for, so the answer reports the counts of them all.
@@ -126,11 +135,11 @@ class ApiLLM(BaseLLM):
         prepared = method.prepare(messages, schema)
         paid: list[GenerateAnswer] = []
         for _ in range(self._retries):
-            paid.append(await self._answer(prepared))
+            paid.append(await self._answer(prepared, max_tokens))
             text = method.json_text(paid[-1].text)
             if _mismatch(schema, text) is None:
                 return _summed(text, paid)
-        paid.append(await self._answer(prepared))
+        paid.append(await self._answer(prepared, max_tokens))
         text = method.json_text(paid[-1].text)
         mismatch = _mismatch(schema, text)
         if mismatch is not None:

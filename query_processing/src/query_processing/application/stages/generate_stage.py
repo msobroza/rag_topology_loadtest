@@ -8,7 +8,9 @@ for one instance of it and writes each of its fields to the field of
 ``writes`` of the same name (spec 5). A stage that names a vector store by
 ``metadata_fields_of`` asks for the schema narrowed to that store's declared
 fields (``narrowed_to``), and its prompt also gets them as
-``metadata_field_info``.
+``metadata_field_info``. A stage that states ``max_tokens`` caps its answer:
+the LLM sends the cap to its endpoint. The cap is the stage's, not the LLM's,
+so a rewrite under a schema is not cut short by the cap of an answer.
 
 Example:
     >>> stage = GenerateStage(llm, GenerateSettings(prompt="answer_from_context"),
@@ -24,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from ...adapters.llm.base_llm import BaseLLM
 from ...domain.errors import RagDependencyError
@@ -56,11 +58,24 @@ class GenerateSettings(StageSettings):
     one of ``OUTPUT_SCHEMAS``; None asks the LLM for text.
     ``metadata_fields_of`` names a vector store: the schema's conditions are
     narrowed to the fields it declares, which the prompt also gets.
+    ``max_tokens`` is the most tokens the answer may hold; None states no cap.
     """
 
     prompt: str
     output_schema: str | None = None
     metadata_fields_of: str | None = None
+    max_tokens: int | None = None
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _a_cap_of_at_least_one(cls, cap: int | None) -> int | None:
+        # A cap of 0 would ask for no answer; no cap is said by leaving it out.
+        if cap is not None and cap < 1:
+            raise ValueError(
+                f"max_tokens is {cap} (expected a whole number of at least 1, "
+                "or no max_tokens for no cap)"
+            )
+        return cap
 
 
 @STAGE_TYPES.register("generate")
@@ -163,7 +178,8 @@ class GenerateStage(BaseStage[BaseLLM, GenerateSettings]):
         if self._field_info is not None:
             variables[METADATA_FIELD_INFO_VARIABLE] = list(self._field_info)
         messages = render_prompt(self._prompt, variables)
-        text = (await self.component.generate(messages, self._asked)).text
+        cap = self.settings.max_tokens
+        text = (await self.component.generate(messages, self._asked, cap)).text
         # _asked is None only when _schema is: the second test is for the type checker.
         if self._schema is None or self._asked is None:
             return self.write_field(text)

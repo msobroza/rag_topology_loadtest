@@ -103,6 +103,26 @@ async def test_the_token_counts_come_back(clients: HttpClients) -> None:
     )
 
 
+async def test_the_cap_reaches_the_endpoint_and_the_counts_come_back(
+    clients: HttpClients,
+) -> None:
+    usage = {"prompt_tokens": 829, "completion_tokens": 128, "total_tokens": 957}
+    llm, route = make(clients, completion("Paris.", usage))
+    answer = await llm.generate(MESSAGES, max_tokens=128)
+    assert answer == GenerateAnswer(
+        text="Paris.", prompt_tokens=829, completion_tokens=128
+    )
+    [request] = route.requests
+    assert request.json["max_tokens"] == 128
+
+
+async def test_no_cap_is_left_out_of_the_body(clients: HttpClients) -> None:
+    llm, route = make(clients, completion("Paris."))
+    await llm.generate(MESSAGES)
+    [request] = route.requests
+    assert "max_tokens" not in request.json
+
+
 @pytest.mark.parametrize(
     "body",
     [{"choices": []}, {"error": "x"}, {"choices": [{"text": "old API"}]}],
@@ -175,6 +195,18 @@ async def test_an_answer_that_does_not_match_is_asked_again(
     assert answer.text == '{"ok": false}'
     assert len(route.requests) == 2
     assert route.requests[0].json == route.requests[1].json
+
+
+async def test_a_cap_and_a_schema_reach_the_endpoint_in_each_request(
+    clients: HttpClients,
+) -> None:
+    llm, route = make(clients, completion("not json"), completion('{"ok": true}'))
+
+    await llm.generate(MESSAGES, output_schema=Verdict, max_tokens=64)
+    assert len(route.requests) == 2
+    for request in route.requests:
+        assert request.json["max_tokens"] == 64
+        assert request.json["response_format"]["type"] == "json_schema"
 
 
 async def test_an_answer_that_never_matches_fails_showing_the_text(

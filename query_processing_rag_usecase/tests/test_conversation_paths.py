@@ -83,12 +83,15 @@ class RecordingLLM(FakeLLM):
         self.asked: list[tuple[Messages, type[BaseModel] | None]] = []
 
     async def generate(
-        self, messages: Messages, output_schema: type[BaseModel] | None = None
+        self,
+        messages: Messages,
+        output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         self.asked.append((messages, output_schema))
         if output_schema is not None and self.rewrite is not None:
             return GenerateAnswer(text=json.dumps(self.rewrite))
-        return await super().generate(messages, output_schema)
+        return await super().generate(messages, output_schema, max_tokens)
 
     def schemas(self) -> list[type[BaseModel] | None]:
         """The schema of each call, in order: None for a call that asked for text."""

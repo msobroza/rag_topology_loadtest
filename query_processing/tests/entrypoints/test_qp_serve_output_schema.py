@@ -62,9 +62,10 @@ class RecordingLLM(FakeLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         self.schemas.append(output_schema)
-        return await super().generate(messages, output_schema)
+        return await super().generate(messages, output_schema, max_tokens)
 
 
 class RewritingLLM(RecordingLLM):
@@ -78,9 +79,10 @@ class RewritingLLM(RecordingLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         if output_schema is None:
-            return await super().generate(messages, output_schema)
+            return await super().generate(messages, output_schema, max_tokens)
         self.schemas.append(output_schema)
         self.prompts.append(messages[-1]["content"])
         rewrite = {"standalone_query": QUESTION, "metadata_filter": [NOT_ONBOARDING]}

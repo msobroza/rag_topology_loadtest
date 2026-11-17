@@ -14,6 +14,10 @@ from query_processing.application.stages.base_stage import StageFields
 from query_processing.application.stages.call_stage import CallStage
 from query_processing.domain.errors import RagDependencyError
 
+# A plain call fills every attribute of its request: an LLM's schema and cap
+# are keys here, stated as none, and its reads fill the messages.
+UNCAPPED_TEXT = {"output_schema": None, "max_tokens": None}
+
 
 async def test_a_plain_call_hands_its_reads_and_writes_the_answer() -> None:
     stage = CallStage(
@@ -35,7 +39,7 @@ async def test_a_key_fills_its_attribute_and_the_state_is_not_read_for_it() -> N
 
 async def test_a_plain_call_on_an_llm_writes_its_token_counts() -> None:
     fields = StageFields(("messages",), ("reply", "read", "written"))
-    stage = CallStage(FakeLLM(), bind_call(BaseLLM, {"output_schema": None}, fields))
+    stage = CallStage(FakeLLM(), bind_call(BaseLLM, UNCAPPED_TEXT, fields))
 
     written = await stage.run({"messages": [{"role": "user", "content": "how many"}]})
 
@@ -44,7 +48,7 @@ async def test_a_plain_call_on_an_llm_writes_its_token_counts() -> None:
 
 async def test_a_plain_call_on_an_llm_can_write_its_text_alone() -> None:
     fields = StageFields(("messages",), ("reply",))
-    stage = CallStage(FakeLLM(), bind_call(BaseLLM, {"output_schema": None}, fields))
+    stage = CallStage(FakeLLM(), bind_call(BaseLLM, UNCAPPED_TEXT, fields))
 
     written = await stage.run({"messages": [{"role": "user", "content": "hi"}]})
 

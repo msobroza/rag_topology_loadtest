@@ -15,6 +15,26 @@ def test_chat_request_has_the_openai_shape() -> None:
     assert body == {"model": "gpt", "messages": messages, "temperature": 0.3}
 
 
+def test_the_format_leaves_an_unstated_cap_out_of_the_body() -> None:
+    assert "max_tokens" not in OpenAIChatFormat().request_body("m", [], 0.0)
+    body = OpenAIChatFormat().request_body("m", [], 0.0, max_tokens=128)
+    assert body["max_tokens"] == 128
+
+
+def test_a_cap_and_a_response_format_go_in_one_body() -> None:
+    response_format: dict[str, object] = {"type": "json_object"}
+    body = OpenAIChatFormat().request_body(
+        "m", [], 0.0, response_format=response_format, max_tokens=64
+    )
+    assert body == {
+        "model": "m",
+        "messages": [],
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+        "max_tokens": 64,
+    }
+
+
 @pytest.mark.parametrize(("content", "expected"), [("Paris.", "Paris."), (None, "")])
 def test_chat_answer_reads_the_first_choice(content: str | None, expected: str) -> None:
     body = {"choices": [{"message": {"content": content}}, {"message": {}}]}

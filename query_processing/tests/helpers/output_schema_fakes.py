@@ -41,6 +41,7 @@ class ScriptedLLM(BaseLLM):
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         self.schemas.append(output_schema)
         self.messages.append(messages)

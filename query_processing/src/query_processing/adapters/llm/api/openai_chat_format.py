@@ -33,9 +33,11 @@ class OpenAIChatFormat(BaseGenerationApiFormat):
         model: str,
         messages: list[dict[str, str]],
         temperature: float,
+        *,
         response_format: dict[str, object] | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, object]:
-        """Build ``{model, messages, temperature}``, and ``response_format`` if set.
+        """Build ``{model, messages, temperature}``, and each optional key set.
 
         Args:
             model: The model name sent with the request.
@@ -43,6 +45,8 @@ class OpenAIChatFormat(BaseGenerationApiFormat):
             temperature: The sampling temperature.
             response_format: OpenAI's ``response_format`` object; None leaves
                 the key out.
+            max_tokens: The cap on the answer's tokens; None leaves the key
+                out, so an uncapped body is the one sent before the cap existed.
 
         Returns:
             The JSON body.
@@ -52,6 +56,7 @@ class OpenAIChatFormat(BaseGenerationApiFormat):
             messages=messages,
             temperature=temperature,
             response_format=response_format,
+            max_tokens=max_tokens,
         )
         return request.to_wire()
 

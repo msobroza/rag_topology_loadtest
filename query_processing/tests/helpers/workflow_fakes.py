@@ -10,13 +10,16 @@ from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
+from pydantic import BaseModel
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
+from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
+from query_processing.domain.component_requests import GenerateAnswer
 from query_processing.domain.metadata_filter import MetadataCondition
 from query_processing.domain.passages import Passage, ScoredPassage
 
@@ -61,6 +64,24 @@ class RecordingReranker(BaseReranker):
 
     async def ready(self) -> tuple[bool, str]:
         return True, "recording"
+
+
+class CapRecordingLLM(BaseLLM):
+    """Answers "ok" and records the answer cap each ``generate`` is given."""
+
+    model_name = "cap-recording-llm"
+
+    def __init__(self) -> None:
+        self.caps: list[int | None] = []
+
+    async def generate(
+        self,
+        messages: list[dict[str, str]],
+        output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
+    ) -> GenerateAnswer:
+        self.caps.append(max_tokens)
+        return GenerateAnswer(text="ok")
 
 
 class DenseOnlyStore(BaseVectorStore):

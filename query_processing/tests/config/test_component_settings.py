@@ -17,6 +17,7 @@ from query_processing.config.component_settings import (
     EndpointSettings,
     FakeStoreSettings,
     LlmEndpointSettings,
+    LlmServedSettings,
     RerankerEndpointSettings,
     RerankerLocalSettings,
     RerankerSettings,
@@ -193,6 +194,15 @@ def test_a_block_of_a_backend_the_type_does_not_have_is_refused(
 def test_a_key_of_a_block_it_does_not_have_is_refused() -> None:
     with pytest.raises(ValidationError, match="thread"):
         EmbedderLocalSettings.model_validate({"batch_size": 1, "thread": 2})
+
+
+@pytest.mark.parametrize("block", [LlmServedSettings, LlmEndpointSettings])
+def test_the_answer_cap_is_no_setting_of_the_llm(
+    block: type[LlmServedSettings],
+) -> None:
+    # The cap is a generate stage's: on the LLM it would also cut the rewrite.
+    with pytest.raises(ValidationError, match="max_tokens"):
+        block.model_validate({"url": "http://llm/v1", "max_tokens": 64})
 
 
 def test_a_component_is_of_the_type_of_its_name_unless_it_says(

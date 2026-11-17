@@ -9,7 +9,7 @@ application depends on it, and on nothing else of the adapters.
 
 Example:
     >>> class MyLLM(BaseLLM):
-    ...     async def generate(self, messages, output_schema=None):
+    ...     async def generate(self, messages, output_schema=None, max_tokens=None):
     ...         return GenerateAnswer(text="...")
 """
 
@@ -33,6 +33,7 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
         self,
         messages: list[dict[str, str]],
         output_schema: type[BaseModel] | None = None,
+        max_tokens: int | None = None,
     ) -> GenerateAnswer:
         """Answer a conversation, as text or as one instance of a schema.
 
@@ -40,6 +41,8 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
             messages: OpenAI-style messages, each with ``role`` and ``content``.
             output_schema: The pydantic model the answer must follow; None for
                 free text.
+            max_tokens: The most tokens the answer may hold, which the
+                endpoint is sent; None states no cap.
 
         Returns:
             The model's answer text, under ``output_schema`` the JSON object
@@ -56,7 +59,8 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
 
         Args:
             request: OpenAI-style messages, each with ``role`` and ``content``,
-                and the optional schema the answer must follow.
+                the optional schema the answer must follow, and the optional
+                cap on its tokens.
 
         Returns:
             What ``generate`` answered: the text and its token counts.
@@ -66,4 +70,6 @@ class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="ll
             ...     messages=[{"role": "user", "content": "Hi"}]))
             GenerateAnswer(text='Hello!', prompt_tokens=9, completion_tokens=2)
         """
-        return await self.generate(request.messages, request.output_schema)
+        return await self.generate(
+            request.messages, request.output_schema, max_tokens=request.max_tokens
+        )

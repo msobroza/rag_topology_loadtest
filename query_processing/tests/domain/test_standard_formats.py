@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from query_processing.domain.standard_formats import (
     CohereRerankRequest,
+    OpenAIChatRequest,
     OpenAIChatResponse,
     OpenAIEmbeddingsRequest,
 )
@@ -38,6 +39,16 @@ def test_requests_parse_from_plain_json() -> None:
 
 
 # --- OpenAI chat -------------------------------------------------------------
+
+
+def test_a_chat_request_without_a_cap_is_the_request_of_before() -> None:
+    request = OpenAIChatRequest(model="m", messages=[], temperature=0.0)
+    assert request.to_wire() == {"model": "m", "messages": [], "temperature": 0.0}
+
+
+def test_a_chat_request_carries_its_cap() -> None:
+    request = OpenAIChatRequest(model="m", messages=[], temperature=0.0, max_tokens=128)
+    assert request.to_wire()["max_tokens"] == 128
 
 
 def test_a_chat_response_reads_its_usage_and_does_without_one() -> None:
