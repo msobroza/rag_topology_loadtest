@@ -38,11 +38,14 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ..config.shared_settings import DefaultHttpSettings
 from ..config.workflow_file import declared_alias
 
 LoadTarget = Literal["rag", "rerank", "embeddings"]
 LOAD_TARGETS: tuple[LoadTarget, ...] = ("rag", "rerank", "embeddings")
 ENV_PREFIX = "QP_LOADTEST_"
+# The shared http block's fields, whose defaults the recorder's retries reuse.
+_HTTP_DEFAULTS = DefaultHttpSettings.model_fields
 
 
 def _variable(name: str, field: str) -> AliasChoices:
@@ -74,6 +77,18 @@ class LoadTestSettings(BaseSettings):
     # How long a user waits for an answer before Locust records a failure; an
     # answer of a few hundred tokens on CPUs can take longer than a minute.
     request_timeout_s: float = Field(default=60.0, gt=0)
+    # qp-record-answers retries a request the target never answered, waiting
+    # backoff_s before the first retry and twice as long before each next one;
+    # the defaults are the workflow file's shared http block's.
+    retries: int = Field(default=_HTTP_DEFAULTS["retries"].default, ge=0)
+    backoff_s: float = Field(default=_HTTP_DEFAULTS["backoff_s"].default, ge=0)
+    # --- what qp-compare-answers holds equal -----------------------------------------
+    # The largest difference between two scores of a passage that still counts
+    # as equal; a model run on other CPUs or threads moves the last digits.
+    score_tolerance: float = Field(default=1e-4, ge=0)
+    # An LLM behind an API does not repeat itself, so its text is left out
+    # unless this says otherwise.
+    compare_answer_text: bool = False
     # --- the load shape: unset = Locust's -u and -r; step = the steps below -------
     shape: Literal["step"] | None = None
     step_users: Annotated[tuple[int, ...], NoDecode] = (5, 10, 20, 40)  # "5,10,20,40"

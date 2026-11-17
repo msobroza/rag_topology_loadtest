@@ -27,7 +27,7 @@ What publishes the Apps of a use case's topology on Domino, from its workflow fi
 _Avoid_: deployer, the CLI
 
 **Load-test client**:
-What drives a target and compares runs: the toolkit's Locust file, run from a use case's directory, and `qp-compare`.
+What drives a target and compares runs: the toolkit's Locust file, run from a use case's directory, and `qp-compare`; and what records a target's answers and compares them, `qp-record-answers` and `qp-compare-answers`.
 _Avoid_: load tester, the client, Locust (that is the tool it runs on)
 
 ### Code structure
@@ -311,6 +311,10 @@ _Avoid_: deployment, topology label, run name
 
 **Target record**:
 What a run observed its target reporting about itself: each topology and run label seen, and how often, and, for each stage whose responses reported their token counts, named as its STAGE row is, how many did, their totals and the stage's time over those responses.
+
+**Answer record**:
+What a target answered to each request of the load test's request pool, sent once each by `qp-record-answers`, without what changes from run to run: the endpoint, the body and the status, then the mode, the metadata filter applied, the answer and each passage's id, text hash, metadata and scores, and the topology aliases and run labels reported. `qp-compare-answers` holds records of the same requests against the first, to check that a refactor or another topology answers the same.
+_Avoid_: golden file, snapshot, fixture (it is a deployment's answers, recorded on demand, not a test's expectation)
 
 **Target**:
 What a run drives: the workflow app, or a model server directly.

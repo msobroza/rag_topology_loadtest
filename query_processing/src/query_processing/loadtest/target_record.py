@@ -194,12 +194,7 @@ def write_target_record(
     """
     if not csv_prefix:
         return
-    ordered = sorted(counts.items(), key=_most_responses_first)
-    seen = [
-        TargetSighting(topology=topology, run_label=label, responses=n)
-        for (topology, label), n in ordered
-        if target == "rag"
-    ]
+    seen = sightings_of(counts) if target == "rag" else []
     counted = {
         stage: totals
         for stage, totals in sorted((tokens or {}).items())
@@ -210,6 +205,27 @@ def write_target_record(
     left_out = set() if counted else {"tokens"}
     path = Path(f"{csv_prefix}{RECORD_SUFFIX}")
     path.write_text(json.dumps(record.model_dump(exclude=left_out), indent=2))
+
+
+def sightings_of(counts: Mapping[TargetPair, int]) -> list[TargetSighting]:
+    """Return the pairs a target reported, most responses first.
+
+    Args:
+        counts: Responses per ``(topology alias, run label)``; ties are ordered
+            by the pair, no topology alias first.
+
+    Returns:
+        One sighting per pair.
+
+    Example:
+        >>> sightings_of({(None, "m"): 1, ("a", "m"): 3})[0].topology
+        'a'
+    """
+    ordered = sorted(counts.items(), key=_most_responses_first)
+    return [
+        TargetSighting(topology=topology, run_label=label, responses=n)
+        for (topology, label), n in ordered
+    ]
 
 
 def _most_responses_first(item: tuple[TargetPair, int]) -> tuple[int, str, str]:

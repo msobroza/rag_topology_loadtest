@@ -91,7 +91,8 @@ component types with their requests and answers, the stage types, the edge
 conditions, the API formats, the backends of the embedder, the reranker, the
 LLM and the vector store, the workflow app (`qp-serve`), the model server
 (`qp-model-server`), the deploy tool (`qp-deploy`), the load-test client (a
-Locust file and `qp-compare`) and a fake Domino. It ships no use case's
+Locust file, `qp-compare`, `qp-record-answers` and `qp-compare-answers`) and a
+fake Domino. It ships no use case's
 models, prompts or sizes. A use case installs it and holds its settings and the
 implementations, trained models and data that are its own, loaded by the
 toolkit from the packages its workflow file names under `extensions`. The
@@ -606,7 +607,7 @@ The toolkit is three applications over one shared domain. The domain
 | --- | --- | --- |
 | RAG system | what runs on Domino and what prepares its data and models: the workflow app, the model server, ingestion, the corpus and the model export | split by layer: `application/`, `config/`, `adapters/`, `infrastructure/`, `composition/`, `entrypoints/` |
 | deploy tool | what publishes the Apps of a Topology (`qp-deploy`) | one package, `deploy/` |
-| load-test client | what drives a target and compares runs (Locust, `qp-compare`) | one package, `loadtest/`, and `locustfile.py` at the top, which a use case's Makefile hands to Locust (`-f`) |
+| load-test client | what drives a target and compares runs (Locust, `qp-compare`), and records and compares its answers (`qp-record-answers`, `qp-compare-answers`) | one package, `loadtest/`, and `locustfile.py` at the top, which a use case's Makefile hands to Locust (`-f`) |
 
 Two parts of the toolkit face a use case's code and belong to none of the
 three. `extension_api.py` is the one module a use case imports the toolkit
@@ -632,7 +633,8 @@ and no package imports it either, `extension_api` included.
 2. **Commands.** A command lives in its own application, in a module named
    exactly after it with hyphens as underscores: the RAG system's eight in
    `entrypoints/` (`qp-serve` is `entrypoints/qp_serve.py`), `qp-deploy` in
-   `deploy/qp_deploy.py`, `qp-compare` in `loadtest/qp_compare.py`.
+   `deploy/qp_deploy.py`, `qp-compare`, `qp-record-answers` and
+   `qp-compare-answers` in `loadtest/` (`loadtest/qp_compare.py`, ...).
 3. **One name, one module.** No two modules share a file name. A settings module
    is named after its settings class (`workflow_settings.py`, `deploy_settings.py`);
    a domain module that holds a glossary term of [CONTEXT.md](CONTEXT.md) is
@@ -967,6 +969,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
+      answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers
+      target_client.py  TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings
+      qp_record_answers.py  qp-record-answers: each request of the request pool sent once, its answer recorded
+      answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answer's text on demand
+      qp_compare_answers.py  qp-compare-answers: answer records against the first, to markdown; status 1 when an answer differs
     testing/          the tests the toolkit ships, which a user runs on a component of their own; a use case's tests import them from query_processing.testing, no package imports them
       component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
       router_contract.py  RouterContract: ComponentContract for a router, with routes to write; the route chosen is one of them, the confidence between 0 and 1
@@ -1136,6 +1143,91 @@ of one run add up to what its LLM wrote a second). With the LLM on `fake`
 the counts are words of the echo, not tokens of a model, so its token figures
 say nothing of a server. The settings of a run that measures the LLM: "The
 waits on the path of an answer" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
+
+### Answer records: the same requests, the same passages
+
+The load test says how fast a target answers; an answer record says what it
+answered. The two commands are the check that a refactor, or a move to
+another topology, changed nothing a caller sees: record a deployment before
+and after, then compare.
+
+The check is self-contained, in three parts. The corpus is the synthetic
+corpus the toolkit generates, indexed into the deployment's store by `make
+ingest`. The requests are the load test's synthetic questions, built in
+process (`QP_LOADTEST_QUESTIONS` of them, 50 by default). The models are the
+ones the deployment already has: on Domino they are on a Dataset, where a
+model's `source_id` is a folder and the OpenVINO and OVMS model folders live
+(`/domino/datasets/local/<dataset>/...`, see the `overrides` and `settings`
+of [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)).
+The check fetches no corpus and no model: `qp-record-answers` reads no
+questions file unless given one, and calls nothing but its target.
+
+```bash
+make ingest                           # the synthetic corpus, into the deployment's store
+make record-answers RUN_NAME=monolith HOST=http://localhost:8888
+make record-answers RUN_NAME=split-all HOST=http://localhost:8888
+make compare-answers                  # results/answers-comparison.md
+make record-answers-domino RUN_NAME=split-all   # the workflow App on Domino
+```
+
+`qp-record-answers --host <url> --out <prefix>` sends each request of the load
+test's request pool once, in the pool's order, one after the other: each body
+to `/retrieve` and then to `/query`. The pool, the credentials and the wait for
+one answer are the load test's (`QP_LOADTEST_QUESTIONS`,
+`QP_LOADTEST_BEARER_TOKEN` or `DOMINO_API_KEY`,
+`QP_LOADTEST_REQUEST_TIMEOUT_S`). `QP_LOADTEST_QUESTIONS_FILE` replaces the
+synthetic questions with the reader's own file, already on the machine; `make
+record-answers` sets none. An endpoint whose load-test weight is 0 is
+not sent: `QP_LOADTEST_QUERY_WEIGHT=0` records `/retrieve` alone (a deployment
+without a working LLM key, or one where each `/query` costs an LLM call), and
+`QP_LOADTEST_RETRIEVE_WEIGHT=0` `/query` alone; both at 0 is refused. A
+request the target never answers is sent again, `QP_LOADTEST_RETRIES` times,
+after `QP_LOADTEST_BACKOFF_S` doubled before each next retry (default 2 and
+0.2 s, the defaults of the workflow file's shared `http` block); then the command
+stops with status 3 and writes nothing, since half a record would pass for a
+whole one. Any response the target gives is recorded, an error status
+included; a 200 whose JSON object is not of the answer's shape (a passage
+without an `id`, say) stops it with status 4, naming the endpoint and the
+field, and nothing is written either.
+
+It writes `<prefix>_answers.json`, the answer record. For each request it
+holds the endpoint, the body sent and the status, and from a 200's JSON object
+the `mode`, the `metadata_filter` applied, the `answer`, and each passage in
+order with its `id`, the SHA-256 of its `text`, its `metadata`, its
+`retrieval_score` and its `rerank_score`; a response that is not a 200 with a
+JSON object is recorded with its status alone. It also holds, under `seen`,
+each topology alias and run label the responses reported, as the target
+record does. It keeps none of `timings_ms`, `tokens`, `request_id`,
+`run_label` or the passages' text: they change from run to run, or a hash
+says as much.
+
+`qp-compare-answers <prefix> <prefix>... [--out <file>]` compares each run's
+record with the first, the baseline, and names a run by the last component of
+its prefix, as `qp-compare` does:
+
+| What | How |
+| --- | --- |
+| status, mode, metadata filter, the passages' ids in order, their text hashes and metadata | exactly |
+| the retrieval and rerank scores | within `QP_LOADTEST_SCORE_TOLERANCE` (default `0.0001`, 0 or more); an absent score equals only an absent one |
+| the answer's text | only with `QP_LOADTEST_COMPARE_ANSWER_TEXT=true`: an LLM behind an API does not repeat itself |
+
+The report lists the runs with the topology alias and run label each saw, one
+row per run (requests, identical, different), then every answer that differs
+with its endpoint, its question, the field, the baseline's value and the run's.
+The exit status is 0 when every run answers as the baseline, 1 when an answer
+differs, and 2 when the records cannot be compared: a file that is not an
+answer record (the message names the file, the field and the shape expected),
+two prefixes of one last component, or records of different requests (their number, their order, an endpoint or a
+body), refused before any comparison, naming the first request that differs.
+`make compare-answers` compares every `results/*_answers.json`, sorted;
+`BASELINE=split-all` puts that run first.
+
+The check runs on demand only, against real models where they run: nothing of
+it runs in `make check` or in CI but its own tests, on fakes. What to expect:
+the same code on two topologies answers the same, since a component served over
+HTTP returns what it returns in process. Two model servers (FastAPI and OVMS)
+or two weight formats may not: their scores move, and a passage can change
+places. Compare each with a baseline of its own.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 

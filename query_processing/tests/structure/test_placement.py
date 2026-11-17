@@ -29,9 +29,14 @@ from query_processing.composition.openers.component_openers import (
 from repo_paths import REPO_ROOT, TOOLKIT_ROOT
 
 PACKAGE = TOOLKIT_ROOT / "src" / "query_processing"
-# The two tools have one command each, in their own package; every other command
+# The two tools have their commands in their own package; every other command
 # of the product belongs to the RAG system, whose commands are in entrypoints.
-COMMAND_HOME = {"qp-deploy": "deploy", "qp-compare": "loadtest"}
+COMMAND_HOME = {
+    "qp-deploy": "deploy",
+    "qp-compare": "loadtest",
+    "qp-record-answers": "loadtest",
+    "qp-compare-answers": "loadtest",
+}
 RAG_SYSTEM_COMMAND_HOME = "entrypoints"
 TREE_ROOT = "src/query_processing/"  # where the README's tree of the product starts
 TREE_INDENT = 2  # spaces per level in the tree

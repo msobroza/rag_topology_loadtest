@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from loadtest_settings_helpers import settings_from
+from query_processing.config.shared_settings import DefaultHttpSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.loadtest.loadtest_settings import LoadTestSettings
 
@@ -259,6 +260,40 @@ def test_a_user_waits_60_seconds_unless_told_otherwise(
 def test_a_user_that_never_waits_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError, match="request_timeout_s"):
         settings_from(monkeypatch, {"QP_LOADTEST_REQUEST_TIMEOUT_S": "0"})
+
+
+def test_the_answer_records_settings_and_their_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = DefaultHttpSettings()
+    defaults = settings_from(monkeypatch, {})
+    told = settings_from(
+        monkeypatch,
+        {
+            "QP_LOADTEST_RETRIES": "5",
+            "QP_LOADTEST_BACKOFF_S": "0",
+            "QP_LOADTEST_SCORE_TOLERANCE": "0.01",
+            "QP_LOADTEST_COMPARE_ANSWER_TEXT": "true",
+        },
+    )
+
+    # The retries of a recording are the workflow file's shared http block's.
+    assert (defaults.retries, defaults.backoff_s) == (shared.retries, shared.backoff_s)
+    assert (defaults.score_tolerance, defaults.compare_answer_text) == (1e-4, False)
+    assert (told.retries, told.backoff_s) == (5, 0.0)
+    assert (told.score_tolerance, told.compare_answer_text) == (0.01, True)
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ["QP_LOADTEST_RETRIES", "QP_LOADTEST_BACKOFF_S", "QP_LOADTEST_SCORE_TOLERANCE"],
+)
+def test_a_negative_retry_count_backoff_or_tolerance_is_refused(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    field = variable.removeprefix("QP_LOADTEST_").lower()
+    with pytest.raises(ValueError, match=f"{field}\n.*greater than or equal to 0"):
+        settings_from(monkeypatch, {variable: "-1"})
 
 
 def test_each_field_names_the_variable_it_is_read_from() -> None:

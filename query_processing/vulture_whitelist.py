@@ -28,6 +28,10 @@ utterances
 # in tests/helpers/workflow_fakes.py).
 on_chain_start
 
+# pydantic: RecordedPassage.text_sha256, written to an answer record and compared
+# by name (loadtest/answer_comparison.py's _EXACT_PASSAGE_FIELDS).
+text_sha256
+
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.
 accessStatuses

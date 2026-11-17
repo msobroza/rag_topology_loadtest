@@ -72,7 +72,8 @@ PORT_MODULE = re.compile(r"query_processing\.adapters\.(\w+)\.base_\1")
 MAY_IMPORT_PORTS = {"application"}
 # The named exceptions: one module each, allowed more than its package.
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
-    # For the defaults of the four QP_* values a load test sends, nothing else.
+    # For the defaults of the four QP_* values a load test sends, and of the
+    # retries qp-record-answers makes (the shared http block's), nothing else.
     "query_processing.loadtest.loadtest_settings": {"config"},
     # The deploy tool reads the workflow settings, to know the components a
     # topology alias names (ADR 0003) and to check the overrides against them;

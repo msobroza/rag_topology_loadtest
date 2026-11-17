@@ -4,7 +4,7 @@
 # pipeline file). The install and the gates are the repository root's: make
 # install-dev, make check there.
 .DEFAULT_GOAL := help
-.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run
+.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run record-answers record-answers-domino compare-answers
 
 # The toolkit, beside this directory: its Locust file, its OVMS exporter and its
 # local infrastructure.
@@ -63,6 +63,16 @@ loadtest: ## Headless locust run: make loadtest RUN_NAME=monolith HOST=http://ho
 compare: ## Compare all runs found under results/ into results/comparison.md
 	$(BIN)qp-compare $(sort $(patsubst %_stats.csv,%,$(wildcard results/*_stats.csv))) --out results/comparison.md
 
+record-answers: ## Send each load-test request once and record the answers: make record-answers RUN_NAME=monolith HOST=http://host:8888 (QP_LOADTEST_QUERY_WEIGHT=0: /retrieve alone)
+	mkdir -p results
+	$(BIN)qp-record-answers --host $(HOST) --out results/$(RUN_NAME)
+
+# The answer records under results/, sorted, BASELINE's first when it names one.
+ANSWER_RECORDS = $(sort $(patsubst %_answers.json,%,$(wildcard results/*_answers.json)))
+ANSWER_RUNS = $(strip $(if $(BASELINE),results/$(BASELINE)) $(filter-out results/$(BASELINE),$(ANSWER_RECORDS)))
+compare-answers: ## Compare every answer record under results/ with the first (BASELINE=<run> picks it) into results/answers-comparison.md
+	$(BIN)qp-compare-answers $(ANSWER_RUNS) --out results/answers-comparison.md
+
 ovms-export: ## Export each embedder and reranker of the workflow file, the router's embedder included, to ovms/models (needs HF access)
 	$(TOOLKIT)/ovms/export_models.sh
 
@@ -97,6 +107,11 @@ loadtest-domino: ## On Domino: loadtest against the workflow App: make loadtest-
 	host=$$($(BIN)qp-deploy url workflow) && \
 		QP_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
 		$(MAKE) loadtest HOST="$$host"
+
+record-answers-domino: ## On Domino: record the workflow App's answers: make record-answers-domino RUN_NAME=split-all
+	host=$$($(BIN)qp-deploy url workflow) && \
+		QP_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
+		$(MAKE) record-answers HOST="$$host"
 
 infra-up: ## Start Elasticsearch (9200) + OVMS reranker (8001) + embedder (8002), serving ovms/models from here
 	$(COMPOSE) up -d
