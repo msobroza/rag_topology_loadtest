@@ -13,18 +13,19 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .response_checks import ANSWER_ENDPOINT, STAGE_REQUEST_TYPE
+from .response_checks import STAGE_REQUEST_TYPE
 from .target_record import (
     RECORD_SUFFIX,
+    StageTokenTotals,
     TargetRecord,
     TargetSighting,
-    TokenTotals,
     read_target_record,
 )
 
-# The row whose throughput turns the run's completion tokens into tokens served
-# per second.
-QUERY_ROW_KEY = f"POST {ANSWER_ENDPOINT}"
+# The row of a run's whole statistics, which every run has; its requests over
+# its RPS are the run's seconds, which turn completion tokens into tokens
+# served per second.
+AGGREGATED_ROW_KEY = "Aggregated"
 
 # --- qp-compare: locust *_stats.csv files -> one markdown table per row ------
 
@@ -57,8 +58,8 @@ def load_stats(prefix: Path) -> dict[str, RowStats]:
     with Path(f"{prefix}_stats.csv").open(newline="", encoding="utf-8") as handle:
         for record in csv.DictReader(handle):
             key = (
-                "Aggregated"
-                if record["Name"] == "Aggregated"
+                AGGREGATED_ROW_KEY
+                if record["Name"] == AGGREGATED_ROW_KEY
                 else f"{record['Type']} {record['Name']}"
             )
             rows[key] = RowStats(
@@ -96,7 +97,7 @@ def render_markdown(
         The markdown: a title, the run list with the topology and run label each
         run saw, then one table per row key, request rows first, STAGE rows next
         and ``Aggregated`` last; then, when any run's record has tokens, a
-        ``## Tokens`` table with one row per such run.
+        ``## Tokens`` table with one row per such run and stage.
 
     Example:
         >>> render_markdown({"monolith": load_stats(Path("results/monolith"))})
@@ -148,56 +149,65 @@ def _described(sighting: TargetSighting) -> str:
     return f"topology `{sighting.topology}`, {label}" if sighting.topology else label
 
 
-# The ``## Tokens`` table: one row per run whose record has tokens, none at all
-# when no run has; a run without them is left out, not shown as zeros.
+# The ``## Tokens`` table: one row per run and stage whose record has tokens,
+# in the runs' order and then by the stage's name, none at all when no run has
+# any; a run without them is left out, not shown as zeros.
 def _token_lines(
     runs: Mapping[str, Mapping[str, RowStats]], targets: Mapping[str, TargetRecord]
 ) -> list[str]:
     rows = [
-        f"| {label} | {_token_cells(tokens, runs[label].get(QUERY_ROW_KEY))} |"
+        f"| {label} | {stage} | {_token_cells(totals, runs[label])} |"
         for label in runs
-        if (tokens := _tokens_of(targets.get(label))) is not None
+        for stage, totals in _stages_of(targets.get(label))
     ]
     if not rows:
         return []
     header = (
-        "| run | answers | prompt tokens per answer | completion tokens per answer "
-        "| tokens/s as a caller sees them | tokens/s served |"
+        "| run | stage | responses | prompt tokens per response "
+        "| completion tokens per response | tokens/s as a caller sees them "
+        "| tokens/s served |"
     )
-    return ["## Tokens", "", header, "| --- |" + " ---: |" * 5, *rows, ""]
+    return ["## Tokens", "", header, "| --- | --- |" + " ---: |" * 5, *rows, ""]
 
 
-def _tokens_of(record: TargetRecord | None) -> TokenTotals | None:
-    # A total of no answers has no per-answer figure; a run writes none, but a
-    # record edited by hand could hold one.
-    if record is None or record.tokens is None or record.tokens.answers == 0:
-        return None
-    return record.tokens
+def _stages_of(record: TargetRecord | None) -> list[tuple[str, StageTokenTotals]]:
+    # A stage of no responses has no per-response figure; a run writes none,
+    # but a record edited by hand could hold one.
+    tokens = record.tokens if record is not None and record.tokens else {}
+    return [
+        (stage, totals)
+        for stage, totals in sorted(tokens.items())
+        if totals.responses > 0
+    ]
 
 
-def _token_cells(tokens: TokenTotals, query: RowStats | None) -> str:
-    # A caller waits llm_ms, the time of the stages that spent the tokens, for
-    # its completion. Served is the run's completion tokens over its seconds
-    # (requests / rps): Locust counts failed requests in rps, so tokens per
-    # answer times rps would credit each failure with an answer.
+def _token_cells(totals: StageTokenTotals, stats: Mapping[str, RowStats]) -> str:
+    # A caller waits stage_ms, the stage's time, for its completion. Served is
+    # the stage's completion tokens over the run's seconds (the Aggregated
+    # row's requests / rps; Locust divides every row of a run by the same
+    # seconds), so the rows of one run add up to what its LLM wrote a second;
+    # tokens per response times rps would credit each failure with a response.
+    run = stats.get(AGGREGATED_ROW_KEY)
     per_caller = (
-        f"{tokens.completion / (tokens.llm_ms / 1000):.1f}" if tokens.llm_ms else "n/a"
+        f"{totals.completion / (totals.stage_ms / 1000):.1f}"
+        if totals.stage_ms
+        else "n/a"
     )
     served = (
-        f"{tokens.completion * query.rps / query.requests:.1f}"
-        if query and query.requests
+        f"{totals.completion * run.rps / run.requests:.1f}"
+        if run and run.requests
         else "n/a"
     )
     return (
-        f"{tokens.answers} | {tokens.prompt / tokens.answers:.1f} | "
-        f"{tokens.completion / tokens.answers:.1f} | {per_caller} | {served}"
+        f"{totals.responses} | {totals.prompt / totals.responses:.1f} | "
+        f"{totals.completion / totals.responses:.1f} | {per_caller} | {served}"
     )
 
 
 def _row_order(key: str) -> tuple[int, str]:
     rank = (
         2
-        if key == "Aggregated"
+        if key == AGGREGATED_ROW_KEY
         else 1 if key.startswith(f"{STAGE_REQUEST_TYPE} ") else 0
     )
     return rank, key

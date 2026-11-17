@@ -15,8 +15,8 @@ sets how many distinct synthetic questions the users ask, unless
 answer at most ``QP_LOADTEST_REQUEST_TIMEOUT_S``;
 ``QP_LOADTEST_SHAPE=step`` steps through ``QP_LOADTEST_STEP_USERS`` users,
 ``QP_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written,
-with the tokens of its answers, and its statistics file is rewritten with the
-final numbers.
+with the tokens of each stage of its responses, and its statistics file is
+rewritten with the final numbers.
 """
 
 from __future__ import annotations
@@ -44,8 +44,9 @@ from query_processing.loadtest.response_checks import (
     judge_response,
 )
 from query_processing.loadtest.target_record import (
+    StageTokenTotals,
     TargetPair,
-    TokenTotals,
+    count_spent_tokens,
     target_pair,
     write_target_record,
 )
@@ -61,15 +62,16 @@ RNG = random.Random()
 # Responses per (topology alias, run label) for the target record; one process,
 # one run.
 RESPONSES_SEEN: Counter[TargetPair] = Counter()
-# The tokens of the run's answers, for the target record; one process, one run.
-TOKENS_SEEN = TokenTotals(answers=0, prompt=0, completion=0, llm_ms=0.0)
+# The tokens of the run's responses by STAGE row name, for the target record;
+# one process, one run.
+TOKENS_SEEN: dict[str, StageTokenTotals] = {}
 
 
 def send(user: FastHttpUser, plan: RequestPlan) -> None:
     """POST ``plan`` and record the response as ``judge_response`` decides.
 
     A response that names its target also counts towards the target record, and
-    an answer that reports its tokens towards the record's token totals.
+    each stage that reports its tokens towards that stage's token totals.
 
     Args:
         user: The Locust user whose client sends and whose environment fires the
@@ -95,15 +97,13 @@ def send(user: FastHttpUser, plan: RequestPlan) -> None:
 
 
 def record_success(user: FastHttpUser, verdict: ResponseVerdict) -> None:
-    """Fire a success's STAGE rows and add its answer's tokens to the run's total.
+    """Fire a success's STAGE rows and add its stages' tokens to the run's totals.
 
     Args:
         user: The Locust user whose environment fires the STAGE rows.
         verdict: What ``judge_response`` made of the successful response.
     """
-    global TOKENS_SEEN  # the run's total, kept beside RESPONSES_SEEN
-    if verdict.tokens is not None:
-        TOKENS_SEEN = TOKENS_SEEN.plus(verdict.tokens)
+    count_spent_tokens(TOKENS_SEEN, verdict.tokens)
     for name, ms in verdict.stage_rows:
         user.environment.events.request.fire(
             request_type=STAGE_REQUEST_TYPE,

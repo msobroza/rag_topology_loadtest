@@ -16,8 +16,8 @@ from query_processing.loadtest.qp_compare import (
     render_markdown,
 )
 from query_processing.loadtest.target_record import (
+    StageTokenTotals,
     TargetRecord,
-    TokenTotals,
     read_target_record,
     write_target_record,
 )
@@ -241,11 +241,20 @@ OVMS_QUERY = (
     ("POST", "/query", 22, 0, 0.124, 7400, 9000, 9500),
     ("", "Aggregated", 22, 0, 0.124, 7400, 9000, 9500),
 )
-OVMS_TOKENS = TokenTotals(answers=22, prompt=17446, completion=2516, llm_ms=164428.0)
+GENERATE = "/query:generate"
+OVMS_GENERATE = StageTokenTotals(
+    responses=22, prompt=17446, completion=2516, stage_ms=164428.0
+)
+OVMS_TOKENS = {GENERATE: OVMS_GENERATE}
+TOKENS_HEADER = (
+    "| run | stage | responses | prompt tokens per response "
+    "| completion tokens per response | tokens/s as a caller sees them "
+    "| tokens/s served |"
+)
 
 
 def _token_runs(tmp_path: Path) -> tuple[dict[str, Any], dict[str, TargetRecord]]:
-    """Two runs: ``ovms`` with a token total, ``split-all`` with a record but none."""
+    """Two runs: ``ovms`` with token totals, ``split-all`` with a record but none."""
     ovms = _stats_csv(tmp_path / "ovms", *OVMS_QUERY)
     split = _stats_csv(tmp_path / "split-all", *SPLIT)
     write_target_record(str(ovms), "rag", Counter(), OVMS_TOKENS)
@@ -265,11 +274,9 @@ def test_a_run_with_tokens_has_a_row_in_the_tokens_table(tmp_path: Path) -> None
 
     start = lines.index("## Tokens")
     table = lines[start:]
-    assert table[2] == (
-        "| run | answers | prompt tokens per answer | completion tokens per answer "
-        "| tokens/s as a caller sees them | tokens/s served |"
-    )
-    assert "| ovms | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in table
+    assert table[2] == TOKENS_HEADER
+    assert table[3] == "| --- | --- |" + " ---: |" * 5
+    assert "| ovms | /query:generate | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in table
     assert not any(line.startswith("| split-all |") for line in table)
 
 
@@ -297,17 +304,17 @@ def test_a_record_written_before_tokens_compares_without_a_tokens_table(
     assert "## Tokens" not in capsys.readouterr().out
 
 
-def _ovms_tokens_row(
-    tmp_path: Path, tokens: TokenTotals, *rows: tuple[Any, ...]
-) -> str:
-    """The ``## Tokens`` row of one run ``ovms`` with these stats rows and tokens."""
+def _ovms_token_rows(
+    tmp_path: Path, tokens: dict[str, StageTokenTotals], *rows: tuple[Any, ...]
+) -> list[str]:
+    """The ``## Tokens`` rows of one run ``ovms`` with these stats rows and tokens."""
     ovms = _stats_csv(tmp_path / "ovms", *rows)
     write_target_record(str(ovms), "rag", Counter(), tokens)
     record = read_target_record(Path(f"{ovms}_target.json"))
     assert record is not None
     lines = render_markdown({"ovms": load_stats(ovms)}, {"ovms": record}).splitlines()
     table = lines[lines.index("## Tokens") :]
-    return next(line for line in table if line.startswith("| ovms | "))
+    return [line for line in table if line.startswith("| ovms | ")]
 
 
 def test_tokens_served_are_the_completion_tokens_over_the_runs_seconds(
@@ -319,46 +326,78 @@ def test_tokens_served_are_the_completion_tokens_over_the_runs_seconds(
         ("POST", "/query", 22, 11, 0.124, 7400, 9000, 9500),
         ("", "Aggregated", 22, 11, 0.124, 7400, 9000, 9500),
     )
-    tokens = TokenTotals(answers=11, prompt=8723, completion=1258, llm_ms=82214.0)
-
-    row = _ovms_tokens_row(tmp_path, tokens, *half_failed)
-
-    assert row.endswith("| 114.4 | 15.3 | 7.1 |")
-
-
-def test_tokens_served_are_na_without_a_query_row(tmp_path: Path) -> None:
-    no_query = (("", "Aggregated", 22, 0, 0.124, 7400, 9000, 9500),)
-
-    row = _ovms_tokens_row(tmp_path, OVMS_TOKENS, *no_query)
-
-    assert row == "| ovms | 22 | 793.0 | 114.4 | 15.3 | n/a |"
-
-
-def test_tokens_served_are_na_when_the_query_row_counts_no_request(
-    tmp_path: Path,
-) -> None:
-    idle = (
-        ("POST", "/query", 0, 0, 0.0, 0, 0, 0),
-        ("", "Aggregated", 0, 0, 0.0, 0, 0, 0),
+    tokens = StageTokenTotals(
+        responses=11, prompt=8723, completion=1258, stage_ms=82214.0
     )
 
-    row = _ovms_tokens_row(tmp_path, OVMS_TOKENS, *idle)
+    rows = _ovms_token_rows(tmp_path, {GENERATE: tokens}, *half_failed)
 
-    assert row == "| ovms | 22 | 793.0 | 114.4 | 15.3 | n/a |"
+    assert rows == ["| ovms | /query:generate | 11 | 793.0 | 114.4 | 15.3 | 7.1 |"]
 
 
-def test_tokens_a_caller_sees_are_na_without_an_llm_time(tmp_path: Path) -> None:
-    untimed = OVMS_TOKENS.model_copy(update={"llm_ms": 0.0})
+def test_the_runs_seconds_come_from_the_aggregated_row(tmp_path: Path) -> None:
+    # A run of /retrieve alone has no POST /query row; Locust divides every row
+    # of a run by the same seconds, 22 / 0.124 here, whichever row it is.
+    retrieve_only = (
+        ("POST", "/retrieve", 44, 0, 0.248, 900, 1000, 1100),
+        ("", "Aggregated", 22, 0, 0.124, 900, 1000, 1100),
+    )
+    rewrite = OVMS_GENERATE.model_copy(update={"responses": 44})
 
-    row = _ovms_tokens_row(tmp_path, untimed, *OVMS_QUERY)
+    rows = _ovms_token_rows(tmp_path, {"/retrieve:rewrite": rewrite}, *retrieve_only)
 
-    assert row == "| ovms | 22 | 793.0 | 114.4 | n/a | 14.2 |"
+    assert rows == ["| ovms | /retrieve:rewrite | 44 | 396.5 | 57.2 | 15.3 | 14.2 |"]
+
+
+@pytest.mark.parametrize(
+    "stats",
+    [
+        (("POST", "/query", 22, 0, 0.124, 7400, 9000, 9500),),
+        (
+            ("POST", "/query", 0, 0, 0.0, 0, 0, 0),
+            ("", "Aggregated", 0, 0, 0.0, 0, 0, 0),
+        ),
+    ],
+    ids=["no-aggregated-row", "aggregated-row-counts-no-request"],
+)
+def test_tokens_served_are_na_without_the_runs_seconds(
+    tmp_path: Path, stats: tuple[tuple[Any, ...], ...]
+) -> None:
+    rows = _ovms_token_rows(tmp_path, OVMS_TOKENS, *stats)
+
+    assert rows == ["| ovms | /query:generate | 22 | 793.0 | 114.4 | 15.3 | n/a |"]
+
+
+def test_tokens_a_caller_sees_are_na_without_the_stages_time(tmp_path: Path) -> None:
+    untimed = OVMS_GENERATE.model_copy(update={"stage_ms": 0.0})
+
+    rows = _ovms_token_rows(tmp_path, {GENERATE: untimed}, *OVMS_QUERY)
+
+    assert rows == ["| ovms | /query:generate | 22 | 793.0 | 114.4 | n/a | 14.2 |"]
+
+
+def test_a_stage_whose_totals_count_no_response_has_no_row(tmp_path: Path) -> None:
+    # A run writes no such stage, but a record edited by hand could hold one.
+    ovms = _stats_csv(tmp_path / "ovms", *OVMS_QUERY)
+    Path(f"{ovms}_target.json").write_text(
+        '{"target": "rag", "seen": [], "tokens": {"/query:generate": '
+        '{"responses": 22, "prompt": 17446, "completion": 2516, '
+        '"stage_ms": 164428.0}, "/query:rewrite": {"responses": 0, "prompt": 0, '
+        '"completion": 0, "stage_ms": 0.0}}}'
+    )
+
+    assert compare_main([str(ovms), "--out", str(tmp_path / "out.md")]) == 0
+
+    text = (tmp_path / "out.md").read_text(encoding="utf-8")
+    assert "| ovms | /query:generate | 22 |" in text
+    assert "/query:rewrite" not in text.split("## Tokens")[1]
 
 
 def test_a_record_mains_load_test_wrote_compares_beside_one_written_here(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # main's load test named the LLM's time generate_ms; it reads as llm_ms.
+    # main's load test counted /query answers and named their generate stage's
+    # time generate_ms; it reads as the stage /query:generate.
     main_run = _stats_csv(tmp_path / "main", *OVMS_QUERY)
     Path(f"{main_run}_target.json").write_text(
         '{"target": "rag", "seen": [], "tokens": {"answers": 22, "prompt": 17446, '
@@ -369,5 +408,5 @@ def test_a_record_mains_load_test_wrote_compares_beside_one_written_here(
 
     assert compare_main([str(main_run), str(today)]) == 0
     out = capsys.readouterr().out
-    assert "| main | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in out
-    assert "| today | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in out
+    assert "| main | /query:generate | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in out
+    assert "| today | /query:generate | 22 | 793.0 | 114.4 | 15.3 | 14.2 |" in out

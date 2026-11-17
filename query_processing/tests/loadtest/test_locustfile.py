@@ -240,26 +240,42 @@ TOKENS_BODY = (
 )
 
 
-def test_the_record_written_on_stop_counts_the_tokens_of_each_answer(
+REWRITE_BODY = (
+    '{"timings_ms": {"rewrite": 900.0}, '
+    '"tokens": {"rewrite": {"prompt": 120, "completion": 30}}}'
+)
+
+
+def test_the_record_written_on_stop_counts_the_tokens_of_each_stage(
     locustfile: ModuleType, tmp_path: Path
 ) -> None:
-    plan = RequestPlan("/query", {"question": "q"}, "/query")
-    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, TOKENS_BODY)), plan)
-    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, TOKENS_BODY)), plan)
-    locustfile.send(FakeLocustUser(FakeCaughtResponse(503, TOKENS_BODY)), plan)
+    query = RequestPlan("/query", {"question": "q"}, "/query")
+    retrieve = RequestPlan("/retrieve", {"question": "q"}, "/retrieve")
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, TOKENS_BODY)), query)
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, TOKENS_BODY)), query)
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(503, TOKENS_BODY)), query)
+    locustfile.send(FakeLocustUser(FakeCaughtResponse(200, REWRITE_BODY)), retrieve)
 
     options = SimpleNamespace(csv_prefix=str(tmp_path / "ovms"))
     locustfile.write_target_record_on_stop(SimpleNamespace(parsed_options=options))
 
     assert json.loads((tmp_path / "ovms_target.json").read_text())["tokens"] == {
-        "answers": 2,
-        "prompt": 1658,
-        "completion": 256,
-        "llm_ms": 14948.0,
+        "/query:generate": {
+            "responses": 2,
+            "prompt": 1658,
+            "completion": 256,
+            "stage_ms": 14948.0,
+        },
+        "/retrieve:rewrite": {
+            "responses": 1,
+            "prompt": 120,
+            "completion": 30,
+            "stage_ms": 900.0,
+        },
     }
 
 
-def test_a_run_whose_answers_carry_no_tokens_records_none(
+def test_a_run_whose_responses_carry_no_tokens_records_none(
     locustfile: ModuleType, tmp_path: Path
 ) -> None:
     body = '{"timings_ms": {"retrieve": 3.0}, "tokens": {}}'

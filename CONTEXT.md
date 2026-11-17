@@ -310,7 +310,7 @@ The free-form name the workflow app reports for the configuration being measured
 _Avoid_: deployment, topology label, run name
 
 **Target record**:
-What a run observed its target reporting about itself: each topology and run label seen, and how often, and, when its answers reported their token counts, their totals and the time of the stages that reported them.
+What a run observed its target reporting about itself: each topology and run label seen, and how often, and, for each stage whose responses reported their token counts, named as its STAGE row is, how many did, their totals and the stage's time over those responses.
 
 **Target**:
 What a run drives: the workflow app, or a model server directly.

@@ -14,8 +14,8 @@ from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.component_requests import GenerateAnswer
 from query_processing.entrypoints.qp_serve import create_app
 from query_processing.loadtest.response_checks import (
-    AnswerTokens,
     ResponseVerdict,
+    SpentTokens,
     judge_response,
 )
 from rag_components import FAKE_BACKENDS
@@ -94,38 +94,43 @@ def test_judge_response_failure(status: int, body: str, failure: str) -> None:
     assert body[:200] in verdict.failure
 
 
-# --- the tokens of an answer ---
+# --- the tokens of each stage ---
 
 GENERATE_TOKENS = (
     '{"timings_ms": {"embed": 3.0, "generate": 7474.0, "total": 7480.0}, '
     '"tokens": {"generate": {"prompt": 829, "completion": 128}}}'
 )
+GENERATE_SPENT = (("/query:generate", SpentTokens(829, 128, 7474.0)),)
 
 
-def test_a_response_with_tokens_becomes_a_verdict_with_tokens() -> None:
+def test_a_response_with_tokens_becomes_a_verdict_with_its_stages_tokens() -> None:
     verdict = judge_response("/query", 200, GENERATE_TOKENS)
-    assert verdict.tokens == AnswerTokens(829, 128, 7474.0)
+    assert verdict.tokens == GENERATE_SPENT
 
 
-def test_the_tokens_of_every_stage_add_up_with_the_time_of_those_stages() -> None:
-    # The client knows no stage name: any stage the map holds counts, and only
-    # the time of those stages, never the embed stage's nor the total.
+def test_each_stage_keeps_its_own_tokens_and_its_own_time() -> None:
+    # The client knows no stage name: any stage the map holds counts, under the
+    # name of its STAGE row, with its own time, never the embed stage's nor the
+    # total, and never added to another stage's.
     body = (
         '{"timings_ms": {"embed": 3.0, "draft": 900.0, "answer": 6000.0, '
         '"total": 6910.0}, "tokens": {"draft": {"prompt": 120, "completion": 30}, '
         '"answer": {"prompt": 829, "completion": 128}}}'
     )
-    assert judge_response("/query", 200, body).tokens == AnswerTokens(949, 158, 6900.0)
+    assert judge_response("/query", 200, body).tokens == (
+        ("/query:draft", SpentTokens(120, 30, 900.0)),
+        ("/query:answer", SpentTokens(829, 128, 6000.0)),
+    )
 
 
-def test_a_retrieve_is_no_answer_even_when_its_rewrite_spent_tokens() -> None:
-    # Main's table counts answers, which only /query gives: a /retrieve's
-    # rewrite tokens would lower every per-answer figure.
+def test_a_retrieve_reports_the_tokens_its_rewrite_spent() -> None:
     body = (
         '{"timings_ms": {"rewrite": 900.0}, '
         '"tokens": {"rewrite": {"prompt": 120, "completion": 30}}}'
     )
-    assert judge_response("/retrieve", 200, body).tokens is None
+    assert judge_response("/retrieve", 200, body).tokens == (
+        ("/retrieve:rewrite", SpentTokens(120, 30, 900.0)),
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,18 +156,52 @@ def test_a_retrieve_is_no_answer_even_when_its_rewrite_spent_tokens() -> None:
         '"tokens": {"generate": {"prompt": 829, "completion": 128}}}',
         '{"timings_ms": "fast", '
         '"tokens": {"generate": {"prompt": 829, "completion": 128}}}',
-        # one stage of two without its time: the sum would credit it with none
-        '{"timings_ms": {"generate": 7474.0}, '
-        '"tokens": {"rewrite": {"prompt": 1, "completion": 1}, '
-        '"generate": {"prompt": 829, "completion": 128}}}',
+        # the total is no stage: it has no STAGE row
+        '{"timings_ms": {"total": 7474.0}, '
+        '"tokens": {"total": {"prompt": 829, "completion": 128}}}',
     ],
 )
 def test_a_response_without_usable_tokens_has_none(body: str) -> None:
-    assert judge_response("/query", 200, body).tokens is None
+    assert judge_response("/query", 200, body).tokens == ()
+
+
+@pytest.mark.parametrize(
+    ("rewrite_ms", "rewrite_counts"),
+    [
+        ("", '{"prompt": 1, "completion": 1}'),  # no time
+        ('"rewrite": 0, ', '{"prompt": 1, "completion": 1}'),  # timed at zero
+        ('"rewrite": null, ', '{"prompt": 1, "completion": 1}'),  # no number
+        ('"rewrite": "x", ', '{"prompt": 1, "completion": 1}'),
+        ('"rewrite": true, ', '{"prompt": 1, "completion": 1}'),
+        ('"rewrite": 900.0, ', '{"prompt": 1}'),  # no completion
+        ('"rewrite": 900.0, ', '{"prompt": 1, "completion": "few"}'),
+    ],
+    ids=[
+        "no-time",
+        "zero-time",
+        "null-time",
+        "text-time",
+        "true-time",
+        "no-completion",
+        "unusable-count",
+    ],
+)
+def test_a_stage_with_unusable_tokens_is_left_out_alone(
+    rewrite_ms: str, rewrite_counts: str
+) -> None:
+    body = (
+        f'{{"timings_ms": {{{rewrite_ms}"generate": 7474.0}}, '
+        f'"tokens": {{"rewrite": {rewrite_counts}, '
+        '"generate": {"prompt": 829, "completion": 128}}}'
+    )
+    verdict = judge_response("/query", 200, body)
+    assert verdict.tokens == GENERATE_SPENT
+    # The stage whose time is unusable has no row either; the others keep theirs.
+    assert ("/query:generate", 7474.0) in verdict.stage_rows
 
 
 def test_a_failure_has_no_tokens() -> None:
-    assert judge_response("/query", 503, GENERATE_TOKENS).tokens is None
+    assert judge_response("/query", 503, GENERATE_TOKENS).tokens == ()
 
 
 class FixedTokensLLM(FakeLLM):
@@ -192,4 +231,4 @@ def test_the_tokens_the_workflow_app_writes_are_the_tokens_the_load_test_reads(
 
     generate_ms = response.json()["timings_ms"]["generate"]
     assert generate_ms > 0
-    assert verdict.tokens == AnswerTokens(829, 128, generate_ms)
+    assert verdict.tokens == (("/query:generate", SpentTokens(829, 128, generate_ms)),)

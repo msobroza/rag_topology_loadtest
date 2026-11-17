@@ -4,12 +4,15 @@ A run writes ``<csv prefix>_target.json`` as it stops: its target, and each
 topology alias and run label the target reported in its headers, with how many
 responses carried each. A workflow app given no topology alias sends no
 ``X-RAG-Topology`` header, and its topology is recorded as ``null``, never as a
-name nobody chose. When any answer reported its tokens, the record also holds
-their total. ``qp-compare`` reads the record back through the same class, so a
-record that is not of this shape fails with a message naming the file. A record
-written before tokens were counted has no ``tokens`` key, and still reads; one
-whose tokens name the LLM's time ``generate_ms``, as main's load test wrote
-it, reads it as ``llm_ms``.
+name nobody chose. When any response reported a stage's tokens, the record
+also holds ``tokens``: each such stage, named as its STAGE row is
+(``/query:generate``, ``/retrieve:rewrite``), with its totals over the run.
+``qp-compare`` reads the record back through the same class, so a record that
+is not of this shape fails with a message naming the file. A record written
+before tokens were counted has no ``tokens`` key, and still reads; one main's
+load test wrote, whose ``tokens`` is one total of ``/query`` answers with the
+time of their generate stage as ``generate_ms``, reads as the one stage
+``/query:generate``.
 
 Example:
     >>> write_target_record("results/monolith", "rag", Counter({("monolith", "m"): 3}))
@@ -20,21 +23,27 @@ Example:
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .loadtest_settings import LoadTarget
-from .response_checks import AnswerTokens
+from .response_checks import SpentTokens
 
 RECORD_SUFFIX = "_target.json"  # after Locust's --csv prefix
 RECORD_SHAPE = (
     '{"target": "rag" | "rerank" | "embeddings", '
     '"seen": [{"topology": str | null, "run_label": str, "responses": int >= 0}], '
-    '"tokens"?: {"answers": int >= 0, "prompt": int >= 0, "completion": int >= 0, '
-    '"llm_ms": float >= 0}}'
+    '"tokens"?: {<STAGE row name>: {"responses": int >= 0, "prompt": int >= 0, '
+    '"completion": int >= 0, "stage_ms": float >= 0}}}'
 )
+# The stage main's load test counted the tokens of (pull request 27): the
+# generate stage of /query answers, named as its STAGE row is.
+MAIN_TOKENS_STAGE = "/query:generate"
+# The time key of that record, which no per-stage record writes: it tells the
+# two shapes apart.
+MAIN_TIME_KEY = "generate_ms"
 # What one response reported: its topology alias (None without the header) and
 # its run label.
 TargetPair = tuple[str | None, str]
@@ -53,52 +62,84 @@ class TargetSighting(BaseModel):
     responses: int = Field(ge=0)
 
 
-class TokenTotals(BaseModel):
-    """The tokens of a run's answers, added up, with the time the LLM took on them.
+class StageTokenTotals(BaseModel):
+    """One stage's tokens over a run, with the stage's time over the same responses.
 
     Example:
-        >>> TokenTotals(answers=0, prompt=0, completion=0, llm_ms=0.0).plus(
-        ...     AnswerTokens(829, 128, 7474.0)).completion
+        >>> StageTokenTotals(responses=0, prompt=0, completion=0, stage_ms=0.0).plus(
+        ...     SpentTokens(829, 128, 7474.0)).completion
         128
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    answers: int = Field(ge=0)
+    responses: int = Field(ge=0)
     prompt: int = Field(ge=0)
     completion: int = Field(ge=0)
-    # main's load test wrote this field as generate_ms (pull request 27): a
-    # record of it still compares, and is written back under llm_ms.
-    llm_ms: float = Field(ge=0, validation_alias=AliasChoices("llm_ms", "generate_ms"))
+    stage_ms: float = Field(ge=0)
 
-    def plus(self, answer: AnswerTokens) -> TokenTotals:
-        """Return these totals with one more answer counted.
+    def plus(self, spent: SpentTokens) -> StageTokenTotals:
+        """Return these totals with one more response of the stage counted.
 
         Args:
-            answer: The answer's token counts and the time of its stages.
+            spent: The tokens the stage spent in that response, and its time.
 
         Returns:
             New totals; these are left as they are.
         """
-        return TokenTotals(
-            answers=self.answers + 1,
-            prompt=self.prompt + answer.prompt,
-            completion=self.completion + answer.completion,
-            llm_ms=self.llm_ms + answer.llm_ms,
+        return StageTokenTotals(
+            responses=self.responses + 1,
+            prompt=self.prompt + spent.prompt,
+            completion=self.completion + spent.completion,
+            stage_ms=self.stage_ms + spent.stage_ms,
         )
+
+
+NO_TOKENS = StageTokenTotals(responses=0, prompt=0, completion=0, stage_ms=0.0)
+
+
+def count_spent_tokens(
+    totals: dict[str, StageTokenTotals], spent: Iterable[tuple[str, SpentTokens]]
+) -> None:
+    """Add one response's tokens to the run's totals, each under its stage.
+
+    Args:
+        totals: The run's totals by STAGE row name; changed in place.
+        spent: The response's ``(STAGE row name, SpentTokens)`` pairs.
+
+    Example:
+        >>> totals: dict[str, StageTokenTotals] = {}
+        >>> spent = SpentTokens(829, 128, 7474.0)
+        >>> count_spent_tokens(totals, [("/query:generate", spent)])
+        >>> totals["/query:generate"].responses
+        1
+    """
+    for stage, tokens in spent:
+        totals[stage] = totals.get(stage, NO_TOKENS).plus(tokens)
 
 
 class TargetRecord(BaseModel):
     """What one run observed its target reporting; ``seen`` is most responses first.
 
-    ``tokens`` is None when no answer of the run reported its tokens.
+    ``tokens`` maps a STAGE row name to that stage's totals; None when no
+    response of the run reported a stage's tokens.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     target: LoadTarget
     seen: list[TargetSighting]
-    tokens: TokenTotals | None = None
+    tokens: dict[str, StageTokenTotals] | None = None
+
+    @field_validator("tokens", mode="before")
+    @classmethod
+    def _read_mains_tokens(cls, tokens: object) -> object:
+        # main's record holds one total of /query answers, its time under
+        # generate_ms; it reads as that one stage, any other key of it refused.
+        if not isinstance(tokens, dict) or MAIN_TIME_KEY not in tokens:
+            return tokens
+        renamed = {"answers": "responses", MAIN_TIME_KEY: "stage_ms"}
+        return {MAIN_TOKENS_STAGE: {renamed.get(k, k): v for k, v in tokens.items()}}
 
 
 def target_pair(headers: Mapping[str, str] | None) -> TargetPair | None:
@@ -132,7 +173,7 @@ def write_target_record(
     csv_prefix: str | None,
     target: LoadTarget,
     counts: Mapping[TargetPair, int],
-    tokens: TokenTotals | None = None,
+    tokens: Mapping[str, StageTokenTotals] | None = None,
 ) -> None:
     """Write ``<csv_prefix>_target.json``, most responses first.
 
@@ -144,8 +185,9 @@ def write_target_record(
         target: The run's ``QP_LOADTEST_TARGET``.
         counts: Responses per ``(topology alias, run label)``; ties are ordered
             by the pair, no topology alias first.
-        tokens: The run's token totals; the record has no ``tokens`` key when
-            they are None or count no answer, never a total of zeros.
+        tokens: The run's token totals by STAGE row name, written in the
+            order of the names; a stage that counts no response is left out,
+            and the record has no ``tokens`` key when none is left.
 
     Example:
         >>> write_target_record("results/monolith", "rag", Counter({("m", "m"): 3}))
@@ -158,10 +200,14 @@ def write_target_record(
         for (topology, label), n in ordered
         if target == "rag"
     ]
-    counted = tokens if tokens is not None and tokens.answers > 0 else None
-    record = TargetRecord(target=target, seen=seen, tokens=counted)
+    counted = {
+        stage: totals
+        for stage, totals in sorted((tokens or {}).items())
+        if totals.responses > 0
+    }
+    record = TargetRecord(target=target, seen=seen, tokens=counted or None)
     # Only the absent total is left out: a None topology alias is written.
-    left_out = {"tokens"} if counted is None else set()
+    left_out = set() if counted else {"tokens"}
     path = Path(f"{csv_prefix}{RECORD_SUFFIX}")
     path.write_text(json.dumps(record.model_dump(exclude=left_out), indent=2))
 

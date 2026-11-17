@@ -1074,7 +1074,7 @@ one per stage it names, in its order: `/query:embed`, `/query:retrieve`,
 `/query:embed_for_route`, `/query:route` and `/query:rewrite` before them for
 a follow-up that leans on its history, same for `/retrieve`; the total and a
 stage timed at zero (generate on `/retrieve`, a stage the request did not take)
-get no row. The client
+get no row, nor does a stage whose time is no number. The client
 reads the stages from the response and keeps no list of them, so a graph with
 other stages is measured as it is, and p50/p95/p99 per stage land in the same
 CSV as the endpoint totals.
@@ -1092,13 +1092,22 @@ A workflow app given no topology alias (a laptop run, unless `QP_TOPOLOGY_ALIAS`
 is set) sends no `X-RAG-Topology`, and its responses are counted with
 `"topology": null`, never under a topology nobody chose.
 
-The record also holds `tokens` when any answer reported them: `answers`, the
-successful `/query` responses whose `tokens` map names a stage with both
-counts, and their `prompt` and `completion` tokens, summed over every stage of
-the map, with `llm_ms`, the `timings_ms` of those same stages. A `/query` whose
-`tokens` is `{}` counts no answer, and no `/retrieve` does, not even one whose
-rewrite spent tokens. A record written before tokens were counted has no
-`tokens` and still reads.
+The record also holds `tokens` when any response reported a stage's tokens:
+each such stage, named as its STAGE row is (`/query:generate`,
+`/query:rewrite`, `/retrieve:rewrite`), with `responses`, the successful
+responses whose `tokens` map gave the stage both counts and whose `timings_ms`
+timed it above zero, their `prompt` and `completion` tokens, and `stage_ms`,
+the stage's time over those same responses:
+
+```json
+{"target": "rag", "seen": [], "tokens": {"/query:generate": {"responses": 100, "prompt": 189000, "completion": 14200, "stage_ms": 1420000.0}}}
+```
+
+A stage whose counts or time are unusable is left out alone; the other stages
+of the response still count. A record written before tokens were counted has
+no `tokens` and still reads; one main's load test wrote, whose `tokens` is
+`{"answers", "prompt", "completion", "generate_ms"}`, reads as the one stage
+`/query:generate`.
 
 A run straight at a model server (`make loadtest-models`) writes
 `{"target": "rerank", "seen": []}` (or `embeddings`), since model servers send
@@ -1118,10 +1127,12 @@ configurations (for example an app redeployed mid-run). A run without the file
 is listed by its run name alone, as before.
 
 When a run's record has tokens, `qp-compare` adds a `## Tokens` table, one row
-per such run: answers, prompt and completion tokens per answer, tokens a second
-as a caller sees them (completion tokens over `llm_ms`) and tokens a second
-served (the run's completion tokens over its seconds, from the `POST /query`
-row's requests and RPS, so a failed request adds none). With the LLM on `fake`
+per such run and stage, in the runs' order and then by the stage's name:
+responses, prompt and completion tokens per response, tokens a second as a
+caller sees them (the stage's completion tokens over its `stage_ms`) and tokens
+a second served (the stage's completion tokens over the run's seconds, from the
+`Aggregated` row's requests and RPS, so a failed request adds none and the rows
+of one run add up to what its LLM wrote a second). With the LLM on `fake`
 the counts are words of the echo, not tokens of a model, so its token figures
 say nothing of a server. The settings of a run that measures the LLM: "The
 waits on the path of an answer" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
