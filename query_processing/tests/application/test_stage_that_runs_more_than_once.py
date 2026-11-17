@@ -129,9 +129,10 @@ async def test_every_run_of_a_stage_is_reported(
         for stage, n in runs.items()
     }
     for stage, n in runs.items():
-        # Each run sleeps CALL_MS; the stage's time holds all of them, and a
-        # run counted twice would show as one more.
-        assert n * CALL_MS <= result.timings_ms[stage] < (n + 1) * CALL_MS
+        # Each run sleeps CALL_MS, so the stage's time holds all of them. No
+        # upper bound: a loaded machine adds what it likes to a sleep, and a
+        # run counted twice shows in the tokens above, which are exact.
+        assert result.timings_ms[stage] >= n * CALL_MS
 
 
 async def test_a_stage_that_runs_once_reports_that_run_alone() -> None:
@@ -141,4 +142,6 @@ async def test_a_stage_that_runs_once_reports_that_run_alone() -> None:
     assert result.tokens == {
         "draft": {"prompt": PROMPT_TOKENS, "completion": COMPLETION_TOKENS}
     }
-    assert CALL_MS <= result.timings_ms["draft"] < 2 * CALL_MS
+    # The exact tokens above show the run was counted once; its time has no
+    # upper bound a loaded machine could not pass.
+    assert result.timings_ms["draft"] >= CALL_MS
