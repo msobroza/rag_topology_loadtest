@@ -29,6 +29,14 @@ BIN := $(if $(wildcard .venv/bin/python),$(CURDIR)/.venv/bin/,)
 # the toolkit's whitelist and paths are its own.
 TOOLKIT_PYPROJECT := ../$(TOOLKIT)/pyproject.toml
 TOOLKIT_CONFIG := --config $(TOOLKIT_PYPROJECT)
+# ty checks imports against the first python on the PATH unless it is told of
+# one, and these directories hold no .venv of their own. Called by its path in
+# the repository's .venv where the PATH leads with another python (the CI's
+# image), it could not find the toolkit the use case imports. So it is told the
+# python its tools come from; with the tools on the PATH it is told nothing and
+# finds the active environment. The toolkit's Makefile needs no such flag: it
+# puts the .venv first on the PATH of what its recipes start.
+TY_CHECK := $(BIN)ty check$(if $(BIN), --python $(BIN)python,)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -52,7 +60,7 @@ define BESIDE_lint
 endef
 define BESIDE_typecheck
 	cd $(1) && $(BIN)mypy --config-file $(TOOLKIT_PYPROJECT) src
-	cd $(1) && $(BIN)ty check src
+	cd $(1) && $(TY_CHECK) src
 endef
 define BESIDE_complexity
 	cd $(1) && $(BIN)complexipy src --max-complexity-allowed 10 --failed

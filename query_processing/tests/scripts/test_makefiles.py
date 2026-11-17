@@ -100,7 +100,7 @@ def gates_beside_the_toolkit(directory: str) -> list[str]:
         f"cd {directory} && {TOOLS}black --check {config} src tests",
         f"cd {directory} && {TOOLS}pydoclint {config} src",
         f"cd {directory} && {TOOLS}mypy --config-file {pyproject} src",
-        f"cd {directory} && {TOOLS}ty check src",
+        f"cd {directory} && {TOOLS}ty check --python {TOOLS}python src",
         f"cd {directory} && {TOOLS}complexipy src --max-complexity-allowed 10 --failed",
         f"cd {directory} && {TOOLS}deptry src",
         f"cd {directory} && {TOOLS}pytest",
@@ -130,6 +130,28 @@ def test_a_gate_run_from_the_root_also_runs_over_the_two_beside(gate: str) -> No
     beside = [line.split(" && ")[0] for line in lines if line.startswith("cd ")]
     assert list(dict.fromkeys(beside)) == [f"cd {USE_CASE}", f"cd {CHARTS}"]
     assert all(f" && {TOOLS}" in line for line in lines if line.startswith("cd "))
+
+
+@pytest.mark.parametrize(
+    ("tools", "told"),
+    [(TOOLS, f" --python {TOOLS}python"), ("", "")],
+    ids=["tools-of-a-virtualenv", "tools-on-the-path"],
+)
+def test_ty_beside_the_toolkit_is_told_the_python_its_tools_come_from(
+    tools: str, told: str
+) -> None:
+    # ty checks imports against the first python on the PATH unless it is told
+    # of one. Called by its path in the repository's .venv on a machine whose
+    # PATH leads with another python (the CI's image), it could not find the
+    # toolkit the use case imports: the first run of pull request 29. With the
+    # tools on the PATH it is told nothing, and finds the active environment.
+    lines = dry_run(REPO_ROOT, "typecheck", f"BIN={tools}")
+
+    beside = [line for line in lines if line.startswith("cd ") and "ty " in line]
+    assert beside == [
+        f"cd {directory} && {tools}ty check{told} src"
+        for directory in (USE_CASE, CHARTS)
+    ]
 
 
 def test_the_charts_are_redrawn_from_the_root() -> None:
