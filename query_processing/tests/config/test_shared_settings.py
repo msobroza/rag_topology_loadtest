@@ -47,9 +47,13 @@ def test_the_shared_blocks_default_to_todays_values(
     s = settings_factory()
 
     assert s.local_models == LocalModelsSettings(
-        runtime="openvino", openvino_dir="models/openvino", workers=4, cpus=0
+        runtime="openvino",
+        openvino_dir="models/openvino",
+        openvino_weight_format="fp32",
+        workers=4,
+        cpus=0,
     )
-    assert s.calibration == CalibrationSettings(budget_s=90.0, rounds=1)
+    assert s.calibration == CalibrationSettings(budget_s=90.0, rounds=1, users=4)
     assert s.http == DefaultHttpSettings(timeout_s=30.0, retries=2, backoff_s=0.2)
     assert s.domino == DominoSettings(
         token_url="http://localhost:8899/access-token", token_ttl_s=240.0, tracing=False
@@ -150,6 +154,46 @@ def test_the_flat_variables_of_before_are_read_no_more(
     assert (store.chroma.path, store.fake.seed_documents) == ("chroma", 200)
     assert s.local_models == LocalModelsSettings()
     assert (s.calibration.rounds, s.http.retries, s.domino.tracing) == (1, 2, False)
+
+
+# --- the OpenVINO weight format, the calibration users ---------------------------
+
+
+def test_the_weight_format_defaults_to_fp32_and_reads_its_variable(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT", raising=False)
+    assert settings_factory().local_models.openvino_weight_format == "fp32"
+
+    monkeypatch.setenv("QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT", "int8")
+    assert settings_factory().local_models.openvino_weight_format == "int8"
+
+
+def test_a_weight_format_other_than_fp32_or_int8_is_rejected(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="openvino_weight_format"):
+        settings_factory(local_models__openvino_weight_format="int4")
+
+
+def test_the_calibration_users_default_to_4_and_read_their_variable(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QP_CALIBRATION__USERS", raising=False)
+    assert settings_factory().calibration.users == 4
+    assert WorkflowSettings.variable_of("calibration", "users") == (
+        "QP_CALIBRATION__USERS"
+    )
+
+    monkeypatch.setenv("QP_CALIBRATION__USERS", "8")
+    assert settings_factory().calibration.users == 8
+
+
+def test_fewer_than_one_calibration_user_is_refused(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="users"):
+        settings_factory(calibration__users=0)
 
 
 def test_the_tests_settings_refuse_a_name_that_is_no_setting(

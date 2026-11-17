@@ -12,15 +12,19 @@ import os
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 from dotenv import dotenv_values
 
+from ovms_stand_ins import ovms_starts, write_ovms_export, write_ovms_stand_in
+from query_processing.composition.ovms_calibration import OvmsAppCalibration
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.overrides import override_exports
-from query_processing.entrypoints.qp_calibrate import main
+from query_processing.domain.calibration import CalibrationReport, StageTuning
+from query_processing.entrypoints.qp_calibrate import env_lines, main
 from query_processing.infrastructure.local_models.local_model import exported_model_dir
 from rag_components import shell_settings
 from repo_paths import TOOLKIT_ROOT
@@ -36,6 +40,7 @@ RERANK_KEYS = [
 EMBED_KEYS = ["QP_COMPONENTS__EMBEDDER__LOCAL__THREADS"]
 # Where the second comment of each component says to pin it in deploy.yaml.
 OVERRIDES_HINT = "deploy.yaml, under overrides.components"
+OVMS_KEYS = ["QP_OVMS_NUM_STREAMS", "QP_OVMS_THREADS"]
 
 
 @pytest.fixture
@@ -176,6 +181,30 @@ def test_the_comment_says_when_the_budget_cut_the_search_short(
     ]
 
 
+def test_the_comment_says_when_the_first_candidate_was_kept_untimed() -> None:
+    # A served stage whose first trial outlived the budget (GCP sitting of
+    # 2026-11-15, 16 requests on one OVMS stream): no trial, cut short.
+    report = CalibrationReport(
+        stage="rerank",
+        chosen=StageTuning(8, 20, streams=1),
+        trials=(),
+        seconds=95.2,
+        budget_s=90.0,
+        cut_short=True,
+        requests=16,
+    )
+    pinned = {"QP_OVMS_NUM_STREAMS": 1, "QP_OVMS_THREADS": 8}
+    calibration = OvmsAppCalibration("reranker", report, cpus=8.0, pinned=pinned)
+
+    [comment, *_] = env_lines(calibration)
+
+    assert comment == (
+        "# reranker (rerank): timed on 8 CPUs under ovms, the first candidate, "
+        "not timed; tried 0 candidates in 95.2 s, "
+        "cut short by QP_CALIBRATION__BUDGET_S=90"
+    )
+
+
 def test_the_logs_stay_off_stdout(
     fake_weights: FakeSentenceTransformersModule,
     capsys: pytest.CaptureFixture[str],
@@ -242,7 +271,9 @@ def test_a_missing_openvino_package_is_one_stderr_line_when_the_folder_exists(
     monkeypatch.setenv("QP_LOCAL_MODELS__RUNTIME", "openvino")
     monkeypatch.setenv("QP_LOCAL_MODELS__OPENVINO_DIR", str(models))
     reranker = WorkflowSettings(_env_file=None).components["reranker"]  # type: ignore[call-arg]
-    exported_model_dir(str(models), reranker.source_id).mkdir(parents=True)
+    exported_model_dir(str(models), reranker.source_id, weight_format="fp32").mkdir(
+        parents=True
+    )
 
     assert main(["--only", "reranker"]) == 1
 
@@ -266,11 +297,76 @@ def test_an_unknown_only_value_is_a_usage_error(
     assert fake_weights.loaded == []
 
 
+def test_ovms_models_calibrates_ovms_instead_of_the_in_process_model(
+    fake_weights: FakeSentenceTransformersModule,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models = tmp_path / "ovms-models"
+    write_ovms_export(models, "reranker", components()["reranker"].alias)
+    record = tmp_path / "ovms.jsonl"
+    bin_dir = write_ovms_stand_in(tmp_path / "bin", record)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    assert main(["--ovms-models", str(models), "--only", "reranker"]) == 0
+
+    [comment, deploy_line, *assignments] = stdout_lines(capsys)
+    assert comment.startswith("# reranker (rerank): timed on 2 CPUs under ovms, ")
+    assert " s for 4 requests at once; tried " in comment
+    # One OVMS App serves one component: its two variables go in its own block.
+    hint = "# deploy.yaml, under apps.reranker.settings: "
+    assert deploy_line.startswith(hint)
+    in_deploy = yaml.safe_load("{" + deploy_line.removeprefix(hint) + "}")
+    assert [f"{name}={value}" for name, value in in_deploy.items()] == assignments
+    assert [line.split("=")[0] for line in assignments] == OVMS_KEYS
+    assert fake_weights.loaded == []  # no in-process model loaded
+    assert len(ovms_starts(record)) >= 2
+
+
+def test_ovms_models_prints_the_same_two_variables_for_the_embedder(
+    fake_weights: FakeSentenceTransformersModule,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models = tmp_path / "ovms-models"
+    write_ovms_export(models, "embedder", components()["embedder"].alias)
+    bin_dir = write_ovms_stand_in(tmp_path / "bin", tmp_path / "ovms.jsonl")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    assert main(["--ovms-models", str(models), "--only", "embedder"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("# embedder (embed): timed on 2 CPUs under ovms, ")
+    assert "\n# deploy.yaml, under apps.embedder.settings: " in out
+    assert list(dotenv_values(stream=io.StringIO(out))) == OVMS_KEYS
+
+
+def test_ovms_models_without_an_export_is_one_stderr_line(
+    fake_weights: FakeSentenceTransformersModule,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    assert main(["--ovms-models", str(tmp_path / "none"), "--only", "reranker"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    [line] = captured.err.splitlines()
+    assert line.startswith("qp-calibrate: cannot calibrate reranker: ")
+    assert "ovms/export_models.sh" in line
+
+
 def test_the_command_is_a_project_script() -> None:
     pyproject = tomllib.loads((TOOLKIT_ROOT / "pyproject.toml").read_text())
 
     scripts = pyproject["project"]["scripts"]
     assert scripts["qp-calibrate"] == "query_processing.entrypoints.qp_calibrate:main"
+
+
+def components() -> dict[str, Any]:
+    """The components of the tests' workflow file, as the command reads them."""
+    return dict(WorkflowSettings(_env_file=None).components)  # type: ignore[call-arg]
 
 
 def _assignment(line: str) -> bool:

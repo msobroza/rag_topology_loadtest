@@ -17,7 +17,9 @@ Each job has its own module, and this class only wires them together:
   its type and backend, one module each in ``openers/``: a new backend is one
   new module there, and no factory is edited;
 - ``registered_components.py``: opens a component of a type that registers
-  its implementations on their class line, an extension's, by its own class.
+  its implementations on their class line, an extension's, by its own class;
+- ``ovms_calibration.py``: an OVMS App's stream and thread counts, and the
+  folder it serves from.
 
 The openers take each component's settings in the workflow file's shape
 (``config/component_settings.py``).
@@ -36,6 +38,7 @@ Example:
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import TracebackType
 from typing import Any, NamedTuple, TypeVar
 
@@ -54,6 +57,7 @@ from ..config.component_settings import (
     RerankerSettings,
     VectorStoreSettings,
 )
+from ..config.ovms_settings import OvmsSettings
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.router_settings import RouterSettings, routes_of
 from ..config.searched_embedder import seeding_embedder
@@ -74,6 +78,12 @@ from .openers.component_openers import (
 )
 from .openers.embedder_on_local import calibrate_embedder_on_local
 from .openers.reranker_on_local import calibrate_reranker_on_local
+from .ovms_calibration import (
+    OvmsAppCalibration,
+    OvmsCalibration,
+    OvmsServedComponent,
+    require_asked_weight_format,
+)
 from .registered_components import local_settings
 from .resource_scope import ResourceScope
 
@@ -126,6 +136,7 @@ class CompositionRoot:
         )
         shared = SharedResources(scope, http, local_models, self._store_embedder)
         self._factory = ComponentFactory(shared, supplied)
+        self._ovms = OvmsCalibration(http, local_models, settings.calibration)
 
     async def __aenter__(self) -> CompositionRoot:
         await self._scope.__aenter__()
@@ -290,6 +301,73 @@ class CompositionRoot:
         raise ValueError(
             f"component {name!r} is of type {component.type!r}: only an embedder "
             "or a reranker runs a model in this process"
+        )
+
+    async def ovms_serving_config(
+        self, name: str, ovms: OvmsSettings, models_dir: Path, serving_dir: Path
+    ) -> Path:
+        """Write the folder an OVMS App serves one component from, calibrating first.
+
+        Each of ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS`` left at 0 is
+        calibrated, one ``ovms`` start per candidate (``ovms`` on ``PATH``);
+        with both pinned nothing is started. An export of another weight
+        format than the settings ask is refused first.
+
+        Args:
+            name: An embedder or reranker component of the workflow file.
+            ovms: The OVMS App's own settings.
+            models_dir: The folder OVMS's exporter wrote into; never written.
+            serving_dir: The App's own folder, written for the choice.
+
+        Returns:
+            The config file to start OVMS with.
+
+        Raises:
+            ValueError: If ``name`` is no component, or one OVMS cannot serve,
+                or the export holds another weight format than the settings'
+                ``local_models.openvino_weight_format``.
+
+        Example:
+            >>> await composition.ovms_serving_config(
+            ...     "reranker", OvmsSettings(), models, serving)
+            PosixPath('/tmp/serving/config_reranker.json')
+        """
+        served = self._served_by_ovms(name, models_dir)
+        asked = self.settings.local_models.openvino_weight_format
+        require_asked_weight_format(served, asked)
+        return await self._ovms.serving_config(served, ovms, serving_dir)
+
+    async def ovms_calibration(
+        self, name: str, ovms: OvmsSettings, models_dir: Path
+    ) -> OvmsAppCalibration:
+        """Calibrate OVMS on one component here, on demand, both parameters searched.
+
+        Args:
+            name: An embedder or reranker component of the workflow file.
+            ovms: The OVMS App's own settings, for the start timeout.
+            models_dir: The folder OVMS's exporter wrote into; never written.
+
+        Returns:
+            The report, the CPUs, ``ovms`` as the runtime, and the App's
+            variables that pin the choice.
+
+        Raises:
+            ValueError: If ``name`` is no component, or one OVMS cannot serve.
+
+        Example:
+            >>> (await composition.ovms_calibration("reranker", ovms, models)).pinned
+            {'QP_OVMS_NUM_STREAMS': 2, 'QP_OVMS_THREADS': 2}
+        """
+        served = self._served_by_ovms(name, models_dir)
+        return await self._ovms.calibration(served, ovms)
+
+    def _served_by_ovms(self, name: str, models_dir: Path) -> OvmsServedComponent:
+        component = self._component(name)
+        if isinstance(component, (EmbedderSettings, RerankerSettings)):
+            return OvmsServedComponent(name, component, models_dir)
+        raise ValueError(
+            f"component {name!r} is of type {component.type!r}: OVMS serves only "
+            "an embedder or a reranker"
         )
 
     async def _open(self, name: str) -> object:

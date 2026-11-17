@@ -14,11 +14,18 @@ It calibrates the component ``--only`` names, else every embedder and reranker
 of the workflow file. Each model loads as an App would load it (``QP_*``
 overrides honoured), whatever its Backend says, and every parameter
 is searched, pinned or not.
+With ``--ovms-models DIR`` it calibrates OpenVINO Model Server instead, on the
+export in DIR: its stream and thread counts, one ``ovms`` start per candidate.
+A component then prints the OVMS App's own two variables
+(``QP_OVMS_NUM_STREAMS``, ``QP_OVMS_THREADS``), and its second comment gives
+their place in ``deploy.yaml``: that App's block, since one OVMS App serves one
+component.
 The logs, ``stage_calibrated`` included, go to standard error, so standard
 output can be appended to ``.env`` as it is.
 
 Example:
     $ QP_CALIBRATION__ROUNDS=3 qp-calibrate --only reranker >> .env
+    $ qp-calibrate --ovms-models /mnt/data/ovms-models --only reranker
 """
 
 from __future__ import annotations
@@ -27,44 +34,66 @@ import argparse
 import asyncio
 import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
 from ..composition.calibrated_stages import ComponentCalibration
 from ..composition.composition_root import CompositionRoot
+from ..composition.ovms_calibration import OvmsAppCalibration
 from ..composition.registered_names import check_registered_names
+from ..config.ovms_settings import OvmsSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.calibration import CalibrationReport
 from ..domain.errors import RagDependencyError
 from ..infrastructure.local_models.model_provisioning import ModelProvisioningError
 from ..infrastructure.local_models.openvino_export import OpenVinoUnavailableError
+from ..infrastructure.one_line_failure import one_line_failure
+from ..infrastructure.ovms.ovms_process import OvmsStartError
 
 PROG = "qp-calibrate"
-# The component types that run a model in-process, so can be calibrated.
+# The component types that run a model in-process, so can be calibrated; they
+# are the ones OVMS serves too.
 CALIBRATED_TYPES = ("embedder", "reranker")
 # Failures an operator can act on (a bad setting, a model that cannot be found,
-# downloaded or exported, a missing package, a dependency that would not open);
-# anything else is a bug and keeps its traceback.
+# downloaded or exported, a missing package or ovms, an ovms that would not
+# start, a dependency that would not open); anything else is a bug and keeps its
+# traceback.
 EXPECTED_ERRORS = (
     ModelProvisioningError,
     OpenVinoUnavailableError,
+    OvmsStartError,
     RagDependencyError,
     OSError,
     ValueError,
 )
+# One component's calibration: of its in-process model, or of OVMS serving it.
+Calibration = ComponentCalibration | OvmsAppCalibration
 
 
-def env_lines(calibration: ComponentCalibration) -> list[str]:
+class OvmsTarget(NamedTuple):
+    """OVMS's export to calibrate OVMS on, and the OVMS App's own settings.
+
+    Example:
+        >>> OvmsTarget(Path("/mnt/data/ovms-models"), OvmsSettings())
+    """
+
+    models_dir: Path  # the folder OVMS's exporter wrote into; never written
+    settings: OvmsSettings  # for the start timeout: both counts are searched
+
+
+def env_lines(calibration: Calibration) -> list[str]:
     """Return a component's lines for a ``.env`` file: two comments, then its settings.
 
     Args:
         calibration: One component's calibration.
 
     Returns:
-        The ``#`` comment, the ``#`` line of its entry under
-        ``overrides.components`` of ``deploy.yaml``, then one ``KEY=VALUE``
-        line per pinned setting.
+        The ``#`` comment, the ``#`` line of its place in ``deploy.yaml`` (its
+        entry under ``overrides.components``, or under its App's ``settings``
+        for OVMS), then one ``KEY=VALUE`` line per pinned setting.
 
     Example:
         >>> env_lines(calibration)[1:]
@@ -79,24 +108,37 @@ def env_lines(calibration: ComponentCalibration) -> list[str]:
         f"{_choice(report)}; {_search(report)}"
     )
     pinned = (f"{name}={value}" for name, value in calibration.pinned.items())
-    return [comment, _overrides_line(calibration), *pinned]
+    return [comment, _deploy_line(calibration), *pinned]
 
 
-def _overrides_line(calibration: ComponentCalibration) -> str:
-    # One line, in the workflow file's shape, under the components of the
-    # overrides; a comment, so the output still appends to .env as it is.
+def _deploy_line(calibration: Calibration) -> str:
+    # One line of deploy.yaml; a comment, so the output still appends to .env
+    # as it is. An in-process model's settings are values of the workflow file,
+    # under the components of the overrides, in its shape. OVMS's are its App's
+    # own variables, in that App's block: one OVMS App serves one component.
+    if isinstance(calibration, OvmsAppCalibration):
+        where = f"apps.{calibration.component}.settings"
+        return _flow_line(where, calibration.pinned)
     entry = {calibration.component: {"local": calibration.local}}
+    return _flow_line("overrides.components", entry)
+
+
+def _flow_line(where: str, entry: Mapping[str, object]) -> str:
     flow = yaml.safe_dump(
-        entry, default_flow_style=True, sort_keys=False, width=sys.maxsize
+        dict(entry), default_flow_style=True, sort_keys=False, width=sys.maxsize
     ).strip()
     inner = flow.removeprefix("{").removesuffix("}")
-    return f"# deploy.yaml, under overrides.components: {inner}"
+    return f"# deploy.yaml, under {where}: {inner}"
 
 
 def _choice(report: CalibrationReport) -> str:
     seconds = report.chosen_seconds
+    if seconds is None and report.cut_short:  # the first trial was abandoned
+        return "the first candidate, not timed"
     if seconds is None:  # one candidate per parameter: nothing to compare
         return "the only candidate, not timed"
+    if report.requests > 1:
+        return f"{seconds:.3f} s for {report.requests} requests at once"
     return f"{seconds:.3f} s per request"
 
 
@@ -126,12 +168,16 @@ def calibrated_components(settings: WorkflowSettings) -> list[str]:
     return [n for n, c in settings.components.items() if c.type in CALIBRATED_TYPES]
 
 
-async def calibrate_components(settings: WorkflowSettings, names: Sequence[str]) -> int:
+async def calibrate_components(
+    settings: WorkflowSettings, names: Sequence[str], ovms: OvmsTarget | None = None
+) -> int:
     """Calibrate each component in turn, printing its lines as soon as it is done.
 
     Args:
         settings: The settings the components are opened from.
         names: Which components to calibrate, in order.
+        ovms: OVMS's export to calibrate OVMS on, and its settings; None for
+            the in-process models.
 
     Returns:
         0 once every component is printed; 1 after an expected failure,
@@ -142,25 +188,28 @@ async def calibrate_components(settings: WorkflowSettings, names: Sequence[str])
         0
     """
     async with CompositionRoot(settings) as composition:
-        return await _print_each(composition, names)
+        return await _print_each(composition, names, ovms)
 
 
-async def _print_each(composition: CompositionRoot, names: Sequence[str]) -> int:
+async def _print_each(
+    composition: CompositionRoot, names: Sequence[str], ovms: OvmsTarget | None
+) -> int:
     # Each component is printed as soon as it is done, so a later failure keeps it.
     for name in names:
         try:
-            calibration = await composition.calibration(name)
+            calibration = await _calibration(composition, name, ovms)
         except EXPECTED_ERRORS as exc:
-            return _failed(f"cannot calibrate {name}", exc)
+            return one_line_failure(PROG, f"cannot calibrate {name}", exc)
         print("\n".join(env_lines(calibration)), flush=True)
     return 0
 
 
-def _failed(what: str, exc: BaseException) -> int:
-    # One line: pydantic's message spans several, and the value it names is on one.
-    detail = " ".join(str(exc).split())
-    print(f"{PROG}: {what}: {detail}", file=sys.stderr)
-    return 1
+async def _calibration(
+    composition: CompositionRoot, name: str, ovms: OvmsTarget | None
+) -> Calibration:
+    if ovms is None:
+        return await composition.calibration(name)
+    return await composition.ovms_calibration(name, ovms.settings, ovms.models_dir)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -184,8 +233,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         settings = WorkflowSettings()
         check_registered_names(settings)
+        ovms = _ovms_target(args.ovms_models)
     except ValueError as exc:  # pydantic's ValidationError is one
-        return _failed("cannot read the settings", exc)
+        return one_line_failure(PROG, "cannot read the settings", exc)
     names = calibrated_components(settings)
     if args.only and args.only not in names:
         parser.error(
@@ -193,8 +243,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"workflow file: {', '.join(names)}"
         )
     return asyncio.run(
-        calibrate_components(settings, [args.only] if args.only else names)
+        calibrate_components(settings, [args.only] if args.only else names, ovms)
     )
+
+
+def _ovms_target(models_dir: Path | None) -> OvmsTarget | None:
+    # The OVMS App's own settings are read only when OVMS is what is calibrated.
+    return None if models_dir is None else OvmsTarget(models_dir, OvmsSettings())
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -209,5 +264,13 @@ def _parser() -> argparse.ArgumentParser:
         "--only",
         metavar="NAME",
         help="calibrate just this component, such as reranker",
+    )
+    parser.add_argument(
+        "--ovms-models",
+        type=Path,
+        metavar="DIR",
+        help="calibrate OpenVINO Model Server on the export in DIR (needs ovms on "
+        "PATH) instead of the in-process models; it prints QP_OVMS_NUM_STREAMS "
+        "and QP_OVMS_THREADS, pinned per App (one OVMS App serves one component)",
     )
     return parser

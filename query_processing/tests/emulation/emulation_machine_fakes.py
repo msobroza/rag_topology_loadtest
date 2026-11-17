@@ -36,12 +36,13 @@ TOKEN = "fake-token"
 EMBEDDER = "Snowflake/snowflake-arctic-embed-l-v2.0"
 RERANKER = "antoinelouis/crossencoder-camembert-base-mmarcoFR"
 # What qp-served-models prints for those two: one line per served model, its
-# name, type, source id and alias. The reranker comes first here, so that a
+# name, type, source id, alias and the OpenVINO weight format (the default,
+# fp32, the same on every line). The reranker comes first here, so that a
 # script must pick the embedder by its type, not by its place. A test holds
 # these lines to the real command's.
 SERVED_MODEL_LINES = (
-    f"reranker reranker {RERANKER} crossencoder-camembert-base-mmarcoFR",
-    f"embedder embedder {EMBEDDER} snowflake-arctic-embed-l-v2.0",
+    f"reranker reranker {RERANKER} crossencoder-camembert-base-mmarcoFR fp32",
+    f"embedder embedder {EMBEDDER} snowflake-arctic-embed-l-v2.0 fp32",
 )
 PASSAGES = 1592
 

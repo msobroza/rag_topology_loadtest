@@ -31,6 +31,7 @@ from launch_script_stand_ins import (
     make_stand_ins,
     models_dir,
     ovms_bundle,
+    served_config,
     stand_in_env,
     started_env,
     started_in,
@@ -92,17 +93,20 @@ COMBINATIONS = [
 ]
 
 
-def expected_start(part: str, kinds: str, models: Path) -> tuple[str, str]:
+def expected_start(part: str, kinds: str, tmp_path: Path) -> tuple[str, str]:
     """``(stand-in, argv)`` app.sh must start for an App part and the Apps' kinds.
 
     Every script bootstraps (``QP_BOOTSTRAP=1``), so the project's commands run
-    from the venv ``uv`` made and OVMS from the bundle.
+    from the venv ``uv`` made and OVMS from the bundle, on the config the
+    ``qp-ovms-config`` stand-in printed.
     """
     if part == "workflow":
         return "venv-qp-serve", "--host 0.0.0.0 --port 8888 --domino"
     if KINDS[kinds][part] == "fastapi":
         return "venv-qp-model-server", f"--serve {part} --host 0.0.0.0 --port 8888"
-    return "bundle-ovms", f"--rest_port 8888 --config_path {models}/config_{part}.json"
+    config = served_config(tmp_path)
+    assert config.endswith(f"/config_{part}.json")
+    return "bundle-ovms", f"--rest_port 8888 --config_path {config}"
 
 
 def expected_label(alias: str, kinds: str) -> str:
@@ -157,10 +161,10 @@ def test_every_app_the_deploy_tool_writes_is_exercised_under_each_kind() -> None
 def test_each_entry_script_starts_its_app_through_app_sh(
     tmp_path: Path, alias: str, part: str, kinds: str
 ) -> None:
-    result, models = run_entry_script(tmp_path, alias, part, kinds)
+    result, _ = run_entry_script(tmp_path, alias, part, kinds)
 
     assert result.returncode == 0, result.stderr
-    server, argv = expected_start(part, kinds, models)
+    server, argv = expected_start(part, kinds, tmp_path)
     assert log(tmp_path, server).strip() == argv
     # In the use case's directory, where it finds the use case's workflow file.
     assert started_in(tmp_path, server) == tmp_path / "use_case"

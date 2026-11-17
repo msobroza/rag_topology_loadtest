@@ -310,7 +310,18 @@ of exporting the models and embedding the corpus again. It holds:
 Models are keyed by folder name, not by how they were exported. `models-save` keeps
 an object the bucket already has. After a change to the export recipe of the same
 model, replace them with `make -C emulation models-save FORCE=1`, or empty the
-prefix first: `gcloud storage rm -r gs://<bucket>/models`. A bucket error fails the
+prefix first: `gcloud storage rm -r gs://<bucket>/models`.
+
+The cached `models/ovms-models.tar` was saved before the weight format setting
+(`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`) existed and holds 8-bit weights (its
+folder has no `weight-format` file, which reads as `int8`). The setting defaults
+to `fp32`, so an OVMS App on the emulation needs
+`local_models: {openvino_weight_format: int8}` under the `overrides` of its
+`deploy.yaml` to serve it, or another `QP_OVMS_MODELS_DIR`, where `fp32` is
+exported on first start. Without either, the App stops before OVMS starts and
+says so.
+
+A bucket error fails the
 boot (`make ready` says `failed`); an empty bucket is the first sitting's normal
 state. `make -C emulation destroy` deletes the bucket with everything in it.
 
@@ -447,11 +458,20 @@ deadline. It showed:
   handed from `project.env`. The provider answered 401 to that key, so no
   generation ran.
 
+A second sitting that day, with two `n2-highmem-2` pool machines for the workflow
+and one bigger pool machine for the reranker (`n2-standard-8`, then
+`n2-standard-16`), showed:
+
+- The Workspace machine fetches the OVMS tarball at boot, and an OVMS deploy
+  needs no copy by hand.
+- `models/ovms-models.tar` is restored at boot on every pool machine.
+- A hardware tier per App: the reranker on one tier, the workflow on another.
+
 ## Not verified
 
 Not shown by the runs of 14 and 15 November 2026:
 
-- The layout and the names of today. Both sittings ran the code as it was before
+- The layout and the names of today. Every sitting ran the code as it was before
   the toolkit moved to `query_processing/`, the RAG became the use case in
   `query_processing_rag_usecase/`, and the commands and variables took `qp-` and
   `QP_`. Since then the scripts and templates were checked only by
@@ -473,15 +493,11 @@ Not shown by the runs of 14 and 15 November 2026:
 - `/query` (generation) through the emulation: it is still unmeasured. The Project
   environment variable reached the Apps, but the provider refused the key (see
   "15 November 2026").
-- The Workspace machine fetching the OVMS tarball at boot: added after the sitting
-  of 15 November 2026, it has not run on a machine yet.
 - Of the cache bucket and the Spot machines (the rest ran on 14 November 2026, see
   "The cache bucket"):
   - a Spot machine taken back by Google, and the recovery steps of "Spot machines";
   - the self-deletion of a Spot machine at the end of `max_run_hours` (the machines
     of every sitting were deleted by hand), and an apply with `spot = false`;
-  - `models/ovms-models.tar` restored at boot: it was saved on 15 November 2026,
-    and no later boot has restored it yet;
   - `models-save FORCE=1`, and the boot's wait for a grant that has not applied yet
     (the first bucket call succeeded at once);
   - whether Elasticsearch's repository needs `roles/storage.legacyBucketReader`: it

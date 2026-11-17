@@ -7,8 +7,11 @@ names, such as ``QP_LOCAL_MODELS__CPUS`` or ``QP_HTTP__RETRIES``:
 
 - ``local_models``: what the in-process models share, those of the components
   on the ``local`` backend: the runtime that runs them, where the ``openvino``
-  runtime keeps their files, and the workers and CPUs of the thread budget;
-- ``calibration``: the budget and the rounds every calibration runs under;
+  runtime keeps their files and what it stores their weights as (the weight
+  format, which OVMS's export reads too), and the workers and CPUs of the
+  thread budget;
+- ``calibration``: the budget and the rounds every calibration runs under, and
+  the requests in flight a model server is calibrated for;
 - ``http``: the default of each value a component's own ``http`` block leaves
   out, and the policy of the calls that are no component's;
 - ``domino``: the Domino run token's URL and lifetime, and Domino tracing.
@@ -25,12 +28,16 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from ..domain.backends import LocalModelRuntime
+from ..domain.backends import LocalModelRuntime, OpenVinoWeightFormat
 from .component_settings import SettingsBlock
 
 
 class LocalModelsSettings(SettingsBlock):
     """The ``local_models`` block: the runtime, its files and the thread budget.
+
+    The weight format is read by both OpenVINO exports, so that servers are
+    compared on the same weights: the in-process one and OVMS's
+    (``ovms/export_models.sh``, through ``qp-served-models``).
 
     Example:
         >>> LocalModelsSettings().openvino_dir
@@ -42,6 +49,13 @@ class LocalModelsSettings(SettingsBlock):
     # without a folder there is downloaded and converted into it the first time
     # it loads; qp-export-openvino fills it ahead of time.
     openvino_dir: str = "models/openvino"
+    # What an OpenVINO export stores its weights as (fp32 | int8). In-process
+    # (local_models/openvino_export.py) an int8 model gets its own folder,
+    # "<model>-int8"; OVMS's export reads it too. fp32 is what the in-process
+    # models have always run; ranking quality on int8 is unchecked.
+    # domino/model_servers/ovms.sh repeats this default in bash; a test keeps
+    # the two equal.
+    openvino_weight_format: OpenVinoWeightFormat = "fp32"
     # Model calls running at once, max, under torch only; openvino runs one call
     # at a time on every CPU (domain/thread_budget.py).
     workers: int = Field(default=4, ge=1)
@@ -51,7 +65,10 @@ class LocalModelsSettings(SettingsBlock):
 
 
 class CalibrationSettings(SettingsBlock):
-    """The ``calibration`` block: what every calibration of a local model runs under.
+    """The ``calibration`` block: what every calibration runs under.
+
+    The budget and the rounds apply to an in-process model and to a model
+    server alike; ``users`` only to a model server.
 
     Example:
         >>> CalibrationSettings().budget_s
@@ -59,10 +76,16 @@ class CalibrationSettings(SettingsBlock):
     """
 
     # Per CPU-bound stage (stage_calibration.py): no new candidate is started
-    # once this many seconds have passed.
+    # once this many seconds have passed; a model server's trial still running
+    # then is abandoned (served_stage_calibration.py).
     budget_s: float = Field(default=90.0, gt=0)
     # Timed requests per candidate, after one warm-up.
     rounds: int = Field(default=1, ge=1)
+    # Requests in flight while a model server's candidate is timed: the load its
+    # stream count is chosen for (one request is always fastest on one stream).
+    # In-process stages are timed on one request: under openvino they run one
+    # call at a time, so n requests take n times as long under any tuning.
+    users: int = Field(default=4, ge=1)
 
 
 class DefaultHttpSettings(SettingsBlock):

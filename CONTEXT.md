@@ -86,6 +86,10 @@ _Avoid_: canonical format, native format, default format
 What runs an in-process model: `openvino` on files exported beforehand, or `torch`.
 _Avoid_: backend (that is the adapter kind), engine, device
 
+**Weight format**:
+What an OpenVINO export stores its weights as: `fp32` (32-bit floats) or `int8` (weights stored as 8-bit integers). One setting, `local_models.openvino_weight_format` of the workflow file (`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`), read by both exports: the in-process one and OVMS's. Servers are compared on the same weight format.
+_Avoid_: precision alone, quantization (`int8` here compresses the weights only)
+
 **Workflow app**:
 The process that serves a use case's workflow over HTTP: `qp-serve`.
 _Avoid_: service, API, RAG app, server
@@ -204,8 +208,12 @@ A stage whose work runs in the App's own process, on its CPUs: embed and rerank 
 _Avoid_: heavy stage, compute stage
 
 **Calibration**:
-Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest. An App does it at start-up, only for a parameter the settings leave at 0; `qp-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
+Timing a CPU-bound stage under each candidate batch size and thread count, and keeping the fastest; for a model server (OVMS), timing its stage under each candidate stream count and thread count, one server start per candidate, with several requests in flight. An App does it at start-up, only for a parameter the settings leave at 0; `qp-calibrate` does it on demand for every parameter and prints the settings that pin the choice.
 _Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
+
+**Stream**:
+One request a model server runs on its model at the same time as others; its threads are shared among its streams. A lone request is fastest on one stream, so a stream count is chosen for a stated number of requests in flight. An in-process stage runs one stream.
+_Avoid_: instance, worker (a worker is a model call slot under torch), replica
 
 **Edge**:
 A link from one stage to the next. A conditional edge asks an edge condition and goes the way its answer names.

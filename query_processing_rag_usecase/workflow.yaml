@@ -15,10 +15,11 @@
 extensions: [query_processing_rag_usecase]
 
 # What the components share is four top-level blocks (the README lists them):
-# local_models (runtime, openvino_dir, workers, cpus), written here for its
-# runtime, and three left out, so each takes its defaults: calibration
-# (budget_s, rounds), http (timeout_s, retries, backoff_s: the default of every
-# component's own http block) and domino (token_url, token_ttl_s, tracing).
+# local_models (runtime, openvino_dir, openvino_weight_format: fp32 | int8,
+# workers, cpus), written here for its runtime, and three left out, so each
+# takes its defaults: calibration (budget_s, rounds, users), http (timeout_s,
+# retries, backoff_s: the default of every component's own http block) and
+# domino (token_url, token_ttl_s, tracing).
 # For example QP_LOCAL_MODELS__RUNTIME=torch or QP_HTTP__RETRIES=0.
 local_models:
   runtime: openvino # openvino | torch, for every component on the local backend

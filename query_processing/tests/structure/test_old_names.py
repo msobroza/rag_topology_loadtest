@@ -32,7 +32,7 @@ README_BEGIN = "<!-- old-names:begin"
 README_END = "<!-- old-names:end -->"
 OLD_COMMANDS = (
     "serve|ingest|compare|model-server|served-models|export-openvino|calibrate"
-    "|fetch-corpus|deploy|fake-domino|domino-emulation"
+    "|ovms-config|fetch-corpus|deploy|fake-domino|domino-emulation"
 )
 OLD_NAMES = re.compile(
     r"rag_load_test|rag-load-test"  # the package and its distribution
@@ -117,6 +117,7 @@ def test_the_search_finds_each_kind_of_old_name() -> None:
     text = (
         "import rag_load_test; pip install rag-load-test; exec rag-serve; "
         "rag-domino-emulation; .rag-deploy-cache.json; rag_calibrate.py; "
+        "rag-ovms-config in rag_ovms_config.py; "
         "test_rag_deploy.py; RagSettings in rag_settings.py; ${RAG_ROLE:-}; "
         '"# a\\nRAG_ES_URL=x"; rag_graph__stages__rerank__top_k'
     )
@@ -128,6 +129,8 @@ def test_the_search_finds_each_kind_of_old_name() -> None:
         "rag-domino-emulation",
         "rag-deploy",
         "rag_calibrate",
+        "rag-ovms-config",
+        "rag_ovms_config",
         "rag_deploy",
         "RagSettings",
         "rag_settings",

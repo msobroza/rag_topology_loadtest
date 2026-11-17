@@ -2,14 +2,16 @@
 
 The workflow file is the one pin for the served models: each embedder and
 reranker it declares, by any name, with a source id and an alias, is a model an
-OVMS model-server App may serve. ``ovms/export_models.sh`` reads this command's
-output to export each one under its component's name, instead of repeating the
-names.
+OVMS model-server App may serve. Its ``local_models`` block is the one pin for
+the weight format they are exported at, the same for all, which the in-process
+export reads too. ``ovms/export_models.sh`` reads this command's output to
+export each one under its component's name and at the format printed, instead
+of repeating the names.
 
 Example:
     >>> qp-served-models
-    embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 snowflake-arc...
-    reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR cross...
+    embedder embedder Snowflake/snowflake-arctic-embed-l-v2.0 snowflake-arc... fp32
+    reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR cross... fp32
 """
 
 from __future__ import annotations
@@ -22,24 +24,30 @@ from ..config.workflow_settings import WorkflowSettings
 
 
 def served_model_lines(settings: WorkflowSettings) -> list[str]:
-    """Return one line per embedder and reranker: its name, type, source id, alias.
+    """Return one line per embedder and reranker, ending with the weight format.
 
-    Each word is shell-quoted, so a line is safe to ``eval "set -- $line"``, as
+    A line holds the component's name, type, source id and alias, then the
+    OpenVINO weight format, the same on every line: it is one setting. Each
+    word is shell-quoted, so a line is safe to ``eval "set -- $line"``, as
     ``ovms/export_models.sh`` does.
 
     Args:
-        settings: Whose workflow file declares the components.
+        settings: Whose workflow file declares the components and the weight
+            format (its ``local_models`` block).
 
     Returns:
         The lines, in the file's order; an LLM or a vector store has none.
 
     Example:
         >>> served_model_lines(WorkflowSettings())[1]
-        'reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR ...'
+        'reranker reranker antoinelouis/crossencoder-camembert-base-mmarcoFR ... fp32'
     """
     exported = ("embedder", "reranker")  # the types the OVMS exporter exports
+    weight_format = settings.local_models.openvino_weight_format
     return [
-        shlex.join([name, component.type, component.source_id, component.alias])
+        shlex.join(
+            [name, component.type, component.source_id, component.alias, weight_format]
+        )
         for name, component in settings.model_components().items()
         if component.type in exported
     ]
@@ -56,14 +64,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         The exit status, 0, after printing one line per served model.
 
     Example:
-        >>> main([])  # prints "embedder embedder <source id> <alias>", then more
+        >>> main([])  # prints "embedder embedder <source id> <alias> fp32", then more
         0
     """
     parser = argparse.ArgumentParser(
         prog="qp-served-models",
         description="Print each embedder and reranker of the workflow file as one "
-        "line of shell words (name, type, source id, alias), for "
-        "ovms/export_models.sh.",
+        "line of shell words (name, type, source id, alias, OpenVINO weight "
+        "format), for ovms/export_models.sh.",
     )
     parser.parse_args(argv)
     try:

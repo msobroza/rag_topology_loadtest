@@ -4,8 +4,10 @@ The ``openvino`` runtime (``QP_LOCAL_MODELS__RUNTIME``, the default) loads the
 folder this command writes for each model under ``QP_LOCAL_MODELS__OPENVINO_DIR``. An
 App whose folder is missing exports it itself on its first start, so this command
 only pre-warms: an image build, or a disk that should start without the Hub. The
-models are the source ids of the workflow file's embedders and rerankers, so
-``QP_*`` overrides apply.
+models are the source ids of the workflow file's embedders and rerankers,
+exported at the weight format of its ``local_models`` block
+(``QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT``; an ``int8`` export goes to
+``<model>-int8``), so ``QP_*`` overrides apply.
 
 Example:
     >>> qp-export-openvino --only reranker --models-dir models/openvino
@@ -19,6 +21,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ..config.workflow_settings import WorkflowSettings
+from ..domain.backends import OpenVinoWeightFormat
 from ..infrastructure.local_models.local_model import exported_model_dir
 from ..infrastructure.local_models.openvino_export import (
     OpenVinoUnavailableError,
@@ -32,26 +35,33 @@ PROG = "qp-export-openvino"
 EXPECTED_ERRORS = (OpenVinoUnavailableError, OSError, ValueError)
 
 
-def export_part(component_type: str, model_id: str, target: Path) -> Path:
+def export_part(
+    component_type: str,
+    model_id: str,
+    target: Path,
+    weight_format: OpenVinoWeightFormat,
+) -> Path:
     """Export one model with the converter its component type needs.
 
     Args:
         component_type: ``embedder`` or ``reranker``.
         model_id: The model's Hugging Face id or local path.
         target: The folder to write.
+        weight_format: ``fp32`` or ``int8``, what the weights are stored as.
 
     Returns:
         ``target``, now holding the export.
 
     Example:
-        >>> export_part("reranker", "org/rerank", Path("models/openvino/rerank"))
+        >>> export_part("reranker", "org/rerank", Path("models/openvino/rerank"),
+        ...             "fp32")
         PosixPath('models/openvino/rerank')
     """
-    exporters: dict[str, Callable[[str, Path], Path]] = {
+    exporters: dict[str, Callable[[str, Path, OpenVinoWeightFormat], Path]] = {
         "embedder": export_embedder,
         "reranker": export_reranker,
     }
-    return exporters[component_type](model_id, target)
+    return exporters[component_type](model_id, target, weight_format)
 
 
 def exported_components(settings: WorkflowSettings) -> list[str]:
@@ -77,7 +87,9 @@ def export_models(
     """Export each component's model, one line per model; stop at the first failure.
 
     Args:
-        settings: Whose components give the types and the source ids.
+        settings: Whose components give the types and the source ids, and
+            whose ``local_models`` block gives the weight format they are
+            exported at.
         names: Which components' models to export, in order.
         models_dir: The folder that holds every export.
 
@@ -98,16 +110,17 @@ def export_models(
 def _exported(settings: WorkflowSettings, name: str, models_dir: str) -> bool:
     component = settings.model_components()[name]
     model_id = component.source_id
-    target = exported_model_dir(models_dir, model_id)
+    weight_format = settings.local_models.openvino_weight_format
+    target = exported_model_dir(models_dir, model_id, weight_format=weight_format)
     try:
-        export_part(component.type, model_id, target)
+        export_part(component.type, model_id, target, weight_format)
     except EXPECTED_ERRORS as exc:
         print(
             f"{PROG}: cannot export {name} {model_id} to {target}: {exc}",
             file=sys.stderr,
         )
         return False
-    print(f"{PROG}: {name} {model_id} -> {target}")
+    print(f"{PROG}: {name} {model_id} ({weight_format}) -> {target}")
     return True
 
 
@@ -145,7 +158,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROG,
         description="Convert the embedders and rerankers to OpenVINO IR, one folder "
-        "per model, where the openvino runtime loads them from.",
+        "per model and weight format, where the openvino runtime loads them from.",
     )
     parser.add_argument(
         "--only", metavar="NAME", help="export just this component's model"
