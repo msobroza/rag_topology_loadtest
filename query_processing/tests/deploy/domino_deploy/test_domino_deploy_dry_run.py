@@ -76,6 +76,21 @@ def test_dry_run_deploy_needs_no_workspace_and_prints_each_entry_script(
     assert not Path(CACHE_FILE).exists()  # a dry run remembers nothing
 
 
+def test_dry_run_shows_a_name_and_a_number_as_written_and_asks_domino_nothing(
+    run_main: RunMain,
+) -> None:
+    named = "  environment_revision: 7\n  hardware_tier: cpu-16\n"
+    Path("deploy.yaml").write_text(ENV_1 + named + WORKFLOW_SCALES)
+    code, out, _ = run_main(["--dry-run", "deploy", "all"], None)
+    assert code == 0
+    assert out.endswith(
+        dry_run_report(
+            tier="(tier cpu-16: its id is asked of Domino at deploy)",
+            revision="(revision 7: its id is asked of Domino at deploy)",
+        )
+    )
+
+
 def test_dry_run_shows_the_hardware_tier_when_set(run_main: RunMain) -> None:
     tier = "  hardware_tier_id: tier-8\n"
     Path("deploy.yaml").write_text(ENV_1 + tier + WORKFLOW_SCALES)

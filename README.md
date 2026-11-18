@@ -1008,6 +1008,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         environments.py  EnvironmentRevision, DominoEnvironment (its latest, active and restricted revisions, every field Domino gave), list_environments
         revision_sources.py  BaseRevisionSource, DocumentedRevisions (one environment's three revisions, asked once), revision_numbered: a revision by its number from the sources in order, or a refusal saying what each holds
         internal_revisions.py  InternalRevisions: every revision of an environment with its build date, through the internal route Domino's own pages use (not in Domino's reference, not verified on a live Domino); a route that fails gives no revision and is told, never raised
+        base_domino_ids.py  AppWithIds, BaseDominoIds (an App's tier name and revision number turned into the ids its version sends), where_set, find_every_id: every App's ids found, then printed, before the first App is published
+        domino_ids_asked.py  DominoIdsAsked: the ids asked of Domino, the tiers listed once, a revision from the documented call then the internal route
+        domino_ids_not_asked.py  DominoIdsNotAsked: a dry run's ids, the name and the number as written, nothing asked
     loadtest/         the load-test client, with locustfile.py
       loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request

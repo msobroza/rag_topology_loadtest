@@ -37,6 +37,8 @@ from .deploy_settings import (
     DeploySettings,
     deploy_file,
 )
+from .domino_lookups.base_domino_ids import BaseDominoIds, find_every_id
+from .domino_lookups.domino_ids_asked import DominoIdsAsked
 from .endpoint_url import endpoint_url
 from .model_server_kinds.base_model_server_kind import model_server_kind
 from .overrides import (
@@ -241,7 +243,7 @@ def _autoscaling_specification(scaling: Autoscaling) -> dict[str, object]:
     return spec
 
 
-def publish_app(
+def publish_app(  # noqa: PLR0913 - sleep and ids are the seams of tests and dry runs
     client: DominoAppsClient,
     settings: DeploySettings,
     topology: ResolvedTopology,
@@ -249,6 +251,7 @@ def publish_app(
     *,
     launch: LaunchPaths,
     sleep: Callable[[float], None] = time.sleep,
+    ids: BaseDominoIds | None = None,
 ) -> DominoApp:
     """Create ``part``'s App or post a new version to it, then wait until Running.
 
@@ -264,6 +267,7 @@ def publish_app(
         part: The App to publish.
         launch: The launch script the App runs, and the use case's directory.
         sleep: Waits between polls; tests and dry runs pass a no-op.
+        ids: Finds the ids of a tier name and a revision number; None asks Domino.
 
     Returns:
         The App, Running.
@@ -276,7 +280,8 @@ def publish_app(
     Example:
         >>> publish_app(client, settings, topology, "reranker", launch=launch)
     """
-    app_settings = settings.for_app(part)
+    ids = ids if ids is not None else DominoIdsAsked(client.http)
+    app_settings = ids.find(settings.for_app(part)).app
     urls: dict[AppPart, str] = {}
     if part == WORKFLOW_APP:
         urls = model_server_urls(client, settings, topology)
@@ -318,6 +323,7 @@ def deploy(
     *,
     launch: LaunchPaths,
     sleep: Callable[[float], None] = time.sleep,
+    ids: BaseDominoIds | None = None,
 ) -> None:
     """Publish ``target``, or every App the topology alias needs, in order.
 
@@ -327,7 +333,8 @@ def deploy(
     (``resolve_topology``), placeholders, no environment id, a default
     environment revision without the default environment, or settings a
     model-server kind of the Apps cannot start with (a missing OVMS bundle) are
-    refused first, with ``DominoDeployError``. Redeploying a model server
+    refused first, with ``DominoDeployError``. Then the id of every tier name and
+    revision number of those Apps is found and printed. Redeploying a model server
     prints a note that the workflow App still calls its old instance.
 
     Args:
@@ -336,9 +343,11 @@ def deploy(
         target: One App, or ``"all"``.
         launch: The launch script every App runs, and the use case's directory.
         sleep: Waits between polls; tests and dry runs pass a no-op.
+        ids: Finds the ids of a tier name and a revision number; None asks Domino.
 
     Raises:
-        DominoDeployError: If the topology does not use ``target``.
+        DominoDeployError: If the topology does not use ``target``, or a tier
+            name or revision number names nothing of Domino.
 
     Example:
         >>> deploy(client, DeploySettings(), "all", launch=launch_paths(os.getcwd()))
@@ -353,8 +362,12 @@ def deploy(
     parts = needed if target == "all" else [target]
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, topology, parts)
+    ids = ids if ids is not None else DominoIdsAsked(client.http)
+    find_every_id(ids, map(settings.for_app, parts))
     for part in parts:
-        publish_app(client, settings, topology, part, launch=launch, sleep=sleep)
+        publish_app(
+            client, settings, topology, part, launch=launch, sleep=sleep, ids=ids
+        )
     if target in topology.served:
         _note_the_workflow_calls_the_old_instance(client, settings, target)
 

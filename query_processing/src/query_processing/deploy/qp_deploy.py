@@ -33,6 +33,7 @@ from fake_domino.state import FakeDominoApps
 from .app_id_cache import APP_ID_CACHE_FILE, AppIdCache
 from .apps_client import DominoAppsClient, DominoDeployError
 from .deploy_settings import DeploySettings, deploy_file, require_deploy_file
+from .domino_lookups.domino_ids_not_asked import DominoIdsNotAsked
 from .endpoint_url import endpoint_url
 from .publish import CONFIGURATION_TYPES, deploy, launch_paths, require_app
 from .status import print_status
@@ -104,7 +105,8 @@ def _run_command(
     if args.command == "deploy":
         # Run from the use case's directory: the Apps run the role's command there.
         launch = launch_paths(os.getcwd())
-        deploy(client, settings, args.target, launch=launch, sleep=sleep)
+        ids = DominoIdsNotAsked() if args.dry_run else None  # a dry run asks nothing
+        deploy(client, settings, args.target, launch=launch, sleep=sleep, ids=ids)
     if args.command == "status":
         print_status(client, settings)
     if args.command == "url":
