@@ -13,6 +13,17 @@ Example:
 from __future__ import annotations
 
 from .component_contract import ComponentContract
+from .directory_size import (
+    FolderNotYetSplit,
+    OnePatternFolder,
+    directory_size_findings,
+)
 from .router_contract import RouterContract
 
-__all__ = ["ComponentContract", "RouterContract"]
+__all__ = [
+    "ComponentContract",
+    "FolderNotYetSplit",
+    "OnePatternFolder",
+    "RouterContract",
+    "directory_size_findings",
+]

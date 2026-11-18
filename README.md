@@ -419,7 +419,11 @@ given `settings_block`, the backend's block as the workflow file states it, it
 also builds the component from it through `from_settings`, as the app does,
 and compares the two answers. `RouterContract` adds `routes`, and checks that
 the route chosen is one of them and that the confidence is between 0 and 1.
-The RAG's `tests/test_knn_router.py` subclasses it.
+The RAG's `tests/test_knn_router.py` subclasses it. The same package ships
+`directory_size_findings`, the measure of rule 9 of
+[Where a file goes](#where-a-file-goes): given a use case's root, the limit and
+its exceptions, it returns each directory that breaks the rule as a sentence;
+the RAG's `tests/test_layering.py` calls it with no exception.
 
 #### One component type from end to end
 
@@ -732,6 +736,27 @@ and no package imports it either, `extension_api` included.
    alone and follows the toolkit's layers, with no `composition`, since a
    class builds itself; its adapters may import its own `config`, as a class
    names its settings on its class line.
+9. **Twelve modules a directory.** A directory under a distribution's `src/`
+   or `tests/` holds at most 12 modules, the `.py` files directly inside it,
+   `__init__.py` not counted and `conftest.py` counted. A crowded directory
+   splits by what its modules share, in the order the code already uses: a
+   component type, then a Backend, a command, or a glossary area, the
+   sub-package named after that thing with a noun of [CONTEXT.md](CONTEXT.md),
+   never `utils`, `common` or `misc`. A moved module keeps its full name
+   (rule 3), and tests mirror `src/`: a command or module with many test files
+   gets a folder named after it. Two kinds of folder are excepted, each listed
+   by the test that measures it. A one-pattern folder, whose every module is
+   one entry of one sort, may be as long as its list, since its listing reads
+   as a table, and every module of it must match its pattern:
+   `composition/openers/` (`<type>_on_<backend>.py`, and
+   `component_openers.py`), `tests/entrypoints/qp_serve/`
+   (`test_qp_serve.py` and `test_qp_serve_<aspect>.py`) and the charts package's `charts/`
+   (`<finding>_chart.py`). A folder not yet split (`domain/`, `config/`, their
+   tests, `tests/helpers/`, the emulated Domino's code and its tests) may not
+   pass the count it had when listed, and its entry fails as stale once the
+   folder is back at 12 or under, so the list only shrinks. The measure is
+   `directory_size_findings` in `query_processing.testing`, which a use case's
+   tests call on the use case.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, that
 `locustfile.py` imports only the `loadtest` package, that no package imports
@@ -739,8 +764,12 @@ and no package imports it either, `extension_api` included.
 `tests/test_layering.py` checks its side;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
 rule 4 (only component packages in `adapters/`, their layout with `api/` for
-both `served` and `api`, and no port implemented anywhere else) and rule 7. The fake Domino (`src/fake_domino/`) is a
-test double, not part of the product, and the rule does not apply to it.
+both `served` and `api`, and no port implemented anywhere else) and rule 7;
+`tests/structure/test_directory_size_rule.py` checks rule 9 on the toolkit, the use
+case's `tests/test_layering.py` on the use case, with no exception, and the
+charts package's `tests/test_experiment_charts_directory_size.py` on that
+package. The fake Domino (`src/fake_domino/`) is a
+test double, not part of the product, and rules 1 to 8 do not apply to it.
 
 Measurements go in `experiments/`, at the repository's root, not in the code:
 one folder per sitting, with its question, its settings and the statistics of
@@ -755,8 +784,8 @@ folder at the repository's root with a distribution of its own
 (`make experiment-charts`, from the root). That package is not part of the
 product: it depends on matplotlib and PyYAML, imports nothing from
 `query_processing`, `fake_domino` or a use case (its own
-`tests/test_experiment_charts_imports.py` checks it), and the rules above do not
-apply to it.
+`tests/test_experiment_charts_imports.py` checks it), and of the rules above
+only rule 9 applies to it.
 
 ### The tree
 
@@ -979,6 +1008,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     testing/          the tests the toolkit ships, which a user runs on a component of their own; a use case's tests import them from query_processing.testing, no package imports them
       component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
       router_contract.py  RouterContract: ComponentContract for a router, with routes to write; the route chosen is one of them, the confidence between 0 and 1
+      directory_size.py  directory_size_findings, OnePatternFolder, FolderNotYetSplit: rule 9 measured under a distribution's src/ and tests/, each breach a sentence naming the folder, its count and what to do
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)
@@ -993,10 +1023,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002), a use case's directory its project directory
   ovms/               versions.env (single OVMS version pin), export_models.sh (into ovms/models of the working directory, a use case's)
   domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
-  tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/
+  tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/, and in a crowded folder one sub-folder per sub-package, module or command (rule 9)
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
-    structure/        the import, placement and code-shape rules, read from the source with ast
+    structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
     helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
@@ -3169,7 +3199,9 @@ so the asyncio-based service tests are never gevent-patched.
 `tests/` has one folder per layer of `src/query_processing` (`domain`, `application`,
 `config`, `adapters`, `entrypoints`, `loadtest`, `deploy`), plus `scripts` for the
 shell scripts, `structure` for the layering and code-shape rules and `fake_domino`
-for the fake's own tests. The folders are not packages, so a test file's name is
+for the fake's own tests. A crowded folder holds one sub-folder per sub-package,
+module or command (`tests/entrypoints/qp_serve/`, rule 9 of
+[Where a file goes](#where-a-file-goes)). The folders are not packages, so a test file's name is
 unique across the tree. What several files share (named fakes, fixtures,
 `REPO_ROOT` and `TOOLKIT_ROOT`) is in `tests/helpers`, on pytest's path and
 imported by plain module name. The Chroma store's tests run a real embedded Chroma in a temporary folder.
