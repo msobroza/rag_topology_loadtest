@@ -112,7 +112,7 @@ def revisions_table(
     rows = [
         [
             " ".join([str(revision.number), *environment.marks(revision.id)]),
-            "-" if revision.built is None else revision.built.strftime(_BUILT),
+            _built(revision),
             revision.status,
             revision.id,
         ]
@@ -120,6 +120,35 @@ def revisions_table(
     ]
     table = heading + aligned_table(_REVISION_HEADERS, rows)
     return f"{table}\n{note}\n" if note else table
+
+
+def revision_lines(
+    environment: DominoEnvironment, revisions: Sequence[EnvironmentRevision]
+) -> list[str]:
+    """Write one line a revision, as an open environment of the list shows them.
+
+    Args:
+        environment: The environment, whose three revisions give the marks.
+        revisions: Its revisions to show (see ``shown_revisions``), newest first.
+
+    Returns:
+        The lines, columns aligned: the number, the marks, the build date in UTC
+        (``-`` when not known) and the id.
+
+    Example:
+        >>> revision_lines(environment, revisions)[0]
+        'v7  latest  built 2026-11-12 09:41  id rev-7'
+    """
+    rows = [
+        [
+            f"v{revision.number}",
+            " ".join(environment.marks(revision.id)),
+            f"built {_built(revision)}",
+            f"id {revision.id}",
+        ]
+        for revision in revisions
+    ]
+    return aligned_table(("", "", "", ""), rows).splitlines()[1:]
 
 
 def environments_details(
@@ -172,6 +201,10 @@ def _revision_fields(
         "marks": environment.marks(revision.id),
         "status": revision.status,
     }
+
+
+def _built(revision: EnvironmentRevision) -> str:
+    return "-" if revision.built is None else revision.built.strftime(_BUILT)
 
 
 def _built_utc(built: datetime | None) -> str | None:

@@ -28,6 +28,21 @@ utterances
 # in tests/helpers/workflow_fakes.py).
 on_chain_start
 
+# Textual: reads an App's BINDINGS and calls its compose, the action a binding
+# names (action_<name>) and a message's handler (on_<widget>_<message>, on_mount)
+# by name, and reads the display and show_root fields a widget is given
+# (OpeningList in deploy/domino_listings/opening_list.py).
+BINDINGS
+action_filter
+action_unfilter
+compose
+on_input_changed
+on_mount
+on_tree_node_collapsed
+on_tree_node_expanded
+display
+show_root
+
 # pydantic: RecordedPassage.text_sha256, written to an answer record and compared
 # by name (loadtest/answer_comparison.py's _EXACT_PASSAGE_FIELDS).
 text_sha256

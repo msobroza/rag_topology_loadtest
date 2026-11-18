@@ -168,7 +168,7 @@ install both distributions in one command, the toolkit first, since no package
 index has it:
 
 ```bash
-make install-dev    # the toolkit with locust, rouge-score, pytest and the gate tools, the use case, and the charts package
+make install-dev    # the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
@@ -178,6 +178,10 @@ name, such as `qp-serve`, needs its `bin/` on your `PATH`
 which [Development](#development) describes, and the charts package
 (`experiment_charts/`, which draws `experiments-explained/` and is not part of
 the product).
+It also leaves out Textual, which draws the list `qp-deploy tiers` and
+`qp-deploy environments` open in a terminal (the toolkit's `terminal` extra:
+`pip install -e "./query_processing[terminal]"`); without it they print their
+table there.
 
 ### First run, on fake backends
 
@@ -1017,8 +1021,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         listing_looks.py  Look, chosen_look: the details when asked, else the table when asked or with no terminal, else the list
         listing_settings.py  ListingSettings: what a listing reads of deploy.yaml, how to reach Domino and nothing else, so no App block needs to be valid
         tiers_listing.py  tiers_table (the default tier marked), tiers_details
-        environments_listing.py  environments_table (the active and latest numbers), shown_revisions (every revision of the internal route with its documented status, or the three and a note), revisions_table (dates in UTC, marks), environments_details
-        listing_commands.py  show_tiers, show_environments: ask Domino, then print the look; the internal route asked only for an environment named
+        environments_listing.py  environments_table (the active and latest numbers), shown_revisions (every revision of the internal route with its documented status, or the three and a note), revisions_table (dates in UTC, marks), revision_lines (an open environment's revisions in the list), environments_details
+        opening_list.py  OpeningItem, OpeningList, run_opening_list: the list that opens in a terminal, drawn by Textual (the extra terminal), the only module importing it; an item's lines asked when first opened, / matching its name
+        listing_commands.py  show_tiers, show_environments: ask Domino, then show the look, the list without Textual the table and how to install it; tier_items, environment_items, list_is_installed; the internal route asked only for an environment named or opened
     loadtest/         the load-test client, with locustfile.py
       loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
