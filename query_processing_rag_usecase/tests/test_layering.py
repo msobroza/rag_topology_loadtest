@@ -21,7 +21,6 @@ from query_processing.testing import directory_size_findings
 
 USE_CASE_ROOT = Path(__file__).resolve().parents[1]
 USE_CASE_SOURCE = USE_CASE_ROOT / "src" / "query_processing_rag_usecase"
-MAX_MODULES = 12
 PACKAGE = USE_CASE_SOURCE.name
 EXTENSION_API = "query_processing.extension_api"
 # Package -> the packages of the use case its modules may import.
@@ -81,5 +80,5 @@ def test_every_package_of_the_use_case_has_its_layer() -> None:
 
 
 def test_no_directory_of_the_use_case_holds_more_than_twelve_modules() -> None:
-    findings = directory_size_findings(USE_CASE_ROOT, limit=MAX_MODULES)
+    findings = directory_size_findings(USE_CASE_ROOT)
     assert not findings, "\n".join(findings)

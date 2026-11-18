@@ -10,7 +10,7 @@ may not pass its ceiling and is stale once back at the limit.
 
 Example:
     >>> from pathlib import Path
-    >>> directory_size_findings(Path("query_processing"), limit=12)  # doctest: +SKIP
+    >>> directory_size_findings(Path("query_processing"))  # doctest: +SKIP
     []
 """
 
@@ -24,6 +24,9 @@ from pathlib import Path
 # The two folders of a distribution the rule measures, each with its tree.
 MEASURED_TREES = ("src", "tests")
 NOT_A_MODULE = "__init__.py"
+# The number of rule 9, written once: the default of ``limit``, which the
+# toolkit's own test and a use case's leave alone to follow the README.
+MAX_MODULES_PER_DIRECTORY = 12
 
 
 @dataclass(frozen=True)
@@ -58,7 +61,7 @@ class FolderNotYetSplit:
 def directory_size_findings(
     root: Path,
     *,
-    limit: int,
+    limit: int = MAX_MODULES_PER_DIRECTORY,
     one_pattern_folders: Sequence[OnePatternFolder] = (),
     not_yet_split: Sequence[FolderNotYetSplit] = (),
 ) -> list[str]:
@@ -66,7 +69,8 @@ def directory_size_findings(
 
     Args:
         root: the distribution's root, which holds its ``src/`` and ``tests/``.
-        limit: the most modules a directory may hold.
+        limit: the most modules a directory may hold; the README's 12 unless
+            given.
         one_pattern_folders: the folders exempt from the limit by their pattern.
         not_yet_split: the folders over the limit, each held to its ceiling.
 
@@ -75,7 +79,7 @@ def directory_size_findings(
         the rule holds.
 
     Example:
-        >>> directory_size_findings(Path("."), limit=12)  # doctest: +SKIP
+        >>> directory_size_findings(Path("."))  # doctest: +SKIP
         []
     """
     folders = dict(_module_lists(root))

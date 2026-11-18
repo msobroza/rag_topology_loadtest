@@ -17,7 +17,6 @@ from query_processing.testing import (
 )
 from repo_paths import TOOLKIT_ROOT
 
-MAX_MODULES = 12
 ONE_PATTERN_FOLDERS = (
     # One opener per component type and Backend; the pattern names no component
     # type, so a type a use case adds needs no edit here.
@@ -69,7 +68,6 @@ NOT_YET_SPLIT = (
 def test_no_directory_of_the_toolkit_holds_more_than_twelve_modules() -> None:
     findings = directory_size_findings(
         TOOLKIT_ROOT,
-        limit=MAX_MODULES,
         one_pattern_folders=ONE_PATTERN_FOLDERS,
         not_yet_split=NOT_YET_SPLIT,
     )

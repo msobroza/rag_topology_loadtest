@@ -26,6 +26,18 @@ def test_a_folder_at_the_limit_passes(tmp_path: Path) -> None:
     assert directory_size_findings(tmp_path, limit=LIMIT) == []
 
 
+def test_the_limit_is_twelve_when_none_is_given(tmp_path: Path) -> None:
+    # The README's number, written once in the function: a distribution's own
+    # test passes no limit and follows it.
+    twelve = [f"m{n}.py" for n in range(12)]
+    modules(tmp_path / "src" / "at_the_limit", *twelve)
+    modules(tmp_path / "src" / "one_over", *twelve, "m12.py")
+
+    (finding,) = directory_size_findings(tmp_path)
+
+    assert finding.startswith("src/one_over: 13 modules, over the limit of 12;")
+
+
 def test_a_folder_over_the_limit_is_named_with_its_count(tmp_path: Path) -> None:
     modules(tmp_path / "tests" / "crowded", "a.py", "b.py", "c.py", "conftest.py")
     modules(tmp_path / "src" / "pkg", "a.py")
