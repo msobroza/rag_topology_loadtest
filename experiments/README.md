@@ -26,6 +26,7 @@ Each sitting folder holds:
 | `README.md` | The question, the hardware, the settings common to the sitting, one table of its experiments, what it showed, its limits. Dated. |
 | `experiments.yaml` | One entry per experiment, its settings in full. A sitting with many experiments splits it by phase: `experiments-<phase>.yaml`. |
 | `results.csv` | One row per row of every run's Locust statistics. |
+| `records/` | Only in a sitting that recorded answers: the answer records `qp-record-answers` wrote, one `<name>_answers.json` each, which `qp-compare-answers` compares. |
 
 ### `experiments.yaml`
 
@@ -73,6 +74,7 @@ throw-away script that is not kept in the repository.
 | 16 November 2026 | [2026-11-16-generator-ovms-pytorch-vllm-16-vcpus](2026-11-16-generator-ovms-pytorch-vllm-16-vcpus/README.md) | Which server answers fastest when the generation stage runs a language model on a CPU? | 1 x 16 vCPUs, by hand | 10 | 10 |
 | 16 November 2026 | [2026-11-16-ovms-embedder-on-a-real-ovms](2026-11-16-ovms-embedder-on-a-real-ovms/README.md) | Does a real OVMS follow `RAG_EMBEDDING_NORMALIZE` for the embedder? | 1 x 2 vCPUs, Spot | 4 | 0 |
 | 16 November 2026 | [2026-11-16-router-pipeline-trained-on-solon](2026-11-16-router-pipeline-trained-on-solon/README.md) | Does `make train-router` train the router's pipeline on a machine that has its embedder's model, how well does it route, and does the workflow app start on its real backends with it? | none: everything ran on the Workspace (4 vCPUs), by hand | 8 | 0 |
+| 17 November 2026 | [2026-11-17-answers-of-main-and-the-toolkit-on-real-models](2026-11-17-answers-of-main-and-the-toolkit-on-real-models/README.md) | Does the toolkit, on real models, answer `/retrieve` as the code before it did, and does a topology change an answer? | 4 x 2 vCPUs, Spot | 12 | 0 |
 
 The sittings of 14 and 15 November ran on the Google Cloud emulation of Domino
 (`emulation/`), with the French corpus (1,223 documents, 1,592 passages), the reranker
@@ -83,6 +85,10 @@ and holds no run. Another is the first on the generate stage: one machine, by ha
 outside the emulation, with the fake embedder, reranker and vector store, and
 3-minute runs. The third trains the router's pipeline and starts the workflow app on
 the emulation's Workspace, by hand, and holds no run.
+The sitting of 17 November measures no timing: on the emulation, with the synthetic
+corpus (200 passages) and the same embedder and reranker, it records what the code
+from before the toolkit and the toolkit answer to 50 questions on `/retrieve`, and
+compares the records. It holds no run.
 Sittings ran on different machine sizes and code: compare figures within a sitting.
 
 ## Adding a sitting or an experiment

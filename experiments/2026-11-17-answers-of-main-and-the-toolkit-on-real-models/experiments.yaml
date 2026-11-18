@@ -1,0 +1,268 @@
+# Sitting of 17 November 2026: what a workflow App answers on /retrieve, recorded with
+# qp-record-answers on real models, for the code from before the toolkit (main at
+# dcb6e9b) and for the toolkit (main at 0488bda), under three topologies each, then
+# compared with qp-compare-answers. No Locust run: every entry is a measurement, and
+# results.csv is empty. The answer records are in records/. See README.md.
+
+common:
+  code:
+    before: &before main at commit dcb6e9b, the layout from before the toolkit, on every machine
+    after: &after main at commit 0488bda, the toolkit and the RAG use case, on every machine
+  recorder: &recorder qp-record-answers of commit 0488bda, run on the Workspace, through the emulated Domino's proxy
+  hardware: &hardware
+    workspace: {machine_type: n2-standard-4, vcpus: 4, memory_gib: 16, spot: false, role: the emulated Domino, the indexing and the recorder}
+    elasticsearch: {machine_type: n2-standard-2, vcpus: 2, spot: true}
+    pool: {machines: 4, machine: {machine_type: n2-highmem-2, vcpus: 2, memory_gib: 16, hardware_tier: cpu-2, spot: true}}
+  settings: &settings
+    corpus: the synthetic corpus the code generates, 200 documents, 200 passages, indexed by make ingest with the real embedder
+    requests: the 50 synthetic questions of the load test, each sent once to /retrieve, one after the other
+    embedder: {source_id: Snowflake/snowflake-arctic-embed-l-v2.0, query_prefix: "query: ", runtime: openvino, weight_format: fp32}
+    reranker: {source_id: antoinelouis/crossencoder-camembert-base-mmarcoFR, runtime: openvino, weight_format: fp32}
+    models: read from the dataset folder of each machine, restored from the cache bucket; none downloaded
+    model_server: fastapi
+    retrieval: {mode: dense, top_k_retrieve: 20, top_k_rerank: 10}
+    llm: not called; /query was left out (QP_LOADTEST_QUERY_WEIGHT=0)
+  toolkit_only: &toolkit_only
+    router: {backend: fake}
+    router_embedder: {backend: fake}
+    why: the dataset folder holds no export of the router's embedder, and a plain /retrieve never calls the router
+  record: &record {requests: 50, status_200: 50, passages_per_answer: 10}
+
+experiments:
+  - id: ans-main-monolith
+    question: What does the code from before the toolkit answer as a monolith?
+    code: *before
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: monolith
+      model_server: fastapi
+      apps: {workflow: {autoscaling: {min_replicas: 4, max_replicas: 4}, settings: {RAG_RUN_LABEL: main-monolith}}}
+    measurements:
+      index: {command: make ingest, seconds: 111}
+      deploy_seconds: 108
+      record_seconds: 194
+      record: *record
+      seen: {topology: monolith, run_label: main-monolith, responses: 50}
+      file: records/main-monolith_answers.json
+
+  - id: ans-main-split-reranker
+    question: What does the code from before the toolkit answer with the reranker in an App of its own?
+    code: *before
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: split-reranker
+      model_server: fastapi
+      apps:
+        workflow: {autoscaling: {min_replicas: 2, max_replicas: 2}, settings: {RAG_RUN_LABEL: main-split-reranker}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+    measurements:
+      deploy_seconds: 104
+      record_seconds: 189
+      record: *record
+      seen: {topology: split-reranker, run_label: main-split-reranker, responses: 50}
+      file: records/main-split-reranker_answers.json
+    notes:
+      - The same index as ans-main-monolith.
+
+  - id: ans-main-split-all
+    question: What does the code from before the toolkit answer with the embedder and the reranker each in an App of its own?
+    code: *before
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: split-all
+      model_server: fastapi
+      apps:
+        workflow: {autoscaling: {min_replicas: 1, max_replicas: 1}, settings: {RAG_RUN_LABEL: main-split-all}}
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+    measurements:
+      deploy_seconds: 104
+      record_seconds: 189
+      record: *record
+      seen: {topology: split-all, run_label: main-split-all, responses: 50}
+      file: records/main-split-all_answers.json
+    notes:
+      - The same index as ans-main-monolith.
+
+  - id: ans-toolkit-monolith
+    question: What does the toolkit answer as a monolith?
+    code: *after
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: monolith
+      apps: {workflow: {autoscaling: {min_replicas: 4, max_replicas: 4}}}
+      overrides: {components: *toolkit_only}
+    measurements:
+      index: {command: make ingest, seconds: 99}
+      deploy_seconds: 116
+      record_seconds: 198
+      record: *record
+      seen: {topology: monolith, run_label: monolith, responses: 50}
+      file: records/toolkit-monolith_answers.json
+    notes:
+      - New machines and a new index, built by the toolkit's own make ingest.
+      - The first time the toolkit's Apps were published through the emulated Domino onto pool machines.
+
+  - id: ans-toolkit-split-reranker
+    question: What does the toolkit answer with the reranker in an App of its own?
+    code: *after
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: split-reranker
+      apps:
+        workflow: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      overrides: {components: *toolkit_only}
+    measurements:
+      deploy_seconds: 118
+      record_seconds: 211
+      record: *record
+      seen: {topology: split-reranker, run_label: split-reranker+reranker=fastapi, responses: 50}
+      file: records/toolkit-split-reranker_answers.json
+    notes:
+      - The same index as ans-toolkit-monolith.
+
+  - id: ans-toolkit-split-all
+    question: What does the toolkit answer with the embedder and the reranker each in an App of its own?
+    code: *after
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: split-all
+      apps:
+        workflow: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      overrides: {components: *toolkit_only}
+    measurements:
+      deploy_seconds: 110
+      record_seconds: 190
+      record: *record
+      seen: {topology: split-all, run_label: split-all+embedder=fastapi+reranker=fastapi, responses: 50}
+      file: records/toolkit-split-all_answers.json
+    notes:
+      - The same index as ans-toolkit-monolith.
+
+  - id: ans-toolkit-split-all-reindexed
+    question: Does the same code, indexing the same corpus a second time, give the same answers?
+    code: *after
+    recorder: *recorder
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: split-all
+      apps:
+        workflow: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        embedder: {autoscaling: {min_replicas: 1, max_replicas: 1}}
+        reranker: {autoscaling: {min_replicas: 2, max_replicas: 2}}
+      overrides: {components: *toolkit_only}
+    measurements:
+      index: {command: "make ingest, a second time into the same index", seconds: 87}
+      record_seconds: 193
+      record: *record
+      seen: {topology: split-all, run_label: split-all+embedder=fastapi+reranker=fastapi, responses: 50}
+      file: records/toolkit-split-all-reindexed_answers.json
+    notes:
+      - The layout of ans-toolkit-split-all, left in place; only the corpus was indexed again.
+
+  - id: ans-compare-main-topologies
+    question: Does a topology change what the code from before the toolkit answers?
+    measurements:
+      command: qp-compare-answers records/main-monolith records/main-split-reranker records/main-split-all
+      score_tolerance: 0.0001
+      exit_status: 0
+      against_main_monolith:
+        main-split-reranker: {requests: 50, identical: 50, different: 0}
+        main-split-all: {requests: 50, identical: 50, different: 0}
+      largest_score_gap: 0.0
+
+  - id: ans-compare-toolkit-topologies
+    question: Does a topology change what the toolkit answers?
+    measurements:
+      command: qp-compare-answers records/toolkit-monolith records/toolkit-split-reranker records/toolkit-split-all
+      score_tolerance: 0.0001
+      exit_status: 0
+      against_toolkit_monolith:
+        toolkit-split-reranker: {requests: 50, identical: 50, different: 0}
+        toolkit-split-all: {requests: 50, identical: 50, different: 0}
+
+  - id: ans-compare-main-against-toolkit
+    question: Does the toolkit answer what the code from before it answered?
+    measurements:
+      command: qp-compare-answers records/main-monolith records/toolkit-monolith
+      at_tolerance_0.0001: {exit_status: 1, requests: 50, identical: 43, different: 7}
+      at_tolerance_0.001: {exit_status: 0, requests: 50, identical: 50, different: 0}
+      same_passages_in_the_same_order: {answers: 50, of: 50}
+      rerank_scores: {largest_gap: 0.0}
+      retrieval_scores:
+        passage_scores_compared: 500
+        exactly_equal: 483
+        documents_that_appear: 109
+        documents_whose_score_differs: 4
+        largest_gap: 0.000458
+        gaps_by_document:
+          "doc-0052:0": [0.000072]
+          "doc-0061:0": [0.000171, 0.000458]
+          "doc-0062:0": [0.000003]
+          "doc-0063:0": [0.000103]
+    notes:
+      - Two indexes: each code indexed its own copy of the corpus, on its own machines.
+      - ans-compare-index-builds shows this gap is no difference between the two codes: on two other index builds they are equal to the last digit.
+      - toolkit-split-reranker and toolkit-split-all give the same 43 and 7 against main-monolith, since they equal toolkit-monolith.
+      - The only other difference is one the comparison holds equal: the code from before the toolkit reports no metadata_filter, the toolkit an empty one.
+
+  - id: ans-main-monolith-first-attempt
+    question: What did the code from before the toolkit answer as a monolith, on the index of the sitting's first attempt?
+    code: *before
+    hardware: *hardware
+    settings: *settings
+    deploy:
+      topology: monolith
+      model_server: fastapi
+      apps: {workflow: {autoscaling: {min_replicas: 4, max_replicas: 4}, settings: {RAG_RUN_LABEL: main-monolith}}}
+    measurements:
+      index: {command: make ingest, seconds: 92}
+      deploy_seconds: 108
+      record_seconds: 194
+      record: *record
+      seen: {topology: monolith, run_label: main-monolith, responses: 50}
+      file: records/main-monolith-first-attempt_answers.json
+    notes:
+      - The first attempt, 13:01 to about 17:00 UTC, was driven step by step from a laptop, which went offline after this record. Split-reranker was placed (104 s) and never recorded.
+      - Its machines ran until they deleted themselves, four hours after they were created. The second attempt ran each phase as one script on the Workspace, with the machines deleting themselves after one hour.
+      - This record was taken from the laptop through a tunnel, with the same qp-record-answers.
+
+  - id: ans-compare-index-builds
+    question: How far apart are four index builds of the same corpus, two by each code?
+    measurements:
+      command: qp-compare-answers on each pair of records, one record per index build
+      builds:
+        main_first_attempt: {record: records/main-monolith-first-attempt_answers.json, indexed_at: "17 November, 13:04 UTC", index_seconds: 92}
+        main_second_attempt: {record: records/main-monolith_answers.json, indexed_at: "17 November, 23:28 UTC", index_seconds: 111}
+        toolkit_first_index: {record: records/toolkit-split-all_answers.json, indexed_at: "17 November, 23:51 UTC", index_seconds: 99}
+        toolkit_second_index: {record: records/toolkit-split-all-reindexed_answers.json, indexed_at: "18 November, 00:09 UTC", index_seconds: 87}
+      documents_that_appear: 109
+      rerank_scores: {largest_gap_in_every_pair: 0.0}
+      pairs:
+        main_first_attempt__toolkit_second_index: {same_order: 50, documents_whose_retrieval_score_differs: 0, largest_gap: 0.0}
+        main_second_attempt__toolkit_first_index: {same_order: 50, documents_whose_retrieval_score_differs: 4, largest_gap: 0.000458}
+        main_first_attempt__main_second_attempt: {same_order: 49, documents_whose_retrieval_score_differs: 31, largest_gap: 0.000651}
+        toolkit_first_index__toolkit_second_index: {same_order: 49, documents_whose_retrieval_score_differs: 31, largest_gap: 0.000651}
+        main_first_attempt__toolkit_first_index: {same_order: 49, documents_whose_retrieval_score_differs: 31, largest_gap: 0.000651}
+        main_second_attempt__toolkit_second_index: {same_order: 49, documents_whose_retrieval_score_differs: 31, largest_gap: 0.000651}
+    notes:
+      - One code and the other gave the same answers to the last digit of every score, on two index builds made eleven hours apart on different machines.
+      - The same code differs from itself, from one index build to the next, by more than the two codes differ on the same evening.
+      - same_order counts the answers, of 50, whose passages are the same in the same order.
+      - Not established, what makes an index build differ from another. The two builds that are equal are the two fastest (92 s and 87 s).
