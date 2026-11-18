@@ -52,3 +52,7 @@ deploy.yaml
 
 # A fetched corpus (qp-fetch-corpus): never committed.
 /query_processing_rag_usecase/data/
+
+# Working notes of a session (tickets, briefs, review notes): they name local
+# paths, and a test of the gate reads every file git does not ignore.
+.scratch/
