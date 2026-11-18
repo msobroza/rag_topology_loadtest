@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
-from query_processing.domain.component_requests import GenerateAnswer
+from query_processing.domain.components.component_requests import GenerateAnswer
 
 
 def test_chat_request_has_the_openai_shape() -> None:

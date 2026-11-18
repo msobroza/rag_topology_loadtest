@@ -1,10 +1,10 @@
-"""``domain.calibration``: the candidates, the fastest trial and the sample request."""
+"""``domain.runtime.calibration``: the candidates, the fastest trial and the sample request."""
 
 from __future__ import annotations
 
 import pytest
 
-from query_processing.domain.calibration import (
+from query_processing.domain.runtime.calibration import (
     CalibrationReport,
     StageTuning,
     TimedTrial,

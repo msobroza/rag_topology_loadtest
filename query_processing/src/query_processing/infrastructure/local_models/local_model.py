@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...domain.backends import LocalModelRuntime, OpenVinoWeightFormat
+from ...domain.runtime.backends import LocalModelRuntime, OpenVinoWeightFormat
 from ..openvino_cpu_properties import openvino_cpu_properties
 
 # Appended to a model's folder name, per weight format. fp32 adds nothing: every

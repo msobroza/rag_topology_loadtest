@@ -1,7 +1,7 @@
 """What an embeddings API format is, and the registry of them by name.
 
 An API format is a request body builder and an answer reader, no HTTP: the
-shapes are the standard formats of ``domain/standard_formats.py``. A format is
+shapes are the standard formats of ``domain/endpoints/standard_formats.py``. A format is
 for an API that does the same operation with other field names: one request
 in, all the vectors out. An API that works differently is not a format: it is
 an implementation of the port.

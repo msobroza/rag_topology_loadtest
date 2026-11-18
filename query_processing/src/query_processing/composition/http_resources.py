@@ -22,8 +22,8 @@ import httpx
 from ..config.component_settings import ModelComponent
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
-from ..domain.standard_formats import STANDARD_API_FORMATS
+from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
 from ..infrastructure.http.http_policy import HttpPolicy
 from .resource_scope import OWNED, ResourceScope

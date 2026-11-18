@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from query_processing.domain.metadata_filter import (
+from query_processing.domain.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
     check_condition_shapes,

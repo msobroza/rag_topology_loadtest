@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator, Collection, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from query_processing.domain.calibration import StageTuning
+from query_processing.domain.runtime.calibration import StageTuning
 from query_processing.infrastructure.calibration.served_stage_calibration import (
     BaseServedStage,
 )

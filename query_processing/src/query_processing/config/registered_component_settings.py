@@ -24,7 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..domain.base_component import COMPONENT_TYPES, BaseComponent
+from ..domain.components.base_component import COMPONENT_TYPES, BaseComponent
 from .settings_blocks import ComponentHttpSettings, ComponentSettings, ServedSettings
 
 ComponentType = type[BaseComponent[Any, Any]]

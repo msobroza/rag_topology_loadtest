@@ -31,9 +31,12 @@ from query_processing.application.stages.retrieve_stage import (
 from query_processing.application.state_fields import field_types_of, state_type
 from query_processing.application.workflow_builder import open_stage
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.metadata_filter import MetadataCondition, MetadataFieldInfo
-from query_processing.domain.passages import ScoredPassage
 from query_processing.domain.prompts import PromptMessage
+from query_processing.domain.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
+from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored
 

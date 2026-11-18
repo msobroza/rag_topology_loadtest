@@ -8,7 +8,7 @@ import re
 import pytest
 
 from ovms_stand_ins import GRAPH_TEMPLATE
-from query_processing.domain.calibration import StageTuning
+from query_processing.domain.runtime.calibration import StageTuning
 from query_processing.infrastructure.openvino_cpu_properties import (
     openvino_cpu_properties,
 )

@@ -19,8 +19,8 @@ from abc import abstractmethod
 
 from pydantic import BaseModel
 
-from ...domain.base_component import BaseComponent
-from ...domain.component_requests import GenerateAnswer, GenerateRequest
+from ...domain.components.base_component import BaseComponent
+from ...domain.components.component_requests import GenerateAnswer, GenerateRequest
 
 
 class BaseLLM(BaseComponent[GenerateRequest, GenerateAnswer], component_type="llm"):

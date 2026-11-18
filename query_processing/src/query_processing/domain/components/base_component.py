@@ -28,8 +28,8 @@ from typing import Any, ClassVar, Generic, Self, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 
+from ..registry import Registry
 from .component_resources import ComponentResources
-from .registry import Registry
 
 RequestT = TypeVar("RequestT")
 AnswerT = TypeVar("AnswerT")

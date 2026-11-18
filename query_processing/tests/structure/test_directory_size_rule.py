@@ -32,17 +32,9 @@ ONE_PATTERN_FOLDERS = (
 SPLIT_BY_GLOSSARY_AREA = "split by glossary area in a later change"
 NOT_YET_SPLIT = (
     FolderNotYetSplit(
-        folder="src/query_processing/domain",
-        ceiling=23,
-        reason=f"{SPLIT_BY_GLOSSARY_AREA}: every import of it moves",
-    ),
-    FolderNotYetSplit(
         folder="src/query_processing/config",
         ceiling=13,
-        reason=f"{SPLIT_BY_GLOSSARY_AREA}, with domain/",
-    ),
-    FolderNotYetSplit(
-        folder="tests/domain", ceiling=16, reason="it follows src/ when domain/ splits"
+        reason=SPLIT_BY_GLOSSARY_AREA,
     ),
     FolderNotYetSplit(
         folder="tests/config", ceiling=15, reason="it follows src/ when config/ splits"

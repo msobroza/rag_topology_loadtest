@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from query_processing.adapters.reranker.none.no_reranker import NoReranker
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.retrieval.passages import ScoredPassage
 
 
 def scored_passages(*ids: str) -> list[ScoredPassage]:

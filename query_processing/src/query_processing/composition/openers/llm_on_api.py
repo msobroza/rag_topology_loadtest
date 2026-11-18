@@ -12,7 +12,7 @@ from __future__ import annotations
 from ...adapters.llm.api.api_llm import open_api_llm
 from ...adapters.llm.base_llm import BaseLLM
 from ...config.component_settings import LlmServedSettings, LlmSettings
-from ...domain.api_endpoint import ApiEndpoint
+from ...domain.endpoints.api_endpoint import ApiEndpoint
 from .component_openers import LLM_OPENERS, SharedResources
 
 

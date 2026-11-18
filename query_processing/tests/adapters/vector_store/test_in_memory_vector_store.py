@@ -8,10 +8,10 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
     distinct_words,
 )
-from query_processing.domain.component_requests import SearchRequest
-from query_processing.domain.metadata_filter import MetadataCondition
-from query_processing.domain.passages import Passage
-from query_processing.domain.retrieval_mode import RetrievalMode
+from query_processing.domain.components.component_requests import SearchRequest
+from query_processing.domain.retrieval.metadata_filter import MetadataCondition
+from query_processing.domain.retrieval.passages import Passage
+from query_processing.domain.retrieval.retrieval_mode import RetrievalMode
 
 
 async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> None:

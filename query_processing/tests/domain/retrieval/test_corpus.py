@@ -1,4 +1,4 @@
-"""Tests for ``domain.corpus``: the synthetic handbook, its questions and chunking."""
+"""Tests for ``domain.retrieval.corpus``: the synthetic handbook, its questions and chunking."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from query_processing.domain.corpus import (
+from query_processing.domain.retrieval.corpus import (
     TOPICS,
     SourceDocument,
     chunk,

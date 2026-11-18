@@ -19,7 +19,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .metadata_filter import MetadataCondition, MetadataFieldInfo, check_conditions
+from .retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+    check_conditions,
+)
 
 # Who sent a message of the history: the system's instructions are the
 # prompt's, never a client's.

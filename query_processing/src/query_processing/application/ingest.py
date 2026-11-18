@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from ..adapters.embedder.base_embedder import BaseEmbedder
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
-from ..domain.passages import Passage
+from ..domain.retrieval.passages import Passage
 
 
 async def ingest(

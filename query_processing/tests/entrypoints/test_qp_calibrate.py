@@ -23,7 +23,7 @@ from query_processing.composition.ovms_calibration import OvmsAppCalibration
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.overrides import override_exports
-from query_processing.domain.calibration import CalibrationReport, StageTuning
+from query_processing.domain.runtime.calibration import CalibrationReport, StageTuning
 from query_processing.entrypoints.qp_calibrate import env_lines, main
 from query_processing.infrastructure.local_models.local_model import exported_model_dir
 from rag_components import shell_settings

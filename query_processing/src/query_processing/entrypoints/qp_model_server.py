@@ -4,11 +4,12 @@ Like an OVMS app it serves ONE model per process: ``--serve NAME`` names a
 component of the workflow file, always opened on its ``local`` backend. An
 embedder exposes ``POST /v3/embeddings`` (OpenAI's embeddings format), a
 reranker ``POST /v3/rerank`` (Cohere's rerank format). Both answer
-``GET /v3/models/{name}``, as OVMS does. Routes come from ``domain/api_endpoint.py``
-and bodies are the standard formats' own models (``OpenAIEmbeddingsRequest``,
-``CohereRerankRequest`` of ``domain/standard_formats.py``), the shapes the ``api``
-adapters speak on the ``served`` and ``api`` backends, so client and server
-cannot drift apart; the answers are built
+``GET /v3/models/{name}``, as OVMS does. Routes come from
+``domain/endpoints/api_endpoint.py`` and bodies are the standard formats' own
+models (``OpenAIEmbeddingsRequest``, ``CohereRerankRequest`` of
+``domain/endpoints/standard_formats.py``), the shapes the ``api`` adapters speak
+on the ``served`` and ``api`` backends, so client and server cannot drift
+apart; the answers are built
 by the three functions at the end of this module. It serves its model under
 the component's alias, and loads the weights its source id names; like OVMS, a
 request for any model but this server's alias is a 404. The workflow app cannot
@@ -46,15 +47,14 @@ from ..composition.registered_names import check_registered_names
 from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.settings_blocks import ComponentSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.api_endpoint import (
+from ..domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,
     call_path,
 )
-from ..domain.api_format import api_format_of
-from ..domain.passages import ScoredPassage
-from ..domain.standard_formats import (
+from ..domain.endpoints.api_format import api_format_of
+from ..domain.endpoints.standard_formats import (
     CohereRerankRequest,
     CohereRerankResponse,
     CohereRerankResult,
@@ -62,6 +62,7 @@ from ..domain.standard_formats import (
     OpenAIEmbeddingsRequest,
     OpenAIEmbeddingsResponse,
 )
+from ..domain.retrieval.passages import ScoredPassage
 
 # Verbatim from OVMS: the body of its 404 when ``model`` names no served model.
 UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not found"

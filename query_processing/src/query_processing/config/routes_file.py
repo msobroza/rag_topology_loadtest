@@ -2,7 +2,7 @@
 
 A use case states its routes in ``routes.yaml``, beside its workflow file
 (spec 8): a catalogue under the top key ``routes``, each route with a name, a
-description and its utterances (``domain.routes``). Several routers can each
+description and its utterances (``domain.components.routes``). Several routers can each
 list some of them. It feeds the top-level setting ``routes`` of
 ``WorkflowSettings``, below the environment. A command finds it as it finds
 the prompts file: the one ``QP_ROUTES_FILE`` names, else ``routes.yaml`` in

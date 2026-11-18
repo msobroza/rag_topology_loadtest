@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ....domain.standard_formats import (
+from ....domain.endpoints.standard_formats import (
     OpenAIEmbeddingsRequest,
     OpenAIEmbeddingsResponse,
 )

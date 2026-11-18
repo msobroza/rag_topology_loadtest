@@ -30,7 +30,7 @@ MODEL_SERVER_RERANK_PATH = "/v3/rerank"
 MODEL_SERVER_CHAT_PATH = "/v3/chat/completions"
 MODEL_SERVER_MODEL_ROUTE = "/v3/models/{name}"
 # The call route: a component type with no outside API format, its request in
-# and its answer out in its API format (``domain/api_format.py``); the FastAPI
+# and its answer out in its API format (``domain/endpoints/api_format.py``); the FastAPI
 # model server's alone.
 MODEL_SERVER_CALL_PATH = "/call/{component_type}"
 

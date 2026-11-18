@@ -12,9 +12,9 @@ from query_processing.application.prompt_rendering import (
 )
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.conversation import HistoryMessage
-from query_processing.domain.metadata_filter import MetadataCondition
-from query_processing.domain.passages import ScoredPassage
 from query_processing.domain.prompts import Prompt, PromptMessage, PromptPlaceholder
+from query_processing.domain.retrieval.metadata_filter import MetadataCondition
+from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import scored
 
 ANSWER: Prompt = [

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from query_processing.domain.errors import RagDependencyError, describe_error
-from query_processing.domain.passages import ScoredPassage, top_by_score
+from query_processing.domain.retrieval.passages import ScoredPassage, top_by_score
 
 
 def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:

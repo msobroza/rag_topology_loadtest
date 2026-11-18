@@ -15,7 +15,7 @@ from model_api_fakes import (
     bearer,
     token_text,
 )
-from query_processing.domain.api_endpoint import DOMINO_RUN_TOKEN
+from query_processing.domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN
 from query_processing.domain.errors import RagDependencyError
 
 

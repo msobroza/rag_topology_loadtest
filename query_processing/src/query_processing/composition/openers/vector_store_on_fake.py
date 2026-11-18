@@ -10,7 +10,7 @@ from ...adapters.vector_store.base_vector_store import BaseVectorStore
 from ...adapters.vector_store.fake.in_memory_vector_store import InMemoryVectorStore
 from ...application.ingest import ingest
 from ...config.component_settings import VectorStoreSettings
-from ...domain.corpus import chunk, synthetic_corpus
+from ...domain.retrieval.corpus import chunk, synthetic_corpus
 from .component_openers import VECTOR_STORE_OPENERS, SharedResources
 
 

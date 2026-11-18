@@ -39,8 +39,8 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from pathlib import Path
 
-from ...domain.backends import LocalModelRuntime, OpenVinoWeightFormat
 from ...domain.errors import describe_error
+from ...domain.runtime.backends import LocalModelRuntime, OpenVinoWeightFormat
 from ..json_log import log_json
 from .local_model import LocalModel, OpenVinoExports, local_model
 from .model_pool import run_blocking

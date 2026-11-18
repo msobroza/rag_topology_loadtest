@@ -24,7 +24,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .corpus import synthetic_corpus, synthetic_questions
+from ..retrieval.corpus import synthetic_corpus, synthetic_questions
 
 
 @dataclass(frozen=True)

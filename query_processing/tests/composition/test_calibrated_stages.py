@@ -28,7 +28,7 @@ from query_processing.composition.calibrated_stages import (
 )
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.calibration import StageTuning, calibration_sample
+from query_processing.domain.runtime.calibration import StageTuning, calibration_sample
 from query_processing.infrastructure.local_models.local_model import LocalModel
 from query_processing.infrastructure.local_models.model_pool import model_executor
 from query_processing.infrastructure.local_models.native_threads import (

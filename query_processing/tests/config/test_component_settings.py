@@ -26,7 +26,7 @@ from query_processing.config.component_settings import (
 )
 from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from rag_graphs import (
     fixture_components,
     fixture_graph,

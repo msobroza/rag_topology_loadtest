@@ -1,6 +1,6 @@
 """``qp-ingest``: a JSONL loader, and chunk, embed and upsert a corpus.
 
-The synthetic handbook it ingests by default lives in ``domain/corpus.py``. It
+The synthetic handbook it ingests by default lives in ``domain/retrieval/corpus.py``. It
 embeds with the one embedder component of the workflow file, or with the one
 ``--embedder`` names when the file declares several.
 
@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..application.ingest import ingest
-from ..domain.corpus import SourceDocument, chunk, synthetic_corpus
-from ..domain.passages import Passage
+from ..domain.retrieval.corpus import SourceDocument, chunk, synthetic_corpus
+from ..domain.retrieval.passages import Passage
 
 if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_composition
     from ..composition.composition_root import CompositionRoot

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...domain.api_format import BaseApiFormat
+from ...domain.endpoints.api_format import BaseApiFormat
 from .api_endpoint_client import ApiEndpointClient
 
 

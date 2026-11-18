@@ -8,8 +8,8 @@ import pytest
 
 from query_processing.adapters.router.base_router import BaseRouter
 from query_processing.adapters.router.fake.fake_router import FakeRouter
-from query_processing.domain.component_resources import ComponentResources
-from query_processing.domain.routes import Route, RouteChoice, RouteRequest
+from query_processing.domain.components.component_resources import ComponentResources
+from query_processing.domain.components.routes import Route, RouteChoice, RouteRequest
 from query_processing.testing import RouterContract
 
 

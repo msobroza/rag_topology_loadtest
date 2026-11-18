@@ -14,7 +14,7 @@ Example:
 
 from __future__ import annotations
 
-from ..domain.api_endpoint import SERVED_BACKEND, call_path
+from ..domain.endpoints.api_endpoint import SERVED_BACKEND, call_path
 from .component_settings import EmbedderSettings, LlmSettings, RerankerSettings
 from .registered_component_settings import RegisteredComponentSettings
 from .settings_blocks import ComponentSettings

@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 import httpx
 
-from ...domain.api_endpoint import ApiEndpoint
+from ...domain.endpoints.api_endpoint import ApiEndpoint
 from ..http.http_policy import HttpPolicy
 from .api_endpoint_client import ApiEndpointClient
 from .bearer_token import BearerToken

@@ -12,7 +12,7 @@ from __future__ import annotations
 from ...adapters.embedder.api.api_embedder import open_api_embedder
 from ...adapters.embedder.base_embedder import BaseEmbedder
 from ...config.component_settings import EmbedderServedSettings, EmbedderSettings
-from ...domain.api_endpoint import ApiEndpoint
+from ...domain.endpoints.api_endpoint import ApiEndpoint
 from .component_openers import EMBEDDER_OPENERS, SharedResources
 
 

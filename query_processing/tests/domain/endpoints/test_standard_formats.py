@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from query_processing.domain.standard_formats import (
+from query_processing.domain.endpoints.standard_formats import (
     CohereRerankRequest,
     OpenAIChatRequest,
     OpenAIChatResponse,

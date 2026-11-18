@@ -25,7 +25,7 @@ from query_processing.application.workflow_state import (
     sum_tokens_by_stage,
 )
 from query_processing.domain.conversation import HistoryMessage
-from query_processing.domain.metadata_filter import MetadataCondition
+from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 
 
 def test_the_state_type_holds_the_fields_the_timings_and_the_tokens() -> None:

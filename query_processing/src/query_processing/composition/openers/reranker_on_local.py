@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from ...adapters.reranker.base_reranker import BaseReranker
 from ...config.component_settings import RerankerSettings
-from ...domain.calibration import halvings
+from ...domain.runtime.calibration import halvings
 from ...infrastructure.local_models.openvino_export import export_reranker
 from ...infrastructure.local_models.stage_calibration import calibrate
 from ..calibrated_stages import (

@@ -23,8 +23,8 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import TypeAdapter
 
-from .base_component import BaseComponent
-from .registry import Registry
+from ..components.base_component import BaseComponent
+from ..registry import Registry
 
 RequestT = TypeVar("RequestT")
 AnswerT = TypeVar("AnswerT")

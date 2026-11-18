@@ -16,10 +16,10 @@ from langchain_elasticsearch import AsyncElasticsearchStore
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
-from query_processing.domain.component_requests import SearchRequest
+from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.metadata_filter import MetadataCondition
-from query_processing.domain.passages import Passage
+from query_processing.domain.retrieval.metadata_filter import MetadataCondition
+from query_processing.domain.retrieval.passages import Passage
 
 INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
 

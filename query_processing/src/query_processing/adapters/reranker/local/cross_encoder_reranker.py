@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from concurrent.futures import Executor
 from typing import Any
 
-from ....domain.passages import ScoredPassage, top_by_score
+from ....domain.retrieval.passages import ScoredPassage, top_by_score
 from ....infrastructure.local_models.local_model import LocalModel
 from ....infrastructure.local_models.model_pool import run_blocking
 from ....infrastructure.local_models.native_threads import NativeThreadScope

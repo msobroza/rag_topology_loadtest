@@ -9,7 +9,7 @@ from collections.abc import Sequence
 import pytest
 
 from calibration_fakes import FakeClock, FakeServedStage
-from query_processing.domain.calibration import CalibrationReport, StageTuning
+from query_processing.domain.runtime.calibration import CalibrationReport, StageTuning
 from query_processing.infrastructure.calibration.served_stage_calibration import (
     calibrate_served,
 )

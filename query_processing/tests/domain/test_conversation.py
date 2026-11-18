@@ -8,7 +8,10 @@ from query_processing.domain.conversation import (
     HistoryMessage,
     check_history_conditions,
 )
-from query_processing.domain.metadata_filter import MetadataCondition, MetadataFieldInfo
+from query_processing.domain.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
 
 TOPIC = MetadataFieldInfo(name="topic", type="string", description="d")
 

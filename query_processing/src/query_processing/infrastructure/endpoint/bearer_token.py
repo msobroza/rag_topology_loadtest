@@ -18,7 +18,7 @@ from http import HTTPStatus
 
 import httpx
 
-from ...domain.api_endpoint import DOMINO_RUN_TOKEN
+from ...domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN
 from ...domain.errors import RagDependencyError, describe_error
 from ..http.http_policy import HttpPolicy
 

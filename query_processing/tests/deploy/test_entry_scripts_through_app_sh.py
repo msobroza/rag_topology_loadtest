@@ -52,7 +52,7 @@ from query_processing.deploy.model_server_kinds.base_model_server_kind import (
 )
 from query_processing.deploy.publish import LaunchPaths, entry_script
 from query_processing.deploy.topology_alias import resolve_topology
-from query_processing.domain.component_requests import RerankRequest
+from query_processing.domain.components.component_requests import RerankRequest
 
 APP_URLS = {
     "embedder": "https://domino.test/apps/e1",

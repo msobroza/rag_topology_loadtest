@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ....domain.passages import ScoredPassage
+from ....domain.retrieval.passages import ScoredPassage
 from ..base_reranker import BaseReranker
 
 

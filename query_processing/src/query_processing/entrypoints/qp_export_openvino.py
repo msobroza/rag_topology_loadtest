@@ -21,7 +21,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.backends import OpenVinoWeightFormat
+from ..domain.runtime.backends import OpenVinoWeightFormat
 from ..infrastructure.local_models.local_model import exported_model_dir
 from ..infrastructure.local_models.openvino_export import (
     OpenVinoUnavailableError,

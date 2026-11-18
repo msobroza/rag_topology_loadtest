@@ -16,9 +16,9 @@ from model_api_fakes import (
     endpoint_client,
     token_text,
 )
-from query_processing.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from query_processing.domain.endpoints.standard_formats import CohereRerankResponse
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.standard_formats import CohereRerankResponse
 from query_processing.infrastructure.endpoint.api_endpoint_client import (
     ApiEndpointClient,
 )

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.corpus import chunk, synthetic_corpus
+from query_processing.domain.retrieval.corpus import chunk, synthetic_corpus
 from query_processing.entrypoints.qp_model_server import create_model_server
 from query_processing.entrypoints.qp_serve import create_app
 from sentence_transformers_fakes import FakeSentenceTransformersModule

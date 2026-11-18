@@ -18,7 +18,7 @@ import abc
 from collections.abc import Sequence
 from typing import Generic, TypeVar
 
-from ...domain.metadata_filter import MetadataCondition
+from ...domain.retrieval.metadata_filter import MetadataCondition
 
 StoreFilterT = TypeVar("StoreFilterT")
 

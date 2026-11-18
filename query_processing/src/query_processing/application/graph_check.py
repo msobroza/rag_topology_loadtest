@@ -37,15 +37,15 @@ from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ValidationError
 
-from ..domain.base_component import COMPONENT_TYPES, BaseComponent
+from ..domain.components.base_component import COMPONENT_TYPES, BaseComponent
 from ..domain.graph_description import (
     END,
     START,
     GraphDescription,
     StageDescription,
 )
-from ..domain.passages import TOTAL_TIMING_KEY
 from ..domain.registry import Registry
+from ..domain.retrieval.passages import TOTAL_TIMING_KEY
 from .edge_check import (
     check_edges,
     edge_name,

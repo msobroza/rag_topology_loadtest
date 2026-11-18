@@ -19,7 +19,7 @@ from http import HTTPStatus
 
 import httpx
 
-from ...domain.api_endpoint import ApiEndpoint
+from ...domain.endpoints.api_endpoint import ApiEndpoint
 from ...domain.errors import RagDependencyError
 from ..http.http_policy import HttpPolicy
 from ..http.json_post import RetryingJsonPost, describe_malformed

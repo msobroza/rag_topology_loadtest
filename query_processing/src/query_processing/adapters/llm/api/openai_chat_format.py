@@ -10,8 +10,8 @@ Example:
 
 from __future__ import annotations
 
-from ....domain.component_requests import GenerateAnswer
-from ....domain.standard_formats import (
+from ....domain.components.component_requests import GenerateAnswer
+from ....domain.endpoints.standard_formats import (
     OpenAIChatRequest,
     OpenAIChatResponse,
     OpenAIChatUsage,

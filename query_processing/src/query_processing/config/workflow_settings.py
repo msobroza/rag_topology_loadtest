@@ -44,9 +44,9 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from ..domain.components.routes import Route
 from ..domain.graph_description import GraphDescription
 from ..domain.prompts import Prompt
-from ..domain.routes import Route
 from ..domain.run_label import (
     RUN_LABEL_PATTERN,
     RUN_LABEL_SHAPE,

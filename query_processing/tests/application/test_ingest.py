@@ -11,7 +11,7 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
 from query_processing.application.ingest import ingest
-from query_processing.domain.corpus import (
+from query_processing.domain.retrieval.corpus import (
     TOPICS,
     SourceDocument,
     chunk,

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from query_processing.adapters.vector_store.base_vector_store import BaseVectorStore
-from query_processing.domain.api_format import api_format_of
+from query_processing.domain.endpoints.api_format import api_format_of
 from shout_extension.shouting import BaseShouter, Shouted, ShoutRequest
 from shout_extension.whispering import BaseWhisperer, WordsFormat
 

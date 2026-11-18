@@ -62,8 +62,8 @@ from ..config.registered_component_settings import RegisteredComponentSettings
 from ..config.router_settings import RouterSettings, routes_of
 from ..config.searched_embedder import seeding_embedder
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.base_component import BaseComponent
-from ..domain.component_resources import ComponentResources
+from ..domain.components.base_component import BaseComponent
+from ..domain.components.component_resources import ComponentResources
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
 from .component_factory import ComponentFactory

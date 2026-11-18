@@ -22,7 +22,7 @@ from abc import abstractmethod
 from collections.abc import Sequence
 
 from ..adapters.router.base_router import BaseRouter
-from ..domain.routes import RouteChoice, RouteRequest
+from ..domain.components.routes import RouteChoice, RouteRequest
 from .component_contract import ComponentContract
 
 # The router's settings name the embedder whose vectors it reads, and the

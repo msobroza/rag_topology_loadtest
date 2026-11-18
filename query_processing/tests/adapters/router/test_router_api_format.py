@@ -6,8 +6,8 @@ import pytest
 
 from query_processing.adapters.router.base_router import BaseRouter
 from query_processing.adapters.router.router_api_format import RouterApiFormat
-from query_processing.domain.api_format import api_format_of
-from query_processing.domain.routes import RouteChoice, RouteRequest
+from query_processing.domain.components.routes import RouteChoice, RouteRequest
+from query_processing.domain.endpoints.api_format import api_format_of
 
 
 def test_the_route_is_named_route_on_the_wire() -> None:

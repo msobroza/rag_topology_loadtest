@@ -24,14 +24,14 @@ from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store im
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
-from query_processing.domain.base_component import COMPONENT_TYPES
-from query_processing.domain.component_requests import (
+from query_processing.domain.components.base_component import COMPONENT_TYPES
+from query_processing.domain.components.component_requests import (
     EmbedRequest,
     GenerateRequest,
     RerankRequest,
     SearchRequest,
 )
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import (
     CapRecordingLLM,
     DenseOnlyStore,

@@ -18,8 +18,11 @@ from query_processing.application.stages.generate_stage import (
     GenerateStage,
 )
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.metadata_filter import MetadataCondition, MetadataFieldInfo
 from query_processing.domain.prompts import PromptMessage
+from query_processing.domain.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
 
 SOURCE = MetadataFieldInfo(
     name="source",

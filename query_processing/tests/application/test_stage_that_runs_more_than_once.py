@@ -22,7 +22,7 @@ from query_processing.application.graph_check import check_graph
 from query_processing.application.stages.base_stage import StageContext
 from query_processing.application.workflow import RagResult
 from query_processing.application.workflow_builder import build_workflow
-from query_processing.domain.component_requests import GenerateAnswer
+from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.prompts import PromptMessage
 from query_processing.domain.registry import Registry

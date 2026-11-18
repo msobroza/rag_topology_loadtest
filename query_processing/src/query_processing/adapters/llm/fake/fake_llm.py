@@ -22,7 +22,7 @@ from typing import Any, Literal, Union, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from ....domain.component_requests import GenerateAnswer
+from ....domain.components.component_requests import GenerateAnswer
 from ..base_llm import BaseLLM
 
 # The value of each plain type of a field the fake fills; a field of another

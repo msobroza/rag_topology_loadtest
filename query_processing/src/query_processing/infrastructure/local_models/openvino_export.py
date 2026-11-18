@@ -25,7 +25,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from ...domain.backends import OpenVinoWeightFormat
+from ...domain.runtime.backends import OpenVinoWeightFormat
 
 # What the openvino backend of sentence-transformers imports; checked up front so
 # a missing package is reported as such, not as the library's bare Exception.

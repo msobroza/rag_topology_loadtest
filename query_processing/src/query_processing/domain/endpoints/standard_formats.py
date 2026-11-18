@@ -5,7 +5,7 @@ generation OpenAI's chat format. These classes are the project's own contract:
 the endpoint adapters build and read them, the model server answers in them and
 the load test sends them. ``STANDARD_API_FORMATS`` names each component type's
 format as its registry knows it; the ``/v3`` routes are in
-``domain/api_endpoint.py``.
+``domain/endpoints/api_endpoint.py``.
 
 Example:
     >>> CohereRerankRequest(model="r", query="q", documents=["a"]).to_wire()

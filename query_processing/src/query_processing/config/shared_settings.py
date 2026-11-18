@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from ..domain.backends import LocalModelRuntime, OpenVinoWeightFormat
+from ..domain.runtime.backends import LocalModelRuntime, OpenVinoWeightFormat
 from .component_settings import SettingsBlock
 
 
@@ -57,9 +57,9 @@ class LocalModelsSettings(SettingsBlock):
     # the two equal.
     openvino_weight_format: OpenVinoWeightFormat = "fp32"
     # Model calls running at once, max, under torch only; openvino runs one call
-    # at a time on every CPU (domain/thread_budget.py).
+    # at a time on every CPU (domain/runtime/thread_budget.py).
     workers: int = Field(default=4, ge=1)
-    # Virtual CPUs the model calls share (domain/thread_budget.py): 0 = find
+    # Virtual CPUs the model calls share (domain/runtime/thread_budget.py): 0 = find
     # out; > 0 wins over every other count.
     cpus: float = Field(default=0, ge=0)
 

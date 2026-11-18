@@ -20,11 +20,11 @@ from query_processing.application.workflow import (
 from query_processing.application.workflow_builder import build_workflow
 from query_processing.application.workflow_state import initial_state
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.component_requests import GenerateAnswer
-from query_processing.domain.corpus import synthetic_questions
+from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.graph_description import GraphDescription
-from query_processing.domain.passages import RagMode
 from query_processing.domain.prompts import Prompt, PromptMessage
+from query_processing.domain.retrieval.corpus import synthetic_questions
+from query_processing.domain.retrieval.passages import RagMode
 from rag_graphs import fixture_graph, rag_graph
 from workflow_fakes import (
     ChainNameRecorder,

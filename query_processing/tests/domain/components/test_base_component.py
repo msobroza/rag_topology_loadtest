@@ -9,8 +9,11 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from query_processing.domain.base_component import COMPONENT_TYPES, BaseComponent
-from query_processing.domain.component_resources import ComponentResources
+from query_processing.domain.components.base_component import (
+    COMPONENT_TYPES,
+    BaseComponent,
+)
+from query_processing.domain.components.component_resources import ComponentResources
 from query_processing.domain.registry import Registry
 from shout_components import resources_for
 from shout_extension.shouting import (

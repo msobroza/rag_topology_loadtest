@@ -32,7 +32,7 @@ from query_processing.application.stages.base_stage import (
     fields_in_order,
 )
 from query_processing.application.workflow_state import WorkflowState
-from query_processing.domain.base_component import BaseComponent
+from query_processing.domain.components.base_component import BaseComponent
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.registry import Registry
 

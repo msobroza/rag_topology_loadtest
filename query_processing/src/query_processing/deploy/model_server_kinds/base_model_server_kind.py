@@ -8,10 +8,10 @@ its command (shell, because the bootstrap runs before Python is installed). The
 class says which component types the kind serves, on which route, and how a
 served model is probed; a kind that serves the registered component types (an
 extension's, ``registered_backends.py``) serves each on its call route
-(``domain/api_endpoint.py``). The deploy tool builds the URL it hands the workflow
-App from that route, and refuses a component no kind can serve before anything
-is published. A new kind is one module here and one script: the deploy tool's
-flow and ``domino/app.sh`` do not change.
+(``domain/endpoints/api_endpoint.py``). The deploy tool builds the URL it hands
+the workflow App from that route, and refuses a component no kind can serve
+before anything is published. A new kind is one module here and one script:
+the deploy tool's flow and ``domino/app.sh`` do not change.
 
 Example:
     >>> model_server_kind("ovms").route_of("reranker")
@@ -24,7 +24,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from ...domain.api_endpoint import call_path
+from ...domain.endpoints.api_endpoint import call_path
 from ...domain.registry import Registry
 from ..registered_backends import is_registered_type
 

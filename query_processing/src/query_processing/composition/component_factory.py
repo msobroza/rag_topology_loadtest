@@ -19,8 +19,8 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from ..config.registered_component_settings import RegisteredComponentSettings
-from ..domain.base_component import BaseComponent
-from ..domain.component_resources import ComponentResources
+from ..domain.components.base_component import BaseComponent
+from ..domain.components.component_resources import ComponentResources
 from .openers.component_openers import (
     ComponentOpeners,
     P,

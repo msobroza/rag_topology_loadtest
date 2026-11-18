@@ -44,13 +44,13 @@ from ..composition.registered_names import check_registered_names
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
-from ..domain.metadata_filter import (
+from ..domain.query_request import QueryRequest
+from ..domain.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
     check_conditions,
 )
-from ..domain.passages import RagMode, ScoredPassage
-from ..domain.query_request import QueryRequest
+from ..domain.retrieval.passages import RagMode, ScoredPassage
 from ..infrastructure.json_log import log_json
 
 logger = logging.getLogger("query_processing")

@@ -19,9 +19,9 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .metadata_filter import MetadataCondition
-from .passages import ScoredPassage
-from .retrieval_mode import RetrievalMode
+from ..retrieval.metadata_filter import MetadataCondition
+from ..retrieval.passages import ScoredPassage
+from ..retrieval.retrieval_mode import RetrievalMode
 
 
 class _FrozenStrictModel(BaseModel):
