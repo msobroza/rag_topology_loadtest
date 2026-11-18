@@ -986,7 +986,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
-      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked); Placement (local or served); override_values, each override by its path
+      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked); Placement (local or served); override_values, each override by its path
+      deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
       workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
       overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them

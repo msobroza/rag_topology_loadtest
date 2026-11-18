@@ -28,6 +28,7 @@ from .apps_client import (
     DominoDeployError,
     wait_until_running,
 )
+from .deploy_refusals import refuse_placeholders, refuse_secrets
 from .deploy_settings import (
     SERVED,
     AppKind,
@@ -35,8 +36,6 @@ from .deploy_settings import (
     Autoscaling,
     DeploySettings,
     deploy_file,
-    refuse_placeholders,
-    refuse_secrets,
 )
 from .endpoint_url import endpoint_url
 from .model_server_kinds.base_model_server_kind import model_server_kind
@@ -403,11 +402,15 @@ def _refuse_a_default_revision_alone(settings: DeploySettings) -> None:
     # silently dropped. An App's own revision without any environment is caught
     # by the environment_id check, since that App has none.
     defaults = settings.defaults
-    revision_id = defaults.environment_revision_id
-    if not revision_id or defaults.environment_id:
+    if not defaults.sets_the_revision() or defaults.environment_id:
         return
+    key, revision = (
+        ("environment_revision", defaults.environment_revision)
+        if defaults.environment_revision
+        else ("environment_revision_id", defaults.environment_revision_id)
+    )
     raise DominoDeployError(
-        f"defaults.environment_revision_id {revision_id!r} in {deploy_file()} has no "
+        f"defaults.{key} {revision!r} in {deploy_file()} has no "
         "defaults.environment_id beside it: a default revision applies only together "
         "with the default environment, so set defaults.environment_id to the "
         "environment it is a build of, or set the revision in the block of each App "

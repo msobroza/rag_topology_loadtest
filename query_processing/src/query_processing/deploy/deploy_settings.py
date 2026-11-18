@@ -19,11 +19,11 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -31,7 +31,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, SERVED_BACKEND
+from ..domain.endpoints.api_endpoint import SERVED_BACKEND
 from ..domain.roles import WORKFLOW_APP, AppPart
 from .apps_client import DominoDeployError, WaitLimits
 from .model_server_kinds.base_model_server_kind import MODEL_SERVER_KINDS
@@ -124,7 +124,10 @@ class AppBlock(_Block):
     kind: AppKind | None = None
     environment_id: str | None = None
     environment_revision_id: str | None = None  # one build of the environment
+    # The same build by its number in Domino, written bare: 7, not "7" nor "v7".
+    environment_revision: int | None = Field(default=None, strict=True, ge=1)
     hardware_tier_id: str | None = None
+    hardware_tier: str | None = None  # the tier's name in Domino, capitals included
     autoscaling: Autoscaling | None = None
     # The model-server kind of a model server App: a registered kind's name.
     server: str | None = None
@@ -143,6 +146,50 @@ class AppBlock(_Block):
         if not isinstance(value, dict):
             return value  # pydantic reports the wrong shape
         return {name: _as_text(name, scalar) for name, scalar in value.items()}
+
+    @model_validator(mode="after")
+    def _one_way_a_setting(self) -> AppBlock:
+        # An empty value is not set, so a file copied from an example holding
+        # both id keys as "" takes a name or a number beside them.
+        ways = (
+            ("hardware_tier", self.hardware_tier, self.hardware_tier_id),
+            (
+                "environment_revision",
+                self.environment_revision,
+                self.environment_revision_id,
+            ),
+        )
+        for key, value, id_value in ways:
+            if value and id_value:
+                raise ValueError(
+                    f"{key} {value!r} and {key}_id {id_value!r} are both set: they "
+                    "are two ways to write one setting, keep one"
+                )
+        return self
+
+    def sets_the_tier(self) -> bool:
+        """Say whether this block names a hardware tier, by its name or its id.
+
+        Returns:
+            True when ``hardware_tier`` or ``hardware_tier_id`` is not empty.
+
+        Example:
+            >>> AppBlock(hardware_tier="cpu-16").sets_the_tier()
+            True
+        """
+        return bool(self.hardware_tier or self.hardware_tier_id)
+
+    def sets_the_revision(self) -> bool:
+        """Say whether this block names an environment revision, either way.
+
+        Returns:
+            True when ``environment_revision`` or ``environment_revision_id`` is set.
+
+        Example:
+            >>> AppBlock(environment_revision=7).sets_the_revision()
+            True
+        """
+        return bool(self.environment_revision or self.environment_revision_id)
 
 
 def _as_text(name: str, value: object) -> str:
@@ -166,6 +213,8 @@ class AppSettings:
     autoscaling: Autoscaling | None
     server: str  # the model-server kind, which only a model server App uses
     settings: dict[str, str] = field(default_factory=dict)
+    hardware_tier: str = ""  # "" = none, or the tier is given by its id
+    environment_revision: int | None = None  # None = none, or given by its id
 
 
 # Our rule, not Domino's: the Apps API reference this tool follows gives an App's
@@ -301,7 +350,9 @@ class DeploySettings(BaseSettings):
 
         ``settings`` entries are merged key by key, the App's own winning. The
         default environment revision goes only with the default environment: an
-        App that sets its own ``environment_id`` does not take it.
+        App that sets its own ``environment_id`` does not take it. The hardware
+        tier, by its name or its id, and the revision, by its number or its id,
+        are each the App's own when its block writes them either way.
 
         Args:
             part: The App whose settings are merged.
@@ -316,17 +367,20 @@ class DeploySettings(BaseSettings):
             'cpu-16'
         """
         own, shared = self.apps.get(part, AppBlock()), self.defaults
-        environment_id, revision_id = _environment_of(own, shared)
+        environment_id, revision_id, revision = _environment_of(own, shared)
+        tier = own if own.sets_the_tier() else shared
         return AppSettings(
             part=part,
             name=self.app_name(part),
             kind=own.kind or shared.kind or _default_kind(part),
             environment_id=environment_id,
             environment_revision_id=revision_id,
-            hardware_tier_id=own.hardware_tier_id or shared.hardware_tier_id or "",
+            hardware_tier_id=tier.hardware_tier_id or "",
             autoscaling=own.autoscaling or shared.autoscaling,
             server=own.server or shared.server or DEFAULT_MODEL_SERVER_KIND,
             settings=dict(sorted({**shared.settings, **own.settings}.items())),
+            hardware_tier=tier.hardware_tier or "",
+            environment_revision=revision,
         )
 
     def wait_limits(self) -> WaitLimits:
@@ -346,84 +400,17 @@ def _default_kind(part: AppPart) -> AppKind:
     return "agent" if part == WORKFLOW_APP else "app"
 
 
-def _environment_of(own: AppBlock, shared: AppBlock) -> tuple[str, str]:
+def _environment_of(own: AppBlock, shared: AppBlock) -> tuple[str, str, int | None]:
     # A revision is one build of one environment, so the default revision is a
     # build of the default environment: given to an App that names another
     # environment, it would pair that environment with a build of a different one.
-    if own.environment_id:
-        return own.environment_id, own.environment_revision_id or ""
-    revision_id = own.environment_revision_id or shared.environment_revision_id
-    return shared.environment_id or "", revision_id or ""
-
-
-def refuse_secrets(settings: DeploySettings) -> None:
-    """Refuse a ``settings`` block that holds a secret: it would land in a script.
-
-    Args:
-        settings: The deploy settings whose ``defaults`` and ``apps`` are checked.
-
-    Raises:
-        DominoDeployError: If a setting whose name ends with ``_API_KEY``
-            (``QP_COMPONENTS__LLM__API__API_KEY``, the vector store's key, ...)
-            holds a value other than "" or ``domino``.
-
-    Example:
-        >>> refuse_secrets(DeploySettings())
-        DominoDeployError: QP_COMPONENTS__LLM__API__API_KEY ...
-    """
-    blocks = {f"apps.{part}": block for part, block in settings.apps.items()}
-    for block_name, block in {"defaults": settings.defaults, **blocks}.items():
-        for secret in _secrets_in(block.settings):
-            raise DominoDeployError(
-                f"{secret} is set in {deploy_file()} under {block_name}.settings, "
-                "whose values are written into the Apps' launch scripts: set it as "
-                "a Domino project or user environment variable instead"
-            )
-
-
-# "<dataset>", "<environment id>": the example file's placeholders. No spaces at the
-# edges, so a comparison such as "a < b" is not taken for one.
-_PLACEHOLDER = re.compile(r"<[^<>\s][^<>]*[^<>\s]>|<[^<>\s]>")
-
-
-def refuse_placeholders(settings: DeploySettings, parts: list[AppPart]) -> None:
-    """Refuse a value the deploy of ``parts`` uses that still holds a placeholder.
-
-    Args:
-        settings: The deploy settings.
-        parts: The Apps being deployed; other Apps' blocks are not checked.
-
-    Raises:
-        DominoDeployError: If a value holds a placeholder such as ``<dataset>``.
-
-    Example:
-        >>> refuse_placeholders(DeploySettings(), ["workflow"])
-        DominoDeployError: ... '<dataset>' ...
-    """
-    for key, block, value in _values_used(settings, parts):
-        if _PLACEHOLDER.search(value):
-            raise DominoDeployError(
-                f"{key} in {block} of {deploy_file()} still holds the example "
-                f"placeholder {value!r}: replace it with a real value"
-            )
-
-
-def _values_used(
-    settings: DeploySettings, parts: list[AppPart]
-) -> Iterator[tuple[str, str, str]]:
-    yield "ovms_bundle", "the top level", settings.ovms_bundle
-    blocks = [("defaults", settings.defaults)] + [
-        (f"apps.{part}", settings.apps[part]) for part in parts if part in settings.apps
-    ]
-    for name, block in blocks:
-        yield "environment_id", name, block.environment_id or ""
-        yield "environment_revision_id", name, block.environment_revision_id or ""
-        yield "hardware_tier_id", name, block.hardware_tier_id or ""
-        for key, value in block.settings.items():
-            yield key, f"{name}.settings", value
-    # Every App gets the overrides, so any deploy uses each of them.
-    for override in override_values(settings.overrides):
-        yield override.place, "overrides", override.text
+    revision = own if own.environment_id or own.sets_the_revision() else shared
+    environment_id = own.environment_id or shared.environment_id or ""
+    return (
+        environment_id,
+        revision.environment_revision_id or "",
+        revision.environment_revision,
+    )
 
 
 class OverrideValue(NamedTuple):
@@ -487,12 +474,3 @@ def override_text(value: object) -> str:
     if isinstance(value, bool):
         return str(value).lower()
     return "" if value is None else str(value)
-
-
-def _secrets_in(values: dict[str, str]) -> list[str]:
-    # An API key is a secret unless it is empty or names the Domino run token.
-    return [
-        name
-        for name, value in values.items()
-        if name.endswith("_API_KEY") and value not in ("", DOMINO_RUN_TOKEN)
-    ]
