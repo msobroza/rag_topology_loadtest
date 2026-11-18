@@ -80,13 +80,19 @@ defaults:
   # install their own dependencies when they start, on Python 3.11 (uv downloads
   # it when the environment has none).
   environment_id: "<environment id>"
-  # Optional: holds the Apps to one build of that environment, by the id of one of
-  # its revisions (sent to Domino as environmentRevisionId); "" = Domino chooses.
-  # It goes only with the environment above: an App that sets its own
+  # Optional: holds the Apps to one build of that environment, by its revision
+  # number as Domino shows it (v7 is 7): qp-deploy asks Domino for that
+  # revision's id and sends it as environmentRevisionId. Left out, Domino
+  # chooses. It goes only with the environment above: an App that sets its own
   # environment_id does not take it, and without environment_id it is refused.
-  environment_revision_id: ""
-  # The hardware tier id; "" = the project's default.
-  hardware_tier_id: ""
+  # The id itself can be written instead, as environment_revision_id.
+  # `make environments` shows the environments and their revisions.
+  # environment_revision: 7
+  # Optional: the hardware tier, by its name in Domino: qp-deploy asks Domino
+  # for its id and prints its cores and memory. Left out, the project's
+  # default. The id itself can be written instead, as hardware_tier_id.
+  # `make tiers` shows the tiers and their sizes.
+  # hardware_tier: <tier name>
   # The model-server kind of every model server App, unless its block sets its
   # own: fastapi (qp-model-server) | ovms (OpenVINO Model Server). Each kind is
   # one registered class and one launch script, the toolkit's
@@ -107,8 +113,9 @@ defaults:
 
 # One block per App, keyed by workflow or by the name of a served component (a
 # key that is neither is refused), for what really differs per App: kind (app | agent),
-# environment_id, environment_revision_id (a revision of this App's environment,
-# its own or the default one), hardware_tier_id, autoscaling {min_replicas
+# environment_id, environment_revision or environment_revision_id (a revision of
+# this App's environment, its own or the default one), hardware_tier or
+# hardware_tier_id, autoscaling {min_replicas
 # (default 1), max_replicas, target_cpu_pct (1..100)}, server (a model server
 # App's model-server kind; the workflow App has none) and settings (merged with
 # the defaults' settings, this block's winning).
@@ -122,11 +129,11 @@ apps:
   # The model servers are plain Apps.
   embedder:
     kind: app
-    # hardware_tier_id: <a tier with 8 cores>
+    # hardware_tier: <a tier with 8 cores>
   reranker:
     kind: app
     # server: ovms  # this App alone served by OVMS (needs ovms_bundle)
-    # hardware_tier_id: <a tier with 16 cores>
+    # hardware_tier: <a tier with 16 cores>
     # What qp-calibrate --ovms-models printed for this App's tier, so its OVMS
     # starts without calibrating its streams and threads (one OVMS App serves
     # one component, so they are this App's, not every App's):
