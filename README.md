@@ -1020,11 +1020,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)
-    api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
-    state.py          FakeDominoApps: the fake's Apps, versions and instances
+    api_shapes.py     the Apps API, hardware tier and environment shapes, transcribed from the 6.2 reference, and the published shape of an environment's every revision (what the fake serves)
+    state.py          FakeDominoApps: the fake's Apps, versions and instances, its hardware tiers and its environments (FakeEnvironment, with every revision)
     instances.py      BaseInstanceScheduler: what decides an instance's status; by default the --behaviour scripts
     apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
-    stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
+    stand_ins.py      hardware tiers (the list, one by its id), environments (the list, one with its three revisions), fake_tier, fake_environment, and the stand-ins: every revision of an environment, /access-token and an App instance's /readyz
     server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, qp-fake-domino
     emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
   locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a use case's Makefile runs it (locust -f) from the use case's directory
@@ -2933,7 +2933,7 @@ Domino Workspace, where that port is taken.
 | `slow` | `Queued`, `Pending`, `Preparing`, `Pulling`, then `Running` |
 | `fails` | `Pending`, then `Failed` |
 | `never-starts` | creates the App or version but no instance (6.2 has no start call) |
-| `forbidden` | every Apps API call answers 403 with a `FailureEnvelopeV1` |
+| `forbidden` | every Apps API call, the list of hardware tiers and the environments answer 403 with a `FailureEnvelopeV1` |
 
 The fake is transcribed from the Domino 6.2 API reference, so it shows what
 `qp-deploy` expects of Domino, not what a live Domino does. Besides the Apps
