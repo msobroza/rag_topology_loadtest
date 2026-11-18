@@ -421,9 +421,10 @@ and compares the two answers. `RouterContract` adds `routes`, and checks that
 the route chosen is one of them and that the confidence is between 0 and 1.
 The RAG's `tests/test_knn_router.py` subclasses it. The same package ships
 `directory_size_findings`, the measure of rule 9 of
-[Where a file goes](#where-a-file-goes): given a use case's root, the limit and
-its exceptions, it returns each directory that breaks the rule as a sentence;
-the RAG's `tests/test_layering.py` calls it with no exception.
+[Where a file goes](#where-a-file-goes): given a use case's root, and its
+exceptions when it has any, it returns each directory that breaks the rule as
+a sentence. The limit is the rule's 12 unless another is given; the RAG's
+`tests/test_layering.py` calls it with the root alone.
 
 #### One component type from end to end
 
