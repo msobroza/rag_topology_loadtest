@@ -1026,7 +1026,7 @@ experiment_charts/  the charts of the measurements, one distribution (experiment
     chart_marks.py    the marks several charts share: grouped bars, lines with ringed markers, value labels
     chart_selections.py  the run selections the catalog passes to a chart
     base_experiment_chart.py  BaseExperimentChart: a slug, a title, table() and draw()
-    *_chart.py        one module per chart, each an implementation of BaseExperimentChart
+    charts/           *_chart.py: one module per chart, each an implementation of BaseExperimentChart
     chart_catalog.py  experiment_charts(): the charts in the tour's order, the one place that names experiment ids
     write_experiment_charts.py  writes every chart's two figures and its table; python -m experiment_charts
   tests/              its own tests: its tables against the registry, every chart drawn, data/ kept current, its imports; helpers/ on pytest's path

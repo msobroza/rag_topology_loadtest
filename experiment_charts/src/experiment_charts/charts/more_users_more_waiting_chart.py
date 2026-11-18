@@ -17,12 +17,12 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.typing import LegendLocType
 
-from .base_experiment_chart import BaseExperimentChart
-from .chart_marks import draw_users_series, finish_users_panels
-from .chart_selections import LabelledRun
-from .chart_table import ChartTable
-from .chart_theme import ChartTheme, figure_title, themed_figure
-from .registry_reading import ExperimentRegistry
+from ..base_experiment_chart import BaseExperimentChart
+from ..chart_marks import draw_users_series, finish_users_panels
+from ..chart_selections import LabelledRun
+from ..chart_table import ChartTable
+from ..chart_theme import ChartTheme, figure_title, themed_figure
+from ..registry_reading import ExperimentRegistry
 
 
 @dataclass(frozen=True)
