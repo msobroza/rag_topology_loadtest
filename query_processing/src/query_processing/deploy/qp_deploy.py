@@ -9,12 +9,14 @@ Example:
     >>> main(["deploy", "all"])  # every App the topology needs, in order
     >>> main(["status"])  # one line per App, then the workflow App's /readyz
     >>> main(["--dry-run", "deploy", "all"])  # against an in-process fake Domino
+    >>> main(["tiers", "--table"])  # what Domino has; also "environments"
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from collections.abc import Callable
 
@@ -33,12 +35,20 @@ from fake_domino.state import FakeDominoApps
 from .app_id_cache import APP_ID_CACHE_FILE, AppIdCache
 from .apps_client import DominoAppsClient, DominoDeployError
 from .deploy_settings import DeploySettings, deploy_file, require_deploy_file
+from .domino_listings.listing_commands import show_environments, show_tiers
+from .domino_listings.listing_looks import chosen_look
+from .domino_listings.listing_settings import ListingSettings
 from .domino_lookups.domino_ids_not_asked import DominoIdsNotAsked
 from .endpoint_url import endpoint_url
 from .publish import CONFIGURATION_TYPES, deploy, launch_paths, require_app
 from .status import print_status
 
 DRY_RUN_PROJECT_ID = "dry-run-project"
+# Each listing command: what it prints, and what it lists, for its help.
+LISTINGS = {
+    "tiers": (show_tiers, "hardware tiers"),
+    "environments": (show_environments, "environments"),
+}
 
 
 def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -> None:
@@ -55,16 +65,17 @@ def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.dry_run and args.command in LISTINGS:
+        parser.error(
+            f"qp-deploy {args.command} asks Domino what it has, and a dry run asks "
+            "Domino nothing: run it without --dry-run"
+        )
     dry_run_apps = FakeDominoApps()  # only used with --dry-run
     if args.dry_run:
         fake_domino = create_fake_domino(dry_run_apps)
-    sleep = time.sleep if fake_domino is None else _no_sleep
     try:
         require_deploy_file()
-        settings = DeploySettings()
-        cache = AppIdCache(None if args.dry_run else APP_ID_CACHE_FILE)
-        with _apps_client(settings, fake_domino, cache) as client:
-            _run_command(args, client, settings, sleep)
+        _run(args, fake_domino)
     except (DominoDeployError, ValidationError) as exc:
         parser.error(str(exc))
     if args.dry_run and args.command == "deploy":
@@ -73,6 +84,26 @@ def main(argv: list[str] | None = None, *, fake_domino: ASGIApp | None = None) -
 
 def _no_sleep(_seconds: float) -> None:
     pass
+
+
+def _run(args: argparse.Namespace, fake_domino: ASGIApp | None) -> None:
+    if args.command in LISTINGS:
+        # A listing reads deploy.yaml only for how to reach Domino.
+        with _apps_client(ListingSettings(), fake_domino, AppIdCache(None)) as client:
+            _show_listing(args, client.http)
+        return
+    sleep = time.sleep if fake_domino is None else _no_sleep
+    settings = DeploySettings()
+    cache = AppIdCache(None if args.dry_run else APP_ID_CACHE_FILE)
+    with _apps_client(settings, fake_domino, cache) as client:
+        _run_command(args, client, settings, sleep)
+
+
+def _show_listing(args: argparse.Namespace, http: httpx.Client) -> None:
+    terminal = sys.stdin.isatty() and sys.stdout.isatty()
+    look = chosen_look(details=args.details, table=args.table, terminal=terminal)
+    show, _ = LISTINGS[args.command]
+    show(http, args.names, look)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -93,7 +124,20 @@ def _build_parser() -> argparse.ArgumentParser:
     commands.add_parser("url").add_argument(
         "part", help="workflow, or a served component such as reranker"
     )
+    for command, (_, what) in LISTINGS.items():
+        _add_listing(commands.add_parser(command, help=f"show Domino's {what}"), what)
     return parser
+
+
+def _add_listing(listing: argparse.ArgumentParser, what: str) -> None:
+    listing.add_argument("names", nargs="*", help=f"the {what} to show; none: all")
+    looks = listing.add_mutually_exclusive_group()
+    looks.add_argument(
+        "--table", action="store_true", help="aligned columns, even in a terminal"
+    )
+    looks.add_argument(
+        "--details", action="store_true", help="every field Domino gave, as YAML"
+    )
 
 
 def _run_command(
@@ -159,7 +203,9 @@ def _autoscaling_text(spec: AppAutoscalingSpecification | None) -> str:
 
 
 def _apps_client(
-    settings: DeploySettings, fake_domino: ASGIApp | None, cache: AppIdCache
+    settings: DeploySettings | ListingSettings,
+    fake_domino: ASGIApp | None,
+    cache: AppIdCache,
 ) -> DominoAppsClient:
     if fake_domino is not None:
         project_id = settings.project_id or DRY_RUN_PROJECT_ID

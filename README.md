@@ -986,7 +986,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
-      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked); Placement (local or served); override_values, each override by its path
+      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
       deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
       workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
       overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
@@ -1000,7 +1000,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
       app_id_cache.py the App ids already seen (.qp-deploy-cache.json): an App is redeployed, never created twice
       status.py       qp-deploy status: one line per App, then the workflow App's /readyz
-      qp_deploy.py    qp-deploy: the parser, url, --dry-run
+      qp_deploy.py    qp-deploy: the parser, url, --dry-run, tiers and environments (refused in a dry run)
       apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running; send_to_domino, domino_json and describe_failure, shared by every call to Domino
       domino_lookups/  what qp-deploy reads of Domino besides its Apps
         paged_list.py   read_pages: a list of Domino's documented API read page after page, a 401 or 403 refused with the permission it needs
@@ -1011,6 +1011,14 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_domino_ids.py  AppWithIds, BaseDominoIds (an App's tier name and revision number turned into the ids its version sends), where_set, find_every_id: every App's ids found, then printed, before the first App is published
         domino_ids_asked.py  DominoIdsAsked: the ids asked of Domino, the tiers listed once, a revision from the documented call then the internal route
         domino_ids_not_asked.py  DominoIdsNotAsked: a dry run's ids, the name and the number as written, nothing asked
+      domino_listings/  what qp-deploy tiers and qp-deploy environments show of Domino's answers
+        aligned_table.py  aligned_table: plain text in columns padded to their widest value, some aligned right, no colour
+        listing_names.py  only_named: the items of the names given, in Domino's order, or a refusal listing the names Domino has; details_yaml: every field Domino gave as YAML, the name first
+        listing_looks.py  Look, chosen_look: the details when asked, else the table when asked or with no terminal, else the list
+        listing_settings.py  ListingSettings: what a listing reads of deploy.yaml, how to reach Domino and nothing else, so no App block needs to be valid
+        tiers_listing.py  tiers_table (the default tier marked), tiers_details
+        environments_listing.py  environments_table (the active and latest numbers), shown_revisions (every revision of the internal route with its documented status, or the three and a note), revisions_table (dates in UTC, marks), environments_details
+        listing_commands.py  show_tiers, show_environments: ask Domino, then print the look; the internal route asked only for an environment named
     loadtest/         the load-test client, with locustfile.py
       loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request

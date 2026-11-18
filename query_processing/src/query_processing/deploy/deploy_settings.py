@@ -61,6 +61,24 @@ def deploy_file() -> str:
     return os.environ.get(DEPLOY_FILE_VARIABLE) or DEPLOY_FILE
 
 
+def project_or_workspace(project_id: str) -> str:
+    """Give ``project_id``, or the Workspace's ``DOMINO_PROJECT_ID`` when it is empty.
+
+    The example's ``project_id: ""`` means "not set", not "".
+
+    Args:
+        project_id: The value of ``project_id`` in the deploy file.
+
+    Returns:
+        The project's id; ``""`` outside a Workspace when none is written.
+
+    Example:
+        >>> project_or_workspace("")  # in a Workspace of project proj-1
+        'proj-1'
+    """
+    return project_id or os.environ.get("DOMINO_PROJECT_ID", "")
+
+
 def require_deploy_file() -> None:
     """Stop when there is no deploy settings file where ``deploy_file`` looks.
 
@@ -326,8 +344,7 @@ class DeploySettings(BaseSettings):
 
     @model_validator(mode="after")
     def _project_from_the_workspace(self) -> DeploySettings:
-        # The example's `project_id: ""` means "not set", not "".
-        self.project_id = self.project_id or os.environ.get("DOMINO_PROJECT_ID", "")
+        self.project_id = project_or_workspace(self.project_id)
         return self
 
     def app_name(self, part: AppPart) -> str:
