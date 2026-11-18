@@ -6,13 +6,13 @@ import re
 from pathlib import Path
 
 import pytest
-from trained_router import Trained, train_on_fakes
 
 from query_processing_rag_usecase.infrastructure.pipeline_artifact import (
     load_pipeline,
     manifest_path,
     utterances_sha256,
 )
+from trained_router import Trained, train_on_fakes
 
 
 @pytest.fixture

@@ -15,10 +15,10 @@ from query_processing.extension_api import (
     WorkflowSettings,
 )
 from query_processing.testing import RouterContract
-from trained_router import Trained, train_on_fakes
 
 from query_processing_rag_usecase.adapters.router.local.knn_router import KnnRouter
 from query_processing_rag_usecase.entrypoints.train_router import embed_texts
+from trained_router import Trained, train_on_fakes
 
 # A message of the route leans_on_history, word for word one of its utterances.
 LEANING = "Et pour un véhicule loué ?"

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from query_processing.extension_api import RouterSettings, WorkflowSettings
+
 from router_workflow import settings_on_fakes
 
 

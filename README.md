@@ -1015,7 +1015,7 @@ query_processing_rag_usecase/   the RAG use case, one distribution that installs
   deploy.example.yaml  its deploy settings example: the topology aliases, the Apps, this site's overrides (cp to deploy.yaml)
   .env.example        its environment example, the load-test sizes of a rerank request included (cp to .env)
   Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
-  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports
+  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports; helpers/ on pytest's path
   results/            load-test output (git-ignored), as data/, models/, ovms/models/ and chroma/ written here
 experiment_charts/  the charts of the measurements, one distribution (experiment-charts): not the product, it draws experiments-explained/ from experiments/
   pyproject.toml      the distribution: matplotlib and PyYAML, nothing of the product; its package under src/

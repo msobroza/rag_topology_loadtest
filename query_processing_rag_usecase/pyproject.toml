@@ -38,8 +38,12 @@ where = ["src"]
 minversion = "8.0"
 testpaths = ["tests"]
 # The tests import what the toolkit installs (query_processing, fake_domino)
-# and this use case's package, never the toolkit's own tests.
-pythonpath = ["src"]
+# and this use case's package, never the toolkit's own tests. What several test
+# files share (the workflow file on fakes, the router's workflow file, a trained
+# router) lives in tests/helpers, on the path so it is imported by plain module
+# name, as in the toolkit: the folder is not a package, and tests/ keeps to the
+# twelve modules a directory holds at most.
+pythonpath = ["src", "tests/helpers"]
 addopts = "-ra --strict-markers"
 # The toolkit's test classes (RouterContract) are coroutines.
 asyncio_mode = "auto"

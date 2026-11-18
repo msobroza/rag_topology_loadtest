@@ -1,11 +1,11 @@
 """A workflow file of the router alone, every component on its fake backend.
 
 The router's tests train pipelines, and the use case's ``workflow.yaml`` names
-its pipeline file in this directory, so they write their own file in
-``tmp_path``: the router's embedder (Solon's alias and
-query prefix, on the fake backend), the router listing the two routes of this
-directory's ``routes.yaml``, and a two-stage graph that embeds then routes.
-A pipeline the tests train is written beside it, never in this directory.
+its pipeline file in the use case's directory, so they write their own file
+in ``tmp_path``: the router's embedder (Solon's alias and query prefix, on the
+fake backend), the router listing the two routes of the use case's
+``routes.yaml``, and a two-stage graph that embeds then routes. A pipeline the
+tests train is written beside it, never in the use case's directory.
 
 Example::
 
@@ -23,7 +23,8 @@ import pytest
 import yaml
 from query_processing.extension_api import WorkflowSettings
 
-USE_CASE_DIR = Path(__file__).resolve().parents[1]
+# tests/helpers/ is two folders below the use case's directory.
+USE_CASE_DIR = Path(__file__).resolve().parents[2]
 ROUTES = ["self_contained", "leans_on_history"]
 PIPELINE_FILE = "router_pipeline.joblib"
 
@@ -86,7 +87,7 @@ def write_router_workflow(tmp_path: Path, **local: Any) -> Path:
 def settings_on_fakes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **local: Any
 ) -> WorkflowSettings:
-    """The settings of the router's workflow file, read with this directory's routes."""
+    """The settings of the router's workflow file, read with the use case's routes."""
     for name in [n for n in os.environ if n.startswith(("QP_", "DOMINO_"))]:
         monkeypatch.delenv(name)
     monkeypatch.setenv(
