@@ -1,7 +1,7 @@
 """``qp-calibrate``: which components it calibrates, what it prints, how it fails.
 
 The models are ``FakeSentenceTransformersModule``'s, on the real clock; the
-search itself is tested in ``tests/composition/test_composition_root_calibration.py``.
+search itself is tested in ``tests/composition/composition_root/test_composition_root_calibration.py``.
 """
 
 from __future__ import annotations

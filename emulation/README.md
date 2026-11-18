@@ -527,6 +527,10 @@ Delete:
 - in the main `README.md`: the paragraph pointing to this folder, and the lines marked
   TEMPORARY in its code layout
 - the "Emulation" block of `CONTEXT.md`
+- in `query_processing/tests/structure/test_directory_size_rule.py`, the two
+  folders not yet split that belong to the emulated Domino
+  (`src/fake_domino/emulation` and `tests/fake_domino`), which fail as stale
+  once it is gone, and their mention in rule 9 of the main `README.md`
 
 `docs/adr/0001-emulation-platform-and-app-placement.md` and
 `docs/adr/0002-replicas-on-machines-and-an-assumed-balancing-rule.md` may be kept as

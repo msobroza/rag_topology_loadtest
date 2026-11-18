@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
-from router_workflow import PIPELINE_FILE, settings_on_fakes
 
 from query_processing_rag_usecase.entrypoints.train_router import main, train_router
 from query_processing_rag_usecase.infrastructure.pipeline_artifact import manifest_path
+from router_workflow import PIPELINE_FILE, settings_on_fakes
 
 
 async def test_training_on_the_fake_embedder_writes_a_file_its_manifest_accepts(

@@ -1,9 +1,9 @@
-"""This directory's workflow file, read as ``qp-serve`` reads it, on fake backends.
+"""The use case's workflow file, read as ``qp-serve`` reads it, on fake backends.
 
 Each component of ``workflow.yaml`` is moved to its fake backend by the
 variable its path names, as on a laptop: no weights, no pipeline file, no
 store, no network. The settings are then refused as ``qp-serve`` refuses them
-at start-up. A test runs from this directory first (conftest's
+at start-up. A test runs from the use case's directory first (conftest's
 ``use_case_dir``), then asks for the settings, or takes conftest's ``all_fake``.
 
 Example::

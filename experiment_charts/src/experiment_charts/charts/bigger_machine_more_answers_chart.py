@@ -14,17 +14,17 @@ from typing import ClassVar
 
 from matplotlib.figure import Figure
 
-from .base_experiment_chart import BaseExperimentChart
-from .chart_marks import label_point, line_with_markers, rate_text
-from .chart_table import ChartTable
-from .chart_theme import (
+from ..base_experiment_chart import BaseExperimentChart
+from ..chart_marks import label_point, line_with_markers, rate_text
+from ..chart_table import ChartTable
+from ..chart_theme import (
     ChartTheme,
     add_legend,
     axis_labels,
     figure_title,
     themed_figure,
 )
-from .registry_reading import ExperimentRegistry
+from ..registry_reading import ExperimentRegistry
 
 
 @dataclass(frozen=True)

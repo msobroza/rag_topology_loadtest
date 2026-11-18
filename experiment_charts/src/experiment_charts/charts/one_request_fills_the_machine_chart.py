@@ -18,10 +18,10 @@ from typing import ClassVar
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from .base_experiment_chart import BaseExperimentChart
-from .chart_marks import label_point, line_with_markers
-from .chart_table import Cell, ChartTable
-from .chart_theme import (
+from ..base_experiment_chart import BaseExperimentChart
+from ..chart_marks import label_point, line_with_markers
+from ..chart_table import Cell, ChartTable
+from ..chart_theme import (
     ChartTheme,
     add_legend,
     axis_labels,
@@ -29,7 +29,7 @@ from .chart_theme import (
     panel_title,
     themed_figure,
 )
-from .registry_reading import ExperimentRegistry, number, parse_trial_key
+from ..registry_reading import ExperimentRegistry, number, parse_trial_key
 
 
 @dataclass(frozen=True)

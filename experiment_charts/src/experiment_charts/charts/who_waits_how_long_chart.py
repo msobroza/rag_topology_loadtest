@@ -13,16 +13,16 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from .base_experiment_chart import BaseExperimentChart
-from .chart_table import ChartTable
-from .chart_theme import (
+from ..base_experiment_chart import BaseExperimentChart
+from ..chart_table import ChartTable
+from ..chart_theme import (
     ChartTheme,
     axis_labels,
     figure_title,
     panel_title,
     themed_figure,
 )
-from .registry_reading import ExperimentRegistry
+from ..registry_reading import ExperimentRegistry
 
 
 @dataclass(frozen=True)

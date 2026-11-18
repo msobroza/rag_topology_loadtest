@@ -1,7 +1,7 @@
 """``check_registered_names``: an unknown backend or API format, refused before anything opens.
 
 What a command does with the refusal is tested in
-``tests/entrypoints/test_unknown_names_at_start_up.py``.
+``tests/entrypoints/start_up/test_unknown_names_at_start_up.py``.
 """
 
 from __future__ import annotations

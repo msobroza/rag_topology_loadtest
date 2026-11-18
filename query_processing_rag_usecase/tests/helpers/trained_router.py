@@ -15,7 +15,6 @@ from typing import NamedTuple
 import pytest
 from pydantic import BaseModel
 from query_processing.extension_api import Route, WorkflowSettings
-from router_workflow import settings_on_fakes
 
 from query_processing_rag_usecase.config.knn_router_settings import KnnRouterSettings
 from query_processing_rag_usecase.entrypoints.train_router import (
@@ -25,6 +24,7 @@ from query_processing_rag_usecase.entrypoints.train_router import (
 from query_processing_rag_usecase.infrastructure.pipeline_artifact import (
     manifest_path,
 )
+from router_workflow import settings_on_fakes
 
 LoadArguments = tuple[KnnRouterSettings, BaseModel, list[Route]]
 

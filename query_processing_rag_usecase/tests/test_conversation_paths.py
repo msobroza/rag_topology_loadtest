@@ -29,6 +29,7 @@ from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.routes import RouteChoice, RouteRequest
 from query_processing.entrypoints.qp_serve import create_app
 from query_processing.extension_api import GenerateAnswer
+
 from workflow_on_fakes import all_fake_settings
 
 FIRST_MESSAGE = "Que dit l'AMF sur la franchise ?"

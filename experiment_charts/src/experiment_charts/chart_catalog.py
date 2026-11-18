@@ -11,28 +11,32 @@ Example:
 from __future__ import annotations
 
 from .base_experiment_chart import BaseExperimentChart
-from .bigger_machine_more_answers_chart import (
+from .chart_selections import LabelledRun, RunPair
+from .charts.bigger_machine_more_answers_chart import (
     BiggerMachineMoreAnswersChart,
     MachineRun,
     WeightSeries,
 )
-from .chart_selections import LabelledRun, RunPair
-from .generation_under_load_chart import GenerationUnderLoadChart
-from .larger_model_chart import LargerModelChart
-from .more_users_more_waiting_chart import MoreUsersMoreWaitingChart
-from .one_request_fills_the_machine_chart import (
+from .charts.generation_under_load_chart import GenerationUnderLoadChart
+from .charts.larger_model_chart import LargerModelChart
+from .charts.more_users_more_waiting_chart import MoreUsersMoreWaitingChart
+from .charts.one_request_fills_the_machine_chart import (
     OneRequestFillsTheMachineChart,
     StreamTrials,
     ThreadTrials,
 )
-from .overload_chart import OverloadChart
-from .reading_and_writing_chart import GeneratorProbe, ReadingAndWritingChart
-from .same_weights_same_throughput_chart import SameWeightsSameThroughputChart
-from .scale_out_or_scale_up_chart import ApproachSeries, ScaleOutOrScaleUpChart
-from .small_batches_chart import BatchTrials, SmallBatchesChart
-from .topologies_chart import TopologiesChart, TopologyBar, TopologyPanel
-from .where_the_time_goes_chart import WhereTheTimeGoesChart
-from .who_waits_how_long_chart import DumbbellPanel, ServerRun, WhoWaitsHowLongChart
+from .charts.overload_chart import OverloadChart
+from .charts.reading_and_writing_chart import GeneratorProbe, ReadingAndWritingChart
+from .charts.same_weights_same_throughput_chart import SameWeightsSameThroughputChart
+from .charts.scale_out_or_scale_up_chart import ApproachSeries, ScaleOutOrScaleUpChart
+from .charts.small_batches_chart import BatchTrials, SmallBatchesChart
+from .charts.topologies_chart import TopologiesChart, TopologyBar, TopologyPanel
+from .charts.where_the_time_goes_chart import WhereTheTimeGoesChart
+from .charts.who_waits_how_long_chart import (
+    DumbbellPanel,
+    ServerRun,
+    WhoWaitsHowLongChart,
+)
 
 
 def experiment_charts() -> tuple[BaseExperimentChart, ...]:

@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 from query_processing.config.workflow_settings import WorkflowSettings
+
 from workflow_on_fakes import all_fake_settings
 
 USE_CASE_DIR = Path(__file__).resolve().parents[1]

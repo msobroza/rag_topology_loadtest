@@ -1,10 +1,14 @@
-"""The use case's import rules, read from its source with ``ast``.
+"""The use case's layout rules: its imports, read from its source with ``ast``,
+and the size of its directories.
 
 It imports the toolkit through ``query_processing.extension_api`` alone, and
 its packages follow the toolkit's layers: a command never imports an
 adapter, and the infrastructure imports neither the config nor the adapters.
 Its adapters may import its own config, since a class names its settings on
-its class line (the plan's departure from the toolkit's layering).
+its class line (the plan's departure from the toolkit's layering). No
+directory under its ``src/`` and ``tests/`` holds more than 12 modules, with
+no exception (rule 9 of the README's "Where a file goes"), measured by the
+function the toolkit ships for it.
 """
 
 from __future__ import annotations
@@ -13,10 +17,10 @@ import ast
 from pathlib import Path
 
 import pytest
+from query_processing.testing import directory_size_findings
 
-USE_CASE_SOURCE = (
-    Path(__file__).resolve().parents[1] / "src" / "query_processing_rag_usecase"
-)
+USE_CASE_ROOT = Path(__file__).resolve().parents[1]
+USE_CASE_SOURCE = USE_CASE_ROOT / "src" / "query_processing_rag_usecase"
 PACKAGE = USE_CASE_SOURCE.name
 EXTENSION_API = "query_processing.extension_api"
 # Package -> the packages of the use case its modules may import.
@@ -73,3 +77,8 @@ def test_every_package_of_the_use_case_has_its_layer() -> None:
     }
 
     assert packages == set(MAY_IMPORT)
+
+
+def test_no_directory_of_the_use_case_holds_more_than_twelve_modules() -> None:
+    findings = directory_size_findings(USE_CASE_ROOT)
+    assert not findings, "\n".join(findings)

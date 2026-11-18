@@ -3,7 +3,7 @@ types and fixture edge conditions, in registries of the tests' own
 (``graph_check_fixtures``).
 
 The RAG's own graphs are checked through ``qp-serve`` in
-``tests/entrypoints/test_wrong_graph_at_start_up.py``; the checks of the edges
+``tests/entrypoints/start_up/test_wrong_graph_at_start_up.py``; the checks of the edges
 are in ``test_edge_check.py``.
 """
 

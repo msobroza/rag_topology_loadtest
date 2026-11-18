@@ -17,7 +17,7 @@ settings_customise_sources
 handle_request
 
 # elasticsearch-py: async_bulk calls client.bulk by name (FakeAsyncElasticsearch
-# in tests/adapters/test_elasticsearch_store.py).
+# in tests/adapters/vector_store/test_elasticsearch_store.py).
 bulk
 
 # pydantic: Route.utterances, read from routes.yaml for a use case's router to

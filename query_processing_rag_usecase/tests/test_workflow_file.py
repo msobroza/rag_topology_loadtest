@@ -28,9 +28,9 @@ from query_processing.domain.metadata_filter import (
 )
 from query_processing.domain.passages import ScoredPassage
 from query_processing.entrypoints.qp_serve import create_app
-from workflow_on_fakes import COMPONENTS, FAKE_RUN_LABEL, settings_here
 
 from query_processing_rag_usecase.config.knn_router_settings import KnnRouterSettings
+from workflow_on_fakes import COMPONENTS, FAKE_RUN_LABEL, settings_here
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
 EARLIER_TURNS = [
