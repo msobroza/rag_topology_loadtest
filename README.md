@@ -1000,7 +1000,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       app_id_cache.py the App ids already seen (.qp-deploy-cache.json): an App is redeployed, never created twice
       status.py       qp-deploy status: one line per App, then the workflow App's /readyz
       qp_deploy.py    qp-deploy: the parser, url, --dry-run
-      apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running
+      apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running; send_to_domino, domino_json and describe_failure, shared by every call to Domino
+      domino_lookups/  what qp-deploy reads of Domino besides its Apps
+        paged_list.py   read_pages: a list of Domino's documented API read page after page, a 401 or 403 refused with the permission it needs
+        hardware_tiers.py  HardwareTier (its size, every field Domino gave), list_hardware_tiers, tier_named: one tier by its exact name, or a refusal listing the tiers Domino has
     loadtest/         the load-test client, with locustfile.py
       loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request

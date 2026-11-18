@@ -24,9 +24,11 @@ from ..domain.errors import describe_error
 if TYPE_CHECKING:  # app_id_cache imports DominoDeployError from here
     from .app_id_cache import AppIdCache
 
-_Query = Mapping[str, str] | None  # query parameters of one Apps API call
+_Query = Mapping[str, str] | None  # query parameters of one call to Domino
 
 APPS_API_PATH = "/api/apps/beta/apps"
+APPS_API = "Domino Apps API"  # the name of each API in a message
+DOMINO_API = "Domino API"
 FAILED_STATUSES = ("Failed", "Error", "Stopped")
 
 
@@ -236,34 +238,105 @@ class DominoAppsClient:
     def _send(
         self, method: str, path: str, *, json: object = None, params: _Query = None
     ) -> httpx.Response:
-        try:
-            response = self.http.request(method, path, json=json, params=params)
-        except httpx.HTTPError as exc:  # refused, timed out, DNS: no answer at all
-            base_url = str(self.http.base_url).rstrip("/")
-            raise DominoDeployError(
-                f"Domino Apps API {method} {path} could not be reached at "
-                f"{base_url}: {describe_error(exc)}"
-            ) from exc
-        return response
+        return send_to_domino(
+            self.http, method, path, api=APPS_API, json=json, params=params
+        )
 
     @staticmethod
     def _json(response: httpx.Response) -> Mapping[str, object]:
-        if response.status_code != HTTPStatus.OK:
-            request = response.request
-            raise DominoDeployError(
-                _describe_failure(request.method, request.url.path, response)
-            )
+        return domino_json(APPS_API, response)
+
+
+def send_to_domino(
+    http: httpx.Client,
+    method: str,
+    path: str,
+    *,
+    api: str,
+    json: object = None,
+    params: _Query = None,
+) -> httpx.Response:
+    """Send one call to a Domino API, refusing a call that got no answer at all.
+
+    Args:
+        http: Client whose base URL is Domino (``DOMINO_API_PROXY`` inside a run).
+        method: The HTTP method, e.g. ``"GET"``.
+        path: The path of the call.
+        api: The API's name in a message, ``APPS_API`` or ``DOMINO_API``.
+        json: The body, if any.
+        params: The query parameters, if any.
+
+    Returns:
+        Domino's answer, whatever its status.
+
+    Raises:
+        DominoDeployError: If the call was refused, timed out or found no host.
+
+    Example:
+        >>> send_to_domino(http, "GET", "/api/apps/beta/apps", api=APPS_API)
+    """
+    try:
+        return http.request(method, path, json=json, params=params)
+    except httpx.HTTPError as exc:  # refused, timed out, DNS: no answer at all
+        base_url = str(http.base_url).rstrip("/")
+        raise DominoDeployError(
+            f"{api} {method} {path} could not be reached at "
+            f"{base_url}: {describe_error(exc)}"
+        ) from exc
+
+
+def domino_json(api: str, response: httpx.Response) -> Mapping[str, object]:
+    """Read a Domino answer of status 200 as a JSON object.
+
+    Args:
+        api: The API's name in a message, ``APPS_API`` or ``DOMINO_API``.
+        response: Domino's answer.
+
+    Returns:
+        The answer's body when it is a JSON object, else an empty one.
+
+    Raises:
+        DominoDeployError: If the status is not 200 (see ``describe_failure``),
+            or the body of a 200 is not JSON (a sign-in page, say).
+
+    Example:
+        >>> domino_json(APPS_API, http.get("/api/apps/beta/apps"))["items"]
+    """
+    if response.status_code != HTTPStatus.OK:
+        raise DominoDeployError(describe_failure(api, response))
+    try:
         return json_mapping(response.json())
+    except ValueError as exc:
+        request = response.request
+        raise DominoDeployError(
+            f"{api} {request.method} {request.url.path} answered HTTP 200 with a "
+            f"body that is not JSON: {response.text[:200]}"
+        ) from exc
 
 
-def _describe_failure(method: str, path: str, response: httpx.Response) -> str:
+def describe_failure(api: str, response: httpx.Response) -> str:
+    """Say what a Domino call answered when its status is not 200.
+
+    Args:
+        api: The API's name in the message, ``APPS_API`` or ``DOMINO_API``.
+        response: Domino's answer; on 401 or 403 its ``errors`` are the detail,
+            else the first 200 characters of its body.
+
+    Returns:
+        ``"{api} {method} {path} returned HTTP {status}: {detail}"``.
+
+    Example:
+        >>> describe_failure(DOMINO_API, forbidden)
+        'Domino API GET /api/hardwaretiers/v1/hardwaretiers returned HTTP 403: ...'
+    """
+    request = response.request
     detail = response.text[:200]
     if response.status_code in (401, 403):
         errors = json_list(json_mapping(_json_or_none(response)).get("errors"))
         detail = "; ".join(str(error) for error in errors) or detail
     return (
-        f"Domino Apps API {method} {path} returned HTTP {response.status_code}: "
-        f"{detail}"
+        f"{api} {request.method} {request.url.path} returned HTTP "
+        f"{response.status_code}: {detail}"
     )
 
 
