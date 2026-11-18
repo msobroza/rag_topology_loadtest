@@ -21,8 +21,8 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
 from ..domain.conversation import HistoryMessage
-from ..domain.metadata_filter import MetadataCondition
-from ..domain.passages import RagMode, ScoredPassage
+from ..domain.retrieval.metadata_filter import MetadataCondition
+from ..domain.retrieval.passages import RagMode, ScoredPassage
 
 # What one request carries from stage to stage, by field name: a stage reads
 # the values its reads name and returns the fields it writes, the update

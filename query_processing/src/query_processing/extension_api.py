@@ -73,21 +73,21 @@ from .application.stages.base_stage import (
     StageSettings,
 )
 from .composition.composition_root import CompositionRoot
-from .config.router_settings import RouterSettings
-from .config.settings_blocks import SettingsBlock
+from .config.components.router_settings import RouterSettings
+from .config.components.settings_blocks import SettingsBlock
 from .config.workflow_settings import WorkflowSettings
-from .domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
-from .domain.base_component import BaseComponent
-from .domain.component_requests import (
+from .domain.components.base_component import BaseComponent
+from .domain.components.component_requests import (
     EmbedAnswer,
     EmbedRequest,
     GenerateAnswer,
     GenerateRequest,
 )
-from .domain.component_resources import ComponentResources
+from .domain.components.component_resources import ComponentResources
+from .domain.components.routes import Route, RouteChoice, RouteRequest
+from .domain.endpoints.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.errors import RagDependencyError
-from .domain.metadata_filter import MetadataCondition
-from .domain.routes import Route, RouteChoice, RouteRequest
+from .domain.retrieval.metadata_filter import MetadataCondition
 from .infrastructure.endpoint.served_call import ServedCallMixin
 
 __all__ = [

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 import pytest
 
 from calibration_fakes import FakeCalibratedStage, FakeClock, FakeStageAdapter
-from query_processing.domain.calibration import (
+from query_processing.domain.runtime.calibration import (
     CalibrationReport,
     StageTuning,
     TimedTrial,

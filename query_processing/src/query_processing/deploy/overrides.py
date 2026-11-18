@@ -18,7 +18,7 @@ Example:
 
 from __future__ import annotations
 
-from ..domain.api_endpoint import DOMINO_RUN_TOKEN
+from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN
 from ..domain.roles import WORKFLOW_APP
 from .apps_client import DominoDeployError
 from .deploy_settings import DeploySettings, deploy_file, override_values

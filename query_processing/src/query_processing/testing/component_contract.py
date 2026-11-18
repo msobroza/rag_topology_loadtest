@@ -39,9 +39,9 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_components import SERVED, ComponentType
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.api_endpoint import call_path
-from ..domain.api_format import api_format_of
-from ..domain.base_component import BaseComponent
+from ..domain.components.base_component import BaseComponent
+from ..domain.endpoints.api_endpoint import call_path
+from ..domain.endpoints.api_format import api_format_of
 from ..entrypoints.qp_model_server import create_model_server
 
 # The backend the model server's settings name: none of the type's, so that no

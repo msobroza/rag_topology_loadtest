@@ -31,7 +31,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from ..domain.api_endpoint import DOMINO_RUN_TOKEN, SERVED_BACKEND
+from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, SERVED_BACKEND
 from ..domain.roles import WORKFLOW_APP, AppPart
 from .apps_client import DominoDeployError, WaitLimits
 from .model_server_kinds.base_model_server_kind import MODEL_SERVER_KINDS

@@ -28,7 +28,7 @@ from typing import Any, NamedTuple
 from pydantic import BaseModel, ValidationError, create_model
 from pydantic.fields import FieldInfo
 
-from ..domain.base_component import BaseComponent
+from ..domain.components.base_component import BaseComponent
 from ..domain.graph_description import StageDescription
 from .stages.base_stage import (
     BaseStage,

@@ -10,7 +10,7 @@ from ...adapters.vector_store.base_vector_store import BaseVectorStore
 from ...adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
-from ...config.component_settings import VectorStoreSettings
+from ...config.components.component_settings import VectorStoreSettings
 from .component_openers import VECTOR_STORE_OPENERS, SharedResources
 
 

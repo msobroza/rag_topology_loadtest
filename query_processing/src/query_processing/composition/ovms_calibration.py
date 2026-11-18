@@ -34,8 +34,8 @@ from pathlib import Path
 from ..config.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.backends import OpenVinoWeightFormat
-from ..domain.calibration import CalibrationReport, halvings
+from ..domain.runtime.backends import OpenVinoWeightFormat
+from ..domain.runtime.calibration import CalibrationReport, halvings
 from ..infrastructure.calibration.served_stage_calibration import calibrate_served
 from ..infrastructure.json_log import log_json
 from ..infrastructure.ovms.ovms_serving_folder import (

@@ -15,7 +15,7 @@ import pytest
 
 from answer_record_helpers import record, use_loadtest_variables, workflow_client
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.corpus import synthetic_questions
+from query_processing.domain.retrieval.corpus import synthetic_questions
 from query_processing.loadtest.answer_record import read_answer_record
 from query_processing.loadtest.qp_record_answers import record_answers_main
 from rag_components import FAKE_BACKENDS

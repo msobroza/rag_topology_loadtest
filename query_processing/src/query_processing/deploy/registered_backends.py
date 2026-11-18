@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..domain.api_endpoint import SERVED_BACKEND
-from ..domain.base_component import COMPONENT_TYPES
+from ..domain.components.base_component import COMPONENT_TYPES
+from ..domain.endpoints.api_endpoint import SERVED_BACKEND
 
 # The package of the openers, beside this one in query_processing.
 OPENERS = Path(__file__).resolve().parents[1] / "composition" / "openers"

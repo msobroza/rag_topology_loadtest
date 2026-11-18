@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.thread_budget import ThreadBudget, plan_thread_budget
+from ..domain.runtime.thread_budget import ThreadBudget, plan_thread_budget
 from ..infrastructure.calibration.timed_trials import CalibrationLimits
 from ..infrastructure.local_models.cpu_count import (
     BaseCpuCounter,

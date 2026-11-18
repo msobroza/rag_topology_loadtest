@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 
 SettingsFactory = Callable[..., WorkflowSettings]
 EMBED_URL = "http://embedder:8002/v3/embeddings"

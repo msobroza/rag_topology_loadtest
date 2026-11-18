@@ -24,11 +24,11 @@ import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
-from ...domain.base_component import BaseComponent
-from ...domain.component_requests import SearchAnswer, SearchRequest
-from ...domain.metadata_filter import MetadataCondition
-from ...domain.passages import Passage, ScoredPassage
-from ...domain.rank_fusion import reciprocal_rank_fusion
+from ...domain.components.base_component import BaseComponent
+from ...domain.components.component_requests import SearchAnswer, SearchRequest
+from ...domain.retrieval.metadata_filter import MetadataCondition
+from ...domain.retrieval.passages import Passage, ScoredPassage
+from ...domain.retrieval.rank_fusion import reciprocal_rank_fusion
 
 
 class BaseVectorStore(

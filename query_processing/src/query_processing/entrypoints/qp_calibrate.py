@@ -46,8 +46,8 @@ from ..composition.ovms_calibration import OvmsAppCalibration
 from ..composition.registered_names import check_registered_names
 from ..config.ovms_settings import OvmsSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.calibration import CalibrationReport
 from ..domain.errors import RagDependencyError
+from ..domain.runtime.calibration import CalibrationReport
 from ..infrastructure.local_models.model_provisioning import ModelProvisioningError
 from ..infrastructure.local_models.openvino_export import OpenVinoUnavailableError
 from ..infrastructure.one_line_failure import one_line_failure

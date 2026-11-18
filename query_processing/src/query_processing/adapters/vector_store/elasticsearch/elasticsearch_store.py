@@ -22,8 +22,8 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from ....domain.errors import RagDependencyError
-from ....domain.metadata_filter import MetadataCondition
-from ....domain.passages import Passage, ScoredPassage
+from ....domain.retrieval.metadata_filter import MetadataCondition
+from ....domain.retrieval.passages import Passage, ScoredPassage
 from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
 from .elasticsearch_filter_translator import ElasticsearchFilterTranslator
 

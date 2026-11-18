@@ -30,7 +30,7 @@ from typing import (
     get_origin,
 )
 
-from ..domain.metadata_filter import MetadataCondition
+from ..domain.retrieval.metadata_filter import MetadataCondition
 from .stages.base_stage import FieldTypes, type_name
 from .workflow_state import (
     METADATA_FILTER_FIELD,

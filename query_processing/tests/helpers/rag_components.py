@@ -19,8 +19,8 @@ import copy
 from collections.abc import Mapping
 from typing import Any
 
-from query_processing.config.prompts_file import PROMPTS_FILE_VAR
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.prompts_file import PROMPTS_FILE_VAR
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 
 # Every model component and the vector store on its fake backend: no weights,
 # no network, no Elasticsearch.

@@ -26,9 +26,9 @@ from typing import Any
 
 import httpx
 
-from ...domain.backends import LocalModelRuntime
 from ...domain.errors import describe_error
-from ...domain.thread_budget import ThreadBudget, plan_thread_budget
+from ...domain.runtime.backends import LocalModelRuntime
+from ...domain.runtime.thread_budget import ThreadBudget, plan_thread_budget
 from ..http.http_policy import HttpPolicy
 from ..json_log import log_json
 

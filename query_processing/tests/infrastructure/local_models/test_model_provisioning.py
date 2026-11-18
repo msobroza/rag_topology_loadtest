@@ -14,7 +14,10 @@ from pathlib import Path
 import pytest
 
 from openvino_package_fakes import FakeOpenVinoPackages
-from query_processing.domain.backends import LocalModelRuntime, OpenVinoWeightFormat
+from query_processing.domain.runtime.backends import (
+    LocalModelRuntime,
+    OpenVinoWeightFormat,
+)
 from query_processing.infrastructure.local_models.local_model import (
     LocalModel,
     OpenVinoExports,

@@ -30,17 +30,17 @@ import httpx
 
 from ..adapters.embedder.api.api_embedder import ApiEmbedder, open_api_embedder
 from ..adapters.reranker.api.api_reranker import ApiReranker, open_api_reranker
-from ..config.component_settings import EmbedderSettings, RerankerSettings
+from ..config.components.component_settings import EmbedderSettings, RerankerSettings
 from ..config.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
-from ..domain.api_endpoint import (
+from ..domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_RERANK_PATH,
     ApiEndpoint,
 )
-from ..domain.calibration import StageTuning, calibration_sample
-from ..domain.passages import ScoredPassage
-from ..domain.standard_formats import STANDARD_API_FORMATS
+from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
+from ..domain.retrieval.passages import ScoredPassage
+from ..domain.runtime.calibration import StageTuning, calibration_sample
 from ..infrastructure.calibration.served_stage_calibration import BaseServedStage
 from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
 from ..infrastructure.http.http_policy import HttpPolicy

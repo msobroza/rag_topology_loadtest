@@ -31,13 +31,13 @@ from ..adapters.embedder.local.sentence_transformer_embedder import (
 )
 from ..adapters.reranker.local.cross_encoder_reranker import CrossEncoderReranker
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.calibration import (
+from ..domain.retrieval.passages import ScoredPassage
+from ..domain.runtime.calibration import (
     CalibrationReport,
     StageTuning,
     calibration_sample,
     halvings,
 )
-from ..domain.passages import ScoredPassage
 from ..infrastructure.local_models.local_model import LocalModel
 from ..infrastructure.local_models.stage_calibration import (
     BaseCalibratedStage,

@@ -19,8 +19,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ...domain.api_format import COMPONENT_API_FORMATS, BaseApiFormat
-from ...domain.routes import RouteChoice, RouteRequest
+from ...domain.components.routes import RouteChoice, RouteRequest
+from ...domain.endpoints.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 
 _REQUEST_SHAPE = "{'embedding': [<float>, ...]}"
 _ANSWER_SHAPE = "{'route': <name>, 'confidence': <float>}"

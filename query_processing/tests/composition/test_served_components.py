@@ -18,7 +18,7 @@ from query_processing.composition.composition_root import CompositionRoot
 from query_processing.composition.registered_components import served_class_of
 from query_processing.composition.registered_names import check_registered_names
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.base_component import BaseComponent
+from query_processing.domain.components.base_component import BaseComponent
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.registry import Registry

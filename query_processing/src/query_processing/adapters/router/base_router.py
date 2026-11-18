@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from ...domain.base_component import BaseComponent
-from ...domain.routes import RouteChoice, RouteRequest
+from ...domain.components.base_component import BaseComponent
+from ...domain.components.routes import RouteChoice, RouteRequest
 
 
 class BaseRouter(BaseComponent[RouteRequest, RouteChoice], component_type="router"):

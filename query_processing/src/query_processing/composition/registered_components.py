@@ -24,12 +24,14 @@ from collections.abc import Iterable
 from functools import cache
 from typing import Any
 
-from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.api_endpoint import SERVED_BACKEND
-from ..domain.api_format import api_format_of
-from ..domain.base_component import BaseComponent
-from ..domain.component_resources import ComponentResources
+from ..domain.components.base_component import BaseComponent
+from ..domain.components.component_resources import ComponentResources
+from ..domain.endpoints.api_endpoint import SERVED_BACKEND
+from ..domain.endpoints.api_format import api_format_of
 from ..infrastructure.endpoint.open_endpoint_client import open_endpoint_client
 from ..infrastructure.endpoint.served_call import ServedCallMixin
 from .http_resources import HttpResources

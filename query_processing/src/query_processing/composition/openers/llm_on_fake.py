@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...adapters.llm.base_llm import BaseLLM
 from ...adapters.llm.fake.fake_llm import FakeLLM
-from ...config.component_settings import LlmSettings
+from ...config.components.component_settings import LlmSettings
 from .component_openers import LLM_OPENERS, SharedResources
 
 

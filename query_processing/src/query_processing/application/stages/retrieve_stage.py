@@ -30,10 +30,10 @@ from ...adapters.vector_store.base_vector_store import (
     BaseVectorStore,
     required_lexical_search,
 )
-from ...domain.component_requests import SearchRequest
-from ...domain.metadata_filter import MetadataCondition
-from ...domain.passages import ScoredPassage
-from ...domain.retrieval_mode import RetrievalMode
+from ...domain.components.component_requests import SearchRequest
+from ...domain.retrieval.metadata_filter import MetadataCondition
+from ...domain.retrieval.passages import ScoredPassage
+from ...domain.retrieval.retrieval_mode import RetrievalMode
 from ..workflow_state import WorkflowState
 from .base_stage import (
     STAGE_TYPES,

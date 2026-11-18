@@ -13,8 +13,8 @@ from typing import Any
 
 import httpx
 
-from query_processing.domain.api_endpoint import ApiEndpoint
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
+from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.infrastructure.endpoint.api_endpoint_client import (
     ApiEndpointClient,
 )

@@ -22,8 +22,8 @@ from typing import NamedTuple
 
 import httpx
 
-from ...domain.corpus import SourceDocument
 from ...domain.errors import describe_error
+from ...domain.retrieval.corpus import SourceDocument
 from ..http.http_policy import HttpPolicy
 from .catalog import CorpusDefinition
 from .conversion import corpus_questions, reference_documents

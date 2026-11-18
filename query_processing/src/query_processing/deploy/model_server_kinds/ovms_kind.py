@@ -18,7 +18,7 @@ import os
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from ...domain.api_endpoint import (
+from ...domain.endpoints.api_endpoint import (
     MODEL_SERVER_CHAT_PATH,
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,

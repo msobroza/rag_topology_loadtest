@@ -28,7 +28,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from ...domain.calibration import (
+from ...domain.runtime.calibration import (
     CalibrationReport,
     StageTuning,
     TimedTrial,

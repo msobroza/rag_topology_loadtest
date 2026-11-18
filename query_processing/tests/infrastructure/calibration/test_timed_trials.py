@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 import pytest
 
 from calibration_fakes import FakeClock
-from query_processing.domain.calibration import (
+from query_processing.domain.runtime.calibration import (
     CalibrationReport,
     StageTuning,
     TimedTrial,

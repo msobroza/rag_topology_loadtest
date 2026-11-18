@@ -22,7 +22,7 @@ Each job has its own module, and this class only wires them together:
   folder it serves from.
 
 The openers take each component's settings in the workflow file's shape
-(``config/component_settings.py``).
+(``config/components/component_settings.py``).
 
 Open ports from one task (an app lifespan or a CLI ``main``): first requests are
 not guarded against running concurrently.
@@ -51,19 +51,21 @@ from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.graph_check import check_graph
 from ..application.rag_dependencies import RagDependencies
 from ..application.stages.base_stage import StageContext
-from ..config.component_settings import (
+from ..config.components.component_settings import (
     ComponentSettings,
     EmbedderSettings,
     RerankerSettings,
     VectorStoreSettings,
 )
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
+from ..config.components.router_settings import RouterSettings, routes_of
 from ..config.ovms_settings import OvmsSettings
-from ..config.registered_component_settings import RegisteredComponentSettings
-from ..config.router_settings import RouterSettings, routes_of
 from ..config.searched_embedder import seeding_embedder
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.base_component import BaseComponent
-from ..domain.component_resources import ComponentResources
+from ..domain.components.base_component import BaseComponent
+from ..domain.components.component_resources import ComponentResources
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
 from .component_factory import ComponentFactory

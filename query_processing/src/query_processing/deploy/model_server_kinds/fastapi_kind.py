@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ...domain.api_endpoint import (
+from ...domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
     MODEL_SERVER_MODEL_ROUTE,
     MODEL_SERVER_RERANK_PATH,

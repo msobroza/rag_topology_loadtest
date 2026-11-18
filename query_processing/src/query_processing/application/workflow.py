@@ -20,8 +20,8 @@ from typing import Any
 from langgraph.graph.state import CompiledStateGraph
 
 from ..domain.conversation import HistoryMessage
-from ..domain.metadata_filter import MetadataCondition
-from ..domain.passages import TOTAL_TIMING_KEY, RagMode, RagResult
+from ..domain.retrieval.metadata_filter import MetadataCondition
+from ..domain.retrieval.passages import TOTAL_TIMING_KEY, RagMode, RagResult
 from .workflow_state import (
     METADATA_FILTER_FIELD,
     TIMINGS_FIELD,

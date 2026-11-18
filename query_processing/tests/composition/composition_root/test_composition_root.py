@@ -28,7 +28,7 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_components import FAKE_BACKENDS
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 

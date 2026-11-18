@@ -19,7 +19,7 @@ from query_processing.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
-from query_processing.domain.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from query_processing.domain.errors import RagDependencyError
 
 URL = "http://models.test:8002/v3/embeddings"

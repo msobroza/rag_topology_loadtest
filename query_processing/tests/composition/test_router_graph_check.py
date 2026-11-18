@@ -16,7 +16,7 @@ from query_processing.composition.composition_root import (
     check_workflow_graph,
     component_type_settings,
 )
-from query_processing.config.routes_file import ROUTES_FILE_VAR
+from query_processing.config.files.routes_file import ROUTES_FILE_VAR
 from query_processing.config.workflow_settings import WorkflowSettings
 from rag_graphs import fixture_graph
 

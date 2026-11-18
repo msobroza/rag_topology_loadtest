@@ -30,7 +30,7 @@ from langgraph.graph import END as LANGGRAPH_END
 from langgraph.graph import START as LANGGRAPH_START
 from langgraph.graph import StateGraph
 
-from ..domain.base_component import BaseComponent
+from ..domain.components.base_component import BaseComponent
 from ..domain.graph_description import (
     END,
     START,

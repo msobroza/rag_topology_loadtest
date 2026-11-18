@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from shout_components import SHOUT_EXTENSION, write_shout_workflow
 from shout_extension.shouting import UpperShouterSettings

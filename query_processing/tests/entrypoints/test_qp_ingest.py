@@ -12,7 +12,7 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
 )
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.corpus import (
+from query_processing.domain.retrieval.corpus import (
     TOPICS,
     SourceDocument,
 )

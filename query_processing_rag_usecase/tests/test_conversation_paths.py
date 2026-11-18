@@ -26,7 +26,7 @@ from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.adapters.router.fake.fake_router import FakeRouter
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.routes import RouteChoice, RouteRequest
+from query_processing.domain.components.routes import RouteChoice, RouteRequest
 from query_processing.entrypoints.qp_serve import create_app
 from query_processing.extension_api import GenerateAnswer
 

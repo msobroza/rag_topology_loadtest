@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from ....domain.component_resources import ComponentResources
-from ....domain.routes import RouteChoice, RouteRequest
+from ....domain.components.component_resources import ComponentResources
+from ....domain.components.routes import RouteChoice, RouteRequest
 from ..base_router import BaseRouter
 
 

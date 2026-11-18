@@ -40,7 +40,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Generic, TypeVar
 
-from ...domain.calibration import CalibrationReport, StageTuning
+from ...domain.runtime.calibration import CalibrationReport, StageTuning
 from ..calibration.timed_trials import CalibrationLimits, TimedTrials, untimed_report
 
 T = TypeVar("T")

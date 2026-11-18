@@ -1,7 +1,7 @@
 """What a generation API format is, and the registry of them by name.
 
 An API format is a request body builder and an answer reader, no HTTP: the
-shapes are the standard formats of ``domain/standard_formats.py``.
+shapes are the standard formats of ``domain/endpoints/standard_formats.py``.
 
 A new format is one new module beside this one, its class decorated with
 ``@GENERATION_API_FORMATS.register(name)``; the package imports every module.
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ....domain.component_requests import GenerateAnswer
+from ....domain.components.component_requests import GenerateAnswer
 from ....domain.registry import Registry
 
 

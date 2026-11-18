@@ -38,8 +38,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ..config.files.workflow_file import declared_alias
 from ..config.shared_settings import DefaultHttpSettings
-from ..config.workflow_file import declared_alias
 
 LoadTarget = Literal["rag", "rerank", "embeddings"]
 LOAD_TARGETS: tuple[LoadTarget, ...] = ("rag", "rerank", "embeddings")

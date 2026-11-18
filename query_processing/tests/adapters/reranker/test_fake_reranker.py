@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.retrieval.passages import ScoredPassage
 
 
 def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:

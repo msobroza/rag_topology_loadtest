@@ -22,11 +22,11 @@ from query_processing.application.prompt_rendering import render_prompt
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.conversation import HistoryMessage
-from query_processing.domain.metadata_filter import (
+from query_processing.domain.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
 )
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints.qp_serve import create_app
 
 from query_processing_rag_usecase.config.knn_router_settings import KnnRouterSettings

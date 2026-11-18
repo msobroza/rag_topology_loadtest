@@ -31,10 +31,10 @@ from typing import Any
 from pydantic import BaseModel, ValidationError, field_validator
 
 from ...adapters.llm.base_llm import BaseLLM
-from ...domain.component_requests import GenerateAnswer
+from ...domain.components.component_requests import GenerateAnswer
 from ...domain.errors import RagDependencyError
-from ...domain.metadata_filter import MetadataFieldInfo
 from ...domain.prompts import Prompt
+from ...domain.retrieval.metadata_filter import MetadataFieldInfo
 from ..output_schemas import OUTPUT_SCHEMAS, condition_fields, narrowed_to
 from ..prompt_rendering import prompt_placeholders, prompt_variables, render_prompt
 from ..workflow_state import MESSAGES_TYPE, TOKENS_FIELD, WorkflowState

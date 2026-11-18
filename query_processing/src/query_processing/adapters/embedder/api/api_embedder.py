@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable, Sequence
 import httpx
 from pydantic import ValidationError
 
-from ....domain.api_endpoint import ApiEndpoint
+from ....domain.endpoints.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError, describe_error
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
 from ....infrastructure.endpoint.open_endpoint_client import (

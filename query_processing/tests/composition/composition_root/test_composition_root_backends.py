@@ -21,7 +21,7 @@ from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVec
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.passages import Passage, ScoredPassage
+from query_processing.domain.retrieval.passages import Passage, ScoredPassage
 from query_processing.infrastructure.local_models.local_model import (
     exported_model_dir,
     local_model,

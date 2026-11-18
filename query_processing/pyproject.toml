@@ -151,7 +151,7 @@ max-statements = 30
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "ANN", "ARG", "PLR2004", "PLR0913", "E501"]
-"src/query_processing/domain/corpus.py" = ["E501"]  # prose templates
+"src/query_processing/domain/retrieval/corpus.py" = ["E501"]  # prose templates
 # The fake Domino mirrors Domino's camelCase JSON field and query/path parameter
 # names, so its models and route parameters cannot be snake_case.
 "src/fake_domino/api_shapes.py" = ["N815"]

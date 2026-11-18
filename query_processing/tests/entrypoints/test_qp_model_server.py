@@ -26,10 +26,10 @@ from query_processing.adapters.reranker.api.cohere_rerank_format import (
 from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
+from query_processing.domain.endpoints.standard_formats import CohereRerankRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.passages import ScoredPassage
-from query_processing.domain.standard_formats import CohereRerankRequest
+from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints.qp_model_server import (
     UNKNOWN_MODEL_ERROR,
     candidates_from_rerank,

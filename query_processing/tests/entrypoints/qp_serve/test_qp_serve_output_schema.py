@@ -27,10 +27,10 @@ from model_api_fakes import ScriptedRoute
 from output_schema_fakes import FIXTURE_SCHEMA, FixtureRewrite
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.composition.composition_root import CompositionRoot
-from query_processing.config.prompts_file import PROMPTS_FILE_VAR
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.prompts_file import PROMPTS_FILE_VAR
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.component_requests import GenerateAnswer
+from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.entrypoints import qp_serve
 from query_processing.entrypoints.qp_serve import create_app
 from rag_components import FAKE_BACKEND_VARIABLES, FAKE_BACKENDS, shell_settings

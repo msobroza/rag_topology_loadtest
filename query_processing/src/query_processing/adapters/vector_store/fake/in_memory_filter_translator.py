@@ -17,8 +17,8 @@ import operator
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from ....domain.metadata_filter import Comparator, MetadataCondition
-from ....domain.passages import Passage
+from ....domain.retrieval.metadata_filter import Comparator, MetadataCondition
+from ....domain.retrieval.passages import Passage
 from ..base_metadata_filter_translator import BaseMetadataFilterTranslator
 
 PassagePredicate = Callable[[Passage], bool]

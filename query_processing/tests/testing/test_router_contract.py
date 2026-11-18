@@ -8,7 +8,7 @@ from collections.abc import Sequence
 import pytest
 
 from query_processing.adapters.router.base_router import BaseRouter
-from query_processing.domain.routes import RouteChoice, RouteRequest
+from query_processing.domain.components.routes import RouteChoice, RouteRequest
 from query_processing.testing import RouterContract
 
 

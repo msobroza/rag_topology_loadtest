@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from query_processing.domain.base_component import BaseComponent
+from query_processing.domain.components.base_component import BaseComponent
 from query_processing.domain.registry import Registry
 
 

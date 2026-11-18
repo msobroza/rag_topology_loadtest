@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from uvicorn.lifespan.on import LifespanOn
 
 from query_processing.composition.composition_root import CompositionRoot
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.entrypoints import qp_serve
 from query_processing.entrypoints.qp_serve import GraphRefusalInOneLine, create_app

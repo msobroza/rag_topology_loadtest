@@ -15,8 +15,8 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from ....domain.metadata_filter import MetadataCondition
-from ....domain.passages import Passage, ScoredPassage
+from ....domain.retrieval.metadata_filter import MetadataCondition
+from ....domain.retrieval.passages import Passage, ScoredPassage
 from ....infrastructure.fake_text import cosine
 from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
 from .in_memory_filter_translator import InMemoryFilterTranslator

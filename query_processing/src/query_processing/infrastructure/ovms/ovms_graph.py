@@ -21,7 +21,7 @@ import json
 import re
 from collections.abc import Mapping
 
-from ...domain.calibration import StageTuning
+from ...domain.runtime.calibration import StageTuning
 from ..openvino_cpu_properties import openvino_cpu_properties
 
 # The line's head up to the opening quote, the JSON, then the closing quote and

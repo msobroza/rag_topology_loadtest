@@ -20,8 +20,8 @@ from query_processing.adapters.reranker.api.base_rerank_api_format import (
 from query_processing.adapters.reranker.api.cohere_rerank_format import (
     CohereRerankFormat,
 )
+from query_processing.domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from query_processing.domain.registry import Registry
-from query_processing.domain.standard_formats import STANDARD_API_FORMATS
 
 REGISTRIES: dict[str, Registry[type]] = {
     "embedding": EMBEDDING_API_FORMATS,

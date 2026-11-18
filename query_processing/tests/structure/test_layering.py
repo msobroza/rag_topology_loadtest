@@ -105,7 +105,7 @@ def module_name(path: Path) -> str:
 
     Example::
 
-        module_name(PACKAGE / "domain" / "passages.py")   # "query_processing.domain.passages"
+        module_name(PACKAGE / "domain" / "registry.py")   # "query_processing.domain.registry"
     """
     parts = path.relative_to(PACKAGE.parent).with_suffix("").parts
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
@@ -133,8 +133,8 @@ def imported_product_modules(module: str, source: str) -> list[tuple[int, str]]:
     Example::
 
         imported_product_modules("query_processing.adapters.llm.api.api_llm",
-                                 "from ....domain.passages import Passage")
-        # [(1, "query_processing.domain.passages")]
+                                 "from ....domain.registry import Registry")
+        # [(1, "query_processing.domain.registry")]
     """
     home = module.split(".")[:-1]  # the package a relative import starts from
     found = []
@@ -152,7 +152,7 @@ def imported_packages(module: str, source: str) -> list[tuple[int, str]]:
     Example::
 
         imported_packages("query_processing.adapters.llm.api.api_llm",
-                          "from ....domain.passages import Passage")   # [(1, "domain")]
+                          "from ....domain.registry import Registry")   # [(1, "domain")]
     """
     return [
         (line, imported.split(".")[1])
@@ -180,9 +180,9 @@ def forbidden_imports(module: str, source: str) -> list[str]:
 
     Example::
 
-        forbidden_imports("query_processing.domain.passages",
+        forbidden_imports("query_processing.domain.registry",
                           "from ..adapters import embedder")
-        # ["query_processing.domain.passages:1 imports query_processing.adapters"]
+        # ["query_processing.domain.registry:1 imports query_processing.adapters"]
     """
     package = module.split(".")[1]
     allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
@@ -197,7 +197,7 @@ def forbidden_imports(module: str, source: str) -> list[str]:
 
 def test_the_import_reader_on_literal_sources() -> None:
     nested = "query_processing.adapters.llm.api.api_llm"
-    assert imported_packages(nested, "from ....domain.passages import x") == [
+    assert imported_packages(nested, "from ....domain.registry import x") == [
         (1, "domain")
     ]
     assert imported_packages(nested, "from ...http.json_post import x") == [
@@ -220,8 +220,8 @@ def test_the_import_reader_on_literal_sources() -> None:
 
 def test_the_import_table_on_literal_sources() -> None:
     assert forbidden_imports(
-        "query_processing.domain.passages", "from ..adapters import embedder"
-    ) == ["query_processing.domain.passages:1 imports query_processing.adapters"]
+        "query_processing.domain.registry", "from ..adapters import embedder"
+    ) == ["query_processing.domain.registry:1 imports query_processing.adapters"]
     assert forbidden_imports(
         "query_processing.loadtest.request_plans",
         "\nfrom ..config import workflow_settings",
@@ -248,12 +248,12 @@ def test_the_import_table_on_literal_sources() -> None:
     assert (
         forbidden_imports("query_processing.loadtest.loadtest_settings", settings) == []
     )
-    workflow = "from ..config.workflow_file import workflow_file"
+    workflow = "from ..config.files.workflow_file import workflow_file"
     assert (
         forbidden_imports("query_processing.deploy.workflow_components", workflow) == []
     )
     assert forbidden_imports("query_processing.deploy.publish", workflow) == [
-        "query_processing.deploy.publish:1 imports query_processing.config.workflow_file"
+        "query_processing.deploy.publish:1 imports query_processing.config.files.workflow_file"
     ]
 
 
@@ -283,9 +283,9 @@ def forbidden_names(module: str, source: str) -> list[str]:
 
     Example::
 
-        forbidden_names("query_processing.domain.passages",
+        forbidden_names("query_processing.domain.registry",
                         "X = 'query_processing.adapters.router'")
-        # ["query_processing.domain.passages:1 names query_processing.adapters.router"]
+        # ["query_processing.domain.registry:1 names query_processing.adapters.router"]
     """
     package = module.split(".")[1]
     allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
@@ -303,14 +303,14 @@ def forbidden_names(module: str, source: str) -> list[str]:
 
 def test_the_name_reader_on_literal_sources() -> None:
     router = "X = 'query_processing.adapters.router'"
-    assert forbidden_names("query_processing.domain.passages", router) == [
-        "query_processing.domain.passages:1 names query_processing.adapters.router"
+    assert forbidden_names("query_processing.domain.registry", router) == [
+        "query_processing.domain.registry:1 names query_processing.adapters.router"
     ]
     assert forbidden_names("query_processing.config.extensions", router) == []
     fake = "X = 'query_processing.adapters.router.fake.fake_router'"
     assert forbidden_names("query_processing.config.extensions", fake) != []
     prose = '"""Loads query_processing.adapters.router first."""'
-    assert forbidden_names("query_processing.domain.passages", prose) == []
+    assert forbidden_names("query_processing.domain.registry", prose) == []
     assert (
         forbidden_names("query_processing.config.x", "X = 'query_processing.domain'")
         == []

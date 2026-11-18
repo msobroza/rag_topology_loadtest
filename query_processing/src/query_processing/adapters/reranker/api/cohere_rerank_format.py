@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ....domain.standard_formats import CohereRerankRequest, CohereRerankResponse
+from ....domain.endpoints.standard_formats import (
+    CohereRerankRequest,
+    CohereRerankResponse,
+)
 from .base_rerank_api_format import RERANK_API_FORMATS, BaseRerankApiFormat
 
 

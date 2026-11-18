@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from query_processing.domain.backends import OpenVinoWeightFormat
+from query_processing.domain.runtime.backends import OpenVinoWeightFormat
 from query_processing.infrastructure.local_models.local_model import (
     LocalModel,
     OpenVinoExports,

@@ -17,8 +17,8 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from ...domain.corpus import SourceDocument
-from ...domain.passages import MetadataValue
+from ...domain.retrieval.corpus import SourceDocument
+from ...domain.retrieval.passages import MetadataValue
 
 
 class CorpusFormatError(ValueError):

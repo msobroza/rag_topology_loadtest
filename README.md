@@ -563,7 +563,7 @@ a test.
 | --- | --- | --- | --- |
 | stage type, for a stage that does more than call its component | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type` and `settings_type`, and defines `check_fields` (the lists of fields it can use, with their types) and `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
 | edge condition | `application/edge_conditions/<name>.py`: a function of the values its conditional edge reads, in the order of its `reads`, that returns a bool, or a `str` label | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
-| backend of one of the four existing component types | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
+| backend of one of the four existing component types | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/components/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
 | API format of one of the four | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/qp_serve/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
 | model-server kind | `deploy/model_server_kinds/<name>_kind.py`: a `BaseModelServerKind` with its `routes` and `probe_route`; and the toolkit's `domino/model_servers/<name>.sh`, which defines `bootstrap_model_server` and `serve_model_server` | `@MODEL_SERVER_KINDS.register("<name>")` | `tests/deploy/model_server_kinds/test_a_new_model_server_kind.py` |
 
@@ -576,8 +576,8 @@ request and its answer in the domain, and its module named in
 imports before the extensions, so that the start-up checks find it
 registered. Its implementations sit beside it, one directory per backend
 (rule 4), and a settings class of the type's own keys is registered in
-`COMPONENT_TYPE_SETTINGS` in `config/component_settings.py`, as the router's
-`RouterSettings` is, kept in `config/router_settings.py`.
+`COMPONENT_TYPE_SETTINGS` in `config/components/component_settings.py`, as
+the router's `RouterSettings` is, kept in `config/components/router_settings.py`.
 
 ## Code layout
 
@@ -671,9 +671,10 @@ and no package imports it either, `extension_api` included.
    implementations share; `openers/` holds one opener per component type and
    Backend, a module each named `<type>_on_<backend>.py`, registered by type
    and Backend (rule 6), and an opener takes its component's settings in the
-   workflow file's shape (`config/component_settings.py`); the deploy tool,
-   which may not import them, reads a type's Backends from these module names
-   (`deploy/registered_backends.py`, held to the registries by a test); the one factory,
+   workflow file's shape (`config/components/component_settings.py`); the
+   deploy tool, which may not import them, reads a type's Backends from these
+   module names (`deploy/registered_backends.py`, held to the registries by a
+   test); the one factory,
    `component_factory.py`, opens a component once with the opener of its type
    and Backend, so a new Backend is one new module in `openers/` and no
    factory is edited; `registered_names.py` refuses an unknown Backend or API
@@ -699,9 +700,9 @@ and no package imports it either, `extension_api` included.
    `base_model_server_kind.py`, and one launch script each in
    `domino/model_servers/`) and a component type's settings class, which a
    component is read with (`COMPONENT_TYPE_SETTINGS` in
-   `config/component_settings.py`; the five types of the toolkit register
-   their classes there by call, four of them kept in that module and the
-   router's in `config/router_settings.py`, since the
+   `config/components/component_settings.py`; the five types of the toolkit
+   register their classes there by call, four of them kept in that module and
+   the router's in `config/components/router_settings.py`, since the
    decorator's return type would hide their fields from the type checkers;
    an unknown type is refused, listing the known ones). A stage type and an edge
    condition call only ports, so they are in the application; the description
@@ -714,12 +715,12 @@ and no package imports it either, `extension_api` included.
    `application/output_schemas.py`), a structured output method
    (`STRUCTURED_OUTPUT_METHODS` in `adapters/llm/api/base_structured_output_method.py`),
    the API format of a component type registered on its class line
-   (`COMPONENT_API_FORMATS` in `domain/api_format.py`), and the component
+   (`COMPONENT_API_FORMATS` in `domain/endpoints/api_format.py`), and the component
    types with their implementations, which register with no decorator: a
    component type names itself on its class line (`component_type="router"`)
    and an implementation its backend and settings (`backend="local",
    settings=...`), filling `COMPONENT_TYPES` and each type's backends in
-   `domain/base_component.py`. A use case's package fills the same registries:
+   `domain/components/base_component.py`. A use case's package fills the same registries:
    the toolkit imports every module of each package the workflow file names
    under `extensions` (`config/extensions.py`, with `import_package_tree`)
    before it reads the components, and a name registered twice stops the
@@ -752,8 +753,8 @@ and no package imports it either, `extension_api` included.
    `composition/openers/` (`<type>_on_<backend>.py`, and
    `component_openers.py`), `tests/entrypoints/qp_serve/`
    (`test_qp_serve.py` and `test_qp_serve_<aspect>.py`) and the charts package's `charts/`
-   (`<finding>_chart.py`). A folder not yet split (`domain/`, `config/`, their
-   tests, `tests/helpers/`, the emulated Domino's code and its tests) may not
+   (`<finding>_chart.py`). A folder not yet split (`tests/helpers/`, the
+   emulated Domino's code and its tests) may not
    pass the count it had when listed, and its entry fails as stale once the
    folder is back at 12 or under, so the list only shrinks. The measure is
    `directory_size_findings` in `query_processing.testing`, which a use case's
@@ -797,29 +798,33 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     __init__.py       package docstring, __version__
     extension_api.py  what a use case imports of the toolkit, every name it needs; its docstring holds the table of what can be added; no package imports it
     domain/           no I/O, no framework; imports no other package
-      passages.py     Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
-      api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
-      standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       errors.py       RagDependencyError, describe_error
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
-      base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line; each type's backends, filled on each implementation's class line (backend=, settings=); from_settings
-      component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
-      routes.py       Route, RouteRequest, RouteChoice: a route of routes.yaml (name, description, utterances), and the router's request and answer
-      api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
-      component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
       conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
-      metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
       query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
-      retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
-      rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
-      thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
-      calibration.py  StageTuning (threads, batch size, streams), halvings, fastest, calibration_sample: the rules of calibration, no clock
-      backends.py     the Runtime names (what runs an in-process model), the Weight format names (what an OpenVINO export stores its weights as), and what a Backend is
       run_label.py    the run label: its default (each component with its backend), what a valid one is
       roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
-      corpus.py       synthetic handbook corpus, its questions, chunking
+      components/     what a component is and how it is called
+        base_component.py  BaseComponent: a request in, an answer out (ainvoke, invoke); COMPONENT_TYPES, filled on each component type's class line; each type's backends, filled on each implementation's class line (backend=, settings=); from_settings
+        component_requests.py  the request and the answer of the four existing component types: EmbedRequest, RerankRequest, GenerateRequest, SearchRequest and their answers
+        component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
+        routes.py     Route, RouteRequest, RouteChoice: a route of routes.yaml (name, description, utterances), and the router's request and answer
+      endpoints/      what an Endpoint is and what is said to it
+        api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
+        api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
+        standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
+      retrieval/      what is searched and what comes back
+        passages.py   Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
+        metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
+        retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
+        rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
+        corpus.py     synthetic handbook corpus, its questions, chunking
+      runtime/        what runs an in-process model and how it is sized
+        backends.py   the Runtime names (what runs an in-process model), the Weight format names (what an OpenVINO export stores its weights as), and what a Backend is
+        thread_budget.py  ThreadBudget: how the virtual CPUs are split between model calls
+        calibration.py  StageTuning (threads, batch size, streams), halvings, fastest, calibration_sample: the rules of calibration, no clock
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState, what a request carries from stage to stage by field name (the state's type is built in state_fields); REQUEST_FIELD_TYPES, the fields the request writes; RESPONSE_FIELDS, those the response reads; REQUEST_FIELDS, those a stage may read wherever it is; MEASURED_FIELDS, timings_ms and tokens, which no stage writes; initial_state, sum_timings_by_stage, sum_tokens_by_stage
@@ -844,18 +849,20 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
-      component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
-      settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
-      registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
-      workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
-      prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
-      routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
-      router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
-      endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
       ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options), no value of the workflow file
+      components/     each component's settings
+        settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
+        component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
+        registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
+        router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
+        endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
+      files/          the three files a use case writes, and the settings sources that read them
+        workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
+        prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
+        routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder
@@ -2024,7 +2031,7 @@ same whether the endpoint is OVMS, the FastAPI model server or a gateway. An API
 that speaks another shape is reached through an adapter class that implements
 `BaseEmbedder` or `BaseReranker`, either in the workflow process or behind the
 model server's route. The shapes of the standards are pydantic classes in
-`src/query_processing/domain/standard_formats.py`. A new API format is one new
+`src/query_processing/domain/endpoints/standard_formats.py`. A new API format is one new
 module in the component's `api/` directory, its class decorated with the
 registry beside the base class, such as `@RERANK_API_FORMATS.register("cohere")`;
 no table or list is edited.
@@ -2422,7 +2429,7 @@ curl -s localhost:8002/v3/embeddings -H 'Content-Type: application/json' \
 **API formats.** OVMS speaks the `cohere` rerank format on `/v3/rerank` and the
 `openai` embeddings format on `/v3/embeddings`, the standard formats, so the
 workflow calls it as a `served` component, through the generic implementations
-of `adapters/<component>/api/`, with the full routes as URLs. The routes are wire-contract constants in `domain/api_endpoint.py`; the
+of `adapters/<component>/api/`, with the full routes as URLs. The routes are wire-contract constants in `domain/endpoints/api_endpoint.py`; the
 FastAPI model server answers on the same ones, and each model-server kind
 declares the route of each component type it serves
 (`deploy/model_server_kinds/`), from which `qp-deploy` builds a served URL.

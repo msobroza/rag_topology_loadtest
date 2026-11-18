@@ -11,7 +11,7 @@ from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.application.stage_binding import bind_call, stage_type_of
 from query_processing.application.stages.base_stage import STAGE_TYPES, StageFields
 from query_processing.domain.graph_description import StageDescription
-from query_processing.domain.passages import ScoredPassage
+from query_processing.domain.retrieval.passages import ScoredPassage
 
 
 def test_keys_fill_named_attributes_and_reads_fill_the_rest_in_order() -> None:

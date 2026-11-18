@@ -31,14 +31,14 @@ from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
-from ..config.component_settings import (
+from ..config.components.component_settings import (
     COMPONENT_TYPE_SETTINGS,
     Component,
     typed_by_name,
 )
 from ..config.extensions import load_extensions
-from ..config.routes_file import routes_file, routes_file_source
-from ..config.workflow_file import (
+from ..config.files.routes_file import routes_file, routes_file_source
+from ..config.files.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
     WorkflowFileNotFoundError,
     workflow_file,

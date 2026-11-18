@@ -21,8 +21,8 @@ from query_processing.adapters.llm.api.format_instructions_method import (
 from query_processing.adapters.llm.api.json_schema_method import JsonSchemaMethod
 from query_processing.adapters.llm.api.openai_chat_format import OpenAIChatFormat
 from query_processing.adapters.llm.base_llm import BaseLLM
-from query_processing.domain.api_endpoint import ApiEndpoint
-from query_processing.domain.component_requests import GenerateAnswer
+from query_processing.domain.components.component_requests import GenerateAnswer
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.domain.errors import RagDependencyError
 
 URL = "https://gateway.test/v1/chat/completions"

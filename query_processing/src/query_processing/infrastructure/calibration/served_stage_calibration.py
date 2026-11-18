@@ -34,7 +34,7 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import ClassVar
 
-from ...domain.calibration import CalibrationReport, StageTuning
+from ...domain.runtime.calibration import CalibrationReport, StageTuning
 from .timed_trials import CalibrationLimits, TimedTrials, untimed_report
 
 

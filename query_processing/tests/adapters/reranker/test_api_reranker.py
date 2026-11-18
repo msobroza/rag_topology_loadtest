@@ -19,7 +19,7 @@ from query_processing.adapters.reranker.api.cohere_rerank_format import (
     CohereRerankFormat,
 )
 from query_processing.adapters.reranker.base_reranker import BaseReranker
-from query_processing.domain.api_endpoint import ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.domain.errors import RagDependencyError
 
 URL = "https://rerank.test/v2/rerank"

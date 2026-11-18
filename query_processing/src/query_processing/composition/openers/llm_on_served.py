@@ -12,7 +12,7 @@ Example:
 from __future__ import annotations
 
 from ...adapters.llm.base_llm import BaseLLM
-from ...config.component_settings import LlmSettings
+from ...config.components.component_settings import LlmSettings
 from .component_openers import LLM_OPENERS, SharedResources
 from .llm_on_api import open_llm_at
 

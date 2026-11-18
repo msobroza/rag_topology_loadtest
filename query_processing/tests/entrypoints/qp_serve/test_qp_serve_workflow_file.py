@@ -24,7 +24,7 @@ from query_processing.composition.composition_root import (
     CompositionRoot,
     check_workflow_graph,
 )
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.entrypoints import qp_serve
 from query_processing.entrypoints.qp_serve import create_app

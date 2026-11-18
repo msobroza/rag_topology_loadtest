@@ -19,9 +19,9 @@ from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
-from query_processing.domain.component_requests import GenerateAnswer
-from query_processing.domain.metadata_filter import MetadataCondition
-from query_processing.domain.passages import Passage, ScoredPassage
+from query_processing.domain.components.component_requests import GenerateAnswer
+from query_processing.domain.retrieval.metadata_filter import MetadataCondition
+from query_processing.domain.retrieval.passages import Passage, ScoredPassage
 
 
 def scored(passage_id: str, text: str | None = None) -> ScoredPassage:

@@ -25,8 +25,8 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Sequence
 
-from ...domain.base_component import BaseComponent
-from ...domain.component_requests import EmbedAnswer, EmbedRequest
+from ...domain.components.base_component import BaseComponent
+from ...domain.components.component_requests import EmbedAnswer, EmbedRequest
 
 
 class BaseEmbedder(BaseComponent[EmbedRequest, EmbedAnswer], component_type="embedder"):

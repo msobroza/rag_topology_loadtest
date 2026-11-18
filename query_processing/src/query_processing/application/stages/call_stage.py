@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ...domain.base_component import BaseComponent
+from ...domain.components.base_component import BaseComponent
 from ...domain.errors import RagDependencyError
 from ..workflow_state import WorkflowState
 

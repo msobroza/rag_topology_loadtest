@@ -19,8 +19,8 @@ from collections.abc import Iterable
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from ....domain.api_endpoint import ApiEndpoint
-from ....domain.component_requests import GenerateAnswer
+from ....domain.components.component_requests import GenerateAnswer
+from ....domain.endpoints.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
 from ....infrastructure.endpoint.open_endpoint_client import (
