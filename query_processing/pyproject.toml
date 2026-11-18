@@ -93,7 +93,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# tests/ mirrors src/query_processing, one folder per layer; what several test
+# tests/ mirrors src/query_processing, one folder per layer and, in a crowded
+# layer, sub-folders that each group related tests (of a sub-package, a module,
+# a command or one aspect such as the checks at start-up); what several test
 # files share (named fakes, fixtures, REPO_ROOT and TOOLKIT_ROOT) lives in
 # tests/helpers, on the path so it is imported by plain module name. Test files
 # keep unique names: the folders are not packages. tests/fake_domino/ shares its

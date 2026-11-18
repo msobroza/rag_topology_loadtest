@@ -1,7 +1,7 @@
 """``qp-export-openvino``: which models it exports, where, and how it fails.
 
 The export functions are replaced by a recorder; their own behaviour is tested
-in ``tests/adapters/test_openvino_export.py``.
+in ``tests/infrastructure/local_models/test_openvino_export.py``.
 """
 
 from __future__ import annotations
