@@ -29,16 +29,7 @@ ONE_PATTERN_FOLDERS = (
         pattern=r"test_qp_serve(_[a-z0-9_]+)?\.py",
     ),
 )
-SPLIT_BY_GLOSSARY_AREA = "split by glossary area in a later change"
 NOT_YET_SPLIT = (
-    FolderNotYetSplit(
-        folder="src/query_processing/config",
-        ceiling=13,
-        reason=SPLIT_BY_GLOSSARY_AREA,
-    ),
-    FolderNotYetSplit(
-        folder="tests/config", ceiling=15, reason="it follows src/ when config/ splits"
-    ),
     FolderNotYetSplit(
         folder="tests/helpers",
         ceiling=21,

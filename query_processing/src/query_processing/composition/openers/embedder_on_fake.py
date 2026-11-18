@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...adapters.embedder.base_embedder import BaseEmbedder
 from ...adapters.embedder.fake.fake_embedder import FakeEmbedder
-from ...config.component_settings import EmbedderSettings
+from ...config.components.component_settings import EmbedderSettings
 from .component_openers import EMBEDDER_OPENERS, SharedResources
 
 

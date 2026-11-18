@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.searched_embedder import seeding_embedder
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.graph_description import GraphDescription
 from rag_graphs import fixture_graph, rag_graph, write_workflow_file

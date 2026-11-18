@@ -248,12 +248,12 @@ def test_the_import_table_on_literal_sources() -> None:
     assert (
         forbidden_imports("query_processing.loadtest.loadtest_settings", settings) == []
     )
-    workflow = "from ..config.workflow_file import workflow_file"
+    workflow = "from ..config.files.workflow_file import workflow_file"
     assert (
         forbidden_imports("query_processing.deploy.workflow_components", workflow) == []
     )
     assert forbidden_imports("query_processing.deploy.publish", workflow) == [
-        "query_processing.deploy.publish:1 imports query_processing.config.workflow_file"
+        "query_processing.deploy.publish:1 imports query_processing.config.files.workflow_file"
     ]
 
 

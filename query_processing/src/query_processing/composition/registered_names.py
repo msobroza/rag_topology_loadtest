@@ -21,8 +21,10 @@ from ..adapters.embedder.api.base_embedding_api_format import EMBEDDING_API_FORM
 from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
 from ..adapters.llm.api.base_structured_output_method import STRUCTURED_OUTPUT_METHODS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
-from ..config.component_settings import ComponentSettings, LlmSettings
-from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.components.component_settings import ComponentSettings, LlmSettings
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.registry import Registry
 from .openers.component_openers import OPENERS_BY_TYPE

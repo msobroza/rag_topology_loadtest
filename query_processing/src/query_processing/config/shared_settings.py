@@ -1,9 +1,10 @@
 """The settings the components share: four top-level blocks of the workflow file.
 
-A component's own settings sit in its entry (``component_settings.py``). What
-several components share is grouped by what it is about, each group a
-top-level key of the workflow file, so each value has the variable its path
-names, such as ``QP_LOCAL_MODELS__CPUS`` or ``QP_HTTP__RETRIES``:
+A component's own settings sit in its entry
+(``components/component_settings.py``). What several components share is
+grouped by what it is about, each group a top-level key of the workflow file,
+so each value has the variable its path names, such as
+``QP_LOCAL_MODELS__CPUS`` or ``QP_HTTP__RETRIES``:
 
 - ``local_models``: what the in-process models share, those of the components
   on the ``local`` backend: the runtime that runs them, where the ``openvino``
@@ -29,7 +30,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from ..domain.runtime.backends import LocalModelRuntime, OpenVinoWeightFormat
-from .component_settings import SettingsBlock
+from .components.component_settings import SettingsBlock
 
 
 class LocalModelsSettings(SettingsBlock):

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from query_processing.config.component_settings import (
+from query_processing.config.components.component_settings import (
     ChromaSettings,
     ComponentHttpSettings,
     ElasticsearchSettings,
@@ -24,7 +24,7 @@ from query_processing.config.component_settings import (
     alias_of,
     typed_by_name,
 )
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from rag_graphs import (

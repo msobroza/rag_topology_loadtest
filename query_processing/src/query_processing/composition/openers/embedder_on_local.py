@@ -10,7 +10,7 @@ Example:
 from __future__ import annotations
 
 from ...adapters.embedder.base_embedder import BaseEmbedder
-from ...config.component_settings import EmbedderSettings
+from ...config.components.component_settings import EmbedderSettings
 from ...domain.runtime.calibration import halvings
 from ...infrastructure.local_models.openvino_export import export_embedder
 from ...infrastructure.local_models.stage_calibration import calibrate

@@ -73,8 +73,8 @@ from .application.stages.base_stage import (
     StageSettings,
 )
 from .composition.composition_root import CompositionRoot
-from .config.router_settings import RouterSettings
-from .config.settings_blocks import SettingsBlock
+from .config.components.router_settings import RouterSettings
+from .config.components.settings_blocks import SettingsBlock
 from .config.workflow_settings import WorkflowSettings
 from .domain.components.base_component import BaseComponent
 from .domain.components.component_requests import (

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...adapters.reranker.base_reranker import BaseReranker
 from ...adapters.reranker.fake.fake_reranker import FakeReranker
-from ...config.component_settings import RerankerSettings
+from ...config.components.component_settings import RerankerSettings
 from .component_openers import RERANKER_OPENERS, SharedResources
 
 

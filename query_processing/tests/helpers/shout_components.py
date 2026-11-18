@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from query_processing.config.registered_component_settings import (
+from query_processing.config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
 from query_processing.domain.components.component_resources import ComponentResources

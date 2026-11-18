@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from query_processing.config.workflow_file import (
+from query_processing.config.files.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
     WorkflowFileNotFoundError,
     declared_alias,

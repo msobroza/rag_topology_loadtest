@@ -13,13 +13,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.shared_settings import (
     CalibrationSettings,
     DefaultHttpSettings,
     DominoSettings,
     LocalModelsSettings,
 )
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from rag_graphs import fixture_graph, write_workflow_file
 

@@ -18,7 +18,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
 from ..domain.components.base_component import BaseComponent
 from ..domain.components.component_resources import ComponentResources
 from .openers.component_openers import (

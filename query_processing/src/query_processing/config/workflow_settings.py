@@ -1,16 +1,16 @@
 """Runtime configuration: the workflow file, ``QP_*`` variables and a ``.env`` file.
 
 The workflow file declares the workflow: its ``components`` and its ``graph``
-(``workflow_file.py``), and the settings the components share. Each top-level
+(``files/workflow_file.py``), and the settings the components share. Each top-level
 key of the file is a field here, so each of its values has a variable, its
 path's levels joined by ``__``: ``QP_COMPONENTS__RERANKER__LOCAL__THREADS``,
 ``QP_GRAPH__STAGES__RERANK__TOP_K``, ``QP_HTTP__RETRIES``. A component, the
 vector store as well as a model, is named, has a type that defaults to its
 name, states its backend and has one block of settings per backend
-(``component_settings.py``). The shared settings are four blocks named after
-what they are about, ``local_models``, ``calibration``, ``http`` and
-``domino`` (``shared_settings.py``). An API key is read from the environment,
-by its path, such as ``QP_COMPONENTS__LLM__API__API_KEY``.
+(``components/component_settings.py``). The shared settings are four blocks
+named after what they are about, ``local_models``, ``calibration``, ``http``
+and ``domino`` (``shared_settings.py``). An API key is read from the
+environment, by its path, such as ``QP_COMPONENTS__LLM__API__API_KEY``.
 
 Each component runs on the backend its settings give, and nothing else decides
 it: the deploy tool writes the backend and URL of each component a topology
@@ -53,7 +53,7 @@ from ..domain.run_label import (
     default_run_label,
     validate_run_label,
 )
-from .component_settings import (
+from .components.component_settings import (
     Component,
     EmbedderSettings,
     LlmSettings,
@@ -62,11 +62,12 @@ from .component_settings import (
     VectorStoreSettings,
     typed_by_name,
 )
-from .endpoint_urls import component_endpoint_url, missing_url_message
+from .components.endpoint_urls import component_endpoint_url, missing_url_message
+from .components.router_settings import check_router_embedders, check_router_routes
 from .extensions import load_extensions
-from .prompts_file import prompts_file, prompts_file_source
-from .router_settings import check_router_embedders, check_router_routes
-from .routes_file import routes_file, routes_file_name, routes_file_source
+from .files.prompts_file import prompts_file, prompts_file_source
+from .files.routes_file import routes_file, routes_file_name, routes_file_source
+from .files.workflow_file import workflow_file, workflow_file_source
 from .searched_embedder import searched_embedder
 from .shared_settings import (
     CalibrationSettings,
@@ -74,7 +75,6 @@ from .shared_settings import (
     DominoSettings,
     LocalModelsSettings,
 )
-from .workflow_file import workflow_file, workflow_file_source
 
 
 class WorkflowSettings(BaseSettings):
@@ -112,9 +112,10 @@ class WorkflowSettings(BaseSettings):
     # The workflow file's components block: each model and the vector store by
     # name, its backend, its settings and one block per backend.
     components: dict[str, Component]
-    # The prompts file's prompts by name, which a stage names (prompts_file.py).
+    # The prompts file's prompts by name, which a stage names (files/prompts_file.py).
     prompts: dict[str, Prompt] = Field(default_factory=dict)
-    # The routes file's catalogue, of which each router lists some (routes_file.py).
+    # The routes file's catalogue, of which each router lists some
+    # (files/routes_file.py).
     routes: list[Route] = Field(default_factory=list)
 
     # --- the topology alias and the run label: labels, they decide no backend -------

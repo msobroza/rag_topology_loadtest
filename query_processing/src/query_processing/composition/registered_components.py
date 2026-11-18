@@ -24,7 +24,9 @@ from collections.abc import Iterable
 from functools import cache
 from typing import Any
 
-from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.components.base_component import BaseComponent
 from ..domain.components.component_resources import ComponentResources

@@ -24,7 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..domain.components.routes import Route
+from ...domain.components.routes import Route
 from .registered_component_settings import RegisteredComponentSettings
 from .settings_blocks import ComponentSettings
 

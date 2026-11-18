@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from query_processing.config.routes_file import ROUTES_FILE_VAR
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.routes_file import ROUTES_FILE_VAR
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from rag_graphs import fake_router, write_routes_file
 from shout_components import SHOUT_EXTENSION, write_shout_workflow

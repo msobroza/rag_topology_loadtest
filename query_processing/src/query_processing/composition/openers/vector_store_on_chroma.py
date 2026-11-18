@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...adapters.vector_store.base_vector_store import BaseVectorStore
 from ...adapters.vector_store.chroma.chroma_store import ChromaVectorStore
-from ...config.component_settings import VectorStoreSettings
+from ...config.components.component_settings import VectorStoreSettings
 from .component_openers import VECTOR_STORE_OPENERS, SharedResources
 
 

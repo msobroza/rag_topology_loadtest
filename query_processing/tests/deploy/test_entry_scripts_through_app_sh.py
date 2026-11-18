@@ -43,8 +43,8 @@ from launch_script_stand_ins import (
     started_env,
     started_in,
 )
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.shared_settings import DefaultHttpSettings
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.model_server_kinds.base_model_server_kind import (

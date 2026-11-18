@@ -8,8 +8,8 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 
-from query_processing.config import component_settings
-from query_processing.config.component_settings import (
+from query_processing.config.components import component_settings
+from query_processing.config.components.component_settings import (
     COMPONENT_TYPE_SETTINGS,
     ComponentSettings,
     EmbedderSettings,
@@ -17,7 +17,7 @@ from query_processing.config.component_settings import (
     RerankerSettings,
     VectorStoreSettings,
 )
-from query_processing.config.router_settings import RouterSettings
+from query_processing.config.components.router_settings import RouterSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.registry import Registry
 

@@ -44,8 +44,10 @@ from fastapi.responses import JSONResponse
 
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
-from ..config.registered_component_settings import RegisteredComponentSettings
-from ..config.settings_blocks import ComponentSettings
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
+from ..config.components.settings_blocks import ComponentSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,

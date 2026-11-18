@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from query_processing.config.router_settings import RouterSettings
-from query_processing.config.routes_file import ROUTES_FILE_VAR
+from query_processing.config.components.router_settings import RouterSettings
+from query_processing.config.files.routes_file import ROUTES_FILE_VAR
 from query_processing.config.workflow_settings import WorkflowSettings
 from rag_graphs import fake_router, write_routes_file
 

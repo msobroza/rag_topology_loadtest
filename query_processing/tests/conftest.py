@@ -25,8 +25,11 @@ import pytest
 
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.composition.composition_root import CompositionRoot
-from query_processing.config.prompts_file import PROMPTS_FILE_VAR
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE, unknown_keys
+from query_processing.config.files.prompts_file import PROMPTS_FILE_VAR
+from query_processing.config.files.workflow_file import (
+    WORKFLOW_FILE_VARIABLE,
+    unknown_keys,
+)
 from query_processing.config.workflow_settings import WorkflowSettings
 from rag_components import FAKE_BACKENDS, settings_at_paths
 from rag_graphs import FIXTURE_PROMPTS, FIXTURE_WORKFLOW

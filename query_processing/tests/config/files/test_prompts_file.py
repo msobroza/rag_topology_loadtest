@@ -10,7 +10,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from query_processing.config.prompts_file import PROMPTS_FILE_VAR, prompts_file
+from query_processing.config.files.prompts_file import PROMPTS_FILE_VAR, prompts_file
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.prompts import PromptMessage, PromptPlaceholder
 from rag_graphs import FIXTURE_PROMPTS, fixture_graph, write_workflow_file

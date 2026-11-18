@@ -10,8 +10,8 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from query_processing.config.router_settings import RouterSettings
-from query_processing.config.routes_file import ROUTES_FILE_VAR, routes_file
+from query_processing.config.components.router_settings import RouterSettings
+from query_processing.config.files.routes_file import ROUTES_FILE_VAR, routes_file
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.components.routes import Route
 from rag_graphs import fixture_graph, write_workflow_file

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from query_processing.config.routes_file import ROUTES_FILE_VAR
+from query_processing.config.files.routes_file import ROUTES_FILE_VAR
 from query_processing.deploy.apps_client import DominoDeployError
 from query_processing.deploy.workflow_components import (
     WorkflowComponent,

@@ -16,7 +16,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.entrypoints import qp_serve
 from rag_components import FAKE_BACKEND_VARIABLES, shell_settings
 from rag_graphs import fixture_components, fixture_graph, write_workflow_file

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from ...adapters.reranker.api.api_reranker import open_api_reranker
 from ...adapters.reranker.base_reranker import BaseReranker
-from ...config.component_settings import RerankerSettings
+from ...config.components.component_settings import RerankerSettings
 from ...domain.endpoints.api_endpoint import ApiEndpoint
 from .component_openers import RERANKER_OPENERS, SharedResources
 

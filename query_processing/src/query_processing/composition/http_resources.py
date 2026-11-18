@@ -19,8 +19,10 @@ import dataclasses
 
 import httpx
 
-from ..config.component_settings import ModelComponent
-from ..config.registered_component_settings import RegisteredComponentSettings
+from ..config.components.component_settings import ModelComponent
+from ..config.components.registered_component_settings import (
+    RegisteredComponentSettings,
+)
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS

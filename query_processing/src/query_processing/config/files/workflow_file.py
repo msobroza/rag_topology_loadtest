@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 from pydantic_settings import BaseSettings, YamlConfigSettingsSource
 
-from .component_settings import alias_of
+from ..components.component_settings import alias_of
 from .prompts_file import refuse_prompts_key
 from .routes_file import refuse_routes_key
 

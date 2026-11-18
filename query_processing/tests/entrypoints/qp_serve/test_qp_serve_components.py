@@ -20,7 +20,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from query_processing.composition.composition_root import CompositionRoot
-from query_processing.config.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.retrieval.corpus import chunk, synthetic_corpus
 from query_processing.entrypoints.qp_serve import create_app

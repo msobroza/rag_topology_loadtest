@@ -1,9 +1,10 @@
 """What an opener is, what it is given, and the registry of openers of each type.
 
 An opener opens one component on one backend: it takes the component's
-settings, in the workflow file's shape (``config/component_settings.py``), and
-the resources the process shares, and returns the open port. Each component
-type has its registry of openers, by backend. A new backend is one new module
+settings, in the workflow file's shape
+(``config/components/component_settings.py``), and the resources the process
+shares, and returns the open port. Each component type has its registry of
+openers, by backend. A new backend is one new module
 beside this one, its opener decorated with ``@<TYPE>_OPENERS.register(name)``;
 the package imports every module, and ``ComponentFactory`` finds the opener.
 
@@ -24,7 +25,7 @@ from ...adapters.embedder.base_embedder import BaseEmbedder
 from ...adapters.llm.base_llm import BaseLLM
 from ...adapters.reranker.base_reranker import BaseReranker
 from ...adapters.vector_store.base_vector_store import BaseVectorStore
-from ...config.component_settings import (
+from ...config.components.component_settings import (
     ComponentSettings,
     EmbedderSettings,
     LlmSettings,

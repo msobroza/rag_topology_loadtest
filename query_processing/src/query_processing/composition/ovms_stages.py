@@ -30,7 +30,7 @@ import httpx
 
 from ..adapters.embedder.api.api_embedder import ApiEmbedder, open_api_embedder
 from ..adapters.reranker.api.api_reranker import ApiReranker, open_api_reranker
-from ..config.component_settings import EmbedderSettings, RerankerSettings
+from ..config.components.component_settings import EmbedderSettings, RerankerSettings
 from ..config.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
 from ..domain.endpoints.api_endpoint import (

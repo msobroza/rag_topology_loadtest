@@ -563,7 +563,7 @@ a test.
 | --- | --- | --- | --- |
 | stage type, for a stage that does more than call its component | `application/stages/<name>_stage.py`: a `BaseStage[<port>, <settings>]` that sets `component_type` and `settings_type`, and defines `check_fields` (the lists of fields it can use, with their types) and `run` | `@STAGE_TYPES.register("<name>")` | `tests/application/test_workflow_builder.py` (`copy`, `shout`, in a registry of the test's own) |
 | edge condition | `application/edge_conditions/<name>.py`: a function of the values its conditional edge reads, in the order of its `reads`, that returns a bool, or a `str` label | `@EDGE_CONDITIONS.register("<name>")` | the same file (`is_a_question`) |
-| backend of one of the four existing component types | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
+| backend of one of the four existing component types | `composition/openers/<type>_on_<backend>.py`: an opener that returns the open port, whose implementation is in `adapters/<type>/<backend>/`; a block in `config/components/component_settings.py` if it has settings | `@RERANKER_OPENERS.register("<backend>")`, or `EMBEDDER_OPENERS`, `LLM_OPENERS`, `VECTOR_STORE_OPENERS` | `tests/composition/test_component_factory.py` (`test_a_new_backend_is_one_new_module`) |
 | API format of one of the four | a module of `adapters/<type>/api/`, such as `cohere_rerank_format.py`: a subclass of the type's format base class | `@RERANK_API_FORMATS.register("<name>")`, or `EMBEDDING_API_FORMATS`, `GENERATION_API_FORMATS` | `tests/entrypoints/qp_serve/test_qp_serve_api_formats.py` (`test_a_new_api_format_is_one_new_module`) |
 | model-server kind | `deploy/model_server_kinds/<name>_kind.py`: a `BaseModelServerKind` with its `routes` and `probe_route`; and the toolkit's `domino/model_servers/<name>.sh`, which defines `bootstrap_model_server` and `serve_model_server` | `@MODEL_SERVER_KINDS.register("<name>")` | `tests/deploy/model_server_kinds/test_a_new_model_server_kind.py` |
 
@@ -576,8 +576,8 @@ request and its answer in the domain, and its module named in
 imports before the extensions, so that the start-up checks find it
 registered. Its implementations sit beside it, one directory per backend
 (rule 4), and a settings class of the type's own keys is registered in
-`COMPONENT_TYPE_SETTINGS` in `config/component_settings.py`, as the router's
-`RouterSettings` is, kept in `config/router_settings.py`.
+`COMPONENT_TYPE_SETTINGS` in `config/components/component_settings.py`, as
+the router's `RouterSettings` is, kept in `config/components/router_settings.py`.
 
 ## Code layout
 
@@ -671,9 +671,10 @@ and no package imports it either, `extension_api` included.
    implementations share; `openers/` holds one opener per component type and
    Backend, a module each named `<type>_on_<backend>.py`, registered by type
    and Backend (rule 6), and an opener takes its component's settings in the
-   workflow file's shape (`config/component_settings.py`); the deploy tool,
-   which may not import them, reads a type's Backends from these module names
-   (`deploy/registered_backends.py`, held to the registries by a test); the one factory,
+   workflow file's shape (`config/components/component_settings.py`); the
+   deploy tool, which may not import them, reads a type's Backends from these
+   module names (`deploy/registered_backends.py`, held to the registries by a
+   test); the one factory,
    `component_factory.py`, opens a component once with the opener of its type
    and Backend, so a new Backend is one new module in `openers/` and no
    factory is edited; `registered_names.py` refuses an unknown Backend or API
@@ -699,9 +700,9 @@ and no package imports it either, `extension_api` included.
    `base_model_server_kind.py`, and one launch script each in
    `domino/model_servers/`) and a component type's settings class, which a
    component is read with (`COMPONENT_TYPE_SETTINGS` in
-   `config/component_settings.py`; the five types of the toolkit register
-   their classes there by call, four of them kept in that module and the
-   router's in `config/router_settings.py`, since the
+   `config/components/component_settings.py`; the five types of the toolkit
+   register their classes there by call, four of them kept in that module and
+   the router's in `config/components/router_settings.py`, since the
    decorator's return type would hide their fields from the type checkers;
    an unknown type is refused, listing the known ones). A stage type and an edge
    condition call only ports, so they are in the application; the description
@@ -752,8 +753,8 @@ and no package imports it either, `extension_api` included.
    `composition/openers/` (`<type>_on_<backend>.py`, and
    `component_openers.py`), `tests/entrypoints/qp_serve/`
    (`test_qp_serve.py` and `test_qp_serve_<aspect>.py`) and the charts package's `charts/`
-   (`<finding>_chart.py`). A folder not yet split (`config/`, its
-   tests, `tests/helpers/`, the emulated Domino's code and its tests) may not
+   (`<finding>_chart.py`). A folder not yet split (`tests/helpers/`, the
+   emulated Domino's code and its tests) may not
    pass the count it had when listed, and its entry fails as stale once the
    folder is back at 12 or under, so the list only shrinks. The measure is
    `directory_size_findings` in `query_processing.testing`, which a use case's
@@ -848,18 +849,20 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
-      component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
-      settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
-      registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
-      workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
-      prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
-      routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
-      router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
-      endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
       ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options), no value of the workflow file
+      components/     each component's settings
+        settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
+        component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
+        registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
+        router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
+        endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
+      files/          the three files a use case writes, and the settings sources that read them
+        workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
+        prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
+        routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
     adapters/         the ports and their implementations, nothing else (rule 4)
                       (an adapter takes sizes, timeouts and names as constructor arguments and never reads the settings)
       embedder/       the embedder

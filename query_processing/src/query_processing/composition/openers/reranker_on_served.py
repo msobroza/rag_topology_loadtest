@@ -11,7 +11,7 @@ Example:
 from __future__ import annotations
 
 from ...adapters.reranker.base_reranker import BaseReranker
-from ...config.component_settings import RerankerSettings
+from ...config.components.component_settings import RerankerSettings
 from .component_openers import RERANKER_OPENERS, SharedResources
 from .reranker_on_api import open_reranker_at
 
