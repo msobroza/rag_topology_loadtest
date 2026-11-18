@@ -1007,6 +1007,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         hardware_tiers.py  HardwareTier (its size, every field Domino gave), list_hardware_tiers, tier_named: one tier by its exact name, or a refusal listing the tiers Domino has
         environments.py  EnvironmentRevision, DominoEnvironment (its latest, active and restricted revisions, every field Domino gave), list_environments
         revision_sources.py  BaseRevisionSource, DocumentedRevisions (one environment's three revisions, asked once), revision_numbered: a revision by its number from the sources in order, or a refusal saying what each holds
+        internal_revisions.py  InternalRevisions: every revision of an environment with its build date, through the internal route Domino's own pages use (not in Domino's reference, not verified on a live Domino); a route that fails gives no revision and is told, never raised
     loadtest/         the load-test client, with locustfile.py
       loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
