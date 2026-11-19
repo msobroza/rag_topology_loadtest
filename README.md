@@ -1003,6 +1003,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_model_server_kind.py  BaseModelServerKind (the types it serves, the route of each, its probe, what its script reads, what it refuses), MODEL_SERVER_KINDS, model_server_kind
         fastapi_kind.py  fastapi: qp-model-server, an embedder or a reranker on the /v3 routes, a component of a registered type on its call route
         ovms_kind.py  ovms: OpenVINO Model Server on its /v3 routes, from the OVMS bundle it refuses when missing
+        vllm_kind.py  vllm: vLLM, an embedder, a reranker or an LLM on its /v1 routes, probed on /v1/models
       publish.py      where every App starts (LaunchPaths: the toolkit's launch script, found going up from the use case's directory, and that directory), the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
       app_id_cache.py the App ids already seen (.qp-deploy-cache.json): an App is redeployed, never created twice
