@@ -23,9 +23,9 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from graphlib import CycleError, TopologicalSorter
-from typing import Any
+from typing import Any, cast
 
-from pydantic_graph import Graph, GraphBuilder, StepContext, TypeExpression
+from pydantic_graph import Graph, GraphBuilder, StepContext
 from pydantic_graph.step import StepFunction
 
 from ....domain.graph_description import END, START, GraphDescription
@@ -48,10 +48,11 @@ class _RunState:
     values: dict[str, Any]
 
 
-# A step's context: the run's state, no dependencies, any input.
-_Context = StepContext[_RunState, None, object]
-# A step of this graph: asked with its context, it returns any output.
-_Step = StepFunction[_RunState, None, object, object]
+# The library's classes are written here without their generic parameters: it
+# declares its type variables as typing_extensions.TypeVar(..., infer_variance=
+# True) (pydantic_graph/step.py, util.py), which mypy 2.4 does not take on a
+# plain TypeVar, so for mypy no class of it is generic and StepContext[...]
+# is an error. The run's state is typed through _run_state instead.
 
 
 @ORCHESTRATORS.register("pydantic_graph")
@@ -96,7 +97,7 @@ class PydanticGraphOrchestrator(BaseOrchestrator):
             builder.add_edge(nodes[source], nodes[target])
         for conditional in opened.conditional_edges:
             _add_conditional_edge(builder, nodes, conditional)
-        self.graph: Graph[_RunState, None, None, object] = builder.build()
+        self.graph: Graph = builder.build()
 
     async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
         """Run one request through pydantic-graph's graph.
@@ -145,7 +146,7 @@ def _check_no_loop(graph: GraphDescription) -> None:
 
 
 def _add_conditional_edge(
-    builder: GraphBuilder[_RunState, None, None, object],
+    builder: GraphBuilder,
     nodes: dict[str, Any],
     conditional: OpenedConditionalEdge,
 ) -> None:
@@ -158,25 +159,31 @@ def _add_conditional_edge(
     asked: Any = builder.step(_ask_step(conditional.ask), node_id=step_name)
     decision: Any = builder.decision()
     for answer, target in edge.path_map.items():
-        row = builder.match(TypeExpression[object], matches=_is(answer))
+        row = builder.match(object, matches=_is(answer))
         decision = decision.branch(row.to(nodes[target]))
     builder.add_edge(nodes[edge.source], asked)
     builder.add_edge(asked, decision)
 
 
-def _stage_step(run: StageRun, opened: OpenedGraph) -> _Step:
+def _run_state(ctx: StepContext) -> _RunState:
+    # The state handed to graph.run in ainvoke, untyped for mypy (see above).
+    return cast(_RunState, ctx.state)
+
+
+def _stage_step(run: StageRun, opened: OpenedGraph) -> StepFunction:
     # A copy, as LangGraph hands a node the state: a stage that changes what it
     # is handed changes nothing of the run's state.
-    async def step(ctx: _Context) -> None:
-        update = await run(dict(ctx.state.values))
-        ctx.state.values = opened.merged(ctx.state.values, update)
+    async def step(ctx: StepContext) -> None:
+        state = _run_state(ctx)
+        update = await run(dict(state.values))
+        state.values = opened.merged(state.values, update)
 
     return step
 
 
-def _ask_step(ask: EdgeAsk) -> _Step:
-    async def step(ctx: _Context) -> object:
-        return ask(ctx.state.values)
+def _ask_step(ask: EdgeAsk) -> StepFunction:
+    async def step(ctx: StepContext) -> object:
+        return ask(_run_state(ctx).values)
 
     return step
 

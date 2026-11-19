@@ -72,7 +72,7 @@ def asking(source: str, path: str, reads: list[str], rows: dict[Any, str]) -> An
 
 # The RAG's shape: a conditional edge at START, a label branch, a yes-or-no
 # branch, and paths that meet when only one of them is taken.
-RAG_SHAPE = {
+ROUTED_SHAPE = {
     "stages": {
         "embed_for_route": said(["conversational_query"], ["routing_embedding"]),
         "route": said(["routing_embedding"], ["route"]),
@@ -162,7 +162,7 @@ def test_it_registers_as_pydantic_graph() -> None:
 
 @pytest.mark.parametrize("request_name", sorted(REQUESTS))
 async def test_a_request_ends_in_the_state_langgraph_gives(request_name: str) -> None:
-    opened = opened_of(described(RAG_SHAPE))
+    opened = opened_of(described(ROUTED_SHAPE))
     first = REQUESTS[request_name]
 
     expected = await LangGraphOrchestrator(opened).ainvoke(dict(first))
@@ -194,7 +194,7 @@ async def test_the_first_state_handed_in_is_not_changed() -> None:
 
 
 async def test_concurrent_runs_of_one_built_graph_each_end_in_their_own_state() -> None:
-    orchestrator = PydanticGraphOrchestrator(opened_of(described(RAG_SHAPE)))
+    orchestrator = PydanticGraphOrchestrator(opened_of(described(ROUTED_SHAPE)))
     questions = [f"q{n}?" for n in range(50)]
 
     finals = await asyncio.gather(
@@ -207,12 +207,12 @@ async def test_concurrent_runs_of_one_built_graph_each_end_in_their_own_state() 
 def test_a_conditional_edge_is_a_step_named_after_its_source_and_edge_condition() -> (
     None
 ):
-    orchestrator = PydanticGraphOrchestrator(opened_of(described(RAG_SHAPE)))
+    orchestrator = PydanticGraphOrchestrator(opened_of(described(ROUTED_SHAPE)))
 
     steps = set(orchestrator.graph.nodes)
 
     assert {"START:has_history", "route:label", "rerank:is_query_mode"} <= steps
-    assert set(RAG_SHAPE["stages"]) <= steps
+    assert set(ROUTED_SHAPE["stages"]) <= steps
 
 
 def answering(answer: object) -> Callable[[dict[str, Any]], Any]:
@@ -270,9 +270,9 @@ async def test_a_stages_error_reaches_the_caller_as_itself() -> None:
     [
         fixture_graph(),
         *(rag_graph(mode).model_dump() for mode in ("dense", "lexical", "hybrid")),
-        RAG_SHAPE,
+        ROUTED_SHAPE,
     ],
-    ids=["fixture", "dense", "lexical", "hybrid", "rag-shape"],
+    ids=["fixture", "dense", "lexical", "hybrid", "routed-shape"],
 )
 def test_it_accepts_one_way_out_of_each_stage_at_a_time(graph: dict[str, Any]) -> None:
     PydanticGraphOrchestrator.check_graph_runs(described(graph))
