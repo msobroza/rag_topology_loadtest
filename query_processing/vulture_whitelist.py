@@ -55,6 +55,12 @@ metrics
 log_level
 cache_dir
 
+# pydantic: the OpenMP fields of ProcessEnvironmentSettings, read by their names
+# through config/apps/process_environment_settings.py's OPENMP_VARIABLES, each
+# the upper-cased field.
+omp_proc_bind
+kmp_affinity
+
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.
 accessStatuses

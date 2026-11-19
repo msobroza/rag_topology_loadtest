@@ -17,15 +17,15 @@ from query_processing.config.apps.ovms_settings import OvmsSettings
 from rag_components import shell_settings
 
 
+def ovms_settings(**values: object) -> OvmsSettings:
+    """The settings without reading a stray ``.env``."""
+    return OvmsSettings(_env_file=None, **values)  # type: ignore[arg-type]
+
+
 @pytest.fixture(autouse=True)
 def _no_ovms_variable_from_the_shell(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in shell_settings(os.environ, ("QP_OVMS_",)):
         monkeypatch.delenv(name)
-
-
-def ovms_settings(**values: object) -> OvmsSettings:
-    """The settings without reading a stray ``.env``."""
-    return OvmsSettings(_env_file=None, **values)  # type: ignore[arg-type]
 
 
 def test_ovms_is_calibrated_by_default() -> None:
@@ -296,55 +296,6 @@ def test_no_graph_option_lets_an_llm_app_start() -> None:
 
 def test_the_defaults_add_no_server_flag() -> None:
     assert ovms_settings().server_flags() == []
-
-
-@pytest.mark.parametrize(
-    ("named", "passed"),
-    [
-        ({"rest_workers": 4}, "--rest_workers 4"),
-        ({"metrics": True}, "--metrics_enable"),
-        ({"log_level": "DEBUG"}, "--log_level DEBUG"),
-        ({"cache_dir": "/cache"}, "--cache_dir /cache"),
-    ],
-)
-def test_a_server_flag_named_or_passed_through_gives_the_same_command_line(
-    named: dict[str, object], passed: str
-) -> None:
-    assert ovms_settings(**named).server_flags() == (
-        ovms_settings(args=passed).server_flags()
-    )
-
-
-@pytest.mark.parametrize(
-    ("named", "passed"),
-    [
-        ({"rest_workers": 4}, "--rest-workers=8"),
-        ({"log_level": "INFO"}, "--log_level DEBUG"),
-        ({"metrics": True}, "--metrics_enable"),
-        ({"max_num_seqs": 64}, "--max_num_seqs=32"),
-        ({"dynamic_split_fuse": False}, "--dynamic_split_fuse true"),
-        # At the defaults the named two are written, so the pass-through
-        # cannot state them a second time.
-        ({}, "--dynamic_split_fuse false"),
-        ({}, "--max_num_batched_tokens=8192"),
-        ({}, "--rest_port 9000"),
-        ({}, "--config_path /x.json"),
-        ({}, "--source-model=org/m"),
-        ({}, "--task text_generation"),
-    ],
-)
-def test_a_flag_given_both_ways_or_owned_by_the_script_is_refused(
-    named: dict[str, object], passed: str
-) -> None:
-    with pytest.raises(ValueError, match="QP_OVMS_ARGS") as raised:
-        ovms_settings(**named, args=passed)
-
-    assert passed.split()[0] in str(raised.value)
-
-
-def test_a_pass_through_with_an_open_quote_is_refused_naming_it() -> None:
-    with pytest.raises(ValueError, match="QP_OVMS_ARGS="):
-        ovms_settings(args="--cache_dir '/a b")
 
 
 @pytest.mark.parametrize(

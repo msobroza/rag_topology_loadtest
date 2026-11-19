@@ -82,8 +82,9 @@ def test_main_restarts_once_with_the_same_arguments(
     monkeypatch.setenv("QP_PROCESS_OMP_PROC_BIND", "close")
     monkeypatch.delenv("OMP_PROC_BIND", raising=False)
     monkeypatch.delenv("LD_PRELOAD", raising=False)
-    started = [f"/venv/bin/{command.__name__.rsplit('.', 1)[-1]}", *arguments]
-    monkeypatch.setattr(sys, "argv", started)
+    script = f"/venv/bin/{command.__name__.rsplit('.', 1)[-1]}"
+    started = [sys.executable, script, *arguments]  # the interpreter's own argv
+    monkeypatch.setattr(sys, "orig_argv", started)
     execve = RecordingExecve()
     monkeypatch.setattr(os, "execve", execve)
     ran = stub(monkeypatch)
@@ -95,7 +96,7 @@ def test_main_restarts_once_with_the_same_arguments(
         monkeypatch.setenv(variable, environment[variable])
 
     assert command.main(arguments) == 0
-    assert (path, argv) == (sys.executable, [sys.executable, *started])
+    assert (path, argv) == (sys.executable, started)
     assert (environment["LD_PRELOAD"], environment["OMP_PROC_BIND"]) == (
         str(library),
         "close",

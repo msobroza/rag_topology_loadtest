@@ -111,6 +111,7 @@ class CompositionRoot:
             (``qp-serve --domino``); off Domino it is called with no key.
         container_cpus: Counts the container's CPUs when nothing earlier in the
             chain answers; None for ``ContainerCpus()``.
+        server_processes: Uvicorn's workers under qp-serve or qp-model-server; else 1.
         **supplied: Ready-made ports by component name (``embedder``,
             ``vector_store``, ...), used as given and never closed here.
 
@@ -127,14 +128,16 @@ class CompositionRoot:
         transport: httpx.AsyncBaseTransport | None = None,
         on_domino: bool = False,
         container_cpus: BaseCpuCounter | None = None,
+        server_processes: int = 1,
         **supplied: object,
     ) -> None:
         self.settings = settings
         self._components = settings.components
         self._scope = scope = ResourceScope("CompositionRoot")
         http = HttpResources(settings, scope, transport, on_domino=on_domino)
+        cpus = container_cpus or ContainerCpus()
         self._local_models = local_models = LocalModelResources(
-            settings, scope, http, container_cpus or ContainerCpus()
+            settings, scope, http, cpus, server_processes=server_processes
         )
         shared = SharedResources(scope, http, local_models, self._store_embedder)
         self._factory = ComponentFactory(shared, supplied)
@@ -409,8 +412,7 @@ class CompositionRoot:
         if not isinstance(component, kind):
             expected = kind.model_fields["type"].default
             raise ValueError(
-                f"component {name!r} is of type {component.type!r}, "
-                f"not {expected!r}"
+                f"component {name!r} is of type {component.type!r}, not {expected!r}"
             )
         return component
 

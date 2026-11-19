@@ -18,12 +18,14 @@ Example:
 from __future__ import annotations
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+
+from .base_app_settings import BaseAppSettings
 
 ENV_PREFIX = "QP_UVICORN_"
 
 
-class UvicornSettings(BaseSettings):
+class UvicornSettings(BaseAppSettings):
     """Every ``QP_UVICORN_*`` variable, one field each.
 
     Example:
@@ -64,27 +66,3 @@ class UvicornSettings(BaseSettings):
             "backlog": self.backlog,
             "timeout_keep_alive": self.timeout_keep_alive_s,
         }
-
-    @classmethod
-    def variable_of(cls, field: str) -> str:
-        """Return the environment variable a field is read from.
-
-        Args:
-            field: The field name.
-
-        Returns:
-            ``QP_UVICORN_<FIELD>``.
-
-        Raises:
-            ValueError: If ``field`` is not a field of these settings.
-
-        Example:
-            >>> UvicornSettings.variable_of("workers")
-            'QP_UVICORN_WORKERS'
-        """
-        if field not in cls.model_fields:
-            raise ValueError(
-                f"UvicornSettings has no field {field!r}; expected one of: "
-                f"{', '.join(map(repr, cls.model_fields))}"
-            )
-        return ENV_PREFIX + field.upper()

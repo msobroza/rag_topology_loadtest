@@ -382,7 +382,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         restart_with(ProcessEnvironmentSettings().restart_environment(os.environ))
         settings, server = WorkflowSettings(), UvicornSettings()
         check_registered_names(settings)
-        app = create_model_server(args.serve, CompositionRoot(settings))
+        composition = CompositionRoot(settings, server_processes=server.workers)
+        app = create_model_server(args.serve, composition)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -434,4 +435,7 @@ def model_server_from_environment() -> FastAPI:
             "this model server serves, which qp-model-server --serve exports"
         )
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    return create_model_server(name, CompositionRoot(WorkflowSettings()))
+    # Each worker loads its own models on its share of the CPUs.
+    processes = UvicornSettings().workers
+    composition = CompositionRoot(WorkflowSettings(), server_processes=processes)
+    return create_model_server(name, composition)

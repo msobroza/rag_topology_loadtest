@@ -97,3 +97,23 @@ def test_main_with_two_workers_serves_the_factory_and_exports_the_component(
     assert import_from_string(factory) is qp_model_server.model_server_from_environment
     assert (kwargs["factory"], kwargs["workers"]) == (True, 2)
     assert qp_model_server.os.environ[COMPONENT_VARIABLE] == "reranker"
+
+
+def test_main_and_the_factory_share_the_cpus_among_uvicorns_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QP_UVICORN_WORKERS", "2")
+    monkeypatch.setenv(COMPONENT_VARIABLE, "reranker")
+    built: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        qp_model_server, "CompositionRoot", lambda settings, **kw: built.append(kw)
+    )
+    monkeypatch.setattr(
+        qp_model_server, "create_model_server", lambda name, composition: FastAPI()
+    )
+    monkeypatch.setattr(qp_model_server.uvicorn, "run", lambda *a, **k: None)
+
+    qp_model_server.main(["--serve", "reranker"])
+    qp_model_server.model_server_from_environment()
+
+    assert [kw["server_processes"] for kw in built] == [2, 2]

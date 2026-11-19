@@ -21,16 +21,18 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+
+from .base_app_settings import BaseAppSettings
 
 ENV_PREFIX = "QP_PROCESS_"
 PRELOAD = "LD_PRELOAD"
 # The variables the OpenMP runtime reads, each the upper-cased name of the
-# field that sets it, so the setting's variable is ENV_PREFIX + the variable.
+# field that sets it, so the setting's variable is variable_of(its lower case).
 OPENMP_VARIABLES = ("OMP_PROC_BIND", "KMP_AFFINITY")
 
 
-class ProcessEnvironmentSettings(BaseSettings):
+class ProcessEnvironmentSettings(BaseAppSettings):
     """Every ``QP_PROCESS_*`` variable, one field each.
 
     Example:
@@ -58,8 +60,8 @@ class ProcessEnvironmentSettings(BaseSettings):
         # dynamic linker warn on every process and load nothing.
         if library and not Path(library).is_file():
             raise ValueError(
-                f"{ENV_PREFIX}MEMORY_ALLOCATOR_LIBRARY={library!r} names no file; "
-                "expected the path of a library installed in the environment, "
+                f"{cls.variable_of('memory_allocator_library')}={library!r} names "
+                "no file; expected the path of a library installed in the environment, "
                 "such as /usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
             )
         return library
@@ -145,8 +147,8 @@ def _refuse_openmp_given_both_ways(
     for variable in OPENMP_VARIABLES:
         named, given = wanted.get(variable), environ.get(variable)
         if named and given is not None and given != named:
+            setting = ProcessEnvironmentSettings.variable_of(variable.lower())
             raise ValueError(
-                f"{ENV_PREFIX}{variable}={named} and {variable}={given} are "
-                f"given both ways; expected {variable} only through "
-                f"{ENV_PREFIX}{variable}: unset {variable}"
+                f"{setting}={named} and {variable}={given} are given both ways; "
+                f"expected {variable} only through {setting}: unset {variable}"
             )

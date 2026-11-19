@@ -32,26 +32,42 @@ def test_no_environment_restarts_nothing() -> None:
     assert execve.calls == []
 
 
-def test_the_restart_keeps_the_interpreter_and_the_arguments() -> None:
+def test_the_restart_runs_the_arguments_it_is_given_on_the_interpreter() -> None:
     execve = RecordingExecve()
-    argv = ["/venv/bin/qp-serve", "--port", "9000"]
+    argv = ["/venv/bin/python3.11", "/venv/bin/qp-serve", "--port", "9000"]
 
     restart_with({"OMP_PROC_BIND": "close"}, argv, execve=execve)
 
-    assert execve.calls == [
-        (sys.executable, [sys.executable, *argv], {"OMP_PROC_BIND": "close"})
-    ]
+    assert execve.calls == [(sys.executable, argv, {"OMP_PROC_BIND": "close"})]
 
 
-def test_the_arguments_default_to_those_the_process_was_started_with(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("orig_argv", "argv"),
+    [
+        pytest.param(
+            ["/venv/bin/python3.11", "/venv/bin/qp-model-server", "--serve", "x"],
+            ["/venv/bin/qp-model-server", "--serve", "x"],
+            id="console-script",
+        ),
+        # sys.argv[0] is then the module's file: run as a script, its relative
+        # imports would break, and the interpreter's flags would be lost.
+        pytest.param(
+            ["python3", "-X", "utf8", "-m", "query_processing.entrypoints.qp_serve"],
+            ["/src/query_processing/entrypoints/qp_serve.py"],
+            id="python-m",
+        ),
+    ],
+)
+def test_the_restart_keeps_how_the_process_was_started(
+    monkeypatch: pytest.MonkeyPatch, orig_argv: list[str], argv: list[str]
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["/venv/bin/qp-model-server", "--serve", "x"])
+    monkeypatch.setattr(sys, "orig_argv", orig_argv)
+    monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(sys, "executable", "/venv/bin/python3.11")
     execve = RecordingExecve()
 
     restart_with({"OMP_PROC_BIND": "close"}, execve=execve)
 
-    [(path, argv, _)] = execve.calls
-    assert path == "/venv/bin/python3.11"
-    assert argv == ["/venv/bin/python3.11", "/venv/bin/qp-model-server", "--serve", "x"]
+    assert execve.calls == [
+        ("/venv/bin/python3.11", orig_argv, {"OMP_PROC_BIND": "close"})
+    ]

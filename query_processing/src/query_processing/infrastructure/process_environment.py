@@ -1,4 +1,4 @@
-"""Restart the process with another environment, on its interpreter and arguments.
+"""Restart the process with another environment, started as it was started.
 
 The dynamic linker reads ``LD_PRELOAD`` and the OpenMP runtime its variables
 when a process starts, so a command that needs them replaces itself once with
@@ -29,8 +29,9 @@ def restart_with(
     Args:
         environment: The whole environment to restart with, or ``None`` when
             the process already holds what it needs.
-        argv: The arguments the process was started with, the console
-            script's path first; ``None`` reads ``sys.argv``.
+        argv: The interpreter's own arguments, as ``sys.orig_argv`` holds
+            them (the interpreter, its flags, then the console script or
+            ``-m`` and the module); ``None`` reads ``sys.orig_argv``.
         execve: Replaces the process; ``os.execve``, looked up at the call so
             a test can record it, unless given.
 
@@ -39,7 +40,10 @@ def restart_with(
     """
     if environment is None:
         return
-    arguments = [sys.executable, *(sys.argv if argv is None else argv)]
+    # Not [sys.executable, *sys.argv]: under "python -m" sys.argv[0] is the
+    # module's file, which run as a script loses its package (relative imports
+    # break), and sys.argv holds no interpreter flag.
+    arguments = list(sys.orig_argv if argv is None else argv)
     # execve drops what Python has buffered but not yet written.
     sys.stdout.flush()
     sys.stderr.flush()

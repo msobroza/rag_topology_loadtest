@@ -26,10 +26,11 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
 from ..openvino_cpu_settings import OpenVinoCpuSettings
-from .flag_pass_through import refuse_given_twice, split_pass_through
+from .base_app_settings import BaseAppSettings
+from .flag_pass_through import names_flag, refuse_given_twice, split_pass_through
 from .ovms_flags import (
     LAUNCH_FLAGS,
     LLM_FLAGS,
@@ -44,7 +45,7 @@ ENV_PREFIX = "QP_OVMS_"
 _OPENVINO_PREFIX = f"{ENV_PREFIX}OPENVINO__"
 
 
-class OvmsSettings(BaseSettings):
+class OvmsSettings(BaseAppSettings):
     """Every ``QP_OVMS_*`` variable Python reads, one field each.
 
     Construction checks them, so a bad pin stops an OVMS App before OVMS
@@ -118,7 +119,9 @@ class OvmsSettings(BaseSettings):
     log_level: Literal["", "DEBUG", "INFO", "ERROR"] = ""
     cache_dir: str = ""
     # Any other ovms argument, as written on its command line, after the named
-    # ones. A flag a named setting or the launch script gives is refused here.
+    # ones. A named setting left at its default yields to the flag given here,
+    # as the OpenVINO block's do to its properties; a flag a named setting that
+    # was set, or the launch script, gives is refused here.
     args: str = ""
 
     @field_validator("graph_queue_max_size")
@@ -174,12 +177,12 @@ class OvmsSettings(BaseSettings):
 
         Raises:
             ValueError: If ``args`` is no list of shell words, or gives a flag
-                a named setting or the launch script gives too (ovms would read
-                one of two values), or if ``max_num_seqs`` is above
-                ``max_batched_tokens`` while both are set (a step could not
-                hold one token of each sequence).
+                a named setting that was set or the launch script gives too
+                (ovms would read one of two values), or if ``max_num_seqs`` is
+                above ``max_batched_tokens`` while both are written (a step
+                could not hold one token of each sequence).
         """
-        given = {f.flag: self._as_written(f.field)[0] for f in self._given_flags()}
+        given = {f.flag: self._as_written(f.field)[0] for f in self._set_flags()}
         launched = dict.fromkeys(LAUNCH_FLAGS, "the App's launch script")
         refuse_given_twice(
             {**launched, **given},
@@ -187,6 +190,9 @@ class OvmsSettings(BaseSettings):
             pass_through=self.variable_of("args"),
         )
         seqs, tokens = self.max_num_seqs, self.max_batched_tokens
+        [batched] = [f for f in LLM_FLAGS if f.field == "max_batched_tokens"]
+        if self._yields(batched):  # the pass-through gives the tokens
+            tokens = 0
         if seqs and tokens and seqs > tokens:
             raise ValueError(
                 f"{self.variable_of('max_num_seqs')}={seqs} exceeds "
@@ -196,17 +202,28 @@ class OvmsSettings(BaseSettings):
             )
         return self
 
-    def _given_flags(self) -> list[OvmsFlag]:
-        # A named flag counts as given when it is written, or set even to
-        # OVMS's own value: either way the pass-through would repeat it.
-        return [
-            f
-            for f in (*SERVER_FLAGS, *LLM_FLAGS)
-            if f.field in self.model_fields_set or self._words_of((f,))
-        ]
+    def _set_flags(self) -> list[OvmsFlag]:
+        # Only a named flag that was set, even to OVMS's own value, is given
+        # twice beside the pass-through; one left at its default yields to it.
+        fields = self.model_fields_set
+        return [f for f in (*SERVER_FLAGS, *LLM_FLAGS) if f.field in fields]
+
+    def _yields(self, flag: OvmsFlag) -> bool:
+        # Left at its default, and given by the pass-through: the pass-through
+        # is the one statement of it (since ticket 6 the defaults write the
+        # LLM's two batching flags, which nobody set).
+        passed = self._pass_through()
+        return flag.field not in self.model_fields_set and any(
+            names_flag(word, flag.flag) for word in passed
+        )
 
     def _words_of(self, flags: tuple[OvmsFlag, ...]) -> list[str]:
-        return [word for f in flags for word in flag_words(f, getattr(self, f.field))]
+        return [
+            word
+            for f in flags
+            if not self._yields(f)
+            for word in flag_words(f, getattr(self, f.field))
+        ]
 
     def _pass_through(self) -> list[str]:
         return split_pass_through(self.args, variable=self.variable_of("args"))
@@ -230,7 +247,8 @@ class OvmsSettings(BaseSettings):
 
         Returns:
             Each flag and its value, only for an option away from OVMS's own
-            value, the two batching options first; ``[]`` at OVMS's own.
+            value and not left at its default beside ``args`` giving it, the
+            two batching options first; ``[]`` at OVMS's own.
 
         Example:
             >>> OvmsSettings().llm_flags()  # each prompt read in one pass
@@ -363,27 +381,3 @@ class OvmsSettings(BaseSettings):
                 if name in block.model_fields_set
             ]
         return [f"{self.variable_of(field)}={spelled(getattr(self, field))}"]
-
-    @classmethod
-    def variable_of(cls, field: str) -> str:
-        """Return the environment variable a field is read from.
-
-        Args:
-            field: The field name.
-
-        Returns:
-            ``QP_OVMS_<FIELD>``.
-
-        Raises:
-            ValueError: If ``field`` is not a field of these settings.
-
-        Example:
-            >>> OvmsSettings.variable_of("num_streams")
-            'QP_OVMS_NUM_STREAMS'
-        """
-        if field not in cls.model_fields:
-            raise ValueError(
-                f"OvmsSettings has no field {field!r}; expected one of: "
-                f"{', '.join(map(repr, cls.model_fields))}"
-            )
-        return ENV_PREFIX + field.upper()

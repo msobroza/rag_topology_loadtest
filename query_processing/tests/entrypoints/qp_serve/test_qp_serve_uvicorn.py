@@ -63,7 +63,30 @@ def test_the_factory_runs_as_a_domino_app_when_main_was_told_so(
 
     qp_serve.workflow_app_from_environment()
 
-    assert built == [{"on_domino": on_domino}]
+    assert built == [{"on_domino": on_domino, "server_processes": 1}]
+
+
+def record_compositions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Replace the composition root and the app; return each root's keywords."""
+    built: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        qp_serve, "CompositionRoot", lambda settings, **kw: built.append(kw)
+    )
+    monkeypatch.setattr(qp_serve, "create_app", lambda composition: FastAPI())
+    monkeypatch.setattr(qp_serve.uvicorn, "run", lambda *a, **k: None)
+    return built
+
+
+def test_main_and_the_factory_share_the_cpus_among_uvicorns_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QP_UVICORN_WORKERS", "2")
+    built = record_compositions(monkeypatch)
+
+    qp_serve.main([])
+    qp_serve.workflow_app_from_environment()
+
+    assert [kw["server_processes"] for kw in built] == [2, 2]
 
 
 def serve_recording(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> list[Run]:
