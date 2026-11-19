@@ -167,7 +167,7 @@ apps:
   # llm:
   #   server: vllm
   #   environment_id: <an environment on Ubuntu 24.04>
-  #   hardware_tier_id: <a tier with 16 cores and 32 GB>
+  #   hardware_tier: <a tier with 16 cores and 32 GB>
   #   settings:
   #     QP_VLLM_MAX_MODEL_LEN: 4096
 
