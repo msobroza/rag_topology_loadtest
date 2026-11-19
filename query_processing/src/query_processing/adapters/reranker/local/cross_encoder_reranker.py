@@ -39,6 +39,7 @@ class CrossEncoderReranker(BaseReranker):
         ...     runtime="torch",
         ...     models_dir="models",
         ...     weight_format="fp32",
+        ...     openvino_properties={},
         ... )
         >>> reranker = CrossEncoderReranker.from_pretrained(
         ...     model, pool, batch_size=32, threads=2

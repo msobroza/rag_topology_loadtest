@@ -284,7 +284,11 @@ class OvmsCalibration:
             users=self._calibration.users,
         )
         server = OvmsServer(
-            served.export, serving_dir, ovms.start_timeout_s, self._binary
+            served.export,
+            serving_dir,
+            ovms.start_timeout_s,
+            ovms.openvino.chosen(),
+            self._binary,
         )
         return open_ovms_stage(component, calls, server)
 

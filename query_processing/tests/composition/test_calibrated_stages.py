@@ -38,7 +38,7 @@ from rag_graphs import rag_graph
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
 SettingsFactory = Callable[..., WorkflowSettings]
-TORCH_MODEL = LocalModel("org/name", "org/name", "torch")
+TORCH_MODEL = LocalModel("org/name", "org/name", "torch", {})
 RERANKER = "fixture-org/fixture-reranker"
 
 

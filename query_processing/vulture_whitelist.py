@@ -32,6 +32,17 @@ on_chain_start
 # by name (loadtest/answer_comparison.py's _EXACT_PASSAGE_FIELDS).
 text_sha256
 
+# pydantic: the named fields of OpenVinoCpuSettings, read by their names in
+# config/openvino_cpu_settings.py's _PROPERTY_OF_FIELD, which pairs each with
+# the OpenVINO property it writes.
+performance_hint
+performance_hint_num_requests
+hyper_threading
+cpu_pinning
+cpu_reservation
+inference_precision_hint
+execution_mode_hint
+
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.
 accessStatuses

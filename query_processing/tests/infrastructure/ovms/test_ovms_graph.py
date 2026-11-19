@@ -8,16 +8,15 @@ import re
 import pytest
 
 from ovms_stand_ins import GRAPH_TEMPLATE
+from query_processing.config.openvino_cpu_settings import OpenVinoCpuSettings
 from query_processing.domain.runtime.calibration import StageTuning
-from query_processing.infrastructure.openvino_cpu_properties import (
-    openvino_cpu_properties,
-)
 from query_processing.infrastructure.ovms.ovms_graph import (
     graph_with_plugin_config,
     ovms_plugin_config,
 )
 
 GRAPH = GRAPH_TEMPLATE % {"alias": "rr", "calculator": "RerankCalculatorOV"}
+DEFAULTS = OpenVinoCpuSettings().chosen()
 
 
 def plugin_config_of(graph: str) -> dict[str, str]:
@@ -26,7 +25,9 @@ def plugin_config_of(graph: str) -> dict[str, str]:
 
 
 def test_the_plugin_config_holds_streams_and_the_thread_properties() -> None:
-    config = ovms_plugin_config(StageTuning(threads=4, batch_size=20, streams=2))
+    config = ovms_plugin_config(
+        StageTuning(threads=4, batch_size=20, streams=2), DEFAULTS
+    )
 
     assert config == {
         "NUM_STREAMS": "2",
@@ -36,18 +37,17 @@ def test_the_plugin_config_holds_streams_and_the_thread_properties() -> None:
     assert "PERFORMANCE_HINT" not in config  # OVMS refuses it with NUM_STREAMS
 
 
+def test_the_plugin_config_holds_the_apps_chosen_properties() -> None:
+    chosen = OpenVinoCpuSettings(cpu_pinning=False).chosen()
+
+    config = ovms_plugin_config(StageTuning(threads=2, batch_size=1, streams=1), chosen)
+
+    assert config["ENABLE_CPU_PINNING"] == "NO"
+
+
 def test_more_streams_than_threads_is_refused_naming_both() -> None:
     with pytest.raises(ValueError, match="streams=4, threads=2"):
-        ovms_plugin_config(StageTuning(threads=2, batch_size=1, streams=4))
-
-
-def test_the_thread_properties_allow_hyper_threads() -> None:
-    assert openvino_cpu_properties(3) == {
-        "INFERENCE_NUM_THREADS": "3",
-        "ENABLE_HYPER_THREADING": "YES",
-    }
-    with pytest.raises(ValueError, match="threads=0"):
-        openvino_cpu_properties(0)
+        ovms_plugin_config(StageTuning(threads=2, batch_size=1, streams=4), DEFAULTS)
 
 
 def test_only_the_json_of_the_plugin_config_line_changes() -> None:

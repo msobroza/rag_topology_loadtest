@@ -59,7 +59,10 @@ class FakeLoadingModule(ModuleType):
         self.CrossEncoder = CrossEncoder
 
 
-OPENVINO_EXPORT = LocalModel("org/name", "models/openvino/name", "openvino")
+# The properties of the openvino block at its defaults.
+OPENVINO_EXPORT = LocalModel(
+    "org/name", "models/openvino/name", "openvino", {"ENABLE_HYPER_THREADING": "YES"}
+)
 OPENVINO_ARGUMENTS = {
     "device": "cpu",
     "backend": "openvino",
@@ -71,7 +74,7 @@ OPENVINO_ARGUMENTS = {
 
 # Each runtime's load arguments, for ``from_pretrained``.
 RUNTIME_LOADS = [
-    (LocalModel("org/name", "org/name", "torch"), {"device": "cpu"}),
+    (LocalModel("org/name", "org/name", "torch", {}), {"device": "cpu"}),
     (OPENVINO_EXPORT, OPENVINO_ARGUMENTS),
 ]
 

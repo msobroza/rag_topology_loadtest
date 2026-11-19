@@ -1,4 +1,4 @@
-"""An OVMS model server App's own settings: its streams, threads, start, batching.
+"""An OVMS model server App's own settings: streams, threads, start, CPU, batching.
 
 OpenVINO Model Server serves one component per App, on that App's hardware, so
 its stream and thread counts are the App's, not the workflow's: they are no
@@ -22,6 +22,8 @@ from __future__ import annotations
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ..openvino_cpu_settings import OpenVinoCpuSettings
+
 ENV_PREFIX = "QP_OVMS_"
 
 
@@ -39,6 +41,8 @@ class OvmsSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix=ENV_PREFIX,
         env_file=".env",
+        # Between the block and its key: QP_OVMS_OPENVINO__HYPER_THREADING.
+        env_nested_delimiter="__",
         # The launch script's own variables share the prefix (QP_OVMS_MODELS_DIR,
         # QP_OVMS_BUNDLE, QP_OVMS_PREFIX_PROXY) and are not read here.
         extra="ignore",
@@ -52,6 +56,10 @@ class OvmsSettings(BaseSettings):
     threads: int = Field(default=0, ge=0)
     # How long one OVMS start may take to answer before calibration fails.
     start_timeout_s: float = Field(default=120.0, gt=0)
+    # OpenVINO's CPU properties of the graph's plugin_config, beside the two
+    # counts above (QP_OVMS_OPENVINO__*): the block the in-process models read
+    # as local_models.openvino.
+    openvino: OpenVinoCpuSettings = Field(default_factory=OpenVinoCpuSettings)
     # An LLM's only: OVMS's own --dynamic_split_fuse and --max_num_batched_tokens.
     # Each flag is passed only away from OVMS's default (split fuse on; 0 = OVMS
     # picks the tokens per step), so the default command line is the one run on

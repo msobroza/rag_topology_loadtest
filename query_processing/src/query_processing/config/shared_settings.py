@@ -9,8 +9,8 @@ so each value has the variable its path names, such as
 - ``local_models``: what the in-process models share, those of the components
   on the ``local`` backend: the runtime that runs them, where the ``openvino``
   runtime keeps their files and what it stores their weights as (the weight
-  format, which OVMS's export reads too), and the workers and CPUs of the
-  thread budget;
+  format, which OVMS's export reads too), its CPU properties (``openvino``),
+  and the workers, CPUs and threads per core of the thread budget;
 - ``calibration``: the budget and the rounds every calibration runs under, and
   the requests in flight a model server is calibrated for;
 - ``http``: the default of each value a component's own ``http`` block leaves
@@ -31,6 +31,7 @@ from pydantic import Field
 
 from ..domain.runtime.backends import LocalModelRuntime, OpenVinoWeightFormat
 from .components.component_settings import SettingsBlock
+from .openvino_cpu_settings import OpenVinoCpuSettings
 
 
 class LocalModelsSettings(SettingsBlock):
@@ -63,6 +64,12 @@ class LocalModelsSettings(SettingsBlock):
     # Virtual CPUs the model calls share (domain/runtime/thread_budget.py): 0 = find
     # out; > 0 wins over every other count.
     cpus: float = Field(default=0, ge=0)
+    # Hyper-threads a core: the cores are the CPUs divided by it. 2 is Intel x86
+    # with hyper-threading, every machine of the sittings; 1 where it is off.
+    threads_per_core: int = Field(default=2, ge=1)
+    # OpenVINO's CPU properties the in-process models load with, beside the
+    # thread count (QP_LOCAL_MODELS__OPENVINO__*); torch ignores them.
+    openvino: OpenVinoCpuSettings = Field(default_factory=OpenVinoCpuSettings)
 
 
 class CalibrationSettings(SettingsBlock):

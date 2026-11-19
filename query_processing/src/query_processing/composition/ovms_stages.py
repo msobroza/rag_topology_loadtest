@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import asyncio
 from abc import abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import Generic, Protocol, TypeVar
@@ -120,12 +120,16 @@ class OvmsServer:
     """What one OVMS calibration starts its candidates on.
 
     Example:
-        >>> server = OvmsServer(export, Path("/tmp/serving"), start_timeout_s=120.0)
+        >>> server = OvmsServer(export, Path("/tmp/serving"), start_timeout_s=120.0,
+        ...                     openvino_properties=ovms.openvino.chosen())
     """
 
     export: OvmsExport  # where OVMS's exporter wrote the model, read only
     serving_dir: Path  # the App's own folder each candidate is served from
     start_timeout_s: float  # how long one start may take (QP_OVMS_START_TIMEOUT_S)
+    # The graph's other CPU properties, beside each candidate's streams and
+    # threads: OvmsSettings.openvino.chosen() (QP_OVMS_OPENVINO__*).
+    openvino_properties: Mapping[str, str] = field(hash=False)
     binary: str = "ovms"  # the OVMS executable
 
 
@@ -197,7 +201,7 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
             PosixPath('/tmp/ovms-serving/config_reranker.json')
         """
         server = self._server
-        plugin_config = ovms_plugin_config(tuning)
+        plugin_config = ovms_plugin_config(tuning, server.openvino_properties)
         return write_ovms_serving_folder(
             server.export, server.serving_dir, plugin_config
         )

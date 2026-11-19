@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.openvino_cpu_settings import OpenVinoCpuSettings
 from query_processing.config.shared_settings import (
     CalibrationSettings,
     DefaultHttpSettings,
@@ -52,6 +53,8 @@ def test_the_shared_blocks_default_to_todays_values(
         openvino_weight_format="fp32",
         workers=4,
         cpus=0,
+        threads_per_core=2,
+        openvino=OpenVinoCpuSettings(),
     )
     assert s.calibration == CalibrationSettings(budget_s=90.0, rounds=1, users=4)
     assert s.http == DefaultHttpSettings(timeout_s=30.0, retries=2, backoff_s=0.2)
@@ -174,6 +177,23 @@ def test_a_weight_format_other_than_fp32_or_int8_is_rejected(
 ) -> None:
     with pytest.raises(ValidationError, match="openvino_weight_format"):
         settings_factory(local_models__openvino_weight_format="int4")
+
+
+def test_the_threads_per_core_default_to_2_and_read_their_variable(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QP_LOCAL_MODELS__THREADS_PER_CORE", raising=False)
+    assert settings_factory().local_models.threads_per_core == 2
+
+    monkeypatch.setenv("QP_LOCAL_MODELS__THREADS_PER_CORE", "1")
+    assert settings_factory().local_models.threads_per_core == 1
+
+
+def test_fewer_than_one_thread_per_core_is_refused(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="threads_per_core"):
+        settings_factory(local_models__threads_per_core=0)
 
 
 def test_the_calibration_users_default_to_4_and_read_their_variable(

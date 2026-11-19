@@ -153,7 +153,9 @@ class LocalModelResources:
             model_id,
             runtime=local_models.runtime,
             exports=OpenVinoExports(
-                local_models.openvino_dir, local_models.openvino_weight_format
+                local_models.openvino_dir,
+                local_models.openvino_weight_format,
+                local_models.openvino.chosen(),
             ),
             export=export,
             require_packages=self._require_openvino_packages,

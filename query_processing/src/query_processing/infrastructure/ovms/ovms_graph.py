@@ -11,7 +11,9 @@ parsing error and silently run its defaults, so what is written is always
 it together with ``NUM_STREAMS``. Pure functions: no file is read here.
 
 Example:
-    >>> config = ovms_plugin_config(StageTuning(threads=2, batch_size=20, streams=2))
+    >>> config = ovms_plugin_config(
+    ...     StageTuning(threads=2, batch_size=20, streams=2), ovms.openvino.chosen()
+    ... )
     >>> graph_with_plugin_config(graph_text, config, source="m/graph.pbtxt")
 """
 
@@ -32,23 +34,29 @@ _PLUGIN_CONFIG_LINE = re.compile(
 )
 
 
-def ovms_plugin_config(tuning: StageTuning) -> dict[str, str]:
+def ovms_plugin_config(
+    tuning: StageTuning, chosen: Mapping[str, str]
+) -> dict[str, str]:
     """Return the CPU plugin properties OVMS runs a model with under ``tuning``.
 
     Args:
         tuning: Its ``streams`` become ``NUM_STREAMS``, its ``threads`` the
             threads all the streams share.
+        chosen: The App's other properties, as ``OvmsSettings.openvino``'s
+            ``chosen()`` returns them (``QP_OVMS_OPENVINO__*``).
 
     Returns:
-        ``NUM_STREAMS``, ``INFERENCE_NUM_THREADS`` and ``ENABLE_HYPER_THREADING``,
-        as strings.
+        ``NUM_STREAMS``, ``INFERENCE_NUM_THREADS``, then ``chosen`` (at the
+        block's defaults ``ENABLE_HYPER_THREADING``), as strings.
 
     Raises:
         ValueError: If ``tuning.streams`` exceeds ``tuning.threads``: a stream
             needs a thread.
 
     Example:
-        >>> config = ovms_plugin_config(StageTuning(threads=4, batch_size=1, streams=2))
+        >>> config = ovms_plugin_config(
+        ...     StageTuning(threads=4, batch_size=1, streams=2), {}
+        ... )
         >>> config["NUM_STREAMS"], config["INFERENCE_NUM_THREADS"]
         ('2', '4')
     """
@@ -59,7 +67,7 @@ def ovms_plugin_config(tuning: StageTuning) -> dict[str, str]:
         )
     return {
         "NUM_STREAMS": str(tuning.streams),
-        **openvino_cpu_properties(tuning.threads),
+        **openvino_cpu_properties(tuning.threads, chosen),
     }
 
 

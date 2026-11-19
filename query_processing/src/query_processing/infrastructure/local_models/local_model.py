@@ -12,14 +12,16 @@ never loaded by mistake and both can sit side by side: ``<model>`` for ``fp32``,
 
 Example:
     >>> model = local_model(
-    ...     "org/name", runtime="openvino", models_dir="models/ov", weight_format="fp32"
+    ...     "org/name", runtime="openvino", models_dir="models/ov",
+    ...     weight_format="fp32", openvino_properties={"ENABLE_HYPER_THREADING": "YES"},
     ... )
     >>> model.source  # "models/ov/name" once exported, else "org/name"
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +40,9 @@ class LocalModel:
     name: str  # the id or path the settings name; what ``ready`` reports
     source: str  # what sentence-transformers loads: an exported folder, or the id
     runtime: LocalModelRuntime
+    # The site's OpenVINO CPU properties (local_models.openvino's chosen());
+    # torch ignores them. Left out of the hash: a dict has none.
+    openvino_properties: Mapping[str, str] = field(hash=False)
 
     def load_arguments(self, threads: int) -> dict[str, Any]:
         """Return the keyword arguments that pick the runtime at load time.
@@ -49,26 +54,33 @@ class LocalModel:
 
         Returns:
             Nothing for ``torch``; for ``openvino``, the backend, its inference
-            thread count and leave to run them on hyper-threads.
+            thread count and the model's ``openvino_properties``.
+
+        Example:
+            >>> LocalModel("m", "m", "openvino", {"ENABLE_HYPER_THREADING": "YES"}
+            ...            ).load_arguments(2)["model_kwargs"]["ov_config"]
+            {'INFERENCE_NUM_THREADS': '2', 'ENABLE_HYPER_THREADING': 'YES'}
         """
         if self.runtime == "torch":
             return {}
-        # Why the hyper-threads are allowed: see openvino_cpu_properties.
-        ov_config = openvino_cpu_properties(threads)
+        # A fresh dict: sentence-transformers pops keys out of it while loading.
+        ov_config = openvino_cpu_properties(threads, self.openvino_properties)
         return {"backend": "openvino", "model_kwargs": {"ov_config": ov_config}}
 
 
 @dataclass(frozen=True)
 class OpenVinoExports:
-    """Where the OpenVINO exports are kept, and the weight format loaded and written.
+    """Where the OpenVINO exports are kept, their weight format and CPU properties.
 
     Example:
-        >>> OpenVinoExports("models/openvino", "int8").folder("org/name")
+        >>> OpenVinoExports("models/openvino", "int8", {}).folder("org/name")
         PosixPath('models/openvino/name-int8')
     """
 
     models_dir: str  # QP_LOCAL_MODELS__OPENVINO_DIR
     weight_format: OpenVinoWeightFormat  # QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT
+    # What an export loads with beside its threads (QP_LOCAL_MODELS__OPENVINO__*).
+    properties: Mapping[str, str] = field(hash=False)
 
     def folder(self, model_id: str) -> Path:
         """Return where ``model_id``'s export of this weight format lives.
@@ -115,6 +127,7 @@ def local_model(
     runtime: LocalModelRuntime,
     models_dir: str,
     weight_format: OpenVinoWeightFormat,
+    openvino_properties: Mapping[str, str],
 ) -> LocalModel:
     """Describe how ``model_id`` loads under ``runtime``.
 
@@ -124,11 +137,13 @@ def local_model(
         models_dir: The folder holding the OpenVINO exports.
         weight_format: Which export to load under ``openvino``; ``torch``
             ignores it.
+        openvino_properties: The CPU properties OpenVINO loads it with,
+            beside its thread count; ``torch`` ignores them.
 
     Returns:
         The model, loading from its exported folder when the runtime is
         ``openvino`` and the folder exists, else from ``model_id``.
     """
     exported = exported_model_dir(models_dir, model_id, weight_format=weight_format)
-    use_export = runtime == "openvino" and exported.is_dir()
-    return LocalModel(model_id, str(exported) if use_export else model_id, runtime)
+    source = str(exported) if runtime == "openvino" and exported.is_dir() else model_id
+    return LocalModel(model_id, source, runtime, openvino_properties)
