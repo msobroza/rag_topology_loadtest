@@ -852,7 +852,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
-      ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options), no value of the workflow file
+      apps/           the settings one App owns, flat QP_* variables, no value of the workflow file
+        ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options)
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
         component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
@@ -1702,7 +1703,7 @@ model server App's own variables (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`,
 `QP_OVMS_START_TIMEOUT_S`, and an LLM's `QP_OVMS_DYNAMIC_SPLIT_FUSE` and
 `QP_OVMS_MAX_BATCHED_TOKENS`) are no value of the workflow file: they belong to one
 App and its hardware, so they are flat, the fields of `OvmsSettings` in
-`config/ovms_settings.py`, and set in that App's block of `deploy.yaml`. Sources
+`config/apps/ovms_settings.py`, and set in that App's block of `deploy.yaml`. Sources
 win in the order the workflow file's section gives. An invalid runtime or
 component type, a run label or topology alias no header can carry (a default
 run label too long or with a component name outside those characters included:
