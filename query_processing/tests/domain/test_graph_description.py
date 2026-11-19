@@ -63,6 +63,36 @@ def test_each_chain_is_one_edge_per_pair_of_neighbours() -> None:
     ]
 
 
+def test_the_links_are_the_plain_edges_then_each_conditional_edge_row() -> None:
+    graph = GraphDescription.model_validate(
+        {
+            "stages": {},
+            "edges": [["START", "embed", "rerank"]],
+            "conditional_edges": [
+                {
+                    "source": "rerank",
+                    "path": "is_query_mode",
+                    "reads": ["mode"],
+                    "path_map": {True: "generate", False: "END"},
+                }
+            ],
+        }
+    )
+
+    assert graph.links() == [
+        ("START", "embed"),
+        ("embed", "rerank"),
+        ("rerank", "generate"),
+        ("rerank", "END"),
+    ]
+
+
+def test_a_graph_without_conditional_edges_links_its_plain_edges_alone() -> None:
+    graph = GraphDescription(stages={}, edges=[["START", "embed", "END"]])
+
+    assert graph.links() == [("START", "embed"), ("embed", "END")]
+
+
 def test_a_stage_type_defaults_to_the_stage_name() -> None:
     lists = {"reads": ["a"], "writes": ["b"]}
 
