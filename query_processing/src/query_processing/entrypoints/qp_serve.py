@@ -188,8 +188,9 @@ def create_app(composition: CompositionRoot) -> FastAPI:
     app.state.metadata_fields = declared_metadata_fields(composition.settings)
     app.middleware("http")(_stamp_headers)
     # A graph refused once its components are open is a settings mistake.
-    refused = {"refused": WorkflowGraphError, "prog": "qp-serve"}
-    app.add_middleware(StartupRefusalInOneLine, **refused)
+    app.add_middleware(
+        StartupRefusalInOneLine, refused=WorkflowGraphError, prog="qp-serve"
+    )
     app.exception_handler(RagDependencyError)(_dependency_error)
     app.include_router(routes)
     return app
