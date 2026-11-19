@@ -5,7 +5,8 @@ is recorded in process and compared with the record committed in
 ``answer_records/``: every answer identical, on LangGraph, which answered the
 record, and on every registered orchestrator, on which the timings' keys and
 the tokens a record leaves out are LangGraph's. ``make pin-answers`` runs this
-file with ``--pin-answers``, which makes the record again instead.
+file with ``--pin-answers``, which makes the record again instead, on
+LangGraph whatever ``QP_ORCHESTRATOR`` the shell holds.
 """
 
 from __future__ import annotations
@@ -45,13 +46,32 @@ def in_tmp(tmp_path: Path) -> PinnedAnswerRecord:
     )
 
 
+def on_the_default_orchestrator(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> WorkflowSettings:
+    """Every component on fake, on LangGraph whatever ``QP_ORCHESTRATOR`` holds."""
+    monkeypatch.delenv(WorkflowSettings.variable_of("orchestrator"), raising=False)
+    return settings_factory(**FAKE_BACKENDS)
+
+
+def test_the_record_is_pinned_on_langgraph_whatever_the_shell_holds(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QP_ORCHESTRATOR", "pydantic_graph")
+
+    settings = on_the_default_orchestrator(settings_factory, monkeypatch)
+
+    assert settings.orchestrator == "langgraph"
+
+
 def test_the_app_on_fake_backends_answers_as_its_pinned_record(
     settings_factory: SettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     pin_answers: bool,
 ) -> None:
-    with workflow_client(settings_factory(**FAKE_BACKENDS)) as client:
+    settings = on_the_default_orchestrator(settings_factory, monkeypatch)
+    with workflow_client(settings) as client:
         check_pinned_answers(
             monkeypatch, client, FIXTURE_WORKFLOW, tmp_path, pin=pin_answers
         )
