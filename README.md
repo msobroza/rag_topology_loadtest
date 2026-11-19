@@ -852,7 +852,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
+      openvino_cpu_settings.py  OpenVinoCpuSettings: OpenVINO's CPU properties a site may choose (hint, hyper-threading, pinning, precision, any other), one block read as local_models.openvino and as an OVMS App's QP_OVMS_OPENVINO__*
       apps/           the settings one App owns, flat QP_* variables, no value of the workflow file
+        flag_pass_through.py  split_pass_through, names_flag, refuse_given_twice: a model server's pass-through of raw flags beside its named settings, and the refusal of a flag given both ways
         ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options)
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
