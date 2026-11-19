@@ -37,6 +37,7 @@ action_filter
 action_unfilter
 compose
 on_input_changed
+on_input_submitted
 on_mount
 on_tree_node_collapsed
 on_tree_node_expanded

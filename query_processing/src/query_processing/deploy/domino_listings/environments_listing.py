@@ -59,7 +59,7 @@ def environments_table(environments: Sequence[DominoEnvironment]) -> str:
 def shown_revisions(
     environment: DominoEnvironment, internal: BaseRevisionSource
 ) -> tuple[list[EnvironmentRevision], str]:
-    """Give the revisions to show, and a note when the internal source has none.
+    """Give the revisions to show, and a note when the internal source lacks some.
 
     Args:
         environment: The environment, with its documented three revisions.
@@ -67,8 +67,9 @@ def shown_revisions(
 
     Returns:
         Every revision of ``internal``, each with the status the documented three
-        give it, and ``""``; or, when ``internal`` has none, the documented three
-        and what ``internal`` describes.
+        give it, and ``""``, or what ``internal`` describes when it left entries
+        out; or, when ``internal`` has none, the documented three and what
+        ``internal`` describes.
 
     Example:
         >>> revisions, note = shown_revisions(environment, InternalRevisions(http))
@@ -79,10 +80,11 @@ def shown_revisions(
     if not every:
         return environment.three(), internal.describe(environment.id)
     statuses = {revision.id: revision.status for revision in environment.three()}
+    left_out = internal.left_out(environment.id)
     return [
         dataclasses.replace(revision, status=statuses.get(revision.id, ""))
         for revision in every
-    ], ""
+    ], (internal.describe(environment.id) if left_out else "")
 
 
 def revisions_table(

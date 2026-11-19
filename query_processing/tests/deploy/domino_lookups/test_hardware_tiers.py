@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
-from fake_domino.server import create_fake_domino, fake_domino_http
+from domino_deploy_helpers import WHERE, http_on
 from fake_domino.stand_ins import fake_tier
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.apps_client import DominoDeployError
@@ -16,13 +15,8 @@ from query_processing.deploy.domino_lookups.hardware_tiers import (
     tier_named,
 )
 
-WHERE = "App rag-reranker (apps.reranker or defaults in deploy.yaml)"
 SMALL = fake_tier("small-k8s", "cpu-8", 8, 32, is_default=True)
 LARGE = fake_tier("large-k8s", "cpu-16", 16, 64)
-
-
-def http_on(apps: FakeDominoApps) -> httpx.Client:
-    return fake_domino_http(create_fake_domino(apps))
 
 
 def refusal_of(tiers: list[HardwareTier], name: str) -> str:
@@ -84,13 +78,11 @@ def test_a_name_two_tiers_share_is_refused_with_their_ids() -> None:
     )
 
 
-def test_a_forbidden_list_names_the_permission() -> None:
+def test_a_forbidden_list_names_the_permission_and_what_its_caller_needs() -> None:
     http = http_on(FakeDominoApps.from_behaviour("forbidden"))
     with pytest.raises(DominoDeployError) as refusal:
-        list_hardware_tiers(http)
+        list_hardware_tiers(http, needs="the caller's advice")
     assert str(refusal.value) == (
         "Domino API GET /api/hardwaretiers/v1/hardwaretiers returned HTTP 403: "
-        "Forbidden by the fake Domino (behaviour: forbidden); listing the hardware "
-        "tiers needs the permission ViewHardwareTiers: ask for it, or write the "
-        "tier's id as hardware_tier_id, which needs no such call"
+        "Forbidden by the fake Domino (behaviour: forbidden); the caller's advice"
     )

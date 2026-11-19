@@ -14,13 +14,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from http import HTTPStatus
+from urllib.parse import quote
 
 import httpx
 
 from ..apps_client import (
     DOMINO_API,
     DominoDeployError,
-    describe_failure,
     domino_json,
     json_mapping,
     send_to_domino,
@@ -60,6 +60,22 @@ class BaseRevisionSource(ABC):
             >>> [revision.number for revision in source.revisions("env-1")]
             [7, 6, 3]
         """
+
+    def left_out(self, environment_id: str) -> int:
+        """Count the entries of the environment this source read but left out.
+
+        Args:
+            environment_id: The environment's id.
+
+        Returns:
+            How many of its entries this source could not use; 0 unless it says.
+
+        Example:
+            >>> source.left_out("env-1")
+            0
+        """
+        del environment_id  # a source that leaves nothing out needs no id
+        return 0
 
     @abstractmethod
     def describe(self, environment_id: str) -> str:
@@ -201,16 +217,16 @@ def revision_numbered(
 
 
 def _read_environment(http: httpx.Client, environment_id: str) -> DominoEnvironment:
-    path = f"{ENVIRONMENTS_PATH}/{environment_id}"
+    path = f"{ENVIRONMENTS_PATH}/{quote(environment_id, safe='')}"
     response = send_to_domino(http, "GET", path, api=DOMINO_API)
     if response.status_code == HTTPStatus.NOT_FOUND:
         raise DominoDeployError(
             f"Domino has no environment {environment_id!r} (GET {path} returned "
             "HTTP 404): check environment_id in deploy.yaml"
         )
-    if response.status_code in (401, 403):
-        raise DominoDeployError(f"{describe_failure(DOMINO_API, response)}; {_NEEDS}")
-    environment = json_mapping(domino_json(DOMINO_API, response).get("environment"))
+    environment = json_mapping(
+        domino_json(DOMINO_API, response, _NEEDS).get("environment")
+    )
     if not environment:  # an answer of another shape: final, as a failure is
         raise DominoDeployError(
             f"{DOMINO_API} GET {path} answered HTTP 200 without an environment "

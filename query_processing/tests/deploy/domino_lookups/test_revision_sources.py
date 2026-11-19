@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from fake_domino.server import create_fake_domino, fake_domino_http
+from domino_deploy_helpers import BUILT_6, BUILT_7, WHERE, http_on
 from fake_domino.stand_ins import fake_environment
 from fake_domino.state import FakeDominoApps, FakeEnvironment
 from query_processing.deploy.apps_client import DominoDeployError
@@ -19,9 +19,7 @@ from query_processing.deploy.domino_lookups.revision_sources import (
     revision_numbered,
 )
 
-BUILT_7 = "2026-11-12T09:41:00Z"
-BUILT_6 = "2026-11-03T16:02:00Z"
-WHERE = "App rag-reranker (apps.reranker or defaults in deploy.yaml)"
+# Not the helpers' FAKE_ENV_1: this one has a restricted revision.
 ENV_1 = fake_environment(
     "env-1",
     (7, "rev-7", BUILT_7),
@@ -45,10 +43,6 @@ class RevisionsOf(BaseRevisionSource):
 
     def describe(self, environment_id: str) -> str:
         return f"the named fake gives {len(self.given)} revisions"
-
-
-def http_on(apps: FakeDominoApps) -> httpx.Client:
-    return fake_domino_http(create_fake_domino(apps))
 
 
 def documented(

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from fake_domino.server import create_fake_domino, fake_domino_http
+from domino_deploy_helpers import BUILT_6, BUILT_7, http_on
 from fake_domino.stand_ins import fake_environment
 from fake_domino.state import FakeDominoApps, FakeEnvironment
 from query_processing.deploy.domino_lookups.environments import EnvironmentRevision
@@ -17,13 +17,7 @@ from query_processing.deploy.domino_lookups.internal_revisions import (
     InternalRevisions,
 )
 
-BUILT_7 = "2026-11-12T09:41:00Z"
-BUILT_6 = "2026-11-03T16:02:00Z"
 SIX = [(n, f"rev-{n}", BUILT_6) for n in range(6, 0, -1)]
-
-
-def http_on(apps: FakeDominoApps) -> httpx.Client:
-    return fake_domino_http(create_fake_domino(apps))
 
 
 def internal(
@@ -140,18 +134,23 @@ def test_a_route_that_still_answers_several_pages_is_told() -> None:
     assert handler.asked == [None, "10"]
 
 
-def test_an_entry_without_its_id_its_number_or_its_date_is_left_out() -> None:
+def test_an_entry_without_its_id_or_a_whole_number_is_left_out_and_counted() -> None:
     entries = [
         {"id": "rev-3", "number": 3, "created": 1762940460000},
         {"number": 2, "created": 1762940460000},
         {"id": "rev-1", "number": "1", "created": 1762940460000},
         {"id": "rev-0", "number": 0},
+        {"id": "rev-4", "number": 4, "created": "2026-11-12T09:41:00Z"},
     ]
     page_info = {"totalPages": 1, "currentPage": 0, "pageSize": 5}
     body = json.dumps({"revisions": entries, "pageInfo": page_info}).encode()
     source = through(AnswerOf(body))
-    assert [revision.id for revision in source.revisions("env-1")] == ["rev-3"]
+    assert source.revisions("env-1") == [
+        EnvironmentRevision("rev-4", 4, None),  # a date it cannot read: still pinned
+        EnvironmentRevision("rev-3", 3, datetime(2025, 11, 12, 9, 41, tzinfo=UTC)),
+    ]
     assert source.describe("env-1") == (
-        f"the internal route {ROUTE} lists 1 revision (3), leaving out 3 without an "
-        "id, a number or a date"
+        f"the internal route {ROUTE} lists 2 revisions (4 to 3), leaving out 3 "
+        "without an id or a whole number"
     )
+    assert source.left_out("env-1") == 3

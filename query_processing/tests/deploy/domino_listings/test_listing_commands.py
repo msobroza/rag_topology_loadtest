@@ -13,12 +13,11 @@ import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
-import httpx
 import pytest
 import yaml
 
-from fake_domino.server import create_fake_domino, fake_domino_http
-from fake_domino.stand_ins import fake_environment, fake_tier
+from domino_deploy_helpers import FAKE_ENV_1, http_on
+from fake_domino.stand_ins import fake_tier
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.domino_listings.listing_commands import (
     environment_items,
@@ -37,16 +36,6 @@ from query_processing.deploy.domino_lookups.internal_revisions import (
 )
 
 TOOLKIT = Path(__file__).resolve().parents[3]
-BUILT_7 = "2026-11-12T09:41:00Z"
-BUILT_6 = "2026-11-03T16:02:00Z"
-ENV_1 = fake_environment(
-    "env-1",
-    (7, "rev-7", BUILT_7),
-    (6, "rev-6", BUILT_6),
-    (5, "rev-5", BUILT_6),
-    name="qp-rag",
-    active=6,
-)
 FAKE_TIERS = [
     fake_tier("small-k8s", "cpu-8", 8, 32, is_default=True),
     fake_tier("large-k8s", "cpu-16", 16, 64),
@@ -74,11 +63,7 @@ class RecordedLists:
 
 
 def fake_apps() -> FakeDominoApps:
-    return FakeDominoApps(tiers=FAKE_TIERS, environments=[ENV_1])
-
-
-def http_on(apps: FakeDominoApps) -> httpx.Client:
-    return fake_domino_http(create_fake_domino(apps))
+    return FakeDominoApps(tiers=FAKE_TIERS, environments=[FAKE_ENV_1])
 
 
 def internal_calls(apps: FakeDominoApps) -> list[tuple[str, str]]:

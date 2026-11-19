@@ -270,14 +270,16 @@ def send_to_domino(
         Domino's answer, whatever its status.
 
     Raises:
-        DominoDeployError: If the call was refused, timed out or found no host.
+        DominoDeployError: If the call was refused, timed out or found no host,
+            or its path is no valid URL (a control character in an id, say).
 
     Example:
         >>> send_to_domino(http, "GET", "/api/apps/beta/apps", api=APPS_API)
     """
     try:
         return http.request(method, path, json=json, params=params)
-    except httpx.HTTPError as exc:  # refused, timed out, DNS: no answer at all
+    # Refused, timed out, DNS: no answer at all; or a path httpx cannot send.
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
         base_url = str(http.base_url).rstrip("/")
         raise DominoDeployError(
             f"{api} {method} {path} could not be reached at "
@@ -285,25 +287,33 @@ def send_to_domino(
         ) from exc
 
 
-def domino_json(api: str, response: httpx.Response) -> Mapping[str, object]:
+def domino_json(
+    api: str, response: httpx.Response, needs: str = ""
+) -> Mapping[str, object]:
     """Read a Domino answer of status 200 as a JSON object.
 
     Args:
         api: The API's name in a message, ``APPS_API`` or ``DOMINO_API``.
         response: Domino's answer.
+        needs: What the call needs, said after Domino's answer to a 401 or 403;
+            empty says nothing more.
 
     Returns:
         The answer's body when it is a JSON object, else an empty one.
 
     Raises:
-        DominoDeployError: If the status is not 200 (see ``describe_failure``),
-            or the body of a 200 is not JSON (a sign-in page, say).
+        DominoDeployError: If the status is not 200 (see ``describe_failure``;
+            on 401 or 403 followed by ``needs``), or the body of a 200 is not
+            JSON (a sign-in page, say).
 
     Example:
         >>> domino_json(APPS_API, http.get("/api/apps/beta/apps"))["items"]
     """
     if response.status_code != HTTPStatus.OK:
-        raise DominoDeployError(describe_failure(api, response))
+        failure = describe_failure(api, response)
+        if needs and response.status_code in (401, 403):
+            failure = f"{failure}; {needs}"
+        raise DominoDeployError(failure)
     try:
         return json_mapping(response.json())
     except ValueError as exc:

@@ -20,9 +20,13 @@ from .paged_list import read_pages
 
 # Written here as well as in the fake Domino, which the product may not import.
 HARDWARE_TIERS_PATH = "/api/hardwaretiers/v1/hardwaretiers"
-_NEEDS = (
-    "listing the hardware tiers needs the permission ViewHardwareTiers: ask for it, "
-    "or write the tier's id as hardware_tier_id, which needs no such call"
+# What a 401 or 403 on the list says after Domino's answer: a listing asks for
+# the permission, a deploy can also do without the list.
+_PERMISSION = "listing the hardware tiers needs the permission ViewHardwareTiers"
+_TIERS_NEEDED_TO_LIST = f"{_PERMISSION}: ask for it"
+TIERS_NEEDED_TO_DEPLOY = (
+    f"{_PERMISSION}: ask for it, or write the tier's id as hardware_tier_id, "
+    "which needs no such call"
 )
 
 
@@ -54,24 +58,28 @@ class HardwareTier:
         return f"{size}, {self.gpus} GPU{'' if self.gpus == 1 else 's'}"
 
 
-def list_hardware_tiers(http: httpx.Client) -> list[HardwareTier]:
+def list_hardware_tiers(
+    http: httpx.Client, needs: str = _TIERS_NEEDED_TO_LIST
+) -> list[HardwareTier]:
     """Read every hardware tier of Domino, in Domino's order.
 
     Args:
         http: Client whose base URL is Domino (``DOMINO_API_PROXY`` in a run).
+        needs: What a 401 or 403 says after Domino's answer: the caller's advice
+            (``TIERS_NEEDED_TO_DEPLOY`` for a deploy).
 
     Returns:
         The tiers.
 
     Raises:
         DominoDeployError: If the list cannot be read; on 401 or 403 the message
-            names the permission ``ViewHardwareTiers``.
+            names the permission ``ViewHardwareTiers``, then ``needs``.
 
     Example:
         >>> [tier.name for tier in list_hardware_tiers(http)]
         ['cpu-8', 'cpu-16']
     """
-    listed = read_pages(http, HARDWARE_TIERS_PATH, "hardwareTiers", needs=_NEEDS)
+    listed = read_pages(http, HARDWARE_TIERS_PATH, "hardwareTiers", needs=needs)
     return [_tier_from_json(tier) for tier in listed]
 
 

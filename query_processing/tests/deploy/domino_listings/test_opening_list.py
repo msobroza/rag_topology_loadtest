@@ -114,5 +114,23 @@ async def test_the_line_of_keys_is_shown() -> None:
     app = OpeningList("Hardware tiers", items([]))
     async with app.run_test():
         text = " ".join(str(static.render()) for static in app.query(Static))
-    for keys in ("up/down move", "space open/close", "/ filter", "q quit"):
+    for keys in (
+        "up/down move",
+        "space open/close",
+        "/ filter",
+        "enter to the list",
+        "esc all items",
+        "q quit",
+    ):
         assert keys in text
+
+
+async def test_enter_after_the_filter_gives_the_keys_to_the_narrowed_list() -> None:
+    calls: list[str] = []
+    app = OpeningList("Hardware tiers", items(calls))
+    async with app.run_test() as pilot:
+        await pilot.press("/", "1", "6", "enter", "space")
+        assert shown(app) == [("cpu-16", ["cpu-16 line 1", "cpu-16 line 2"])]
+        await pilot.press("q")
+    assert calls == ["cpu-16"]
+    assert app.return_code == 0

@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
+from urllib.parse import quote
 
 import httpx
 
@@ -55,6 +56,7 @@ class _RouteReading:
 
     revisions: list[EnvironmentRevision]
     told: str
+    left_out: int = 0
 
 
 @dataclass(frozen=True)
@@ -89,15 +91,31 @@ class InternalRevisions(BaseRevisionSource):
             environment_id: The environment's id.
 
         Returns:
-            The revisions, ``built`` read from ``created``; an empty list when the
-            route fails (``describe`` says how). An entry without its id, a whole
-            number or a date is left out, and ``describe`` counts it.
+            The revisions, ``built`` read from ``created`` (None when it cannot
+            be read); an empty list when the route fails (``describe`` says how).
+            An entry without its id or a whole number is left out, and
+            ``describe`` counts it.
 
         Example:
             >>> [revision.number for revision in source.revisions("env-1")]
             [7, 6, 5]
         """
         return list(self._reading(environment_id).revisions)
+
+    def left_out(self, environment_id: str) -> int:
+        """Count the entries the route gave without an id or a whole number.
+
+        Args:
+            environment_id: The environment's id.
+
+        Returns:
+            How many entries ``revisions`` left out; ``describe`` says it too.
+
+        Example:
+            >>> source.left_out("env-1")
+            0
+        """
+        return self._reading(environment_id).left_out
 
     def describe(self, environment_id: str) -> str:
         """Say how many revisions the route listed, or what it answered instead.
@@ -122,7 +140,7 @@ class InternalRevisions(BaseRevisionSource):
 
 
 def _read_route(http: httpx.Client, environment_id: str) -> _RouteReading:
-    path = REVISIONS_ROUTE.format(environment_id=environment_id)
+    path = REVISIONS_ROUTE.format(environment_id=quote(environment_id, safe=""))
     route = f"the internal route GET {path}"
     try:
         entries = _every_entry(http, path)
@@ -131,8 +149,9 @@ def _read_route(http: httpx.Client, environment_id: str) -> _RouteReading:
     found = (_entry_revision(entry) for entry in entries)
     revisions = [revision for revision in found if revision is not None]
     revisions.sort(key=lambda revision: revision.number, reverse=True)
-    told = _listed(revisions, left_out=len(entries) - len(revisions))
-    return _RouteReading(revisions, f"{route} {told}")
+    left_out = len(entries) - len(revisions)
+    told = _listed(revisions, left_out=left_out)
+    return _RouteReading(revisions, f"{route} {told}", left_out)
 
 
 def _every_entry(http: httpx.Client, path: str) -> list[object]:
@@ -191,15 +210,16 @@ def _whole(value: object, *, least: int) -> int | None:
 
 
 def _entry_revision(entry: object) -> EnvironmentRevision | None:
-    # An entry lacking its id, a whole number or a date is left out, as
-    # environments.py leaves out a revision whose number is no whole number;
-    # describe counts them, so a shape Domino changed inside the entries shows.
+    # An entry lacking its id or a whole number is left out, as environments.py
+    # leaves out a revision whose number is no whole number; describe counts
+    # them, so a shape Domino changed inside the entries shows. A date that
+    # cannot be read is no reason: a deploy pins by id and number alone.
     fields = json_mapping(entry)
     revision_id = fields.get("id")
     number = _whole(fields.get("number"), least=1)
-    built = _built_at(fields.get("created"))
-    if not revision_id or number is None or built is None:
+    if not revision_id or number is None:
         return None
+    built = _built_at(fields.get("created"))
     return EnvironmentRevision(id=str(revision_id), number=number, built=built)
 
 
@@ -215,7 +235,7 @@ def _built_at(created: object) -> datetime | None:
 def _listed(revisions: list[EnvironmentRevision], *, left_out: int) -> str:
     skipped = ""
     if left_out:
-        skipped = f", leaving out {left_out} without an id, a number or a date"
+        skipped = f", leaving out {left_out} without an id or a whole number"
     if not revisions:
         return f"lists no revision{skipped}"
     if len(revisions) == 1:

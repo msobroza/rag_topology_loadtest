@@ -16,9 +16,15 @@ from dataclasses import replace
 
 import httpx
 
+from ..apps_client import DominoDeployError
 from ..deploy_settings import AppSettings
 from .base_domino_ids import AppWithIds, BaseDominoIds, where_set
-from .hardware_tiers import HardwareTier, list_hardware_tiers, tier_named
+from .hardware_tiers import (
+    TIERS_NEEDED_TO_DEPLOY,
+    HardwareTier,
+    list_hardware_tiers,
+    tier_named,
+)
 from .internal_revisions import InternalRevisions
 from .revision_sources import BaseRevisionSource, DocumentedRevisions, revision_numbered
 
@@ -57,7 +63,8 @@ class DominoIdsAsked(BaseDominoIds):
 
         Raises:
             DominoDeployError: As ``tier_named``, ``list_hardware_tiers`` and
-                ``revision_numbered`` do.
+                ``revision_numbered`` do, or if Domino gave the tier or the
+                revision found without its id.
 
         Example:
             >>> DominoIdsAsked(client.http).find(app).app.environment_revision_id
@@ -72,8 +79,14 @@ class DominoIdsAsked(BaseDominoIds):
         if not app.hardware_tier:
             return AppWithIds(app)
         if self._tiers is None:
-            self._tiers = list_hardware_tiers(self._http)
+            self._tiers = list_hardware_tiers(self._http, TIERS_NEEDED_TO_DEPLOY)
         tier = tier_named(self._tiers, app.hardware_tier, where_set(app))
+        if not tier.id:
+            raise DominoDeployError(
+                f"hardware_tier {app.hardware_tier!r} of {where_set(app)} names a "
+                "tier of Domino, but Domino's answer held no id for that tier: "
+                "write the tier's id itself as hardware_tier_id"
+            )
         line = f"{app.name}: hardware tier {tier.name} (id {tier.id}): {tier.size()}"
         return AppWithIds(replace(app, hardware_tier_id=tier.id), (line,))
 
@@ -84,5 +97,12 @@ class DominoIdsAsked(BaseDominoIds):
         revision = revision_numbered(
             self._sources, app.environment_id, number, where_set(app)
         )
+        if not revision.id:
+            raise DominoDeployError(
+                f"environment_revision {number} of {where_set(app)} is a revision "
+                "Domino gives, but Domino's answer held no id for that revision of "
+                f"environment {app.environment_id!r}: write the revision's id "
+                "itself as environment_revision_id"
+            )
         line = f"{app.name}: environment revision {number} (id {revision.id})"
         return AppWithIds(replace(app, environment_revision_id=revision.id), (line,))

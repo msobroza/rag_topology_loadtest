@@ -29,6 +29,19 @@ class SignInPage:
         return httpx.Response(200, text="<html>Sign in</html>")
 
 
+class SamePageWhateverTheOffset:
+    """Answers the same page whatever the offset, with no total, counting the calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, _request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self.calls > 10:  # a loop that never ends fails here, not in memory
+            raise AssertionError("read_pages asked more than 10 pages")
+        return httpx.Response(200, json={"items": [{"id": "e"}, {"id": "f"}]})
+
+
 @pytest.mark.parametrize("metadata", [{"totalCount": 3}, {}])
 def test_reading_stops_at_an_empty_page(metadata: dict[str, object]) -> None:
     answer = OneItemThenNone(metadata)
@@ -46,3 +59,15 @@ def test_an_answer_that_is_not_json_is_refused() -> None:
         "Domino API GET /api/x answered HTTP 200 with a body that is not JSON: "
         "<html>Sign in</html>"
     )
+
+
+def test_a_list_that_repeats_its_page_whatever_the_offset_is_refused() -> None:
+    answer = SamePageWhateverTheOffset()
+    http = httpx.Client(base_url="http://domino", transport=httpx.MockTransport(answer))
+    with pytest.raises(DominoDeployError) as refusal:
+        read_pages(http, "/api/x", "items", needs="n")
+    assert str(refusal.value) == (
+        "Domino API GET /api/x answered the same 2 items at offset 2 as at offset 0: "
+        "the list repeats whatever the offset, so it cannot be read to its end"
+    )
+    assert answer.calls == 2

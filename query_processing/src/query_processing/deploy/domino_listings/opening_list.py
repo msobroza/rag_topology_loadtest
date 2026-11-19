@@ -3,8 +3,9 @@
 The only module of the toolkit that imports Textual, which sits in the optional
 extra ``terminal``: an App never installs it, and no other module needs it to
 load. The arrows move, the space bar opens or closes the item under the cursor,
-``/`` narrows the items to those whose name holds the text typed, ``escape``
-brings them all back, and ``q`` quits.
+``/`` narrows the items to those whose name holds the text typed, ``enter``
+gives the keys back to the narrowed list, ``escape`` brings every item back,
+and ``q`` quits.
 
 Example:
     >>> item = OpeningItem("cpu-16", lambda: ["cores: 16"])
@@ -26,7 +27,10 @@ from textual.widgets.tree import TreeNode
 
 from ..apps_client import DominoDeployError
 
-_KEYS = "up/down move   space open/close   / filter   q quit"
+_KEYS = (
+    "up/down move   space open/close   / filter   "
+    "enter to the list   esc all items   q quit"
+)
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,17 @@ class OpeningList(App[None]):
             event: The filter's message that its text changed.
         """
         self._show(i for i, item in enumerate(self._items) if item.matches(event.value))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Give the keys back to the narrowed list, its cursor on the first item.
+
+        Args:
+            event: The filter's message that ``enter`` was pressed in it.
+        """
+        event.stop()
+        tree = self.query_one(Tree)
+        tree.cursor_line = 0
+        tree.focus()
 
     def action_filter(self) -> None:
         """Show the filter and give it the keys."""

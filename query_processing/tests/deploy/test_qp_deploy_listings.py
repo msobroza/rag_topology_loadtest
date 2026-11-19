@@ -8,34 +8,29 @@ The fixtures (run_main) are in domino_deploy_fixtures.
 
 from __future__ import annotations
 
+import io
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 
+import httpx
 import pytest
 import yaml
 
-from domino_deploy_helpers import RunMain
+from domino_deploy_helpers import FAKE_ENV_1, RunMain
 from fake_domino.server import create_fake_domino
-from fake_domino.stand_ins import fake_environment, fake_tier
+from fake_domino.stand_ins import fake_tier
 from fake_domino.state import FakeDominoApps
+from query_processing.deploy import qp_deploy
+from query_processing.deploy.domino_listings.listing_looks import Look
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 
-BUILT_7 = "2026-11-12T09:41:00Z"
-BUILT_6 = "2026-11-03T16:02:00Z"
 TIERS = [
     fake_tier("small-k8s", "cpu-8", 8, 32, is_default=True),
     fake_tier("large-k8s", "cpu-16", 16, 64),
     fake_tier("gpu-k8s", "gpu-1", 8, 32, gpus=1),
 ]
-# Not ENV_1: the helpers' ENV_1 is the text of a deploy file, which run_main writes.
-FAKE_ENV_1 = fake_environment(
-    "env-1",
-    (7, "rev-7", BUILT_7),
-    (6, "rev-6", BUILT_6),
-    (5, "rev-5", BUILT_6),
-    name="qp-rag",
-    active=6,
-)
 INTERNAL_CALL = ("GET", "/v4/environments/env-1/paginatedRevisionData")
 TIERS_TABLE = (
     "NAME    CORES  MEMORY  GPUS  DEFAULT  ID\n"
@@ -43,6 +38,27 @@ TIERS_TABLE = (
     "cpu-16     16  64 GiB     -           large-k8s\n"
     "gpu-1       8  32 GiB     1           gpu-k8s\n"
 )
+
+
+class TerminalOrNot(io.StringIO):
+    """A standard stream that says whether it is a terminal."""
+
+    def __init__(self, *, terminal: bool) -> None:
+        super().__init__()
+        self.terminal = terminal
+
+    def isatty(self) -> bool:
+        return self.terminal
+
+
+class RecordedLooks:
+    """Stands in for ``show_tiers``: records the look each call was given."""
+
+    def __init__(self) -> None:
+        self.looks: list[Look] = []
+
+    def __call__(self, _http: httpx.Client, _names: Sequence[str], look: Look) -> None:
+        self.looks.append(look)
 
 
 def fake_apps() -> FakeDominoApps:
@@ -170,3 +186,40 @@ def test_a_listing_needs_no_valid_app_block(run_main: RunMain) -> None:
     Path("deploy.yaml").write_text('defaults: {environment_id: "<environment id>"}\n')
     code, out, _ = run_main(["tiers"], create_fake_domino(fake_apps()))
     assert (code, out) == (0, TIERS_TABLE)
+
+
+def test_a_forbidden_tiers_list_names_the_permission_and_no_deploy_advice(
+    run_main: RunMain,
+) -> None:
+    forbidden = FakeDominoApps.from_behaviour("forbidden")
+    code, _, err = run_main(["tiers"], create_fake_domino(forbidden))
+    assert code == 2
+    assert err.endswith(
+        "returned HTTP 403: Forbidden by the fake Domino (behaviour: forbidden); "
+        "listing the hardware tiers needs the permission ViewHardwareTiers: ask "
+        "for it\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("input_is_a_terminal", "output_is_a_terminal", "look"),
+    [
+        (True, True, "list"),
+        (True, False, "table"),
+        (False, True, "table"),
+        (False, False, "table"),
+    ],
+)
+def test_the_list_starts_only_when_input_and_output_are_both_a_terminal(
+    run_main: RunMain,
+    monkeypatch: pytest.MonkeyPatch,
+    input_is_a_terminal: bool,
+    output_is_a_terminal: bool,
+    look: Look,
+) -> None:
+    recorded = RecordedLooks()
+    monkeypatch.setitem(qp_deploy.LISTINGS, "tiers", (recorded, "hardware tiers"))
+    monkeypatch.setattr(sys, "stdin", TerminalOrNot(terminal=input_is_a_terminal))
+    monkeypatch.setattr(sys, "stdout", TerminalOrNot(terminal=output_is_a_terminal))
+    assert run_main(["tiers"], create_fake_domino(fake_apps()))[0] == 0
+    assert recorded.looks == [look]
