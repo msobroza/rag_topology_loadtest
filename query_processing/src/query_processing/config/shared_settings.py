@@ -99,9 +99,11 @@ class CalibrationSettings(SettingsBlock):
 class DefaultHttpSettings(SettingsBlock):
     """The top-level ``http`` block: the default of every call out.
 
-    A component's own ``http`` block overrides each value for its calls
-    (``components.<name>.http``); the calls that are no component's, such as
-    the Domino hardware-tier lookup, take these as they are.
+    A component's own ``http`` block overrides the timeout, the retries and the
+    backoff for its calls (``components.<name>.http``); the calls that are no
+    component's, such as the Domino hardware-tier lookup, take these as they
+    are. The pool is the block's alone: the workflow app holds one client
+    (``composition/http_resources.py``), so no component sets one.
 
     Example:
         >>> DefaultHttpSettings().retries
@@ -111,6 +113,15 @@ class DefaultHttpSettings(SettingsBlock):
     timeout_s: float = Field(default=30.0, gt=0)  # of one attempt
     retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 429
     backoff_s: float = Field(default=0.2, ge=0)  # before the 1st retry; doubles
+    # The shared client's pool, at httpx 0.28.1's own values: 32 users hold at
+    # most 32 calls in flight, and a handshake costs milliseconds against calls
+    # of 0.3 to 20 s, so nothing is gained by changing them.
+    max_connections: int = Field(default=100, ge=1)
+    max_keepalive_connections: int = Field(default=20, ge=0)
+    keepalive_expiry_s: float = Field(default=5.0, ge=0)  # idle, before closing
+    # Needs the h2 package (httpx[http2]) and a server speaking HTTP/2: Uvicorn's
+    # is experimental and OVMS has none.
+    http2: bool = False
 
 
 class DominoSettings(SettingsBlock):
