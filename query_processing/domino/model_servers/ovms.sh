@@ -38,10 +38,15 @@
 # OVMS's streams and threads left at 0 by QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS
 # (one ovms start per candidate), and writes, in a fresh temporary folder, the
 # export's config and graph with the choice; the export itself is never written.
+# The server's flags `qp-ovms-config --server-flags` prints (QP_OVMS_REST_WORKERS,
+# ..., then the pass-through QP_OVMS_ARGS; none at the defaults) follow the
+# config on ovms's command line, as on each calibration start.
 # When `qp-ovms-config` is not on PATH the toolkit and the use case are
 # uv-installed into $HOME/qp-venv first; without uv the export's own config is
-# served as exported (one stream, no calibration), which a pinned QP_OVMS_NUM_STREAMS
-# or QP_OVMS_THREADS refuses. Pin both variables in this App's block of deploy.yaml
+# served as exported (one stream, no calibration, no server flag), which any set
+# QP_OVMS_* variable only Python reads refuses (every one but QP_OVMS_MODELS_DIR,
+# QP_OVMS_BUNDLE and QP_OVMS_PREFIX_PROXY, which this script reads). Pin both
+# QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS in this App's block of deploy.yaml
 # (qp-calibrate --ovms-models prints them) to skip calibration.
 #
 # OVMS has no base-path option. When Domino forwards the app path prefix
@@ -56,10 +61,11 @@
 # $HOME/qp-venv first with uv when the command is missing; with neither it
 # stops). For an LLM, OVMS pulls the source id from the Hub into
 # QP_OVMS_MODELS_DIR on its first start (created here first) and serves it under
-# the alias: no export, no calibration, no weight-format record. Its two batching
-# options, QP_OVMS_DYNAMIC_SPLIT_FUSE and QP_OVMS_MAX_BATCHED_TOKENS, come as flags
-# from `qp-ovms-config --serve-llm`, which checks them (and refuses an empty
-# source id or a pinned stream or thread count) before OVMS starts. It runs on the
+# the alias: no export, no calibration, no weight-format record. Its options
+# (QP_OVMS_DYNAMIC_SPLIT_FUSE, QP_OVMS_MAX_BATCHED_TOKENS, QP_OVMS_MAX_NUM_SEQS,
+# ...), then the server's flags, come from `qp-ovms-config --serve-llm`, which
+# checks them (and refuses an empty source id, a pinned stream or thread count,
+# or a flag given twice) before OVMS starts. It runs on the
 # generic environment with QP_BOOTSTRAP=1 and QP_OVMS_BUNDLE, not on the prebuilt
 # `ovms` image.
 
@@ -109,7 +115,14 @@ serve_model_server() {
   fi
   # set -e stops the App when the substitution fails (die only ends the subshell).
   config=$(ovms_serving_config "$component" "$config")
-  ovms_run --config_path "$config"
+  local -a flags=()
+  if command -v qp-ovms-config >/dev/null 2>&1; then
+    local words
+    words=$(qp-ovms-config --server-flags "$component")
+    eval "flags=($words)"  # words shell-quoted by qp-ovms-config
+  fi
+  # The guard expands an empty array under set -u on bash 3.2.
+  ovms_run --config_path "$config" ${flags[@]+"${flags[@]}"}
 }
 
 # ovms_learn_component <component> <config>: set OVMS_COMPONENT_TYPE,
@@ -197,12 +210,7 @@ ovms_serving_config() {
     # No command reads the settings: the weight format is checked here, against
     # the variable, else the default.
     ovms_require_weight_format
-    # A pin that cannot be applied must not be silently ignored.
-    [ -z "${QP_OVMS_NUM_STREAMS:-}${QP_OVMS_THREADS:-}" ] \
-      || die "QP_OVMS_NUM_STREAMS / QP_OVMS_THREADS are set but cannot be applied: 'qp-ovms-config' is not on PATH and 'uv' is not there to install it; install the toolkit and the use case, or unset both"
-    # Nor an LLM's option, which qp-ovms-config would refuse on this App.
-    [ -z "${QP_OVMS_DYNAMIC_SPLIT_FUSE:-}${QP_OVMS_MAX_BATCHED_TOKENS:-}" ] \
-      || die "QP_OVMS_DYNAMIC_SPLIT_FUSE / QP_OVMS_MAX_BATCHED_TOKENS are set, but $1 is no LLM, and they apply to an LLM served by OVMS only; unset them where they were set: this App's block of deploy.yaml (apps.$1.settings), its defaults.settings, or the App's own environment variables (this script reads no .env)"
+    ovms_refuse_unread_settings "$1"
     echo "app.sh[$WHO]: 'qp-ovms-config' not on PATH and no 'uv' to install it; serving $2 as exported (one stream, not calibrated)" >&2
     echo "$2"
     return
@@ -211,6 +219,23 @@ ovms_serving_config() {
   serving_dir=$(mktemp -d "${TMPDIR:-/tmp}/qp-ovms-serving.XXXXXX")
   qp-ovms-config --serve "$1" --models-dir "$OVMS_MODELS_DIR" --serving-dir "$serving_dir" \
     || die "qp-ovms-config could not write the OVMS config for $1: its reason is on the line above; if its calibration is what failed, pinning both QP_OVMS_NUM_STREAMS and QP_OVMS_THREADS (qp-calibrate --ovms-models prints them) skips it"
+}
+
+# ovms_refuse_unread_settings <component>: stop the App when a QP_OVMS_* variable
+# only Python reads is set, as no command is here to read it: a setting that
+# cannot be applied must not be silently ignored. Every variable of the prefix
+# but this script's own, so a setting Python gains is refused without a change
+# here.
+ovms_refuse_unread_settings() {
+  local name unread=""
+  for name in $(compgen -v QP_OVMS_); do
+    case $name in
+      QP_OVMS_MODELS_DIR | QP_OVMS_BUNDLE | QP_OVMS_PREFIX_PROXY) continue ;;
+    esac
+    unread="$unread ${name}=${!name}"
+  done
+  [ -z "$unread" ] \
+    || die "set but not applied:$unread; 'qp-ovms-config' reads it and is not on PATH, and 'uv' is not there to install it; install the toolkit and the use case, or unset it where it was set: this App's block of deploy.yaml (apps.$1.settings), its defaults.settings, or the App's own environment variables (this script reads no .env)"
 }
 
 # Render domino/ovms-proxy.conf: __PREFIX__ becomes DOMINO_RUN_HOST_PATH (the

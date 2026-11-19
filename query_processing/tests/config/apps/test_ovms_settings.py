@@ -272,3 +272,130 @@ def test_a_graph_option_on_an_llm_app_is_refused(
 
 def test_no_graph_option_lets_an_llm_app_start() -> None:
     ovms_settings().require_no_graph_option("llm")
+
+
+# --- the server's flags and the LLM's remaining ones -------------------------------
+
+
+def test_the_defaults_add_no_server_flag() -> None:
+    assert ovms_settings().server_flags() == []
+
+
+@pytest.mark.parametrize(
+    ("named", "passed"),
+    [
+        ({"rest_workers": 4}, "--rest_workers 4"),
+        ({"metrics": True}, "--metrics_enable"),
+        ({"log_level": "DEBUG"}, "--log_level DEBUG"),
+        ({"cache_dir": "/cache"}, "--cache_dir /cache"),
+    ],
+)
+def test_a_server_flag_named_or_passed_through_gives_the_same_command_line(
+    named: dict[str, object], passed: str
+) -> None:
+    assert ovms_settings(**named).server_flags() == (
+        ovms_settings(args=passed).server_flags()
+    )
+
+
+@pytest.mark.parametrize(
+    ("named", "passed"),
+    [
+        ({"rest_workers": 4}, "--rest-workers=8"),
+        ({"log_level": "INFO"}, "--log_level DEBUG"),
+        ({"metrics": True}, "--metrics_enable"),
+        ({"max_num_seqs": 64}, "--max_num_seqs=32"),
+        ({"dynamic_split_fuse": False}, "--dynamic_split_fuse true"),
+        ({}, "--rest_port 9000"),
+        ({}, "--config_path /x.json"),
+        ({}, "--source-model=org/m"),
+        ({}, "--task text_generation"),
+    ],
+)
+def test_a_flag_given_both_ways_or_owned_by_the_script_is_refused(
+    named: dict[str, object], passed: str
+) -> None:
+    with pytest.raises(ValueError, match="QP_OVMS_ARGS") as raised:
+        ovms_settings(**named, args=passed)
+
+    assert passed.split()[0] in str(raised.value)
+
+
+def test_a_pass_through_with_an_open_quote_is_refused_naming_it() -> None:
+    with pytest.raises(ValueError, match="QP_OVMS_ARGS="):
+        ovms_settings(args="--cache_dir '/a b")
+
+
+@pytest.mark.parametrize(
+    ("named", "flags"),
+    [
+        ({"max_num_seqs": 64}, ["--max_num_seqs", "64"]),
+        ({"cache_size_gb": 8}, ["--cache_size", "8"]),
+        ({"prefix_caching": False}, ["--enable_prefix_caching", "false"]),
+        ({"prefix_caching": True}, ["--enable_prefix_caching", "true"]),
+        ({"kv_cache_precision": "u8"}, ["--kv_cache_precision", "u8"]),
+        (
+            {"model_distribution_policy": "TENSOR_PARALLEL"},
+            ["--model_distribution_policy", "TENSOR_PARALLEL"],
+        ),
+    ],
+)
+def test_an_llm_option_becomes_its_flag(
+    named: dict[str, object], flags: list[str]
+) -> None:
+    settings = ovms_settings(dynamic_split_fuse=True, max_batched_tokens=0, **named)
+
+    assert settings.llm_flags() == flags
+
+
+def test_the_llms_flags_leave_the_server_flags_out() -> None:
+    settings = ovms_settings(max_batched_tokens=512, rest_workers=2, args="--x 1")
+
+    assert settings.llm_flags() == ["--max_num_batched_tokens", "512"]
+    assert settings.server_flags() == ["--rest_workers", "2", "--x", "1"]
+
+
+def test_more_sequences_than_batched_tokens_is_refused() -> None:
+    with pytest.raises(ValueError, match="QP_OVMS_MAX_NUM_SEQS") as raised:
+        ovms_settings(max_num_seqs=512, max_batched_tokens=256)
+
+    message = str(raised.value)
+    assert "QP_OVMS_MAX_NUM_SEQS=512" in message
+    assert "QP_OVMS_MAX_BATCHED_TOKENS=256" in message
+
+
+@pytest.mark.parametrize(
+    "named",
+    [{"max_num_seqs": 512}, {"max_num_seqs": 256, "max_batched_tokens": 256}],
+)
+def test_sequences_are_checked_against_batched_tokens_only_when_both_are_set(
+    named: dict[str, int],
+) -> None:
+    assert ovms_settings(**named).max_num_seqs == named["max_num_seqs"]
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("QP_OVMS_MAX_NUM_SEQS", "64"),
+        ("QP_OVMS_CACHE_SIZE_GB", "8"),
+        ("QP_OVMS_PREFIX_CACHING", "false"),
+        ("QP_OVMS_KV_CACHE_PRECISION", "u8"),
+        ("QP_OVMS_MODEL_DISTRIBUTION_POLICY", "TENSOR_PARALLEL"),
+    ],
+)
+def test_the_new_llm_options_are_refused_off_an_llm(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match="applies to an LLM") as raised:
+        ovms_settings().require_no_llm_option("reranker")
+
+    assert f"{variable}={value}" in str(raised.value)
+
+
+def test_a_server_flag_is_no_llm_option() -> None:
+    settings = ovms_settings(rest_workers=4, args="--log_level DEBUG")
+
+    settings.require_no_llm_option("reranker")

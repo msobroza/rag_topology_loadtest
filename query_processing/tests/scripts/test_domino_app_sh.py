@@ -183,6 +183,8 @@ def test_an_ovms_model_server_serves_its_components_config_directly_by_default(
     config = served_config(tmp_path)
     assert log(tmp_path, "ovms").strip() == f"--rest_port 8888 --config_path {config}"
     assert log(tmp_path, "nginx") == ""
+    flags_asked = log(tmp_path, "qp-ovms-config-server-flags").strip()
+    assert flags_asked == f"--server-flags {component}"
     serving_dir = config.removesuffix(f"/config_{component}.json")
     assert log(tmp_path, "qp-ovms-config").strip() == (
         f"--serve {component} --models-dir {models} --serving-dir {serving_dir}"

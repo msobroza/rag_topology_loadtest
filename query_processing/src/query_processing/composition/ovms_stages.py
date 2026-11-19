@@ -138,6 +138,9 @@ class OvmsServer:
     # QP_OVMS_EMBEDDINGS_*), the same for every candidate.
     graph_options: OvmsGraphOptions = field(default_factory=OvmsGraphOptions)
     binary: str = "ovms"  # the OVMS executable
+    # The App's ovms flags (OvmsSettings.server_flags()), on every candidate's
+    # start: a candidate is timed as it will be served.
+    server_flags: tuple[str, ...] = ()
 
 
 class _AnswersReady(Protocol):
@@ -190,6 +193,7 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
             ready=self._answers,
             start_timeout_s=self._server.start_timeout_s,
             binary=self._server.binary,
+            server_flags=self._server.server_flags,
         )
         async with process:
             yield

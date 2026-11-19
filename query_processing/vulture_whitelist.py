@@ -43,6 +43,18 @@ cpu_reservation
 inference_precision_hint
 execution_mode_hint
 
+# pydantic: the flag fields of OvmsSettings, read by their names through
+# config/apps/ovms_flags.py's SERVER_FLAGS and LLM_FLAGS, which pair each with
+# the ovms flag it writes.
+cache_size_gb
+prefix_caching
+kv_cache_precision
+model_distribution_policy
+rest_workers
+metrics
+log_level
+cache_dir
+
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.
 accessStatuses

@@ -74,6 +74,21 @@ def test_stdout_is_the_config_path_and_nothing_else(
     assert {"stage_calibrated", "ovms_serving_config"} <= set(events)
 
 
+def test_each_calibration_start_takes_the_server_flags(
+    models: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A candidate is timed as it will be served.
+    record = stand_in_on_path(tmp_path, monkeypatch)
+    monkeypatch.setenv("QP_OVMS_REST_WORKERS", "4")
+
+    assert main(args("reranker", models, tmp_path / "serving")) == 0
+
+    starts = ovms_starts(record)
+    assert len(starts) >= 2
+    tails = {tuple(s["argv"][-2:]) for s in starts}  # type: ignore[index]
+    assert tails == {("--rest_workers", "4")}
+
+
 def test_both_pinned_start_no_ovms(
     models: Path,
     tmp_path: Path,

@@ -308,6 +308,7 @@ class OvmsCalibration:
                 embeddings_max_length=ovms.embeddings_max_length,
             ),
             self._binary,
+            tuple(ovms.server_flags()),
         )
         return open_ovms_stage(component, calls, server)
 

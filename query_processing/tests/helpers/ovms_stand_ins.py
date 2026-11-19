@@ -60,7 +60,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--rest_bind_address", default="0.0.0.0")
 parser.add_argument("--rest_port", type=int, required=True)
 parser.add_argument("--config_path", required=True)
-args = parser.parse_args()
+args, _ = parser.parse_known_args()  # the server flags are recorded, not read
 config_path = Path(args.config_path)
 model = json.loads(config_path.read_text())["model_config_list"][0]["config"]
 folder = config_path.parent / model["base_path"]

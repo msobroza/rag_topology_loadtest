@@ -60,11 +60,17 @@ def write_ovms_config_stand_in(
 
     It prints ``<serving dir>/config_<part>.json``, as the real one does, and
     appends it to ``<name>.out`` (argv to ``<name>.log``); only shell builtins,
-    so it runs on any PATH.
+    so it runs on any PATH. Asked ``--server-flags``, it logs to
+    ``<name>-server-flags.log`` instead and prints ``$FAKE_OVMS_SERVER_FLAGS``.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "#!/usr/bin/env bash\n"
+        'if [ "$1" = --server-flags ]; then\n'
+        f'  echo "$@" >> "{tmp_path}/{name}-server-flags.log"\n'
+        '  echo "${FAKE_OVMS_SERVER_FLAGS:-}"\n'
+        "  exit 0\n"
+        "fi\n"
         f'echo "$@" >> "{tmp_path}/{name}.log"\n'
         "while [ $# -gt 0 ]; do\n"
         '  case "$1" in --serve) part=$2 ;; --serving-dir) dir=$2 ;; esac\n'
