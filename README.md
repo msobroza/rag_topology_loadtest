@@ -798,7 +798,7 @@ only rule 9 applies to it.
 ### The tree
 
 ```text
-query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (its install, its gates, fake-domino),
+query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (its install, its gates, pin-answers, fake-domino),
                     vulture_whitelist.py; no workflow file and no use case's file
   src/query_processing/
     __init__.py       package docstring, __version__
@@ -1042,6 +1042,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
       router_contract.py  RouterContract: ComponentContract for a router, with routes to write; the route chosen is one of them, the confidence between 0 and 1
       directory_size.py  directory_size_findings, OnePatternFolder, FolderNotYetSplit: rule 9 measured under a distribution's src/ and tests/, each breach a sentence naming the folder, its count and what to do
+      pinned_answer_record.py  PinnedAnswerRecord, check_pinned_answers: the workflow app recorded in process on fake backends and compared with its committed answer record, or pinned again with --pin-answers
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)
@@ -1058,6 +1059,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/, and in a crowded folder one sub-folder per sub-package, module or command (rule 9)
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
+    testing/answer_records/   the pinned answer record of the fixture workflow on fake backends (make -C query_processing pin-answers)
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
     structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
@@ -1077,8 +1079,8 @@ query_processing_rag_usecase/   the RAG use case, one distribution that installs
     entrypoints/train_router.py       qp-rag-train-router: embeds the utterances, fits and scores the pipeline, writes the file (make train-router)
   deploy.example.yaml  its deploy settings example: the topology aliases, the Apps, this site's overrides (cp to deploy.yaml)
   .env.example        its environment example, the load-test sizes of a rerank request included (cp to .env)
-  Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
-  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports; helpers/ on pytest's path
+  Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, pin-answers, ...), run here
+  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports; helpers/ on pytest's path; answer_records/, its pinned answer records on fake backends, one for each way a follow-up takes, with their questions file (make pin-answers)
   results/            load-test output (git-ignored), as data/, models/, ovms/models/ and chroma/ written here
 experiment_charts/  the charts of the measurements, one distribution (experiment-charts): not the product, it draws experiments-explained/ from experiments/
   pyproject.toml      the distribution: matplotlib and PyYAML, nothing of the product; its package under src/
@@ -1302,12 +1304,50 @@ body), refused before any comparison, naming the first request that differs.
 `make compare-answers` compares every `results/*_answers.json`, sorted;
 `BASELINE=split-all` puts that run first.
 
-The check runs on demand only, against real models where they run: nothing of
-it runs in `make check` or in CI but its own tests, on fakes. What to expect:
-the same code on two topologies answers the same, since a component served over
-HTTP returns what it returns in process. Two model servers (FastAPI and OVMS)
-or two weight formats may not: their scores move, and a passage can change
-places. Compare each with a baseline of its own.
+The check on real models runs on demand only, where they run: of it, `make
+check` and CI run its own tests and the pinned answer records below, on
+fakes. What to expect: the same code on two topologies answers the same, since
+a component served over HTTP returns what it returns in process. Two model
+servers (FastAPI and OVMS) or two weight formats may not: their scores move,
+and a passage can change places. Compare each with a baseline of its own.
+
+#### Pinned answer records: the answers on fake backends, in the gate
+
+What the workflow app answers on fake backends is committed as answer
+records, the "before" a change to how the graph runs is held to. A test of each
+distribution starts the app in process with every component on its fake
+backend (no socket, no download), records it with `qp-record-answers`, and
+compares the record with the committed one with `qp-compare-answers`: every
+answer identical, its text included, with ROUGE-L at a threshold of 1 (the
+fake LLM's echo is a function of its prompt), and the scores within the score
+tolerance. `make check` runs both.
+
+| Distribution | Records | Requests |
+| --- | --- | --- |
+| the toolkit | `tests/testing/answer_records/fixture_workflow_answers.json`, the fixture workflow | ten synthetic questions, one per topic of the synthetic corpus |
+| the RAG use case | `tests/answer_records/follow_ups_stand_alone_answers.json` and `follow_ups_rewritten_answers.json`, its own `workflow.yaml` | `tests/answer_records/questions.jsonl`: a first message, then two follow-ups with a conversational history |
+
+Each request goes to `/retrieve` and to `/query`. The fake router chooses the
+first of its routes, so the use case's two records cover the three paths of
+its graph: in both, the first message takes no route; with the routes in the
+file's order a follow-up stands alone, and with `leans_on_history` first
+(`QP_COMPONENTS__ROUTER__ROUTES`) it is rewritten. The code both tests share is
+`query_processing.testing`'s (`PinnedAnswerRecord`, `check_pinned_answers`), so
+a use case's tests pin their own records the same way.
+
+A change that alters the answers on purpose makes the records again, from the
+repository's root, then commits them; the failing test names the command:
+
+```bash
+make -C query_processing pin-answers              # the fixture workflow's record
+make -C query_processing_rag_usecase pin-answers  # the use case's two records
+```
+
+Each runs its test with `--pin-answers`, in process on fake backends, which
+writes the record instead of comparing with it. A record holds nothing that
+changes from one process to the next: the fakes hash with SHA-256, never with
+`hash()`, and the synthetic corpus and questions come from a seeded
+`random.Random`.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 

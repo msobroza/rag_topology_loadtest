@@ -31,6 +31,7 @@ from query_processing.config.files.workflow_file import (
     unknown_keys,
 )
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.testing import add_pin_answers_option, pin_answers_asked
 from rag_components import FAKE_BACKENDS, settings_at_paths
 from rag_graphs import FIXTURE_PROMPTS, FIXTURE_WORKFLOW
 
@@ -40,6 +41,17 @@ from rag_graphs import FIXTURE_PROMPTS, FIXTURE_WORKFLOW
 # test module computes as it is collected, and again around every test below.
 os.environ[WORKFLOW_FILE_VARIABLE] = str(FIXTURE_WORKFLOW)
 os.environ[PROMPTS_FILE_VAR] = str(FIXTURE_PROMPTS)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """``--pin-answers``: ``make pin-answers`` makes the pinned answer record again."""
+    add_pin_answers_option(parser)
+
+
+@pytest.fixture
+def pin_answers(request: pytest.FixtureRequest) -> bool:
+    """Whether the run makes each pinned answer record again (``--pin-answers``)."""
+    return pin_answers_asked(request.config)
 
 
 @pytest.fixture(autouse=True)

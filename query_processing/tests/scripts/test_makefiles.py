@@ -175,6 +175,17 @@ def test_the_toolkits_makefile_keeps_only_what_needs_no_use_case() -> None:
         "install-dev",
         "check",
         "format",
+        "pin-answers",
         "fake-domino",
         *GATES,
     }
+
+
+def test_pin_answers_runs_the_pinned_record_test_to_make_the_record_again() -> None:
+    # The test that compares the app with the pinned answer record, which the
+    # option turns into the run that writes it.
+    lines = dry_run(TOOLKIT_ROOT, "pin-answers", f"BIN={TOOLS}")
+
+    test_file = "tests/testing/test_pinned_answer_record.py"
+    assert lines == [f"{TOOLS}pytest {test_file} --pin-answers"]
+    assert (TOOLKIT_ROOT / test_file).is_file()

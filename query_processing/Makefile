@@ -3,7 +3,7 @@
 # and each gate here). The run targets read a use case's files and write its
 # output, so they are a use case's: make -C ../query_processing_rag_usecase help.
 .DEFAULT_GOAL := help
-.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test fake-domino
+.PHONY: help install install-dev check lint format typecheck complexity deadcode deps test pin-answers fake-domino
 
 # The repository's one .venv, at its root beside this directory, is used without
 # activating it; without one, commands come from the PATH as usual. The root
@@ -54,6 +54,12 @@ deps: ## deptry: no missing, unused or transitive dependency
 
 test: ## Run the test suite (no model weights, no network; fixture workflow files only)
 	$(BIN)pytest
+
+# The test that compares the workflow app on the fixture workflow with its pinned
+# answer record, run to make the record again instead: in process, every
+# component on its fake backend, no socket.
+pin-answers: ## Make the fixture workflow's pinned answer record again, after a change that alters the answers on purpose (commit it)
+	$(BIN)pytest tests/testing/test_pinned_answer_record.py --pin-answers
 
 fake-domino: ## Off Domino: serve a fake Apps API on :8899 (Swagger at /docs): make fake-domino BEHAVIOUR=slow
 	$(BIN)qp-fake-domino --behaviour $(BEHAVIOUR)
