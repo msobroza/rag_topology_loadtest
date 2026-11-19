@@ -21,7 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NoReturn
 
-from ..domain.roles import MODEL_SERVER_ROLE, WORKFLOW_APP, WORKFLOW_ROLE, AppPart
+from ..domain.roles import (
+    MODEL_SERVER_COMPONENT_VARIABLE,
+    MODEL_SERVER_ROLE,
+    WORKFLOW_APP,
+    WORKFLOW_ROLE,
+    AppPart,
+)
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -170,7 +176,7 @@ def _model_server_exports(
     kind = topology.kinds[part]
     exports = {
         "QP_ROLE": MODEL_SERVER_ROLE,
-        "QP_MODEL_SERVER_COMPONENT": part,
+        MODEL_SERVER_COMPONENT_VARIABLE: part,
         "QP_MODEL_SERVER_KIND": kind,
     }
     return exports | model_server_kind(kind).launch_exports(settings)

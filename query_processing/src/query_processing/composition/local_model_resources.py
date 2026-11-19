@@ -2,10 +2,11 @@
 
 The thread budget comes from the first CPU counter that answers
 (``QP_LOCAL_MODELS__CPUS``, the Domino tier, the container; see
-``infrastructure/local_models/cpu_count.py``). The pool is created on first need
-and shut down with the scope. Under the ``openvino`` runtime a model whose
-folder is missing is exported there first, at the settings' weight format, on
-the pool, since it takes minutes
+``infrastructure/local_models/cpu_count.py``), divided by Uvicorn's
+workers (``QP_UVICORN_WORKERS``): each is a process loading its own models.
+The pool is created on first need and shut down with the scope. Under the
+``openvino`` runtime a model whose folder is missing is exported there first,
+at the settings' weight format, on the pool, since it takes minutes
 (``infrastructure/local_models/model_provisioning.py``).
 
 Example:
@@ -18,6 +19,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
+from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.runtime.thread_budget import ThreadBudget, plan_thread_budget
 from ..infrastructure.calibration.timed_trials import CalibrationLimits
@@ -46,6 +48,27 @@ class UnpinnedBudget(NamedTuple):
 
     cpus: float
     budget: ThreadBudget
+
+
+class _ShareOfOneWorker(BaseCpuCounter):
+    """A counter's answer divided among the processes serving the app.
+
+    Args:
+        counter: The CPU source whose answer is divided; its name is kept.
+        workers: Uvicorn's processes, each loading its own models.
+    """
+
+    def __init__(self, counter: BaseCpuCounter, workers: int) -> None:
+        self.name, self._counter, self._workers = counter.name, counter, workers
+
+    async def cpus(self) -> float | None:
+        """Return the counter's CPUs divided by the workers.
+
+        Returns:
+            One worker's share, or ``None`` when the counter cannot say.
+        """
+        cpus = await self._counter.cpus()
+        return None if cpus is None else cpus / self._workers
 
 
 class LocalModelResources:
@@ -90,6 +113,8 @@ class LocalModelResources:
             budget_s=calibration.budget_s, rounds=calibration.rounds
         )
         self._require_openvino_packages = require_openvino_packages
+        # Uvicorn's processes, each loading its own models on its share of the CPUs.
+        self._server_workers = UvicornSettings().workers
 
     async def thread_budget(self) -> ThreadBudget:
         """Return how the virtual CPUs are split, worked out on the first request.
@@ -199,4 +224,5 @@ class LocalModelResources:
                     self._http.policy,
                 )
             )
-        return [*counters, self._container_cpus]
+        counters.append(self._container_cpus)
+        return [_ShareOfOneWorker(c, self._server_workers) for c in counters]

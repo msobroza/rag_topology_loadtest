@@ -224,7 +224,7 @@ def test_main_parses_role_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None
     )
     monkeypatch.setattr(
         "query_processing.entrypoints.qp_model_server.uvicorn.run",
-        lambda app, host, port: calls.update(app=app, host=host, port=port),
+        lambda app, host, port, **_: calls.update(app=app, host=host, port=port),
     )
     assert main(["--serve", "embedder", "--port", "8012"]) == 0
     assert calls == {"app": "embedder", "host": "0.0.0.0", "port": 8012}
@@ -291,7 +291,7 @@ def test_main_refuses_a_name_it_cannot_serve_as_a_usage_error(
 ) -> None:
     monkeypatch.setattr(
         "query_processing.entrypoints.qp_model_server.uvicorn.run",
-        lambda app, host, port: pytest.fail("nothing is served"),
+        lambda app, **_: pytest.fail("nothing is served"),
     )
 
     with pytest.raises(SystemExit) as exited:

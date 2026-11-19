@@ -41,6 +41,7 @@ from ..composition.composition_root import (
     stage_context,
 )
 from ..composition.registered_names import check_registered_names
+from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
@@ -51,9 +52,12 @@ from ..domain.retrieval.metadata_filter import (
     check_conditions,
 )
 from ..domain.retrieval.passages import RagMode, ScoredPassage
+from ..infrastructure.http.uvicorn_run import run_uvicorn
 from ..infrastructure.json_log import log_json
 
 logger = logging.getLogger("query_processing")
+# --domino, "1" or "0", for a worker of several, which never sees the arguments.
+DOMINO_VARIABLE = "QP_SERVE_DOMINO"
 
 
 class QueryResponse(BaseModel):
@@ -465,12 +469,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        settings = WorkflowSettings()
+        settings, server = WorkflowSettings(), UvicornSettings()
         check_registered_names(settings)
         check_workflow_graph(settings)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    composition = CompositionRoot(settings, on_domino=args.domino)
-    uvicorn.run(create_app(composition), host=args.host, port=args.port)
+    app = create_app(CompositionRoot(settings, on_domino=args.domino))
+    factory = f"{__name__}:workflow_app_from_environment"
+    arguments = {"host": args.host, "port": args.port, **server.run_arguments()}
+    exports = {DOMINO_VARIABLE: "1" if args.domino else "0"}
+    run_uvicorn(app, factory, arguments=arguments, exports=exports, run=uvicorn.run)
     return 0
+
+
+def workflow_app_from_environment() -> FastAPI:
+    """Build in a worker of several the app ``main`` builds, from the environment.
+
+    Returns:
+        The app, on the settings and ``QP_SERVE_DOMINO``, which ``main`` exports.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    on_domino = os.environ.get(DOMINO_VARIABLE) == "1"
+    return create_app(CompositionRoot(WorkflowSettings(), on_domino=on_domino))
