@@ -367,13 +367,24 @@ Changed:
 
 Not changed: `application/graph_check.py` beyond the one call of `links`, the deploy tool, the load-test client, the use case.
 
+## Non-regression
+
+The toolkit already has the check that a refactor changed nothing a caller sees: the answer records (`qp-record-answers`, then `qp-compare-answers`). Its tests already record the workflow app in process on fake backends and compare the records, for two topology aliases and for a served reranker. This change uses the same check at three levels.
+
+- **Before and after, in the gate.** Before anything moves, what the workflow app answers on fake backends is recorded and committed: one record for the toolkit's fixture workflow, and for the RAG use case's own workflow as many as its three paths need (a first message, a message the router calls self-contained, a rewritten one). A test of each distribution records the app again in process and compares it with the committed record. From then on `make check` is the before-and-after check of every step, and the move of step 2 passes it with the records unchanged.
+- **Every orchestrator, in the gate.** The same test runs under every registered orchestrator. So pydantic-graph is compared with what LangGraph answered before the change, not only with LangGraph as it is after it, and a third library is held to the same records with no test edited.
+- **Real models, on demand.** On a deployment, the RAG is recorded under each orchestrator and the records are compared: the passages, their order, and their scores within the tolerance; the LLM's text by ROUGE-L. It downloads nothing: the corpus and the questions are the synthetic ones, and the models are where the deployment has them. It needs machines, so it runs only on the owner's go-ahead, and its sitting is registered in `experiments/`.
+
+An answer record holds no timing, no token count and no request id, so it is the same from run to run. What it leaves out is held by the tests below: `timings_ms` with the same keys in the same order, and the same `tokens`. When a change alters the answers on purpose, one documented command makes a record again, and the failing test names it.
+
 ## Tests
 
 Each line is one behaviour a test proves. Those that say "every orchestrator" are parametrized over `ORCHESTRATORS.names()`, so a new library is tested with no test edited.
 
+- The workflow app on fake backends compares as identical with the answer record committed before the change, on the toolkit's fixture workflow and on the use case's own workflow, under every orchestrator.
 - Every orchestrator, on each graph of one set (a chain, a yes-or-no branch, a label branch, a conditional edge at `START`, two plain edges out of `START`, two conditional edges on one source, a loop), either refuses the graph or gives the result LangGraph gives.
 - Every orchestrator runs the fixture workflow, and the run tests of `test_workflow.py` and `test_workflow_builder.py` that it accepts.
-- Every orchestrator gives equal results on the use case's graph, on fake backends: a first message, a message with history on each route, in `query` and `retrieve` mode. This is a test of the use case, over its own `workflow.yaml`.
+- The use case's tests of its conversation paths pass on every orchestrator.
 - For every orchestrator, a stage's `LookupError` reaches `workflow.run` as itself, an answer with no row fails with a `WorkflowGraphError` naming the edge, and 200 concurrent runs of one built graph each give their own result.
 - `pydantic_graph` refuses two plain edges out of `START`, a plain edge and a conditional edge out of one stage, two conditional edges on one source, and a loop; each message names the stages.
 - `langgraph` refuses none of them, and `test_stage_that_runs_more_than_once.py` and the tracer-name tests keep running on it as they are.
@@ -382,18 +393,20 @@ Each line is one behaviour a test proves. Those that say "every orchestrator" ar
 - Without the key the orchestrator is `langgraph`; `QP_ORCHESTRATOR=pydantic_graph` gives `pydantic_graph`; an unknown name is refused by `check_registered_names`, with its variable and the registered names.
 - The pydantic-graph adapter names the step of a conditional edge `<source>:<edge condition>`, and an answer of `1` does not take the `True` row.
 - Each library is imported only by its adapter.
-- The move of step 1 below leaves the count of tests the same before and after.
+- The move of step 2 below leaves the count of tests the same before and after.
 
 `make check` is green at the end.
 
 ## Order of work
 
-1. The opened graph and the port; today's wiring moves into the LangGraph adapter and nothing else changes. The tests count the same before and after.
-2. The `orchestrator` field, its refusal when unknown, the orchestrator's check in `check_workflow_graph`, the class handed to `build_workflow`, the log line.
-3. The pydantic-graph adapter, its dependency, and the tests over every orchestrator.
-4. The README, `CONTEXT.md`, and the amendment line of ADR 0004.
+1. The answers on fake backends are recorded and committed, with the test that compares the app with them. Nothing of the application or the adapters changes.
+2. The opened graph and the port; today's wiring moves into the LangGraph adapter and nothing else changes. The tests count the same before and after, and the committed records are not touched.
+3. The `orchestrator` field, its refusal when unknown, the orchestrator's check in `check_workflow_graph`, the class handed to `build_workflow`, the log line.
+4. The pydantic-graph adapter, its dependency, and the tests over every orchestrator, the committed records among them.
+5. The README, `CONTEXT.md`, and the amendment line of ADR 0004.
+6. On the owner's go-ahead, the check on real models, registered in `experiments/`.
 
-A measure of the two libraries on the RAG graph is no part of this design. If the owner wants one, it is a sitting registered in `experiments/`.
+A measure of the two libraries' speed on the RAG graph is no part of this design. If the owner wants one, it is a sitting registered in `experiments/`.
 
 ## Left to the builder
 
@@ -408,6 +421,8 @@ A measure of the two libraries on the RAG graph is no part of this design. If th
 - The spikes' results on another version of pydantic-graph. The dependency's floor is the version tried.
 - The spikes ran stand-in stages. Real components run in the same stages, so no difference is expected.
 - That nothing of MLflow's LangChain autolog fails on a request with no LangGraph step. Tracing was not run.
+- That an answer record made on the laptop compares as identical in CI. The fake backends are deterministic and scores are compared within a tolerance, but no record is committed yet.
+- Both orchestrators on real models. That is the on-demand check of "Non-regression".
 
 ## Calls made in this document, for the owner to check
 
@@ -420,5 +435,7 @@ A measure of the two libraries on the RAG graph is no part of this design. If th
 - The opened graph and `links()` are in the domain.
 - `pydantic-graph` is a core dependency, not an extra.
 - Tracing and the run label do not change. On Domino, a request on pydantic-graph has no span per stage.
+- The before-and-after check is an answer record on fake backends, committed before the change and compared in the gate, in the toolkit and in the use case.
+- The check on real models is on demand, and waits for the owner's go-ahead.
 - A use case cannot add an orchestrator through `extension_api`.
 - ADR 0010 is written with this document.
