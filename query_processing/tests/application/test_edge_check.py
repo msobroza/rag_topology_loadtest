@@ -126,6 +126,23 @@ def test_an_edge_condition_is_still_not_used_twice_on_one_source() -> None:
         check(graph)
 
 
+def test_the_reason_an_edge_condition_is_used_once_is_every_orchestrator_s() -> None:
+    edge = asking("START", "is_long", {True: "draft", False: "END"})
+    graph = graph_of(
+        {"draft": DRAFT, "polish": POLISH}, [["draft", "polish"]], [edge, edge]
+    )
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check(graph)
+
+    assert "LangGraph names" not in str(refused.value)
+    assert (
+        "(expected each edge condition once per source: every orchestrator names "
+        "the branch, or the step that asks it, after its edge condition, and one "
+        "conditional edge already says where each of its answers leads)"
+    ) in str(refused.value)
+
+
 def test_two_writers_that_declare_other_labels_for_one_field_are_refused() -> None:
     fields = {
         "a": FieldTypes({}, {"kind": str}, {"kind": ("question",)}),

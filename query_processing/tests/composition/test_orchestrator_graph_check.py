@@ -50,6 +50,34 @@ def test_an_orchestrators_refusal_is_a_graph_error_that_names_it(
         check_workflow_graph(settings)
 
 
+def test_pydantic_graph_runs_the_fixture_graph(
+    settings_factory: SettingsFactory,
+) -> None:
+    check_workflow_graph(
+        settings_factory(**FAKE_BACKENDS, orchestrator="pydantic_graph")
+    )
+
+
+def test_a_graph_pydantic_graph_refuses_is_a_graph_error_that_names_it(
+    settings_factory: SettingsFactory,
+) -> None:
+    graph = fixture_graph()
+    # A plain edge beside rerank's conditional edge: the run would end at END
+    # before generate answers.
+    graph["edges"].append(["rerank", "END"])
+    settings = settings_factory(
+        **FAKE_BACKENDS, orchestrator="pydantic_graph", graph=graph
+    )
+    check_workflow_graph(settings_factory(**FAKE_BACKENDS, graph=graph))
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check_workflow_graph(settings)
+
+    assert str(refused.value).startswith(
+        "orchestrator 'pydantic_graph': 'rerank' has more than one way out at once;"
+    )
+
+
 def test_the_orchestrator_is_asked_only_about_a_graph_the_toolkit_accepts(
     settings_factory: SettingsFactory, refusing: str
 ) -> None:

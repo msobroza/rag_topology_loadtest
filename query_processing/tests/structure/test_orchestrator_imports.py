@@ -17,6 +17,7 @@ PACKAGE = TOOLKIT_ROOT / "src" / "query_processing"
 # An orchestrator's library -> the one directory that may import it, its adapter.
 ORCHESTRATOR_LIBRARY_HOMES = {
     "langgraph": PACKAGE / "adapters" / "orchestrator" / "langgraph",
+    "pydantic_graph": PACKAGE / "adapters" / "orchestrator" / "pydantic_graph",
 }
 
 
@@ -44,6 +45,8 @@ def test_the_library_reader_on_literal_sources() -> None:
     assert imports_library("import langgraph", "langgraph")
     assert not imports_library("from .langgraph import x", "langgraph")
     assert not imports_library("import langgraph_sdk", "langgraph")
+    assert imports_library("from pydantic_graph import Graph", "pydantic_graph")
+    assert not imports_library("from .pydantic_graph import x", "pydantic_graph")
 
 
 @pytest.mark.parametrize("library", sorted(ORCHESTRATOR_LIBRARY_HOMES))

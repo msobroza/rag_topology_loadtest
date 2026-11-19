@@ -810,7 +810,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
       query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
-      opened_graph.py  OpenedGraph, OpenedConditionalEdge: what an orchestrator is built from, the description with each stage opened and timed, each conditional edge with what it asks, the state's field types and reducers
+      opened_graph.py  OpenedGraph, OpenedConditionalEdge: what an orchestrator is built from, the description with each stage opened and timed, each conditional edge with what it asks, the state's field types and reducers; merged, how the state takes a stage's update
       run_label.py    the run label: its default (each component with its backend), what a valid one is
       roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
       components/     what a component is and how it is called
@@ -926,6 +926,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_orchestrator.py  BaseOrchestrator, the port: check_graph_runs refuses a graph before anything opens, built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
         langgraph/    orchestrator: langgraph, the default
           langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing no graph, the one module importing LangGraph; state_type, langgraph_name, path_map
+        pydantic_graph/  orchestrator: pydantic_graph, pydantic-graph (Pydantic AI's graph library)
+          pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision; refuses more than one way out at once and a loop; the one module importing pydantic-graph
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
@@ -1763,6 +1765,20 @@ opens, and refuses what it does not run: its refusal is a usage error after its
 name, `qp-serve: error: orchestrator '<name>': ...`, naming the stages
 (`composition/chosen_orchestrator.py`). It is asked only about a graph the
 checks above accept. `langgraph`, the default and the reference, refuses none.
+`pydantic_graph` refuses the two shapes its library does not run as LangGraph
+does (seen on pydantic-graph 2.70.0):
+
+- `START` or a stage with more than one way out at once: two plain edges, a
+  plain edge and a conditional edge, or two conditional edges on one source.
+  pydantic-graph ends a run when the first branch reaches `END` and cancels
+  the others, where LangGraph waits for every branch;
+- a loop, found with the standard library's `graphlib`: pydantic-graph has no
+  limit that stops one that never ends.
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': 'rerank' has more than one way out at once; pydantic-graph ends a run when the first reaches END and cancels the others (expected one plain edge or one conditional edge out of each stage, or the orchestrator 'langgraph')
+qp-serve: error: orchestrator 'pydantic_graph': the stages 'draft' -> 'draft' form a loop; pydantic-graph has no limit that stops one (expected a graph without a loop, or the orchestrator 'langgraph')
+```
 
 The workflow state is built from the same fields: each field the request or a
 stage writes, with its type, and `timings_ms` and `tokens`
@@ -1837,7 +1853,7 @@ refuses the name, after the variable it is read from, and lists the known ones:
 
 ```
 qp-serve: error: QP_COMPONENTS__RERANKER__API__API_FORMAT: unknown rerank API format 'jina' (expected one of: 'cohere')
-qp-serve: error: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph')
+qp-serve: error: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph', 'pydantic_graph')
 ```
 
 Earlier versions named some settings differently: see

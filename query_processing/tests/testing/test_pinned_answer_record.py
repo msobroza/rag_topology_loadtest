@@ -2,7 +2,9 @@
 
 The workflow app on the fixture workflow, every component on its fake backend,
 is recorded in process and compared with the record committed in
-``answer_records/``: every answer identical. ``make pin-answers`` runs this
+``answer_records/``: every answer identical, on LangGraph, which answered the
+record, and on pydantic-graph, beside which the timings' keys and the tokens
+a record leaves out are LangGraph's. ``make pin-answers`` runs this
 file with ``--pin-answers``, which makes the record again instead.
 """
 
@@ -52,6 +54,43 @@ def test_the_app_on_fake_backends_answers_as_its_pinned_record(
         check_pinned_answers(
             monkeypatch, client, FIXTURE_WORKFLOW, tmp_path, pin=pin_answers
         )
+
+
+def test_the_app_on_pydantic_graph_answers_as_the_record_langgraph_pinned(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # The record LangGraph answered before any orchestrator was added; never
+    # pinned again from here.
+    settings = settings_factory(**FAKE_BACKENDS, orchestrator="pydantic_graph")
+    with workflow_client(settings) as client:
+        check_pinned_answers(monkeypatch, client, FIXTURE_WORKFLOW, tmp_path, pin=False)
+
+
+def measures_of(settings: WorkflowSettings) -> list[tuple[list[str], object]]:
+    """What a record leaves out, for each endpoint: the timed stages, the tokens."""
+    measured = []
+    with workflow_client(settings) as client:
+        for endpoint in ("/retrieve", "/query"):
+            body = client.post(endpoint, json={"question": "How many days off?"})
+            assert body.status_code == 200, body.text
+            measured.append((list(body.json()["timings_ms"]), body.json()["tokens"]))
+    return measured
+
+
+def test_on_pydantic_graph_the_timings_and_tokens_are_langgraph_s(
+    settings_factory: SettingsFactory,
+) -> None:
+    on_langgraph = measures_of(settings_factory(**FAKE_BACKENDS))
+
+    on_pydantic_graph = measures_of(
+        settings_factory(**FAKE_BACKENDS, orchestrator="pydantic_graph")
+    )
+
+    assert on_pydantic_graph == on_langgraph
+    assert on_langgraph[1][0] == ["embed", "retrieve", "rerank", "generate", "total"]
+    assert on_langgraph[1][1]  # the fake LLM counts its tokens
 
 
 def test_a_record_not_yet_pinned_fails_naming_the_pin_command(

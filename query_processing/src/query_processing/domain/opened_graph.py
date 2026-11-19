@@ -75,3 +75,33 @@ class OpenedGraph:
     conditional_edges: Sequence[OpenedConditionalEdge]
     field_types: Mapping[str, Any]
     reducers: Mapping[str, Reducer]
+
+    def merged(
+        self, values: Mapping[str, Any], update: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Return the workflow state after a stage's update.
+
+        The one statement, in the toolkit, of how the state takes an update: a
+        field with a reducer is reduced, any other is replaced, and a field the
+        update does not hold is kept. LangGraph keeps its own reducers and does
+        not call it; a library without reducers does.
+
+        Args:
+            values: The workflow state so far; not changed.
+            update: What a stage returned.
+
+        Returns:
+            A new state: ``values`` with ``update`` merged in.
+
+        Example:
+            >>> opened.merged({"timings_ms": {"embed": 1.0}, "draft": "old"},
+            ...               {"timings_ms": {"draft": 2.0}, "draft": "new"})
+            {'timings_ms': {'embed': 1.0, 'draft': 2.0}, 'draft': 'new'}
+        """
+        merged = dict(values)
+        for field, value in update.items():
+            reduce = self.reducers.get(field)
+            if reduce is not None and field in merged:
+                value = reduce(merged[field], value)
+            merged[field] = value
+        return merged
