@@ -166,3 +166,21 @@ class GraphDescription(BaseModel):
             [('START', 'a'), ('a', 'b')]
         """
         return [pair for chain in self.edges for pair in pairwise(chain)]
+
+    def links(self) -> list[tuple[str, str]]:
+        """Return every way from one stage to the next: each plain edge, then each row.
+
+        Returns:
+            ``(source, target)`` for each plain edge, then for each row of each
+            conditional edge's ``path_map``.
+
+        Example:
+            >>> graph.links()
+            [('START', 'embed'), ..., ('rerank', 'generate'), ('rerank', 'END')]
+        """
+        answers = [
+            (edge.source, target)
+            for edge in self.conditional_edges
+            for target in edge.path_map.values()
+        ]
+        return [*self.edge_pairs(), *answers]

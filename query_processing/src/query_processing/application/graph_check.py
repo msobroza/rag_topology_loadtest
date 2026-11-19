@@ -51,7 +51,6 @@ from .edge_check import (
     edge_name,
     edge_read_types,
     field_labels,
-    links,
     quoted,
 )
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
@@ -460,7 +459,7 @@ def _check_fields_unread(
 
 def _sources_by_stage(graph: GraphDescription) -> dict[str, set[str]]:
     sources: dict[str, set[str]] = {stage: set() for stage in graph.stages}
-    for source, target in links(graph):
+    for source, target in graph.links():
         if target in sources:  # END runs nothing
             sources[target].add(source)
     return sources
