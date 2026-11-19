@@ -181,9 +181,32 @@ async def test_local_models_load_with_the_arguments_of_the_configured_runtime(
         runtime=runtime,
         models_dir="",
         weight_format="fp32",
+        openvino_properties={"ENABLE_HYPER_THREADING": "YES"},
     )
     assert fake_weights.load_arguments == [described.load_arguments(threads)] * 2
     assert fake_weights.saved == []
+
+
+async def test_the_local_models_load_with_the_sites_openvino_properties(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    tmp_path: Path,
+) -> None:
+    settings = local_settings(
+        settings_factory,
+        local_models__runtime="openvino",
+        local_models__openvino_dir=str(tmp_path),
+        local_models__openvino__performance_hint="LATENCY",
+    )
+    for folder in folders(settings, tmp_path):
+        folder.mkdir()
+
+    async with CompositionRoot(settings) as composition:
+        await composition.local_embedder("embedder")
+        await composition.local_reranker("reranker")
+
+    ov_configs = [a["model_kwargs"]["ov_config"] for a in fake_weights.load_arguments]
+    assert [c["PERFORMANCE_HINT"] for c in ov_configs] == ["LATENCY", "LATENCY"]
 
 
 async def test_a_first_openvino_start_exports_each_model_then_loads_its_folder(

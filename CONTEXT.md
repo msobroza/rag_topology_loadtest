@@ -83,7 +83,7 @@ The request and response shapes an endpoint speaks, named after whoever defined 
 _Avoid_: provider, vendor, protocol, contract
 
 **Standard format**:
-The one API format each component uses on the wire: OpenAI's for embedding and generation, Cohere's for rerank, and one of our own where no outside format exists, as for the router. OVMS, our model server and any gateway are called in it, and an in-process model follows the same contract. An API that speaks another shape is reached through an adapter that presents it as the standard.
+The one API format each component uses on the wire: OpenAI's for embedding and generation, Cohere's for rerank, and one of our own where no outside format exists, as for the router. OVMS, vLLM, our model server and any gateway are called in it, and an in-process model follows the same contract. An API that speaks another shape is reached through an adapter that presents it as the standard.
 _Avoid_: canonical format, native format, default format
 
 **Runtime**:
@@ -91,7 +91,7 @@ What runs an in-process model: `openvino` on files exported beforehand, or `torc
 _Avoid_: backend (that is the adapter kind), engine, device
 
 **Weight format**:
-What an OpenVINO export stores its weights as: `fp32` (32-bit floats) or `int8` (weights stored as 8-bit integers). One setting, `local_models.openvino_weight_format` of the workflow file (`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`), read by both exports: the in-process one and OVMS's. Servers are compared on the same weight format.
+What an OpenVINO export stores its weights as: `fp32` (32-bit floats) or `int8` (weights stored as 8-bit integers). One setting, `local_models.openvino_weight_format` of the workflow file (`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`), read by both exports: the in-process one and OVMS's. Servers are compared on the same weight format; vLLM, which serves a model's published weights and reads no weight format, against `fp32`.
 _Avoid_: precision alone, quantization (`int8` here compresses the weights only)
 
 **Workflow app**:
@@ -99,11 +99,11 @@ The process that serves a use case's workflow over HTTP: `qp-serve`.
 _Avoid_: service, API, RAG app, server
 
 **Model server**:
-A process of ours that serves one component: a model on the /v3 routes (OpenVINO Model Server or the FastAPI model server), or a component with no outside API format on its call route (the FastAPI one only). To the workflow app it is an endpoint like any other.
-_Avoid_: inference service, OVMS app (when the FastAPI one is also meant)
+A process of ours that serves one component: a model in an API format the workflow already speaks (OpenVINO Model Server or the FastAPI model server on the /v3 routes, vLLM on its /v1 routes), or a component with no outside API format on its call route (the FastAPI one only). To the workflow app it is an endpoint like any other.
+_Avoid_: inference service, OVMS app (when another kind is also meant)
 
 **/v3 routes**:
-The HTTP paths a model server answers on, as OpenVINO Model Server defines them: embeddings, rerank and chat completions, each in an API format, and the model probe. OpenVINO Model Server answers all three; the FastAPI model server the first two.
+The HTTP paths OpenVINO Model Server defines, which the FastAPI model server copies: embeddings, rerank and chat completions, each in an API format, and the model probe. OpenVINO Model Server answers all three; the FastAPI model server the first two. vLLM answers the same API formats on the paths OpenAI and Cohere define, under /v1.
 _Avoid_: /v3 contract, OVMS API, model API
 
 **Call route**:
@@ -111,7 +111,7 @@ The HTTP path a model server answers on for a component that has no outside API 
 _Avoid_: /v3 route (those are OpenVINO Model Server's), endpoint (that is the whole of where a component is called)
 
 **Served model**:
-A model as a model server exposes it: a source id paired with an alias. An LLM's source id names an OpenVINO conversion that OpenVINO Model Server pulls as published, with no export of ours.
+A model as a model server exposes it: a source id paired with an alias. An LLM's source id names files its model-server kind loads as published, with no export of ours: an OpenVINO conversion that OpenVINO Model Server pulls, or the weights vLLM loads.
 
 **Source id**:
 The Hugging Face id of a served model's weights.
@@ -126,7 +126,7 @@ What one Domino App is published as: the workflow app (`workflow`) or a model se
 _Avoid_: mode, app type
 
 **Model-server kind**:
-What serves a component in a model-server App: `fastapi` or `ovms`, set for each App. Each kind is one registered class, which says which component types it can serve, on which route, and how it is probed, and one launch script, which holds its bootstrap and its command.
+What serves a component in a model-server App: `fastapi` (the FastAPI model server), `ovms` (OpenVINO Model Server) or `vllm`, set for each App. Each kind is one registered class, which says which component types it can serve, on which route, and how it is probed, and one launch script, which holds its bootstrap and its command.
 _Avoid_: server type, runtime (that is what runs an in-process model)
 
 **App**:
@@ -225,7 +225,7 @@ _Avoid_: tuning, auto-tune, finder, benchmark (that is a run)
 
 **Stream**:
 One request a model server runs on its model at the same time as others; its threads are shared among its streams. A lone request is fastest on one stream, so a stream count is chosen for a stated number of requests in flight. An in-process stage runs one stream.
-_Avoid_: instance, worker (a worker is a model call slot under torch), replica
+_Avoid_: instance, worker (a worker is a model call slot under torch, or one of Uvicorn's processes), replica
 
 **Edge**:
 A link from one stage to the next. A conditional edge asks an edge condition and goes the way its answer names.

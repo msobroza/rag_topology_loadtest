@@ -30,7 +30,7 @@ topology: split-all
 # overrides below) gives it (here the LLM, on api, and the router and its
 # embedder, local in the workflow App of every topology). A served component is
 # served by the model-server kind of its App (`server` below), of any name; a
-# component its App's kind cannot serve (an LLM on fastapi: only ovms serves
+# component its App's kind cannot serve (an LLM on fastapi: ovms and vllm serve
 # one), or put on a backend its type does not have (the vector store or the LLM
 # on local), is refused before anything is published. A new alias
 # is one more row: qp-deploy publishes one App per served component, then the
@@ -43,8 +43,8 @@ topology_alias:
   monolith: {embedder: local, reranker: local}
   split-reranker: {embedder: local, reranker: served}
   split-all: {embedder: served, reranker: served}
-  # The LLM served too, by OVMS in an App of its own (apps.llm below, and its
-  # model under overrides.components.llm); its run label ends +llm=ovms:
+  # The LLM served too, by OVMS or by vLLM in an App of its own (apps.llm below,
+  # and its model under overrides.components.llm); its run label ends +llm=<kind>:
   # split-all-llm: {embedder: served, reranker: served, llm: served}
 # The project hosting the Apps; "" = DOMINO_PROJECT_ID (this Workspace's project).
 project_id: ""
@@ -65,6 +65,8 @@ ovms_bundle: ""
 # "" = the scheme and host of the App's own url.
 domino_host: ""
 # Rarely changed: waiting for an App, and talking to Domino.
+# A vLLM App compiles its model when it starts (17 minutes on the check of
+# 16 November 2026): a deploy with one raises the wait, to 2400 for example.
 # wait_timeout_s: 600
 # poll_interval_s: 5
 # no_instance_grace_s: 60   # an App with no instance after this long is reported
@@ -95,7 +97,7 @@ defaults:
   # Or, in its place, the tier's id itself:
   # hardware_tier_id: <tier id>
   # The model-server kind of every model server App, unless its block sets its
-  # own: fastapi (qp-model-server) | ovms (OpenVINO Model Server). Each kind is
+  # own: fastapi (qp-model-server) | ovms (OpenVINO Model Server) | vllm. Each kind is
   # one registered class and one launch script, the toolkit's
   # domino/model_servers/<kind>.sh.
   server: fastapi
@@ -139,8 +141,11 @@ apps:
     # starts without calibrating its streams and threads (one OVMS App serves
     # one component, so they are this App's, not every App's):
     # settings: {QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8}
+    # Read OVMS's own metrics on this App (the time a request waits for an
+    # inference request against the time it computes):
+    # settings: {QP_OVMS_NUM_STREAMS: 2, QP_OVMS_THREADS: 8, QP_OVMS_METRICS: true}
   # The LLM's App, published only under an alias that says llm: served, and
-  # served by ovms alone (needs ovms_bundle): fastapi serves no LLM.
+  # served by ovms (needs ovms_bundle) or vllm: fastapi serves no LLM.
   # llm:
   #   server: ovms
   #   hardware_tier: <a tier with 16 cores>
@@ -148,11 +153,23 @@ apps:
   #     # A folder this App can write, where OVMS pulls the model on its first
   #     # start (2 GB):
   #     QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-llm
-  #     # OVMS's --dynamic_split_fuse and --max_num_batched_tokens: false and
-  #     # 8192 read each prompt in one pass, better under load on the check of
-  #     # 16 November 2026; at their defaults, true and 0, both flags are left out.
-  #     QP_OVMS_DYNAMIC_SPLIT_FUSE: false
-  #     QP_OVMS_MAX_BATCHED_TOKENS: 8192
+  #     # OVMS reads each prompt in one pass by default (--dynamic_split_fuse false
+  #     # --max_num_batched_tokens 8192, better at 4 users on the check of
+  #     # 16 November 2026). OVMS's own batching back:
+  #     # QP_OVMS_DYNAMIC_SPLIT_FUSE: true
+  #     # QP_OVMS_MAX_BATCHED_TOKENS: 0
+  # The same App on vLLM. Its CPU wheel needs glibc 2.39 (Ubuntu 24.04), and
+  # Domino 6.2's standard environment is Ubuntu 22.04: the App names an
+  # environment of its own, with uv or with the vllm command. Its tier needs
+  # 32 GB (it held 20 GB on the check). Its shared memory (64 MB on a Domino
+  # tier, 4 GB in vLLM's own Docker command) and the rights for memory placement
+  # (SYS_NICE, seccomp) are the container's, not a setting: ask an administrator.
+  # llm:
+  #   server: vllm
+  #   environment_id: <an environment on Ubuntu 24.04>
+  #   hardware_tier: <a tier with 16 cores and 32 GB>
+  #   settings:
+  #     QP_VLLM_MAX_MODEL_LEN: 4096
 
 # This site's values of the workflow file, in its own shape (components, graph,
 # local_models, calibration, http, domino, run_label), for every App: each one is
@@ -219,6 +236,9 @@ overrides:
     #   # every App:
     #   source_id: OpenVINO/Qwen3.5-2B-int4-ov
     #   alias: qwen3.5-2b
+    #   # On vLLM, the weights it loads as published, from a folder of a Dataset
+    #   # (a Domino App cannot reach the Hub):
+    #   # source_id: /domino/datasets/local/<dataset>/models/Qwen3.5-2B-int4-AutoRound
   # Where qp-export-openvino wrote the in-process models (a model without a
   # folder there is converted in memory at every start), and how many model
   # calls run at once (torch only; openvino runs one call at a time):

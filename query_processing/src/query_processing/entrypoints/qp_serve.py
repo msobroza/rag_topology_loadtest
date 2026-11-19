@@ -30,7 +30,6 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..application.graph_check import WorkflowGraphError
 from ..application.rag_dependencies import RagDependencies
@@ -41,6 +40,8 @@ from ..composition.composition_root import (
     stage_context,
 )
 from ..composition.registered_names import check_registered_names
+from ..config.apps.process_environment_settings import ProcessEnvironmentSettings
+from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
@@ -51,9 +52,16 @@ from ..domain.retrieval.metadata_filter import (
     check_conditions,
 )
 from ..domain.retrieval.passages import RagMode, ScoredPassage
+from ..infrastructure.http.startup_refusal_in_one_line import (
+    StartupRefusalInOneLine,
+)
+from ..infrastructure.http.uvicorn_run import run_uvicorn
 from ..infrastructure.json_log import log_json
+from ..infrastructure.process_environment import restart_with
 
 logger = logging.getLogger("query_processing")
+# --domino, "1" or "0", for a worker of several, which never sees the arguments.
+DOMINO_VARIABLE = "QP_SERVE_DOMINO"
 
 
 class QueryResponse(BaseModel):
@@ -179,65 +187,13 @@ def create_app(composition: CompositionRoot) -> FastAPI:
     app.state.composition = composition
     app.state.metadata_fields = declared_metadata_fields(composition.settings)
     app.middleware("http")(_stamp_headers)
-    app.add_middleware(GraphRefusalInOneLine)
+    # A graph refused once its components are open is a settings mistake.
+    app.add_middleware(
+        StartupRefusalInOneLine, refused=WorkflowGraphError, prog="qp-serve"
+    )
     app.exception_handler(RagDependencyError)(_dependency_error)
     app.include_router(routes)
     return app
-
-
-class GraphRefusalInOneLine:
-    """ASGI middleware: a graph refused at start-up reaches the server as one line.
-
-    Starlette hands the server a failed start-up as the whole traceback, which
-    the server logs. A graph refused once its components are open (a store that
-    ranks no text under a lexical retrieval) is a mistake in the settings, not
-    a crash, so the server gets its message alone. Any other failure keeps its
-    traceback.
-
-    Args:
-        app: The app whose start-up this watches.
-
-    Example:
-        >>> app.add_middleware(GraphRefusalInOneLine)
-    """
-
-    def __init__(self, app: ASGIApp) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Pass a request on; hold a failed start-up until its cause is known.
-
-        Args:
-            scope: The ASGI scope; only a ``lifespan`` one is watched.
-            receive: The server's receive channel.
-            send: The server's send channel.
-
-        Raises:
-            WorkflowGraphError: The graph was refused at start-up; re-raised
-                once the server has its one-line message.
-        """
-        if scope["type"] != "lifespan":
-            await self.app(scope, receive, send)
-            return
-        # Held until the error that caused it is known, then sent once.
-        failed: list[Message] = []
-
-        async def hold_failure(message: Message) -> None:
-            if message["type"] == "lifespan.startup.failed":
-                failed.append(message)
-            else:
-                await send(message)
-
-        try:
-            await self.app(scope, receive, hold_failure)
-        except WorkflowGraphError as exc:
-            if failed:
-                one_line = f"qp-serve: cannot start: {exc}".replace("\n", " ")
-                failed[:] = [{**failed[0], "message": one_line}]
-            raise
-        finally:
-            for message in failed:
-                await send(message)
 
 
 @asynccontextmanager
@@ -469,12 +425,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        settings = WorkflowSettings()
+        restart_with(ProcessEnvironmentSettings().restart_environment(os.environ))
+        settings, server = WorkflowSettings(), UvicornSettings()
         check_registered_names(settings)
         check_workflow_graph(settings)
     except ValueError as exc:  # a settings mistake is a usage error, not a crash
         parser.error(str(exc))
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    composition = CompositionRoot(settings, on_domino=args.domino)
-    uvicorn.run(create_app(composition), host=args.host, port=args.port)
+    app = create_app(_composition(settings, args.domino, server.workers))
+    factory = f"{__name__}:workflow_app_from_environment"
+    arguments = {"host": args.host, "port": args.port, **server.run_arguments()}
+    exports = {DOMINO_VARIABLE: "1" if args.domino else "0"}
+    run_uvicorn(app, factory, arguments=arguments, exports=exports, run=uvicorn.run)
     return 0
+
+
+def workflow_app_from_environment() -> FastAPI:
+    """Build in a worker of several the app ``main`` builds, from the environment.
+
+    Returns:
+        The app, on the settings and ``QP_SERVE_DOMINO``, which ``main`` exports.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    on_domino = os.environ.get(DOMINO_VARIABLE) == "1"
+    processes = UvicornSettings().workers
+    return create_app(_composition(WorkflowSettings(), on_domino, processes))
+
+
+def _composition(
+    settings: WorkflowSettings, on_domino: bool, processes: int
+) -> CompositionRoot:
+    # Each of Uvicorn's processes loads its own models on its share of the CPUs.
+    return CompositionRoot(settings, on_domino=on_domino, server_processes=processes)

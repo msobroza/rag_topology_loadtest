@@ -135,8 +135,8 @@ def test_the_ovms_kind_refuses_a_registered_component(
 def test_a_type_no_kind_serves_is_refused_naming_each_kind_and_what_it_serves(
     shout_workflow: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Every type with a served backend has a kind today, since only ovms serves
-    # an LLM and fastapi every registered type: a fastapi that served no
+    # Every type with a served backend has a kind today, since ovms and vllm
+    # serve an LLM and fastapi every registered type: a fastapi that served no
     # registered type leaves the shouter with none.
     monkeypatch.setattr(
         FastApiModelServerKind, "serves_registered_types", property(lambda _: False)
@@ -144,8 +144,9 @@ def test_a_type_no_kind_serves_is_refused_naming_each_kind_and_what_it_serves(
     assert refusal(shout_settings(shout_workflow, {"shouter": "served"})) == (
         "topology alias 'shout' serves component 'shouter', of type 'shouter', "
         "which no model-server kind can serve: fastapi serves embedder or "
-        "reranker, ovms serves embedder or reranker or llm; leave 'shouter' out "
-        "of the row to keep the backend the workflow file gives it"
+        "reranker, ovms serves embedder or reranker or llm, vllm serves embedder "
+        "or reranker or llm; leave 'shouter' out of the row to keep the backend "
+        "the workflow file gives it"
     )
 
 

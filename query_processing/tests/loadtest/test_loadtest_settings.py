@@ -27,6 +27,7 @@ def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (settings.step_users, settings.step_seconds) == ((5, 10, 20, 40), 60.0)
     assert (settings.wait_min_s, settings.wait_max_s) == (0.2, 1.0)
     assert (settings.question_count, settings.questions_file) == (50, None)
+    assert settings.model_server_path == ""  # the target's /v3 path
     assert settings.auth_headers == {}
 
 
@@ -98,6 +99,7 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch,
         {
             "QP_LOADTEST_TARGET": "rerank",
+            "QP_LOADTEST_MODEL_SERVER_PATH": "/v1/rerank",
             "QP_LOADTEST_QUERY_WEIGHT": "2",
             "QP_LOADTEST_RETRIEVE_WEIGHT": "0",
             "QP_LOADTEST_SHAPE": "step",
@@ -120,6 +122,7 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
         2,
         0,
     )
+    assert settings.model_server_path == "/v1/rerank"
     assert settings.step_shape is True
     assert (settings.step_users, settings.step_seconds) == ((2, 4, 8), 30.0)
     assert (settings.wait_min_s, settings.wait_max_s) == (0.0, 0.5)
@@ -166,6 +169,11 @@ WHOLE = "expected a whole number of"
         (
             {"QP_LOADTEST_TARGET": "ovms"},
             r"QP_LOADTEST_TARGET='ovms'; expected one of rag, rerank, embeddings",
+        ),
+        (
+            {"QP_LOADTEST_MODEL_SERVER_PATH": "v1/rerank"},
+            r"QP_LOADTEST_MODEL_SERVER_PATH='v1/rerank'; expected a path that "
+            r"starts with /, such as /v1/rerank, or empty for the target's /v3 path",
         ),
         (
             {"QP_LOADTEST_QUERY_WEIGHT": "many"},

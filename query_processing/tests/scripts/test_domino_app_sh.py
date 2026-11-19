@@ -138,7 +138,7 @@ def test_a_model_server_without_its_component_names_the_variable(
     assert log(tmp_path, "qp-model-server") == ""
 
 
-@pytest.mark.parametrize("kind", ["", "vllm", "../app", "Fast API"])
+@pytest.mark.parametrize("kind", ["", "triton", "../app", "Fast API"])
 def test_a_kind_without_a_launch_script_names_the_kinds_that_have_one(
     tmp_path: Path, bin_dir: Path, kind: str
 ) -> None:
@@ -147,7 +147,7 @@ def test_a_kind_without_a_launch_script_names_the_kinds_that_have_one(
     assert f"app.sh[model-server {kind} reranker]: QP_MODEL_SERVER_KIND='{kind}'" in (
         result.stderr
     )
-    assert "expected one of: fastapi ovms" in result.stderr
+    assert "expected one of: fastapi ovms vllm" in result.stderr
     assert (log(tmp_path, "qp-model-server"), log(tmp_path, "ovms")) == ("", "")
 
 
@@ -183,6 +183,8 @@ def test_an_ovms_model_server_serves_its_components_config_directly_by_default(
     config = served_config(tmp_path)
     assert log(tmp_path, "ovms").strip() == f"--rest_port 8888 --config_path {config}"
     assert log(tmp_path, "nginx") == ""
+    flags_asked = log(tmp_path, "qp-ovms-config-server-flags").strip()
+    assert flags_asked == f"--server-flags {component}"
     serving_dir = config.removesuffix(f"/config_{component}.json")
     assert log(tmp_path, "qp-ovms-config").strip() == (
         f"--serve {component} --models-dir {models} --serving-dir {serving_dir}"

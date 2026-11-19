@@ -2,10 +2,12 @@
 
 The thread budget comes from the first CPU counter that answers
 (``QP_LOCAL_MODELS__CPUS``, the Domino tier, the container; see
-``infrastructure/local_models/cpu_count.py``). The pool is created on first need
-and shut down with the scope. Under the ``openvino`` runtime a model whose
-folder is missing is exported there first, at the settings' weight format, on
-the pool, since it takes minutes
+``infrastructure/local_models/cpu_count.py``), divided by the processes
+serving the app, each loading its own models: Uvicorn's workers, which
+``qp-serve`` and ``qp-model-server`` alone pass; any other command is one.
+The pool is created on first need and shut down with the scope. Under the
+``openvino`` runtime a model whose folder is missing is exported there first,
+at the settings' weight format, on the pool, since it takes minutes
 (``infrastructure/local_models/model_provisioning.py``).
 
 Example:
@@ -48,6 +50,27 @@ class UnpinnedBudget(NamedTuple):
     budget: ThreadBudget
 
 
+class _ShareOfOneWorker(BaseCpuCounter):
+    """A counter's answer divided among the processes serving the app.
+
+    Args:
+        counter: The CPU source whose answer is divided; its name is kept.
+        workers: Uvicorn's processes, each loading its own models.
+    """
+
+    def __init__(self, counter: BaseCpuCounter, workers: int) -> None:
+        self.name, self._counter, self._workers = counter.name, counter, workers
+
+    async def cpus(self) -> float | None:
+        """Return the counter's CPUs divided by the workers.
+
+        Returns:
+            One worker's share, or ``None`` when the counter cannot say.
+        """
+        cpus = await self._counter.cpus()
+        return None if cpus is None else cpus / self._workers
+
+
 class LocalModelResources:
     """The thread budget, the model pool and the files of the in-process models.
 
@@ -64,6 +87,9 @@ class LocalModelResources:
             chain answers.
         require_openvino_packages: Raises when the ``openvino`` runtime's
             packages are missing; checked before each model is provisioned.
+        server_processes: The processes serving the app, each loading its own
+            models on its share of the CPUs: Uvicorn's workers under
+            ``qp-serve`` and ``qp-model-server``, 1 for any other command.
 
     Example:
         >>> budget = await local_models.thread_budget()  # openvino, 8 CPUs
@@ -77,17 +103,24 @@ class LocalModelResources:
         scope: ResourceScope,
         http: HttpResources,
         container_cpus: BaseCpuCounter,
+        *,
         require_openvino_packages: PackageCheck = require_openvino,
+        server_processes: int = 1,
     ) -> None:
         self._settings, self._scope, self._http = settings, scope, http
         self._container_cpus = container_cpus
         self.runtime = settings.local_models.runtime  # openvino or torch
+        # The CPUs a core holds: the cores are the CPUs counted divided by it.
+        self.threads_per_core = settings.local_models.threads_per_core
         # Every CPU-bound stage is calibrated under the same budget and rounds.
         calibration = settings.calibration
         self.calibration_limits = CalibrationLimits(
             budget_s=calibration.budget_s, rounds=calibration.rounds
         )
         self._require_openvino_packages = require_openvino_packages
+        # Passed, not read from QP_UVICORN_WORKERS: a .env holding it would
+        # otherwise halve the CPUs of qp-ingest and qp-calibrate too.
+        self._server_processes = server_processes
 
     async def thread_budget(self) -> ThreadBudget:
         """Return how the virtual CPUs are split, worked out on the first request.
@@ -153,7 +186,9 @@ class LocalModelResources:
             model_id,
             runtime=local_models.runtime,
             exports=OpenVinoExports(
-                local_models.openvino_dir, local_models.openvino_weight_format
+                local_models.openvino_dir,
+                local_models.openvino_weight_format,
+                local_models.openvino.chosen(),
             ),
             export=export,
             require_packages=self._require_openvino_packages,
@@ -195,4 +230,5 @@ class LocalModelResources:
                     self._http.policy,
                 )
             )
-        return [*counters, self._container_cpus]
+        counters.append(self._container_cpus)
+        return [_ShareOfOneWorker(c, self._server_processes) for c in counters]

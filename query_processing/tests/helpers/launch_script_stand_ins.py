@@ -3,8 +3,11 @@
 ``ovms``, ``nginx``, ``qp-*``, ``uv``, ``sudo`` and ``apt-get`` are replaced by
 scripts that record their argv (and the ``QP_*`` variables they were started
 with) under ``tmp_path``; ``qp-ovms-config`` also prints the config it would
-write (``served_config`` reads it back). Used by the launch script's own tests
-and by the deploy tests that run every entry script through it.
+write (``served_config`` reads it back). ``vllm`` is on PATH only where a test
+puts one (``write_vllm_stand_in``), or in the virtualenv ``uv venv`` makes for
+it; ``qp-vllm-config`` prints the words of the tests' workflow file. Used
+by the launch script's own tests and by the deploy tests that run every entry
+script through it.
 
 Example::
 
@@ -60,11 +63,17 @@ def write_ovms_config_stand_in(
 
     It prints ``<serving dir>/config_<part>.json``, as the real one does, and
     appends it to ``<name>.out`` (argv to ``<name>.log``); only shell builtins,
-    so it runs on any PATH.
+    so it runs on any PATH. Asked ``--server-flags``, it logs to
+    ``<name>-server-flags.log`` instead and prints ``$FAKE_OVMS_SERVER_FLAGS``.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "#!/usr/bin/env bash\n"
+        'if [ "$1" = --server-flags ]; then\n'
+        f'  echo "$@" >> "{tmp_path}/{name}-server-flags.log"\n'
+        '  echo "${FAKE_OVMS_SERVER_FLAGS:-}"\n'
+        "  exit 0\n"
+        "fi\n"
         f'echo "$@" >> "{tmp_path}/{name}.log"\n'
         "while [ $# -gt 0 ]; do\n"
         '  case "$1" in --serve) part=$2 ;; --serving-dir) dir=$2 ;; esac\n'
@@ -106,7 +115,9 @@ def make_stand_ins(tmp_path: Path) -> Path:
 
     Each also appends its ``QP_*`` variables to <name>.env and the directory
     it was started in to <name>.cwd; a fake installed in a venv by ``uv venv``
-    logs to venv-<name>.log, venv-<name>.env and venv-<name>.cwd instead.
+    logs to venv-<name>.log, venv-<name>.env and venv-<name>.cwd instead
+    (``venv_vllm_fakes`` says what each new venv gets for vLLM). ``uv``
+    appends the directory each of its commands ran in to uv.cwd.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -127,6 +138,8 @@ def make_stand_ins(tmp_path: Path) -> Path:
         )
         script.chmod(0o755)
     write_ovms_config_stand_in(bin_dir / "qp-ovms-config", tmp_path)
+    # Shadows a real one on the developer's PATH, as qp-ovms-config's does.
+    write_vllm_config_stand_in(bin_dir / "qp-vllm-config", tmp_path)
     # sudo runs its command; ``uv venv <dir>`` makes a venv whose qp-* log apart.
     write_fake(bin_dir / "sudo", tmp_path / "sudo.log", 'exec "$@"\n')
     venv_fakes = "".join(
@@ -140,9 +153,75 @@ def make_stand_ins(tmp_path: Path) -> Path:
     write_fake(
         bin_dir / "uv",
         tmp_path / "uv.log",
-        f'if [ "$1" = venv ]; then mkdir -p "$2/bin"\n{venv_fakes}fi\n',
+        f'pwd >> "{tmp_path}/uv.cwd"\n'
+        f'if [ "$1" = venv ]; then mkdir -p "$2/bin"\n'
+        f"{venv_fakes}{venv_vllm_fakes(tmp_path)}fi\n",
     )
     return bin_dir
+
+
+def venv_vllm_fakes(tmp_path: Path) -> str:
+    """Shell lines of the ``uv`` stand-in giving a new virtualenv its vLLM command.
+
+    The virtualenv made for vLLM (``*/vllm-venv``) gets a ``vllm`` that logs as
+    ``venv-vllm``; any other, the project's, gets a ``qp-vllm-config``
+    (``write_vllm_config_stand_in``), which an App uses when none is on PATH.
+    """
+    vllm, config = tmp_path / "venv-vllm-stand-in", tmp_path / "venv-qp-vllm-config"
+    write_vllm_stand_in(vllm, tmp_path, "venv-vllm")
+    write_vllm_config_stand_in(config, tmp_path)
+    return (
+        'case "$2" in\n'
+        f'  */vllm-venv) cp "{vllm}" "$2/bin/vllm" ;;\n'
+        f'  *) cp "{config}" "$2/bin/qp-vllm-config" ;;\n'
+        "esac\n"
+    )
+
+
+def write_vllm_stand_in(path: Path, tmp_path: Path, name: str = "vllm") -> None:
+    """A ``vllm`` that logs what it was started with, under ``name``.
+
+    Its arguments go to <name>.log one a line, so a test sees whether one
+    holding spaces reached vLLM whole (``vllm_argv`` reads them back); its
+    ``QP_*`` and ``VLLM_*`` variables to <name>.env, ``LD_PRELOAD`` to
+    <name>.preload and its directory to <name>.cwd. Shell builtins only, so it
+    runs on any PATH.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf \'%s\\n\' "$@" >> "{tmp_path}/{name}.log"\n'
+        "for variable in $(compgen -e); do\n"
+        '  case $variable in QP_* | VLLM_*) echo "$variable=${!variable}" ;; esac\n'
+        f'done >> "{tmp_path}/{name}.env"\n'
+        f'echo "${{LD_PRELOAD:-}}" >> "{tmp_path}/{name}.preload"\n'
+        f'pwd >> "{tmp_path}/{name}.cwd"\n'
+    )
+    path.chmod(0o755)
+
+
+def vllm_argv(tmp_path: Path, name: str = "vllm") -> list[str]:
+    """The arguments the ``vllm`` stand-in ``name`` was started with, [] if it never ran."""
+    return log(tmp_path, name).splitlines()
+
+
+def write_vllm_config_stand_in(path: Path, tmp_path: Path) -> None:
+    """A ``qp-vllm-config`` that logs its argv to qp-vllm-config.log and prints a line.
+
+    ``--serve NAME`` prints ``fixture-org/fixture-NAME``, ``--served-model-name
+    fixture-NAME`` and the default cache flag, as the real one does on the
+    tests' workflow file; ``--environment NAME`` prints an empty line, as at the
+    defaults. Shell builtins only, so it runs on any PATH.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$@" >> "{tmp_path}/qp-vllm-config.log"\n'
+        'if [ "$1" = --environment ]; then echo; exit 0; fi\n'
+        'echo "fixture-org/fixture-$2 --served-model-name fixture-$2 '
+        f'--kv-cache-memory-bytes {8 * 2**30}"\n'
+    )
+    path.chmod(0o755)
 
 
 def stand_in_env(tmp_path: Path, bin_dir: Path, **env: str) -> dict[str, str]:

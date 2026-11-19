@@ -9,8 +9,9 @@ rules, and `docs/adr/0003` to `0010` for the design.
   the component types with their requests and answers, the stage types, the
   edge conditions, the API formats, the backends of the embedder, the
   reranker, the LLM and the vector store, the router's `fake` and `served`,
-  and the orchestrators that run the workflow graph (`langgraph`, the default,
-  and `pydantic_graph`), one directory each under `adapters/orchestrator/`.
+  the orchestrators that run the workflow graph (`langgraph`, the default, and
+  `pydantic_graph`), one directory each under `adapters/orchestrator/`, and the
+  three model-server kinds, `fastapi`, `ovms` and `vllm`.
 - `query_processing_rag_usecase/`: the RAG use case. It installs the toolkit and
   holds its settings (`workflow.yaml`, `prompts.yaml`, `routes.yaml`,
   `deploy.example.yaml`, `.env.example`, a `Makefile` of run targets), its

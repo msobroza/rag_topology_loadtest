@@ -21,7 +21,7 @@ from ovms_stand_ins import ovms_starts, write_ovms_export, write_ovms_stand_in
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.composition.ovms_calibration import ovms_candidates
 from query_processing.composition.ovms_stages import calibration_http_policy
-from query_processing.config.ovms_settings import OvmsSettings
+from query_processing.config.apps.ovms_settings import OvmsSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.infrastructure.http.http_policy import HttpPolicy
 from rag_components import FAKE_BACKENDS
@@ -49,13 +49,48 @@ ALL_ON_2_CPUS = [
         (8, 2, 4, ((2,), (4,))),
     ],
 )
-def test_the_candidates(
+def test_the_candidates_on_one_thread_a_core(
     cpus: int,
     streams: int,
     threads: int,
     expected: tuple[tuple[int, ...], tuple[int, ...]],
 ) -> None:
-    assert ovms_candidates(cpus, streams=streams, threads=threads) == expected
+    found = ovms_candidates(
+        cpus, streams=streams, threads=threads, cores=cpus, hinted=False
+    )
+
+    assert found == expected
+
+
+def test_stream_candidates_stop_at_the_cores() -> None:
+    # Measured: 16 streams on 8 cores took 14.8 s where 1 to 4 took 3.8 s.
+    assert ovms_candidates(16, streams=0, threads=0, cores=8, hinted=False) == (
+        (1, 2, 4, 8),
+        (16, 8, 4, 2, 1),
+    )
+    assert ovms_candidates(2, streams=0, threads=0, cores=1, hinted=False) == (
+        (1,),
+        (2, 1),
+    )
+    assert ovms_candidates(12, streams=0, threads=0, cores=6, hinted=False) == (
+        (1, 3, 6),
+        (12, 6, 3, 1),
+    )
+
+
+def test_a_pinned_stream_count_above_the_cores_is_still_tried() -> None:
+    # A pin is the owner's choice.
+    streams, _ = ovms_candidates(4, streams=4, threads=0, cores=2, hinted=False)
+
+    assert streams == (4,)
+
+
+def test_under_a_performance_hint_streams_are_not_searched() -> None:
+    # OVMS refuses NUM_STREAMS beside a hint, so the hint sets the streams.
+    assert ovms_candidates(8, streams=0, threads=0, cores=4, hinted=True) == (
+        (1,),
+        (8, 4, 2, 1),
+    )
 
 
 # --- against the stand-in ------------------------------------------------------------
@@ -82,12 +117,18 @@ def record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def two_cpus(
     settings_factory: SettingsFactory, **overrides: object
 ) -> WorkflowSettings:
-    return settings_factory(local_models__cpus=2, **FAKE_BACKENDS, **overrides)
+    """2 CPUs of one thread each, so 2 cores: two stream counts to try."""
+    return settings_factory(
+        local_models__cpus=2,
+        local_models__threads_per_core=1,
+        **FAKE_BACKENDS,
+        **overrides,
+    )
 
 
-def ovms_settings(**pinned: int) -> OvmsSettings:
+def ovms_settings(**pinned: object) -> OvmsSettings:
     """The OVMS App's own settings, not read from a stray ``.env``."""
-    return OvmsSettings(_env_file=None, start_timeout_s=20.0, **pinned)
+    return OvmsSettings(_env_file=None, start_timeout_s=20.0, **pinned)  # type: ignore[arg-type]
 
 
 def graph_plugin_config(config: Path) -> dict[str, str]:
@@ -211,6 +252,77 @@ async def test_on_demand_searches_both_even_when_pinned_and_cleans_up(
     assert chosen.batch_size == reranker.local.calibration_passages
     served_from = Path(str(starts[0]["argv"][-1]))  # type: ignore[index]
     assert not served_from.exists()  # the temporary serving folder is gone
+
+
+# --- the cores, the performance hint, the graph's options --------------------------
+
+
+async def test_two_cpus_of_one_core_try_one_stream(
+    settings_factory: SettingsFactory, models: Path, record: Path, tmp_path: Path
+) -> None:
+    # threads_per_core is 2 by default: 2 CPUs are one core, so one stream.
+    settings = settings_factory(local_models__cpus=2, **FAKE_BACKENDS)
+
+    await serving_config(settings, ovms_settings(), "reranker", models, tmp_path / "s")
+
+    streams = {start["plugin_config"]["NUM_STREAMS"] for start in ovms_starts(record)}  # type: ignore[index]
+    assert streams == {"1"}
+
+
+async def test_a_performance_hint_searches_threads_and_writes_no_stream_count(
+    settings_factory: SettingsFactory,
+    models: Path,
+    record: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ovms = ovms_settings(openvino={"performance_hint": "THROUGHPUT"})
+    with caplog.at_level("INFO", logger="query_processing"):
+        config = await serving_config(
+            two_cpus(settings_factory), ovms, "embedder", models, tmp_path / "s"
+        )
+
+    configs = [start["plugin_config"] for start in ovms_starts(record)]
+    assert {c["INFERENCE_NUM_THREADS"] for c in configs} == {"2", "1"}  # type: ignore[index]
+    assert all("NUM_STREAMS" not in c for c in configs)  # type: ignore[operator]
+    written = graph_plugin_config(config)
+    assert "NUM_STREAMS" not in written
+    assert written["PERFORMANCE_HINT"] == "THROUGHPUT"
+    [line] = logged(caplog, "ovms_serving_config")
+    assert line["streams"] is None  # the hint's, not a count of ours
+
+
+async def test_on_demand_under_a_hint_pins_no_stream_count(
+    settings_factory: SettingsFactory, models: Path, record: Path
+) -> None:
+    ovms = ovms_settings(openvino={"performance_hint": "THROUGHPUT"})
+    async with asyncio.timeout(BOUND_S):
+        async with CompositionRoot(two_cpus(settings_factory)) as composition:
+            calibration = await composition.ovms_calibration("reranker", ovms, models)
+
+    assert list(calibration.pinned) == ["QP_OVMS_THREADS"]
+
+
+async def test_the_graph_options_reach_the_served_graph(
+    settings_factory: SettingsFactory, models: Path, record: Path, tmp_path: Path
+) -> None:
+    ovms = ovms_settings(
+        num_streams=1,
+        threads=1,
+        graph_queue_max_size="2",
+        embeddings_truncate=True,
+        embeddings_max_length=128,
+    )
+
+    config = await serving_config(
+        two_cpus(settings_factory), ovms, "embedder", models, tmp_path / "s"
+    )
+
+    model = json.loads(config.read_text())["model_config_list"][0]["config"]
+    graph = (config.parent / model["base_path"] / "graph.pbtxt").read_text()
+    assert graph.startswith("# OVMS_GRAPH_QUEUE_MAX_SIZE: 2\n")
+    assert "truncate: true," in graph
+    assert "max_length: 128," in graph
 
 
 # --- a slow candidate --------------------------------------------------------------

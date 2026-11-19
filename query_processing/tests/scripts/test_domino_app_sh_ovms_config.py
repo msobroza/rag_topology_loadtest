@@ -123,7 +123,9 @@ def test_without_uv_a_pin_that_cannot_be_applied_stops_the_app(
     result = run_app(tmp_path, bin_dir, **{pin: "2"})
 
     assert result.returncode == 1
-    assert "QP_OVMS_NUM_STREAMS / QP_OVMS_THREADS are set" in result.stderr
+    [line] = [x for x in result.stderr.splitlines() if x.startswith("app.sh[")]
+    assert f"{pin}=2" in line
+    assert "not applied" in line
     assert log(tmp_path, "ovms") == ""
 
 
@@ -134,12 +136,12 @@ def test_without_uv_a_pin_that_cannot_be_applied_stops_the_app(
 def test_without_uv_an_llms_option_on_a_reranker_stops_the_app(
     tmp_path: Path, bin_dir: Path, option: str, value: str
 ) -> None:
+    # One check for every QP_OVMS_* only Python reads: an LLM's option too.
     result = run_app(tmp_path, bin_dir, **{option: value})
 
     assert result.returncode == 1
     [line] = [x for x in result.stderr.splitlines() if x.startswith("app.sh[")]
-    assert option in line
-    assert "apply to an LLM" in line
+    assert f"{option}={value}" in line
     # The places a variable this script sees can come from (it reads no .env).
     for place in ("apps.reranker.settings", "defaults.settings", "environment"):
         assert place in line

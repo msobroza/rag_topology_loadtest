@@ -54,6 +54,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         ...     runtime="torch",
         ...     models_dir="models",
         ...     weight_format="fp32",
+        ...     openvino_properties={},
         ... )
         >>> embedder = SentenceTransformerEmbedder.from_pretrained(
         ...     model, pool, batch_size=64, threads=2, query_prefix="query: "

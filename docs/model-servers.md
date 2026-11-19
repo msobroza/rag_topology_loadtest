@@ -1,19 +1,26 @@
-# The two model servers: OpenVINO Model Server and the FastAPI model server
+# The model servers: OpenVINO Model Server, the FastAPI model server and vLLM
 
-A model server serves the reranker or the embedder on the /v3 routes, OVMS an LLM
-too, on its chat completions route, and the FastAPI model server a component of a
-registered type on its call route (`POST /call/<component type>`). There are two:
-OpenVINO Model Server (OVMS), a product, and `qp-model-server`, this project's own
-server built on FastAPI. Both run the same engine, OpenVINO, on the same model. This
-page says what the documentation of OVMS and of FastAPI says about serving, how each
-is set up here, what the two sittings of 15 November 2026 measured of the reranker,
-and what one sitting of 16 November 2026 measured of text generation. The settings
-are named as they are today; the sittings ran them under the names of that day.
+A model server serves the reranker or the embedder to the workflow app, OVMS and
+vLLM an LLM too, and the FastAPI model server a component of a registered type on
+its call route (`POST /call/<component type>`). There are three model-server kinds.
+Two serve on the /v3 routes: OpenVINO Model Server (OVMS), a product, and
+`qp-model-server`, this project's own server built on FastAPI. Both run the same
+engine, OpenVINO, on the same model. This page says what the documentation of OVMS
+and of FastAPI says about serving, how each is set up here, what the two sittings
+of 15 November 2026 measured of the reranker, and what one sitting of 16 November
+2026 measured of text generation. The third kind, vLLM, came after the sittings on
+the reranker. It serves the same API formats on its own /v1 routes. Its section
+below says what its documentation says and how it is set up here; nothing has been
+measured on it here but the first look at text generation. The settings are named
+as they are today; the sittings ran them under the names of that day.
 
 Read for this page: OVMS's documentation at 2026.3.1, the version pinned in
 `query_processing/ovms/versions.env` when the page was written (the pin is 2026.4.1
-now; the documentation was not read again), and FastAPI's pages on concurrency
-and deployment as they stood on 15 November 2026. The pages are listed at the end.
+now; `docs/server-settings-for-throughput-and-latency.md` read it again at that tag
+on 19 November 2026, and its two corrections are made below), FastAPI's pages on
+concurrency and deployment as they stood on 15 November 2026, and vLLM's
+documentation and its release 0.32.0 on 16 and 17 November 2026. The pages are
+listed at the end.
 
 ## What their documentation says
 
@@ -26,7 +33,7 @@ of it.
 | What it is | A C++ inference server that exposes models over network APIs | A Python framework for building web APIs |
 | APIs | Built in: OpenAI-compatible for generation and embeddings, Cohere-compatible rerank, KServe for classic models; REST and gRPC | The routes the application defines; request validation and an OpenAPI description come with it |
 | Several requests at once, in one process | Execution streams split the CPUs so that several requests run in parallel; a queue of inference requests (`nireq`) sits in front | One process serves many clients concurrently, which helps work that waits on I/O; for CPU-bound work such as machine learning the documentation points to parallelism with several processes |
-| Using more cores | More streams in the same process; it adjusts threads, streams and pinning to the CPUs of its container | More worker processes, or on Kubernetes one process per container and more containers; each process loads its own copy of the model |
+| Using more cores | More streams in the same process; it adjusts threads, streams and pinning to the CPUs of its container (when it detects Docker or Kubernetes: see row 4 below) | More worker processes, or on Kubernetes one process per container and more containers; each process loads its own copy of the model |
 | Batching | Continuous batching for text generation; batch size and dynamic shapes for classic models | None |
 | Model management | Model versions, and configuration changes applied at run time | None: a change is a new deployment |
 | Metrics | A Prometheus endpoint: requests, inference time, time waiting in the queue, streams | None |
@@ -46,8 +53,65 @@ stream count should not exceed the cores.
 | Calibration | Streams and threads, for `QP_CALIBRATION__USERS` requests in flight | Threads and batch size, on one request |
 | Batch size of a rerank request | The whole request, 20 passages: its rerank endpoint has no such setting | The reranker's `local.batch_size` (`QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE`), calibrated |
 | More load | More streams, or more replicas | More replicas |
+| Stream candidates | 1, 2, 4, ... up to the cores, the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE` (2); none under a performance hint | None (see "Requests at once") |
+| OpenVINO's CPU properties | `QP_OVMS_OPENVINO__*`, written into the graph's `plugin_config`: `ENABLE_HYPER_THREADING` by default, a performance hint in place of `NUM_STREAMS` when set | The same block, `QP_LOCAL_MODELS__OPENVINO__*`, at load: `ENABLE_HYPER_THREADING` by default |
+| Graph options | `QP_OVMS_GRAPH_QUEUE_MAX_SIZE`, an embedder's `QP_OVMS_EMBEDDINGS_TRUNCATE` and `QP_OVMS_EMBEDDINGS_MAX_LENGTH`; as exported by default | None |
+| Server | OVMS's flags, each left out at OVMS's own value: `QP_OVMS_REST_WORKERS`, `QP_OVMS_METRICS`, `QP_OVMS_LOG_LEVEL`, `QP_OVMS_CACHE_DIR`, and `QP_OVMS_ARGS` for any other | Uvicorn at its own values: `QP_UVICORN_WORKERS` (1), `QP_UVICORN_LIMIT_CONCURRENCY` (none), `QP_UVICORN_BACKLOG`, `QP_UVICORN_TIMEOUT_KEEP_ALIVE_S`; several workers divide the CPUs |
+| Process | Not set here: OVMS is the App's process | `QP_PROCESS_MEMORY_ALLOCATOR_LIBRARY`, `QP_PROCESS_OMP_PROC_BIND`, `QP_PROCESS_KMP_AFFINITY`, by one restart; none by default |
+| An LLM | `--dynamic_split_fuse false --max_num_batched_tokens 8192` by default (`QP_OVMS_DYNAMIC_SPLIT_FUSE`, `QP_OVMS_MAX_BATCHED_TOKENS`), and the other options of pull mode, each left out at OVMS's own | Serves none |
 
 Compare the two on the same weight format: see "Experiment 2" in the README.
+
+## vLLM, the third kind
+
+Nothing in the measurements below is about vLLM but the first look at text
+generation. This section says what its documentation says and how it is set up
+here, so that a sitting can measure it.
+
+### What its documentation says
+
+| | vLLM |
+|---|---|
+| APIs | OpenAI's embeddings format on `/v1/embeddings`, Cohere's rerank format on `/rerank`, `/v1/rerank` and `/v2/rerank`, OpenAI's chat format on `/v1/chat/completions`: the three formats the workflow already speaks |
+| Embedders and rerankers | It calls them pooling models, and supports them mainly for convenience, with no promise of being faster than the same model under Sentence Transformers. It finds by itself that a model is an embedder or a reranker |
+| Models on a CPU | Its list of models validated on a CPU (dated 28 September 2026) holds text and multimodal language models only. Its rerankers include BERT, RoBERTa, XLM-RoBERTa, ModernBERT and Qwen3 (`tomaarsen/Qwen3-Reranker-0.6B-seq-cls` is named); its embedders include XLM-RoBERTa |
+| The CPU | x86 with AVX-512 recommended; Python 3.11 to 3.14; release wheels for x86 since 0.17.0. Installed from a wheel, it asks for Intel OpenMP to be preloaded |
+| Batching | `--max-num-batched-tokens` (2048 by default on a CPU) and `--max-num-seqs` (128 by default on a CPU) bound what it serves at once |
+| Using the cores | `VLLM_CPU_OMP_THREADS_BIND` binds threads to cores by default (`auto`; `nobind` leaves the count to `OMP_NUM_THREADS`). `VLLM_CPU_NUM_OF_RESERVED_CPU` keeps CPUs out of inference, one by default for one server; it advises keeping one or two cores for the serving framework |
+| Memory | Left unset, the CPU worker reserves 0.92 of the NUMA node's memory for its cache, the host's and not the container's. `--kv-cache-memory-bytes` sets the cache; `VLLM_CPU_KVCACHE_SPACE`, the GiB kept for it, is the legacy setting it replaces. In Docker its page runs with 4 GB of shared memory and two rights for memory placement (`--cap-add SYS_NICE`, a seccomp profile); without those rights it works, possibly more slowly |
+| The start | `--optimization-level` is 2 by default; 0 starts with no compilation |
+| Behind a proxy | `--root-path` is the path prefix when a proxy routes to it by path |
+
+Two of these bear on the RAG's models. Its reranker is a CamemBERT
+(`CamembertForSequenceClassification`), which vLLM's list of rerankers does not
+hold. Its embedder is an XLM-RoBERTa, an architecture on the list, but the model
+itself is not named.
+
+### How it is set up here
+
+| | vLLM |
+|---|---|
+| Weights | The model's published weights, which its component's `source_id` names. It reads no weight format, so it is compared with the two others on `fp32` |
+| The models | Any embedder, reranker or LLM of the workflow file. For the RAG's LLM vLLM loads the published weights, where OVMS pulls OpenVINO's conversion (`deploy.example.yaml` names both) |
+| Version | 0.32.0, the `vllm` dependency group of the toolkit's `pyproject.toml`, in a virtualenv of its own: it pins transformers 5.16 to 5.20 and torch 2.14, and the toolkit's `optimum-intel` holds transformers below 5.6. Its one CPU wheel for x86 needs glibc 2.39 (Ubuntu 24.04) |
+| Options | Flat `QP_VLLM_*` settings of the App, one per flag (the README's "Variables"), each left out at vLLM's own value, and a pass-through, `QP_VLLM_ARGS`; a flag given both ways is refused. `QP_VLLM_KV_CACHE_GIB` is 8 by default, the one value that differs from vLLM's own, since vLLM sizes the cache from the host's memory. `QP_VLLM_CPU_OMP_THREADS_BIND` and `QP_VLLM_CPU_RESERVED_CPUS` export vLLM's CPU variables |
+| Calibration | None |
+| Requests at once, more load | vLLM's own batching, or more replicas |
+| Docker's rights and shared memory | The container's, which Domino sets: a Domino tier gives 64 MB of shared memory unless an administrator raises it. Ask one before a sitting |
+
+The README's section "vLLM" has the command line, the settings and the start on
+Domino.
+
+### What was measured on it
+
+Only the first look at text generation of 16 November 2026, told below under
+"Which to use": vLLM 0.32.0 from its CPU image, by hand, on one machine of
+16 vCPUs. It took 17 minutes to start, because it compiles the model, and a second
+start was no shorter. It held 20 GB, with 8 GB asked for its cache. Not run: a vLLM
+App through its launch script, vLLM installed by `uv` from the group, vLLM serving
+the RAG's embedder or reranker, vLLM answering under Domino's path prefix, a vLLM
+LLM with no compilation or with the cache asked by its flag, and a Domino
+environment built from vLLM's image.
 
 ## What was measured
 
@@ -198,22 +262,24 @@ in flight on 8 vCPUs.
 | 1 | The tokens of a request: its passages times their length | The demo's own benchmark, 20 passages a request: 3.6 requests a second on passages of 500 tokens, 12.7 on passages of 75. A passage longer than the model's context is cut into chunks, each one more row of the batch. `top_n` shortens the response, not the work | The batch is padded to its longest passage: "On passages of mixed length the batch size decides" |
 | 2 | The weight format | Every example exports with `--weight-format int8`, which is also the export helper's default | About 1.5 times the requests a second, on both servers |
 | 3 | `NUM_STREAMS` | The one speed option the export helper has for rerank, 1 by default. The guide: 1 for a single client, more under concurrency, fewer than the requests in flight, never more than the cores. A maintainer: about 2 streams for 4 clients, and more streams raise the throughput of most models at the cost of latency | Calibration kept 1 or 2 streams for 4 requests in flight. Gain: 2% at most, 13% at most on Qwen3; a lone request then takes twice as long |
-| 4 | `INFERENCE_NUM_THREADS` against the container's CPUs | The guide: give a container whole cores (Kubernetes' CPU manager, or `--cpuset-cpus`), not a share of CPU time. OVMS reads the CPUs of its container and adjusts threads, streams and pinning. One issue traces slow inference under a Kubernetes CPU limit to more threads than the limit allows | Not measurable on the emulation, where an App has its machine to itself. The App pins the thread count in OVMS's configuration to the CPUs it counts for itself |
-| 5 | `ENABLE_CPU_PINNING`, `ENABLE_CPU_RESERVATION` | Pinning is on by default, and is turned off only where several workloads share the machine. Several models in one server: one stream each, with cores reserved and pinned for each | Pinning off: 7.9 s against 7.6 s on 2 streams |
+| 4 | `INFERENCE_NUM_THREADS` against the container's CPUs | The guide: give a container whole cores (Kubernetes' CPU manager, or `--cpuset-cpus`), not a share of CPU time. OVMS reads the CPUs of its container and adjusts threads and pinning only when it detects Docker or Kubernetes on Linux, and sets a stream count only under the `THROUGHPUT` hint; a CPU quota turns pinning off (`src/ov_utils.cpp`, 2026.4.1; this sentence corrected on 19 November 2026). One issue traces slow inference under a Kubernetes CPU limit to more threads than the limit allows | Not measurable on the emulation, where an App has its machine to itself. The App pins the thread count in OVMS's configuration to the CPUs it counts for itself |
+| 5 | `ENABLE_CPU_PINNING`, `ENABLE_CPU_RESERVATION` | Pinning is on by default, and is turned off only where several workloads share the machine. Several models in one server: one stream each, with cores reserved and pinned for each (a maintainer's answer in issue 3136, not a page of the documentation) | Pinning off: 7.9 s against 7.6 s on 2 streams |
 | 6 | `PERFORMANCE_HINT` | In place of `NUM_STREAMS`, never with it | The throughput hint alone: 7.7 s against 7.6 s |
-| 7 | `rest_workers`, `nireq` | The defaults are enough in most cases. `nireq` is the size of a queue, not parallelism, and is at least the stream count | 4 REST workers on 4 streams: no gain |
+| 7 | `rest_workers`, `nireq` | The defaults are enough in most cases. `nireq` never reaches an embeddings or a rerank graph: their queue of inference requests is OpenVINO's optimal number for the compiled model (`src/sidepacket_servable.cpp`, 2026.4.1; corrected on 19 November 2026, where this row said it is at least the stream count) | 4 REST workers on 4 streams: no gain |
 
 What follows for this project:
 
 - The two settings the material treats as tunable on a CPU, streams and threads, are
-  the two that OVMS's calibration searches. Its stream candidates go up to the CPU
-  count, above the cores, which the guide advises against.
+  the two that OVMS's calibration searches. Its stream candidates stop at the cores,
+  the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE` (2 by default), as the
+  guide advises; until 19 November 2026 they went up to the CPU count, and the
+  candidates above the cores were never kept.
 - The largest effects lie outside the server: how many passages a request carries, how
   long they are, and the weight format.
 - The rerank endpoint has no batch size. OVMS's source builds one batch from every
   passage of a request and scores it in one inference, so a smaller batch is a request
   with fewer passages. Splitting a request on the client side was not tried.
-- Not done: reading OVMS's metrics, where the time waiting for an inference request
+- Not done: reading OVMS's metrics (`QP_OVMS_METRICS=true` turns them on), where the time waiting for an inference request
   (`ovms_wait_for_infer_req_time_us`) set against the inference time
   (`ovms_inference_time_us`) would tell queueing from computing in "OVMS does not
   serve in arrival order"; and the guide's method of settling the plugin configuration
@@ -243,9 +309,15 @@ A reading of the results above, not a measurement.
   OVMS answered one user soonest (7.9 s against 13 s and 19 s). At 4 users its batching
   gained only once it read each prompt in one pass (`--dynamic_split_fuse false
   --max_num_batched_tokens 8192`): 20.4 tokens a second against 11.6 as it ships. An
-  `ovms` App now serves an LLM, with those two flags set by `QP_OVMS_DYNAMIC_SPLIT_FUSE`
-  and `QP_OVMS_MAX_BATCHED_TOKENS` (the README's "An LLM on OVMS"; what of it is not
-  verified: its "A served LLM"). The FastAPI model server serves no LLM.
+  `ovms` App now serves an LLM with those two flags by default
+  (`QP_OVMS_DYNAMIC_SPLIT_FUSE`, `QP_OVMS_MAX_BATCHED_TOKENS`; the README's "An LLM
+  on OVMS"), measured at 1 and 4 users only; what of it is not verified: its
+  "A served LLM". A `vllm` App serves one too, and has not run yet. The FastAPI
+  model server serves no LLM.
+- **vLLM** for the embedder or the reranker: no reading yet. Nothing has been
+  measured, its own documentation promises no speed for these models, and the RAG's
+  reranker is not on its list. It is there to be compared, on `fp32` against the two
+  others.
 
 ## Limits
 
@@ -285,3 +357,14 @@ text generation).
   and the OVMS command.
 - FastAPI: "Concurrency and async / await", "Deployments Concepts" and "Server
   Workers - Uvicorn with Workers" of `fastapi.tiangolo.com`.
+- vLLM, on 16 and 17 November 2026: on `docs.vllm.ai`, the installation on CPU, the
+  supported models on CPU, the pooling models, the scoring and the embedding usages,
+  and the `vllm serve` reference at 0.32.0; the files of the release `v0.32.0` of
+  `github.com/vllm-project/vllm`, and its `docker/Dockerfile.cpu` at that tag.
+- The `config.json` of the RAG's embedder and reranker on Hugging Face, for their
+  architectures.
+- Domino's 6.3 documentation (its 6.2 one is no longer published): external images,
+  the environment catalogue, Apps, hardware tiers and central configuration.
+- OVMS 2026.4.1, OpenVINO's CPU pages, vLLM 0.32.0, Uvicorn, Sentence Transformers
+  and httpx, as `docs/server-settings-for-throughput-and-latency.md` lists them, for
+  the two corrections and the settings of "How each is set up here".

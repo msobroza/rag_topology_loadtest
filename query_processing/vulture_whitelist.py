@@ -51,6 +51,49 @@ show_root
 # by name (loadtest/answer_comparison.py's _EXACT_PASSAGE_FIELDS).
 text_sha256
 
+# pydantic: the named fields of OpenVinoCpuSettings, read by their names in
+# config/openvino_cpu_settings.py's _PROPERTY_OF_FIELD, which pairs each with
+# the OpenVINO property it writes.
+performance_hint
+performance_hint_num_requests
+hyper_threading
+cpu_pinning
+cpu_reservation
+inference_precision_hint
+execution_mode_hint
+
+# pydantic: the flag fields of OvmsSettings, read by their names through
+# config/apps/ovms_flags.py's SERVER_FLAGS and LLM_FLAGS, which pair each with
+# the ovms flag it writes.
+cache_size_gb
+prefix_caching
+kv_cache_precision
+model_distribution_policy
+rest_workers
+metrics
+log_level
+cache_dir
+
+# pydantic: the OpenMP fields of ProcessEnvironmentSettings, read by their names
+# through config/apps/process_environment_settings.py's OPENMP_VARIABLES, each
+# the upper-cased field.
+omp_proc_bind
+kmp_affinity
+
+# pydantic: the flag and CPU fields of VllmSettings, read by their names through
+# config/apps/vllm_settings.py's VLLM_FLAGS and CPU_VARIABLES, which pair each
+# with the vLLM flag or variable it writes.
+max_model_len
+optimization_level
+max_num_batched_tokens
+performance_mode
+kv_cache_dtype
+dtype
+tensor_parallel_size
+stream_interval
+cpu_omp_threads_bind
+cpu_reserved_cpus
+
 # pydantic + FastAPI: fields of the Domino API bodies in fake_domino/api_shapes.py
 # (Apps, hardware tiers, environments and their revisions), read only when a body
 # is validated or serialised to JSON.

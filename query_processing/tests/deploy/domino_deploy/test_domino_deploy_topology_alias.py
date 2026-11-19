@@ -268,14 +268,14 @@ def test_a_row_naming_a_component_the_workflow_file_lacks_is_refused() -> None:
 def test_a_served_llm_on_the_fastapi_kind_is_refused_naming_ovms(
     apps_blocks: dict[str, dict[str, str]],
 ) -> None:
-    # Only ovms serves an LLM: fastapi, the default kind or the App's own, does not.
+    # fastapi, the default kind or the App's own, serves no LLM: ovms and vllm do.
     settings = with_alias(
         "with-llm", {"reranker": "served", "llm": "served"}, apps=apps_blocks
     )
     assert refusal(FakeDominoApps(), settings) == (
         "topology alias 'with-llm' serves component 'llm', of type 'llm', with "
         "the model-server kind 'fastapi' (apps.llm.server, else defaults.server, "
-        "in deploy.yaml), which cannot serve it: the kinds that can are 'ovms'"
+        "in deploy.yaml), which cannot serve it: the kinds that can are 'ovms', 'vllm'"
     )
 
 

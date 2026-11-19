@@ -26,7 +26,10 @@ from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.entrypoints import qp_serve
-from query_processing.entrypoints.qp_serve import GraphRefusalInOneLine, create_app
+from query_processing.entrypoints.qp_serve import create_app
+from query_processing.infrastructure.http.startup_refusal_in_one_line import (
+    StartupRefusalInOneLine,
+)
 from rag_components import (
     FAKE_BACKEND_VARIABLES,
     FAKE_BACKENDS,
@@ -487,7 +490,7 @@ async def test_any_other_start_up_failure_keeps_its_traceback(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     app = FastAPI(lifespan=lambda app: LostIndex())
-    app.add_middleware(GraphRefusalInOneLine)
+    app.add_middleware(StartupRefusalInOneLine, refused=ValueError, prog="qp-serve")
 
     [failure, exiting] = await start_under_uvicorn(app, caplog)
 

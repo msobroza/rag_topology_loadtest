@@ -8,8 +8,10 @@ choice. On demand (``qp-calibrate --ovms-models``) both are searched, pinned or
 not, in a temporary folder removed afterwards.
 
 The candidates come from the CPUs counted here (``QP_LOCAL_MODELS__CPUS``, the
-Domino tier, the container). Streams: 1, 2, 4, ... up to the CPUs, 1 first
-because it is what the export runs and what a spent budget keeps. Threads: the
+Domino tier, the container). Streams: 1, 2, 4, ... up to the cores (the CPUs
+over ``local_models.threads_per_core``), 1 first because it is what the export
+runs and what a spent budget keeps; none is searched under a performance hint
+(``QP_OVMS_OPENVINO__PERFORMANCE_HINT``), which sets the streams. Threads: the
 CPUs, then half of them, down to 1. A request is scored in one batch, so the
 tuning's batch size is the request's size: a reranker's
 ``local.calibration_passages`` passages, or one question.
@@ -31,13 +33,14 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config.ovms_settings import OvmsSettings
+from ..config.apps.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.runtime.backends import OpenVinoWeightFormat
 from ..domain.runtime.calibration import CalibrationReport, halvings
 from ..infrastructure.calibration.served_stage_calibration import calibrate_served
 from ..infrastructure.json_log import log_json
+from ..infrastructure.ovms.ovms_graph import OvmsGraphOptions, performance_hinted
 from ..infrastructure.ovms.ovms_serving_folder import (
     OvmsExport,
     recorded_weight_format,
@@ -57,31 +60,42 @@ from .ovms_stages import (
 Candidates = tuple[tuple[int, ...], tuple[int, ...]]  # (streams, threads)
 
 
-def ovms_candidates(cpus: int, *, streams: int, threads: int) -> Candidates:
+def ovms_candidates(
+    cpus: int, *, streams: int, threads: int, cores: int, hinted: bool
+) -> Candidates:
     """Return the stream and thread counts to try, from the CPUs and two settings.
 
-    A setting above 0 is its one candidate. Stream counts above the first thread
-    count are dropped, and thread counts below a pinned stream count, since a
-    stream needs a thread.
+    A setting above 0 is its one candidate. Stream counts above the cores or
+    the first thread count are dropped, and thread counts below a pinned stream
+    count, since a stream needs a thread. A pinned stream count is tried as
+    pinned, above the cores too: it is the owner's choice.
 
     Args:
         cpus: Whole CPUs counted here, at least 1.
-        streams: ``QP_OVMS_NUM_STREAMS``; 0 = search 1, 2, 4, ... up to ``cpus``.
+        streams: ``QP_OVMS_NUM_STREAMS``; 0 = search 1, 2, 4, ... up to ``cores``.
         threads: ``QP_OVMS_THREADS``; 0 = search ``cpus``, half of it, ... 1.
+        cores: The physical cores, the CPUs over ``threads_per_core``.
+        hinted: Whether the App sets a performance hint: OVMS then takes no
+            ``NUM_STREAMS``, so streams are not searched.
 
     Returns:
         The stream counts, 1 first, and the thread counts, the largest first.
+        Under a hint the stream count is ``(1,)``, never written.
 
     Example:
-        >>> ovms_candidates(4, streams=0, threads=0)
-        ((1, 2, 4), (4, 2, 1))
+        >>> ovms_candidates(16, streams=0, threads=0, cores=8, hinted=False)
+        ((1, 2, 4, 8), (16, 8, 4, 2, 1))
     """
     thread_counts = (threads,) if threads else halvings(cpus)
+    if hinted:
+        return (1,), thread_counts
     if streams:
         fitting = tuple(count for count in thread_counts if count >= streams)
         return (streams,), fitting or (streams,)
-    ups = tuple(reversed(halvings(cpus)))
-    return tuple(c for c in ups if c <= thread_counts[0]), thread_counts
+    # Never more streams than cores: 16 streams on 8 cores took 14.8 s where 1
+    # to 4 took 3.8 s (docs/model-servers.md); calibration never kept them.
+    top = min(cores, thread_counts[0])
+    return tuple(c for c in reversed(halvings(cpus)) if c <= top), thread_counts
 
 
 @dataclass(frozen=True)
@@ -213,15 +227,15 @@ class OvmsCalibration:
             PosixPath('/tmp/s/config_reranker.json')
         """
         stage = await self._stage(served, ovms, serving_dir)
-        streams, threads = ovms_candidates(
-            await self._cpus(), streams=ovms.num_streams, threads=ovms.threads
-        )
+        streams, threads = await self._candidates(ovms, pinned=True)
         report = await self._search(stage, streams, threads)
         config = stage.write_folder(report.chosen)
+        hinted = performance_hinted(ovms.openvino.chosen())
         log_json(
             event="ovms_serving_config",
             component=served.name,
-            streams=report.chosen.streams,
+            # Under a performance hint OVMS chooses the streams: none of ours.
+            streams=None if hinted else report.chosen.streams,
             threads=report.chosen.threads,
             calibrated=bool(report.trials),
             config=str(config),
@@ -249,7 +263,7 @@ class OvmsCalibration:
             {'QP_OVMS_NUM_STREAMS': 2, 'QP_OVMS_THREADS': 2}
         """
         machine = await self._local_models.unpinned_budget()
-        streams, threads = ovms_candidates(await self._cpus(), streams=0, threads=0)
+        streams, threads = await self._candidates(ovms, pinned=False)
         with tempfile.TemporaryDirectory(prefix="qp-ovms-calibration-") as folder:
             stage = await self._stage(served, ovms, Path(folder))
             report = await self._search(stage, streams, threads)
@@ -284,9 +298,30 @@ class OvmsCalibration:
             users=self._calibration.users,
         )
         server = OvmsServer(
-            served.export, serving_dir, ovms.start_timeout_s, self._binary
+            served.export,
+            serving_dir,
+            ovms.start_timeout_s,
+            ovms.openvino.chosen(),
+            OvmsGraphOptions(
+                queue_max_size=ovms.graph_queue_max_size,
+                embeddings_truncate=ovms.embeddings_truncate,
+                embeddings_max_length=ovms.embeddings_max_length,
+            ),
+            self._binary,
+            tuple(ovms.server_flags()),
         )
         return open_ovms_stage(component, calls, server)
+
+    async def _candidates(self, ovms: OvmsSettings, *, pinned: bool) -> Candidates:
+        # pinned=False searches both counts whatever the App pins (on demand).
+        cpus = await self._cpus()
+        return ovms_candidates(
+            cpus,
+            streams=ovms.num_streams if pinned else 0,
+            threads=ovms.threads if pinned else 0,
+            cores=max(1, cpus // self._local_models.threads_per_core),
+            hinted=performance_hinted(ovms.openvino.chosen()),
+        )
 
     async def _cpus(self) -> int:
         # OVMS runs on whole CPUs; a fractional quota still has at least one.

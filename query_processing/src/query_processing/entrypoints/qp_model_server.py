@@ -44,6 +44,8 @@ from fastapi.responses import JSONResponse
 
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
+from ..config.apps.process_environment_settings import ProcessEnvironmentSettings
+from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
@@ -65,6 +67,9 @@ from ..domain.endpoints.standard_formats import (
     OpenAIEmbeddingsResponse,
 )
 from ..domain.retrieval.passages import ScoredPassage
+from ..domain.roles import MODEL_SERVER_COMPONENT_VARIABLE
+from ..infrastructure.http.uvicorn_run import run_uvicorn
+from ..infrastructure.process_environment import restart_with
 
 # Verbatim from OVMS: the body of its 404 when ``model`` names no served model.
 UNKNOWN_MODEL_ERROR = "Mediapipe graph definition with requested name is not found"
@@ -371,6 +376,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns:
         The exit status, 0, once the server stops.
     """
+    parser = _parser()
+    args = parser.parse_args(argv)
+    try:
+        restart_with(ProcessEnvironmentSettings().restart_environment(os.environ))
+        settings, server = WorkflowSettings(), UvicornSettings()
+        check_registered_names(settings)
+        composition = CompositionRoot(settings, server_processes=server.workers)
+        app = create_model_server(args.serve, composition)
+    except ValueError as exc:  # a settings mistake is a usage error, not a crash
+        parser.error(str(exc))
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    factory = f"{__name__}:model_server_from_environment"
+    arguments = {"host": args.host, "port": args.port, **server.run_arguments()}
+    exports = {MODEL_SERVER_COMPONENT_VARIABLE: args.serve}
+    run_uvicorn(app, factory, arguments=arguments, exports=exports, run=uvicorn.run)
+    return 0
+
+
+def _parser() -> argparse.ArgumentParser:
+    """Build ``qp-model-server``'s parser, out of ``main`` for its 25-line limit.
+
+    Returns:
+        The parser of ``--serve``, ``--host`` and ``--port``.
+    """
     parser = argparse.ArgumentParser(
         prog="qp-model-server", description="Serve one model."
     )
@@ -383,13 +412,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8888)
-    args = parser.parse_args(argv)
-    try:
-        settings = WorkflowSettings()
-        check_registered_names(settings)
-        app = create_model_server(args.serve, CompositionRoot(settings))
-    except ValueError as exc:  # a settings mistake is a usage error, not a crash
-        parser.error(str(exc))
+    return parser
+
+
+def model_server_from_environment() -> FastAPI:
+    """Build in a worker of several the server ``main`` builds, from the environment.
+
+    Returns:
+        The server of the component ``QP_MODEL_SERVER_COMPONENT`` names, which
+        ``main`` exports from ``--serve``.
+
+    Raises:
+        ValueError: If the variable is unset or empty.
+
+    Example:
+        >>> uvicorn.run(f"{__name__}:model_server_from_environment", factory=True)
+    """
+    name = os.environ.get(MODEL_SERVER_COMPONENT_VARIABLE, "")
+    if not name:
+        raise ValueError(
+            f"{MODEL_SERVER_COMPONENT_VARIABLE} is not set; expected the component "
+            "this model server serves, which qp-model-server --serve exports"
+        )
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    uvicorn.run(app, host=args.host, port=args.port)
-    return 0
+    # Each worker loads its own models on its share of the CPUs.
+    processes = UvicornSettings().workers
+    composition = CompositionRoot(WorkflowSettings(), server_processes=processes)
+    return create_model_server(name, composition)
