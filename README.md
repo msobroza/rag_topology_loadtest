@@ -860,6 +860,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, its OpenVINO block, its graph options, its server flags, an LLM's flags, a pass-through)
         process_environment_settings.py  ProcessEnvironmentSettings: the environment a process of qp-serve or qp-model-server restarts into once, QP_PROCESS_* (a memory allocator preloaded, OpenMP binding)
         uvicorn_settings.py  UvicornSettings: what a process of qp-serve or qp-model-server runs as, QP_UVICORN_* (workers, concurrency limit, backlog, keep-alive)
+        vllm_settings.py  VllmSettings: a vLLM model server App's own QP_VLLM_* variables (its vllm serve flags by name, its CPU variables, a pass-through), and the words they become
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
         component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
@@ -993,6 +994,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_export_openvino.py  qp-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
       qp_calibrate.py  qp-calibrate: calibrate the in-process models (or OVMS) here, print the environment paths (or the OVMS App's variables) that pin them
       qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its export held to the weight format asked, its streams and threads calibrated first; with --serve-llm, an LLM's batching flags
+      qp_vllm_config.py  qp-vllm-config: the words a vLLM App's vllm serve takes for a component (its source id, alias and flags), and the environment it exports
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
