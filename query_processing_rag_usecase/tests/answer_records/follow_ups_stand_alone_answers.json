@@ -3,7 +3,7 @@
     {
       "topology": null,
       "run_label": "embedder=fake+router_embedder=fake+router=fake+reranker=fake+llm=fake+vector_store=fake",
-      "responses": 6
+      "responses": 8
     }
   ],
   "answers": [
@@ -898,6 +898,76 @@
           "rerank_score": 0.0
         }
       ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "What does the AMF say about paid vacation days?",
+        "metadata_filter": [
+          {
+            "attribute": "source",
+            "comparator": "in",
+            "value": [
+              "AMF"
+            ]
+          },
+          {
+            "attribute": "source",
+            "comparator": "in",
+            "value": [
+              "AMF"
+            ]
+          }
+        ]
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [
+        {
+          "attribute": "source",
+          "comparator": "in",
+          "value": [
+            "AMF"
+          ]
+        }
+      ],
+      "answer": null,
+      "passages": []
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "What does the AMF say about paid vacation days?",
+        "metadata_filter": [
+          {
+            "attribute": "source",
+            "comparator": "in",
+            "value": [
+              "AMF"
+            ]
+          },
+          {
+            "attribute": "source",
+            "comparator": "in",
+            "value": [
+              "AMF"
+            ]
+          }
+        ]
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [
+        {
+          "attribute": "source",
+          "comparator": "in",
+          "value": [
+            "AMF"
+          ]
+        }
+      ],
+      "answer": "[fake-llm] Context:\n\n\nQuestion: What does the AMF say about paid vacation days?",
+      "passages": []
     }
   ]
 }

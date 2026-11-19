@@ -2,10 +2,11 @@
 
 The app is built from this directory's workflow file with every component on
 its fake backend, recorded in process with ``qp-record-answers`` on the
-questions of ``questions.jsonl`` (a first message, then two follow-ups with a
-conversational history), each sent to ``/retrieve`` and ``/query``, and
-compared with the record committed here with ``qp-compare-answers``: every
-answer identical. The fake router chooses the first of its routes, so one
+questions of ``questions.jsonl`` (a first message, two follow-ups with a
+conversational history, then a message with a metadata filter that repeats
+its condition), each sent to ``/retrieve`` and ``/query``, and compared with
+the record committed here with ``qp-compare-answers``: every answer
+identical, its text exactly. The fake router chooses the first of its routes, so one
 record keeps the routes in the file's order, where a follow-up stands alone,
 and the other puts ``leans_on_history`` first, where it is rewritten.
 The same comparison runs on every registered orchestrator, with the records
@@ -93,9 +94,25 @@ def test_the_two_records_part_at_the_follow_ups_alone() -> None:
         for name in ("follow_ups_stand_alone", "follow_ups_rewritten")
     )
 
-    # The first message (its /retrieve and /query) takes neither route; each
-    # follow-up is searched with its rewrite in one record, as sent in the other.
-    assert len(alone) == len(rewritten) == 6
+    # A message with no history (its /retrieve and /query) takes neither
+    # route: the first, and the last; each follow-up is searched with its
+    # rewrite in one record, as sent in the other.
+    assert len(alone) == len(rewritten) == 8
     assert alone[:2] == rewritten[:2]
-    follow_ups = zip(alone[2:], rewritten[2:], strict=True)
+    assert alone[6:] == rewritten[6:]
+    follow_ups = zip(alone[2:6], rewritten[2:6], strict=True)
     assert all(a["passages"] != r["passages"] for a, r in follow_ups)
+
+
+@pytest.mark.parametrize("name", sorted(ROUTES))
+def test_a_condition_sent_twice_is_applied_once(name: str) -> None:
+    answers = json.loads(pinned_record(name).path.read_text(encoding="utf-8"))[
+        "answers"
+    ]
+
+    # The last request of questions.jsonl, to /retrieve and /query: a client
+    # repeats its condition, the one field a reducer adds up.
+    retrieved, queried = answers[6:]
+    for answer in (retrieved, queried):
+        (condition,) = answer["metadata_filter"]
+        assert answer["body"]["metadata_filter"] == [condition, condition]

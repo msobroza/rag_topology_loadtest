@@ -3,7 +3,9 @@
 A distribution's tests record its workflow app in process, every component on
 its fake backend, with ``qp-record-answers``, and compare the record with the
 one committed beside the test with ``qp-compare-answers``: every answer
-identical, its text included (ROUGE-L at 1). The committed record is the
+identical, its text included (ROUGE-L at 1). Each answer's text is then held
+exactly, so a change of punctuation, case, line breaks or a ``[1]`` marker,
+which ROUGE-L does not see, fails too. The committed record is the
 "before" a change to how the graph runs is held to. A change that alters the
 answers on purpose makes the record again with the record's pin command, which
 runs the same test with ``--pin-answers``; the failing test names it.
@@ -39,7 +41,7 @@ from fastapi.testclient import TestClient
 from ..composition.composition_root import CompositionRoot
 from ..config.workflow_settings import WorkflowSettings
 from ..entrypoints.qp_serve import create_app
-from ..loadtest.answer_record import ANSWER_RECORD_SUFFIX
+from ..loadtest.answer_record import ANSWER_RECORD_SUFFIX, read_answer_record
 from ..loadtest.loadtest_settings import LoadTestSettings
 from ..loadtest.qp_compare_answers import compare_answers_main
 from ..loadtest.qp_record_answers import record_answers_main
@@ -263,6 +265,26 @@ def check_pinned_answers(
         raise PinnedAnswersDifferError(
             f"the app does not answer as {pinned.path} (qp-compare-answers exit "
             f"{status}, its reason on stderr when 2):\n{found}\n{_pin_hint(pinned)}"
+        )
+    _check_texts_equal(pinned, workdir / _RECORDED_NOW)
+
+
+def _check_texts_equal(pinned: PinnedAnswerRecord, recorded: Path) -> None:
+    # ROUGE-L at 1 lets a change of punctuation, case, layout or a [1] marker
+    # pass; the fakes answer the same text every run, so equality holds here.
+    before = read_answer_record(pinned.prefix).answers
+    now = read_answer_record(recorded).answers
+    differing = [
+        f"answer {index} ({then.endpoint}): {then.answer!r} is now {it.answer!r}"
+        for index, (then, it) in enumerate(zip(before, now, strict=True))
+        if then.answer != it.answer
+    ]
+    if differing:
+        raise PinnedAnswersDifferError(
+            f"the app does not answer as {pinned.path}: the text of "
+            f"{len(differing)} answer(s) differs, the words being the same:\n"
+            + "\n".join(differing)
+            + f"\n{_pin_hint(pinned)}"
         )
 
 

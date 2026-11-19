@@ -151,3 +151,21 @@ def test_an_answer_that_differs_fails_naming_the_pin_command(
 
     # The report's row: of twenty answers, the one changed differs.
     assert "| recorded-now | 20 | 19 | 1 |" in str(failed.value)
+
+
+def test_an_answer_whose_text_differs_in_punctuation_alone_fails(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # qp-compare-answers holds the text by ROUGE-L, the same words in the same
+    # order: a comma more is no change to it, and is one to the pinned record.
+    pinned = in_tmp(tmp_path)
+    with workflow_client(settings_factory(**FAKE_BACKENDS)) as client:
+        check_pinned_answers(monkeypatch, client, pinned, tmp_path, pin=True)
+        record = json.loads(pinned.path.read_text(encoding="utf-8"))
+        record["answers"][1]["answer"] += ","  # the first /query's
+        pinned.path.write_text(json.dumps(record), encoding="utf-8")
+
+        with pytest.raises(PinnedAnswersDifferError, match=PIN_COMMAND) as failed:
+            check_pinned_answers(monkeypatch, client, pinned, tmp_path, pin=False)
+
+    assert "answer 1 (/query)" in str(failed.value)
