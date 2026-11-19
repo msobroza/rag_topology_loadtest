@@ -41,6 +41,11 @@ from rag_graphs import FIXTURE_PROMPTS, FIXTURE_WORKFLOW
 # test module computes as it is collected, and again around every test below.
 os.environ[WORKFLOW_FILE_VARIABLE] = str(FIXTURE_WORKFLOW)
 os.environ[PROMPTS_FILE_VAR] = str(FIXTURE_PROMPTS)
+# The README has a person export QP_ORCHESTRATOR for `make serve`; the gate run
+# from that shell then failed four tests of the default (19 November 2026). A
+# test of the default must not read the shell, and a test that wants an
+# orchestrator sets it itself with monkeypatch.
+os.environ.pop(WorkflowSettings.variable_of("orchestrator"), None)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
