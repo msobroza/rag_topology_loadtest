@@ -338,6 +338,77 @@ def test_an_llm_option_on_a_reranker_app_is_refused_before_any_ovms_starts(
     assert ovms_starts(record) == []
 
 
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [("QP_OVMS_EMBEDDINGS_TRUNCATE", "true"), ("QP_OVMS_EMBEDDINGS_MAX_LENGTH", "512")],
+)
+def test_a_rerankers_app_refuses_an_embeddings_option(
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    variable: str,
+    value: str,
+) -> None:
+    record = stand_in_on_path(tmp_path, monkeypatch)
+    monkeypatch.setenv(variable, value)
+
+    assert main(args("reranker", models, tmp_path / "s")) == 1
+
+    [line] = capsys.readouterr().err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot serve the reranker: ")
+    assert f"{variable}={value}" in line
+    assert ovms_starts(record) == []
+
+
+def test_an_embedders_app_writes_its_embeddings_options(
+    models: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stand_in_on_path(tmp_path, monkeypatch)
+    for name, value in {
+        "QP_OVMS_EMBEDDINGS_TRUNCATE": "true",
+        "QP_OVMS_NUM_STREAMS": "1",
+        "QP_OVMS_THREADS": "1",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    assert main(args("embedder", models, tmp_path / "s")) == 0
+
+    config = Path(capsys.readouterr().out.strip())
+    model = json.loads(config.read_text())["model_config_list"][0]["config"]
+    graph = (config.parent / model["base_path"] / "graph.pbtxt").read_text()
+    assert "truncate: true," in graph
+
+
+@pytest.mark.usefixtures("llm_from_the_hub")
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("QP_OVMS_OPENVINO__HYPER_THREADING", "false"),
+        ("QP_OVMS_GRAPH_QUEUE_MAX_SIZE", "AUTO"),
+        ("QP_OVMS_EMBEDDINGS_MAX_LENGTH", "512"),
+    ],
+)
+def test_an_llms_app_refuses_the_openvino_block_and_the_queue_size(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    variable: str,
+    value: str,
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    assert main(["--serve-llm", "llm"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    [line] = captured.err.splitlines()
+    assert line.startswith("qp-ovms-config: cannot serve the llm: ")
+    assert f"{variable}={value}" in line
+
+
 @pytest.mark.usefixtures("models")
 def test_serve_without_its_folders_is_a_usage_error(
     capsys: pytest.CaptureFixture[str],

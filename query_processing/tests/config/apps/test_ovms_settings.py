@@ -152,3 +152,123 @@ def test_a_pinned_stream_or_thread_count_on_an_llm_app_is_refused(
 
 def test_no_stream_pin_lets_an_llm_app_start() -> None:
     ovms_settings().require_no_stream_pin("llm")
+
+
+# --- the performance hint, beside the stream count ---------------------------------
+
+
+def test_a_hint_beside_a_pinned_stream_count_is_refused() -> None:
+    # OVMS refuses PERFORMANCE_HINT together with NUM_STREAMS.
+    with pytest.raises(
+        ValueError,
+        match=r"QP_OVMS_OPENVINO__PERFORMANCE_HINT=THROUGHPUT.*QP_OVMS_NUM_STREAMS=2",
+    ):
+        ovms_settings(num_streams=2, openvino={"performance_hint": "THROUGHPUT"})
+
+
+def test_a_hint_passed_through_beside_a_pinned_stream_count_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"QP_OVMS_OPENVINO__PROPERTIES.*PERFORMANCE_HINT=LATENCY"
+        r".*QP_OVMS_NUM_STREAMS=1",
+    ):
+        ovms_settings(
+            num_streams=1, openvino={"properties": {"PERFORMANCE_HINT": "LATENCY"}}
+        )
+
+
+def test_a_hint_with_calibrated_streams_is_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QP_OVMS_OPENVINO__PERFORMANCE_HINT", "THROUGHPUT")
+    monkeypatch.setenv("QP_OVMS_THREADS", "4")
+
+    s = ovms_settings()
+
+    assert s.openvino.chosen()["PERFORMANCE_HINT"] == "THROUGHPUT"
+    assert s.num_streams == 0
+
+
+# --- the graph's options: the pool, the embeddings ---------------------------------
+
+
+def test_the_graph_options_keep_the_exports_values_by_default() -> None:
+    s = ovms_settings()
+
+    assert s.graph_queue_max_size == ""
+    assert s.embeddings_truncate is None
+    assert s.embeddings_max_length == 0
+
+
+def test_the_graph_options_come_from_their_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QP_OVMS_GRAPH_QUEUE_MAX_SIZE", "8")
+    monkeypatch.setenv("QP_OVMS_EMBEDDINGS_TRUNCATE", "true")
+    monkeypatch.setenv("QP_OVMS_EMBEDDINGS_MAX_LENGTH", "512")
+
+    s = ovms_settings()
+
+    assert (s.graph_queue_max_size, s.embeddings_truncate) == ("8", True)
+    assert s.embeddings_max_length == 512
+
+
+@pytest.mark.parametrize("size", ["", "AUTO", "0", "16"])
+def test_a_queue_size_is_auto_a_count_or_empty(size: str) -> None:
+    assert ovms_settings(graph_queue_max_size=size).graph_queue_max_size == size
+
+
+@pytest.mark.parametrize("size", ["auto", "-1", "4 ", "big"])
+def test_another_queue_size_is_refused_naming_the_variable(size: str) -> None:
+    with pytest.raises(ValidationError, match="QP_OVMS_GRAPH_QUEUE_MAX_SIZE"):
+        ovms_settings(graph_queue_max_size=size)
+
+
+def test_a_negative_max_length_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        ovms_settings(embeddings_max_length=-1)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("QP_OVMS_EMBEDDINGS_TRUNCATE", "false"),
+        ("QP_OVMS_EMBEDDINGS_MAX_LENGTH", "512"),
+    ],
+)
+def test_an_embeddings_option_is_refused_off_an_embedder(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match=f"{variable}={value}.*reranker"):
+        ovms_settings().require_no_embeddings_option("reranker")
+
+
+def test_no_embeddings_option_lets_a_reranker_app_start() -> None:
+    ovms_settings(graph_queue_max_size="4").require_no_embeddings_option("reranker")
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("QP_OVMS_OPENVINO__HYPER_THREADING", "false"),
+        ("QP_OVMS_OPENVINO__PERFORMANCE_HINT", "THROUGHPUT"),
+        ("QP_OVMS_GRAPH_QUEUE_MAX_SIZE", "AUTO"),
+        ("QP_OVMS_EMBEDDINGS_TRUNCATE", "true"),
+        ("QP_OVMS_EMBEDDINGS_MAX_LENGTH", "512"),
+    ],
+)
+def test_a_graph_option_on_an_llm_app_is_refused(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match="writes that graph itself") as raised:
+        ovms_settings().require_no_graph_option("llm")
+
+    assert f"{variable}={value}" in str(raised.value)
+
+
+def test_no_graph_option_lets_an_llm_app_start() -> None:
+    ovms_settings().require_no_graph_option("llm")

@@ -44,7 +44,11 @@ from ..domain.runtime.calibration import StageTuning, calibration_sample
 from ..infrastructure.calibration.served_stage_calibration import BaseServedStage
 from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
 from ..infrastructure.http.http_policy import HttpPolicy
-from ..infrastructure.ovms.ovms_graph import ovms_plugin_config
+from ..infrastructure.ovms.ovms_graph import (
+    OvmsGraphOptions,
+    ovms_plugin_config,
+    performance_hinted,
+)
 from ..infrastructure.ovms.ovms_process import OvmsProcess
 from ..infrastructure.ovms.ovms_serving_folder import (
     OvmsExport,
@@ -130,6 +134,9 @@ class OvmsServer:
     # The graph's other CPU properties, beside each candidate's streams and
     # threads: OvmsSettings.openvino.chosen() (QP_OVMS_OPENVINO__*).
     openvino_properties: Mapping[str, str] = field(hash=False)
+    # The graph's pool size and embeddings options (QP_OVMS_GRAPH_QUEUE_MAX_SIZE,
+    # QP_OVMS_EMBEDDINGS_*), the same for every candidate.
+    graph_options: OvmsGraphOptions = field(default_factory=OvmsGraphOptions)
     binary: str = "ovms"  # the OVMS executable
 
 
@@ -203,7 +210,7 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
         server = self._server
         plugin_config = ovms_plugin_config(tuning, server.openvino_properties)
         return write_ovms_serving_folder(
-            server.export, server.serving_dir, plugin_config
+            server.export, server.serving_dir, plugin_config, server.graph_options
         )
 
     async def serve_sample(self) -> None:
@@ -227,16 +234,17 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
             tuning: The tuning to pin.
 
         Returns:
-            ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS``.
+            ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS``; the threads alone
+            under a performance hint, which refuses a pinned stream count.
 
         Example:
             >>> stage.pinned_settings(StageTuning(threads=2, batch_size=1, streams=2))
             {'QP_OVMS_NUM_STREAMS': 2, 'QP_OVMS_THREADS': 2}
         """
-        return {
-            OvmsSettings.variable_of("num_streams"): tuning.streams,
-            OvmsSettings.variable_of("threads"): tuning.threads,
-        }
+        threads = {OvmsSettings.variable_of("threads"): tuning.threads}
+        if performance_hinted(self._server.openvino_properties):
+            return threads
+        return {OvmsSettings.variable_of("num_streams"): tuning.streams, **threads}
 
     def _endpoint(self, origin: str, route: str) -> ApiEndpoint:
         # A model server of ours speaks the standard format of the component's

@@ -15,9 +15,11 @@ usage error.
 
 An LLM is not exported nor calibrated: OVMS pulls it from the Hub itself. For
 its App, ``--serve-llm`` checks the settings (a source id to pull, no stream or
-thread count pinned) and prints the flags of the LLM's two batching options,
-as shell words on one line, empty at OVMS's own defaults. An embedder's or a
-reranker's App refuses either option.
+thread count pinned, nothing of the graph OVMS writes itself: the OpenVINO
+block, the pool size, the embeddings options) and prints the flags of the LLM's
+two batching options, as shell words on one line, empty at OVMS's own
+defaults. An embedder's or a reranker's App refuses either option, and a
+reranker's the embeddings options.
 
 Example:
     $ QP_OVMS_DYNAMIC_SPLIT_FUSE=false qp-ovms-config --serve-llm llm
@@ -66,6 +68,8 @@ class ServingFolders(NamedTuple):
 # The component types OVMS's exporter exports, so the ones served on a config
 # of the export; OVMS serves an LLM too, pulled by itself (llm_components).
 SERVED_TYPES = ("embedder", "reranker")
+# The type whose graph takes QP_OVMS_EMBEDDINGS_*; an App of another refuses them.
+EMBEDDINGS_TYPE = "embedder"
 
 
 def served_components(settings: WorkflowSettings) -> list[str]:
@@ -113,7 +117,8 @@ def llm_ovms_flags(settings: WorkflowSettings, ovms: OvmsSettings, name: str) ->
 
     Raises:
         ValueError: If the LLM has no source id for OVMS to pull, or a stream
-            or thread count is pinned, which an LLM's App would ignore.
+            or thread count, the OpenVINO block, the graph's pool size or an
+            embeddings option is set, which an LLM's App would ignore.
 
     Example:
         >>> settings = WorkflowSettings(components={"llm": {"source_id": "org/m-ov"}})
@@ -129,6 +134,7 @@ def llm_ovms_flags(settings: WorkflowSettings, ovms: OvmsSettings, name: str) ->
             "OpenVINO/<model>-int4-ov"
         )
     ovms.require_no_stream_pin(name)
+    ovms.require_no_graph_option(name)
     return shlex.join(ovms.llm_flags())
 
 
@@ -235,11 +241,20 @@ def _serve_exported(
     if missing:
         parser.error(f"--serve {args.serve} needs {' and '.join(missing)}")
     try:
-        ovms.require_no_llm_option(args.serve)
+        _require_options_of_its_type(settings, ovms, args.serve)
     except ValueError as exc:
         return one_line_failure(PROG, f"cannot serve the {args.serve}", exc)
     folders = ServingFolders(args.models_dir, args.serving_dir)
     return asyncio.run(write_serving_config(settings, ovms, args.serve, folders))
+
+
+def _require_options_of_its_type(
+    settings: WorkflowSettings, ovms: OvmsSettings, name: str
+) -> None:
+    # By the type the workflow file gives the component, never by its name.
+    ovms.require_no_llm_option(name)
+    if settings.components[name].type != EMBEDDINGS_TYPE:
+        ovms.require_no_embeddings_option(name)
 
 
 def _refuse_an_llms_config(name: str, models_dir: Path | None) -> int:

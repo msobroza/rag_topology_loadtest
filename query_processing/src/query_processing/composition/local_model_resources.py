@@ -82,6 +82,8 @@ class LocalModelResources:
         self._settings, self._scope, self._http = settings, scope, http
         self._container_cpus = container_cpus
         self.runtime = settings.local_models.runtime  # openvino or torch
+        # The CPUs a core holds: the cores are the CPUs counted divided by it.
+        self.threads_per_core = settings.local_models.threads_per_core
         # Every CPU-bound stage is calibrated under the same budget and rounds.
         calibration = settings.calibration
         self.calibration_limits = CalibrationLimits(
