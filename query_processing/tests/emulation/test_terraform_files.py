@@ -181,10 +181,12 @@ def test_the_generated_deploy_yaml_passes_qp_deploys_checks_of_its_values(
     path.write_text(heredoc(render("scripts/workspace.sh.tftpl"), "DEPLOY"))
     monkeypatch.setenv("QP_DEPLOY_FILE", str(path))
     # Checked against the workflow file of the use case the emulation deploys,
-    # and the routes file beside it, which qp-deploy finds in that directory:
-    # the file declares a router, whose routes the settings look up there.
+    # and the routes and prompts files beside it, which qp-deploy finds in that
+    # directory: the file declares a router, whose routes the settings look up
+    # there, and its stages name prompts, which start-up's graph check looks up.
     monkeypatch.setenv("QP_WORKFLOW_FILE", str(USE_CASE_ROOT / "workflow.yaml"))
     monkeypatch.setenv("QP_ROUTES_FILE", str(USE_CASE_ROOT / "routes.yaml"))
+    monkeypatch.setenv("QP_PROMPTS_FILE", str(USE_CASE_ROOT / "prompts.yaml"))
     settings = DeploySettings()
     refuse_workflow_settings_in_free_lists(settings)
     check_overrides(settings)

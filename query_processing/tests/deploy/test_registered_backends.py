@@ -1,7 +1,7 @@
 """The backends of each component type, as qp-deploy reads them without importing.
 
-qp-deploy may not import the composition root, so it takes a type's backends
-from the names of its opener modules. These tests hold that view to what the
+Of the composition, qp-deploy imports only the two start-up checks, so it
+takes a type's backends from the names of its opener modules. These tests hold that view to what the
 openers register: a backend is what is registered, not a list written for the
 deploy tool.
 """

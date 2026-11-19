@@ -638,7 +638,7 @@ and no package imports it either, `extension_api` included.
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003) |
+   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse; they open nothing |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
@@ -1010,8 +1010,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     deploy/           the deploy tool: qp-deploy on Domino 6.2
       deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
       deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
-      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
-      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
+      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks)
+      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
       topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
       model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
@@ -3321,15 +3321,22 @@ deploy: each key must be a place of the workflow file (under `components` and
 `graph.stages`, a name the file declares), an API key is refused unless it is
 empty or `domino`, and each
 value must have the type and range the settings take, with the checks of the
-whole. The deploy tool does not ask the registries nor the orchestrator, so two
-mistakes pass it and only the App's start-up refuses them: a name nobody
-registered (a backend, an API format, an orchestrator) and a graph the chosen
-orchestrator does not run. Such a deploy publishes its Apps, which then exit
-at start-up with the usage error `qp-serve` gives on a laptop: an unknown name
-stops every App, the model servers included, since every command that opens
-components asks the registries about every component and the orchestrator;
-a graph the orchestrator refuses stops the workflow App alone, the one that
-runs the graph.
+whole. Then the workflow file with the overrides, read with the prompts and
+routes files found here as the App finds them, is asked what an App's start-up
+refuses before it opens anything, with start-up's own two checks, in a dry run
+as in a deploy, and even when `deploy.yaml` has no `overrides`: a name nobody
+registered (a backend, an API format, a structured output method, an
+orchestrator), then a graph that cannot run or that the chosen orchestrator
+does not run. The refusal names the two files, then gives the line `qp-serve`
+prints for the same settings, and nothing is published:
+
+```
+qp-deploy: error: the workflow file 'workflow.yaml' with the overrides of deploy.yaml makes settings an App refuses at start-up: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph', 'pydantic_graph')
+```
+
+What `qp-deploy` exports itself (the backend and URL of each component the
+topology alias names) is not part of that check: the alias's backends are held
+to the registered ones when the alias is resolved.
 
 To click through the API or watch a
 deploy wait, serve the fake Domino and point `qp-deploy` at it:

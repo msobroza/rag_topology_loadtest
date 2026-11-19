@@ -3,7 +3,10 @@
 ``deploy.yaml`` writes them under ``overrides`` in the workflow file's own
 shape, so that no one hand-writes a nested variable name. Before anything is
 published they are checked against the workflow settings (each key a value of
-the file, no secret, each value one the workflow app accepts), and a workflow
+the file, no secret, each value one the workflow app accepts), then the
+workflow file with them is asked what an App's start-up refuses (a name
+nobody registered, a graph its orchestrator does not run), even with no
+overrides at all; and a workflow
 setting written in a free list (``defaults.settings``, ``apps.<part>.settings``)
 is refused: those lists are for the variables the launch scripts read. Each
 App's launch script then exports every override under the variable the
@@ -25,6 +28,7 @@ from .deploy_settings import DeploySettings, deploy_file, override_values
 from .workflow_components import (
     refuse_override_values,
     refuse_unknown_override_keys,
+    refuse_what_start_up_refuses,
     workflow_file_for,
     workflow_setting_path,
     workflow_variable,
@@ -34,25 +38,31 @@ from .workflow_components import (
 def check_overrides(settings: DeploySettings) -> None:
     """Refuse overrides the workflow App could not start with, before publishing.
 
+    Then, even when ``deploy.yaml`` has no overrides, the workflow file with
+    them is asked what an App's start-up refuses.
+
     Args:
         settings: The deploy settings; the workflow App's free list names the
             workflow file the overrides are values of.
 
     Raises:
         DominoDeployError: If a key is no value of the workflow file (naming
-            it and its place), a value is a secret, or the workflow settings
-            refuse a value.
+            it and its place), a value is a secret, the workflow settings
+            refuse a value, or an App's start-up would refuse the settings
+            (start-up's own line, after the names of the two files).
 
     Example:
         >>> check_overrides(DeploySettings(overrides={"htpp": {"retries": 0}}))
         DominoDeployError: overrides in deploy.yaml has no key 'htpp': ...
     """
-    if not settings.overrides:
-        return
     path = workflow_file_for(settings.for_app(WORKFLOW_APP).settings)
-    refuse_unknown_override_keys(settings.overrides, path)
-    _refuse_secrets_in_overrides(settings)
-    refuse_override_values(settings.overrides, path)
+    if settings.overrides:
+        refuse_unknown_override_keys(settings.overrides, path)
+        _refuse_secrets_in_overrides(settings)
+        refuse_override_values(settings.overrides, path)
+    # Even with no overrides: the workflow file alone can name an orchestrator
+    # nobody registered, or hold a graph its orchestrator does not run.
+    refuse_what_start_up_refuses(settings.overrides, path)
 
 
 def _refuse_secrets_in_overrides(settings: DeploySettings) -> None:

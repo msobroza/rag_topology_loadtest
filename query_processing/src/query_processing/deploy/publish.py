@@ -328,7 +328,8 @@ def deploy(
     """Publish ``target``, or every App the topology alias needs, in order.
 
     Settings holding secrets, a value of the workflow file in a free list,
-    overrides the workflow settings refuse (``check_overrides``), a topology
+    overrides the workflow settings refuse, or settings with them an App's
+    start-up refuses (``check_overrides``), a topology
     alias that does not resolve against the workflow file
     (``resolve_topology``), placeholders, no environment id, a default
     environment revision without the default environment, or settings a

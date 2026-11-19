@@ -75,10 +75,10 @@ ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # For the defaults of the four QP_* values a load test sends, and of the
     # retries qp-record-answers makes (the shared http block's), nothing else.
     "query_processing.loadtest.loadtest_settings": {"config"},
-    # The deploy tool reads the workflow settings, to know the components a
-    # topology alias names (ADR 0003) and to check the overrides against them;
+    # The deploy tool reads the workflow settings (ADR 0003), checks the overrides,
+    # and asks the composition's two start-up checks what an App would refuse;
     # the rest of deploy reads them through it.
-    "query_processing.deploy.workflow_components": {"config"},
+    "query_processing.deploy.workflow_components": {"config", "composition"},
 }
 # The named exceptions that load modules by name, as an extension is loaded,
 # from a package their own may not import: one module each, and the modules

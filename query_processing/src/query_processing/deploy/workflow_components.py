@@ -5,12 +5,15 @@ workflow file declares: each one's name, type and backend. The overrides of
 the deploy settings are values of that file, in its shape, so it checks them
 with the workflow settings' own models: each key a setting of the block it is
 in, each component or stage named one the file declares, then the file with
-the overrides merged as the workflow app merges a variable over it. It reads
-the file the workflow App will read, and the routes file a command finds here,
-since the settings check a router's routes against it, and nothing else: the
-variables of this Workspace and the start-up checks of the workflow app are
-not the deploy tool's. The one module of ``deploy`` that may import the
-workflow settings.
+the overrides merged as the workflow app merges a variable over it. Then it
+asks of those settings what an App's start-up refuses before it opens
+anything, with start-up's own two checks: a name nobody registered, and a
+graph that cannot run or that the chosen orchestrator does not run. It reads
+the file the workflow App will read, and the prompts and routes files a
+command finds here, as the App finds them beside it, and nothing else: the
+variables of this Workspace are not the App's. The one module of ``deploy``
+that may import the workflow settings, and the composition's two start-up
+checks (README rule 1).
 
 Example:
     >>> read_workflow_components(Path("workflow.yaml"))["reranker"]
@@ -31,12 +34,15 @@ from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
+from ..composition.composition_root import check_workflow_graph
+from ..composition.registered_names import check_registered_names
 from ..config.components.component_settings import (
     COMPONENT_TYPE_SETTINGS,
     Component,
     typed_by_name,
 )
 from ..config.extensions import load_extensions
+from ..config.files.prompts_file import prompts_file, prompts_file_source
 from ..config.files.routes_file import routes_file, routes_file_source
 from ..config.files.workflow_file import (
     WORKFLOW_FILE_VARIABLE,
@@ -345,7 +351,8 @@ def refuse_override_values(overrides: Mapping[str, object], path: Path) -> None:
     key by key as a variable is merged over it, and checked by the workflow
     settings themselves: each value's type and range, and the checks of the
     whole (a URL for a component called over HTTP, a valid run label, a
-    router's routes in the routes file found here).
+    router's routes in the routes file found here, the prompts file's
+    prompts).
 
     Args:
         overrides: The ``overrides`` block, whose keys are already checked.
@@ -359,10 +366,53 @@ def refuse_override_values(overrides: Mapping[str, object], path: Path) -> None:
         >>> refuse_override_values({"http": {"retries": -1}}, path)
         DominoDeployError: ... http.retries: Input should be greater than or ...
     """
+    _settings_with_overrides(overrides, path)
+
+
+def refuse_what_start_up_refuses(overrides: Mapping[str, object], path: Path) -> None:
+    """Refuse the settings an App would refuse when it starts, before any publish.
+
+    The workflow file at ``path`` with the overrides over it is asked what
+    ``qp-serve`` asks before it opens anything, in its order: a backend, an
+    API format, a structured output method or an orchestrator nobody
+    registered (``check_registered_names``), then a graph that cannot run or
+    that the chosen orchestrator does not run (``check_workflow_graph``). The
+    deploy tool's own exports (a topology alias's backends and URLs) are not
+    part of it: ``registered_backends`` holds the backends to the registered
+    ones, and a URL changes neither check.
+
+    Args:
+        overrides: The ``overrides`` block; empty when ``deploy.yaml`` has
+            none, and the workflow file alone is then asked.
+        path: The workflow file the workflow App reads.
+
+    Raises:
+        DominoDeployError: The first refusal, its text start-up's own, after
+            the names of the two files; or, as ``refuse_override_values``, a
+            value the workflow settings refuse.
+
+    Example:
+        >>> refuse_what_start_up_refuses({"orchestrator": "pydantic"}, path)
+        DominoDeployError: ... QP_ORCHESTRATOR: unknown orchestrator 'pydantic' ...
+    """
+    settings = _settings_with_overrides(overrides, path)
+    try:
+        check_registered_names(settings)
+        check_workflow_graph(settings)
+    except ValueError as exc:  # a WorkflowGraphError is one
+        raise DominoDeployError(
+            f"the workflow file {str(path)!r} with the overrides of {deploy_file()} "
+            f"makes settings an App refuses at start-up: {exc}"
+        ) from exc
+
+
+def _settings_with_overrides(
+    overrides: Mapping[str, object], path: Path
+) -> WorkflowSettings:
     # Given as arguments, the overrides are the highest source, as a variable.
     arguments: dict[str, Any] = dict(overrides)
     try:
-        _file_with_overrides(path)(**arguments)
+        return _file_with_overrides(path)(**arguments)
     except ValueError as exc:  # pydantic's ValidationError is one
         raise DominoDeployError(
             f"the workflow file {str(path)!r} with the overrides of {deploy_file()} "
@@ -374,9 +424,11 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
     # The workflow settings with the overrides, given as arguments, over the
     # file at path, and nothing else: this Workspace's variables and .env are
     # not the App's. Pydantic passes every source by keyword, so the names stay.
-    # The routes file is read as well, as a command finds it here, where the
-    # App runs: the settings refuse a router's routes against its catalogue,
-    # so without it every workflow file that declares a router was refused.
+    # The prompts and routes files are read as well, as a command finds them
+    # here, where the App runs: the settings refuse a router's routes against
+    # its catalogue, so without the routes file every workflow file that
+    # declares a router was refused; and start-up's graph check refuses a
+    # stage that names a prompt the prompts file does not hold.
     class FileWithOverrides(WorkflowSettings):
         @classmethod
         def settings_customise_sources(
@@ -392,6 +444,7 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
             return (
                 init_settings,
                 workflow,
+                prompts_file_source(settings_cls, prompts_file()),
                 routes_file_source(settings_cls, routes_file()),
             )
 

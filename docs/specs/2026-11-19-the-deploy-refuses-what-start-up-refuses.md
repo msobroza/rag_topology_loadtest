@@ -1,6 +1,6 @@
 # The deploy refuses what an App's start-up would refuse
 
-Design written on 19 November 2026, after two reviewers of the orchestrator work found the gap, and approved by the owner the same day (approach A). Nothing of it is built. Names of functions below are indicative; one rule of the README changes.
+Design written on 19 November 2026, after two reviewers of the orchestrator work found the gap, and approved by the owner the same day (approach A). Built the same day (ticket 13); "What was built" at the end says what differs. Names of functions below are indicative; one rule of the README changes.
 
 ## Why
 
@@ -71,3 +71,11 @@ Each line is one behaviour, at the deploy tool's seam (`deploy`, as the dry run 
 - The workflow file is checked even when `deploy.yaml` has no overrides.
 - The settings checked are the workflow file with the overrides, without the deploy tool's own exports.
 - `registered_backends.py` stays as it is.
+
+## What was built
+
+As designed, in `deploy/workflow_components.py` (`refuse_what_start_up_refuses`) and `deploy/overrides.py`, with three differences:
+
+- The workflow file with the overrides is now read with the prompts file too, found as the routes file already was (the one `QP_PROMPTS_FILE` names, else `prompts.yaml` here, where the App runs): start-up's graph check refuses a stage that names a prompt the prompts file does not hold, so without it every workflow file with a generate stage was refused.
+- The one function that builds the settings raises the refusal `refuse_override_values` gave before. Since the settings are now built when `deploy.yaml` has no overrides as well, a workflow file the workflow settings refuse on their own (one with no `graph`, say) is refused with that line, before start-up's two checks are asked.
+- Three tests of the topology alias wrote a workflow file with components and no graph, which an App refuses at start-up; they now write the tests' workflow file with a second reranker beside its components, and keep their expectations. The emulation's test of its generated `deploy.yaml` named the use case's workflow and routes files but left the tests' prompts file, which lacks the use case's prompts; it now names the use case's prompts file too.
