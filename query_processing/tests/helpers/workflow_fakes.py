@@ -1,6 +1,7 @@
 """Named fakes of the ports a stage calls, which record what the workflow asked them,
-and a tracer that records the name of every step of a run, which it reaches
-through LangGraph's compiled graph (``compiled_langgraph``).
+a tracer that records the name of every step of a run, which it reaches
+through LangGraph's compiled graph (``compiled_langgraph``), and an orchestrator
+that refuses a graph, registered for one test (``register_orchestrator``).
 
 Shared by the tests of the stage types, of the graphs and of the workflow app.
 """
@@ -10,12 +11,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+import pytest
 from langchain_core.callbacks import AsyncCallbackHandler
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.adapters.orchestrator.base_orchestrator import (
+    ORCHESTRATORS,
+    BaseOrchestrator,
+)
 from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
     LangGraphOrchestrator,
 )
@@ -26,6 +32,8 @@ from query_processing.adapters.vector_store.base_vector_store import (
 )
 from query_processing.application.workflow import CompiledWorkflow
 from query_processing.domain.components.component_requests import GenerateAnswer
+from query_processing.domain.graph_description import GraphDescription
+from query_processing.domain.opened_graph import OpenedGraph
 from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import Passage, ScoredPassage
 
@@ -37,6 +45,36 @@ def compiled_langgraph(
     orchestrator = workflow.orchestrator
     assert isinstance(orchestrator, LangGraphOrchestrator), orchestrator
     return orchestrator.graph
+
+
+class RefusingOrchestrator(BaseOrchestrator):
+    """Refuses a graph with a conditional edge, naming its source; is never built."""
+
+    @classmethod
+    def check_graph_runs(cls, graph: GraphDescription) -> None:
+        for edge in graph.conditional_edges:
+            raise ValueError(
+                f"stage {edge.source!r} has a conditional edge, which this library "
+                "does not run (expected plain edges only)"
+            )
+
+    def __init__(self, opened: OpenedGraph) -> None:
+        raise AssertionError("built, though start-up asks its check first")
+
+    async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+        raise AssertionError("ran, though it is never built")
+
+
+def register_orchestrator(
+    monkeypatch: pytest.MonkeyPatch, name: str, orchestrator: type[BaseOrchestrator]
+) -> None:
+    """Register ``orchestrator`` under ``name`` in ``ORCHESTRATORS`` until the test ends.
+
+    The registry takes no name back, so its entries are put back as they were:
+    a name left registered would change what an unknown one's refusal lists.
+    """
+    monkeypatch.setattr(ORCHESTRATORS, "_entries", dict(ORCHESTRATORS._entries))
+    ORCHESTRATORS.register(name)(orchestrator)
 
 
 def scored(passage_id: str, text: str | None = None) -> ScoredPassage:

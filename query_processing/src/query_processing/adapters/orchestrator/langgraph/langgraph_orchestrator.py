@@ -23,7 +23,7 @@ from langgraph.graph import START as LANGGRAPH_START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ....domain.graph_description import END, START, ConditionalEdge
+from ....domain.graph_description import END, START, ConditionalEdge, GraphDescription
 from ....domain.opened_graph import OpenedGraph, Reducer
 from ..base_orchestrator import ORCHESTRATORS, BaseOrchestrator
 
@@ -64,6 +64,20 @@ class LangGraphOrchestrator(BaseOrchestrator):
         >>> LangGraphOrchestrator(opened).graph.get_graph().edges
         [Edge(source='__start__', target='draft', ...), ...]
     """
+
+    @classmethod
+    def check_graph_runs(cls, graph: GraphDescription) -> None:
+        """Refuse nothing: LangGraph runs every graph the toolkit's checks accept.
+
+        It is the reference the other orchestrators are held to, the library
+        the workflow file's names come from (ADR 0010).
+
+        Args:
+            graph: The workflow file's graph.
+
+        Example:
+            >>> LangGraphOrchestrator.check_graph_runs(settings.graph)  # never raises
+        """
 
     def __init__(self, opened: OpenedGraph) -> None:
         builder = StateGraph(state_type(opened.field_types, opened.reducers))

@@ -855,7 +855,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         label.py      label: answers with the one field it reads, such as a route
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
-      workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
+      workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the orchestrator, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
@@ -923,9 +923,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
           in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage
       orchestrator/   the library that runs the workflow graph; importing it imports every module under it, so each orchestrator registers itself
-        base_orchestrator.py  BaseOrchestrator, the port: built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
+        base_orchestrator.py  BaseOrchestrator, the port: check_graph_runs refuses a graph before anything opens, built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
         langgraph/    orchestrator: langgraph, the default
-          langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, the one module importing LangGraph; state_type, langgraph_name, path_map
+          langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing no graph, the one module importing LangGraph; state_type, langgraph_name, path_map
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
@@ -960,7 +960,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       fake_text.py    tokenize, cosine: the text helpers the fake implementations share
       json_log.py     log_json: the one log format
     composition/      the composition root: builds the adapters from the settings (rule 5)
-      composition_root.py  CompositionRoot: settings in, ready ports out, and the orchestrator's class the settings name; what each command asks for
+      composition_root.py  CompositionRoot: settings in, ready ports out, and the orchestrator's class the settings name; what each command asks for; check_workflow_graph: the toolkit's checks of the graph, then the orchestrator's
       resource_scope.py  ResourceScope: each resource opened once, all closed together
       http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
@@ -968,8 +968,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
-      registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
-      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_type_settings, each component's type keys
+      registered_names.py  check_registered_names: an unknown Backend, API format or orchestrator refused before a command opens anything
+      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_resources, what it is given besides its block; component_type_settings, each component's type keys
+      chosen_orchestrator.py  chosen_orchestrator: the orchestrator's class the settings name; check_orchestrator_runs_graph: its refusal of the graph, after its name
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
         component_openers.py  SharedResources (what an opener is given), ComponentOpeners, the four registries (EMBEDDER_OPENERS, ...) and OPENERS_BY_TYPE
         embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for qp-calibrate
@@ -1643,6 +1644,33 @@ A stage checks only its own settings, so nothing checks any more that the rerank
 stays within the retrieve stage's: above it, the reranker keeps every candidate,
 and a reranker endpoint is asked for a `top_n` above the documents it is sent.
 
+The orchestrator is the library that runs the graph along its edges (ADR
+0010): `langgraph`, the default, or another name registered in `ORCHESTRATORS`
+(`adapters/orchestrator/`). It is the top-level key `orchestrator`, a name and
+not a block, and the graph does not change with it. A workflow file states it
+only to run on another one. Like any value of the file it is set three ways:
+
+```bash
+QP_ORCHESTRATOR=langgraph make serve
+```
+
+```yaml
+# or as a top-level key of a workflow file
+orchestrator: langgraph
+```
+
+```yaml
+# or for the Apps of a deploy, in deploy.yaml, with the run label that names the variant
+overrides:
+  orchestrator: langgraph
+  run_label: monolith+orchestrator=langgraph
+```
+
+An unknown name stops every command that opens components, as an unknown
+backend does (see the variables below). The default run label does not name the
+orchestrator: a run on another one is a variant, named with `run_label`. The
+workflow app's `rag_startup` log line names the orchestrator it runs on.
+
 Lexical retrieval is a workflow file without the embed stage, its components
 the same (ingestion still embeds the passages, with the embedder):
 
@@ -1729,6 +1757,13 @@ qp-serve: error: stage 'retrieve' reads 'query_embedding' as str, but 'embed' wr
 - a key of a plain call that does not fit the type of the request attribute it
   fills, such as `top_k: ten`, naming the key, its value and the type expected.
 
+Once these checks accept the graph, the orchestrator the workflow file chooses
+is asked whether it runs it as LangGraph does, still before any component
+opens, and refuses what it does not run: its refusal is a usage error after its
+name, `qp-serve: error: orchestrator '<name>': ...`, naming the stages
+(`composition/chosen_orchestrator.py`). It is asked only about a graph the
+checks above accept. `langgraph`, the default and the reference, refuses none.
+
 The workflow state is built from the same fields: each field the request or a
 stage writes, with its type, and `timings_ms` and `tokens`
 (`application/state_fields.py`).
@@ -1743,6 +1778,7 @@ before the app serves, with one line in the server's log.
 | --- | --- | --- |
 | `QP_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `qp-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
 | `QP_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+router_embedder=local+router=local+reranker=local+llm=api+vector_store=elasticsearch` for the RAG's file); `qp-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `qp-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
+| `QP_ORCHESTRATOR` | `langgraph` | the library that runs the workflow graph, a name registered in `ORCHESTRATORS`; also the workflow file's top-level `orchestrator` and a key of the overrides of `deploy.yaml` (see the workflow file above); an unknown name is refused before any component opens, listing the registered ones |
 | `QP_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory (environment only, not `.env`); with neither, a command stops, naming both places |
 | `QP_PROMPTS_FILE`, `QP_ROUTES_FILE` | unset | the prompts file and the routes file to read, before a `prompts.yaml` and a `routes.yaml` in the working directory; with neither, there are no prompts or no routes, and a stage or a router that names one is refused at start-up |
 | `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
@@ -1765,8 +1801,8 @@ before the app serves, with one line in the server's log.
 
 Every tunable of the workflow is a setting of a component, a setting the components share,
 or a setting of a stage of the graph, each read from the workflow file and its
-environment path; only the topology alias and the run label, two labels, are
-flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
+environment path; only the topology alias and the run label, two labels, and
+the orchestrator, a name, are flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
 get the values as constructor arguments from the `composition/` package. An OVMS
 model server App's own variables (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`,
 `QP_OVMS_START_TIMEOUT_S`, and an LLM's `QP_OVMS_DYNAMIC_SPLIT_FUSE` and
@@ -1791,15 +1827,17 @@ graph is built. All are at start-up, with the offending value. For example:
 QP_COMPONENTS__RERANKER__BACKEND='served' needs QP_COMPONENTS__RERANKER__SERVED__URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''
 ```
 
-An unknown backend or API format stops every command that opens components
-(`qp-serve`, `qp-model-server`, `qp-ingest`, `qp-calibrate`) before it opens
-any, as a settings mistake: the settings cannot see the openers and the
-formats, which are registered in the composition and the adapters, so each
+An unknown backend, API format or orchestrator stops every command that opens
+components (`qp-serve`, `qp-model-server`, `qp-ingest`, `qp-calibrate`) before
+it opens any, as a settings mistake: the settings cannot see the openers, the
+formats and the orchestrators, which are registered in the composition and the
+adapters, so each
 command asks their registries as it reads its settings, and the registry
 refuses the name, after the variable it is read from, and lists the known ones:
 
 ```
 qp-serve: error: QP_COMPONENTS__RERANKER__API__API_FORMAT: unknown rerank API format 'jina' (expected one of: 'cohere')
+qp-serve: error: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph')
 ```
 
 Earlier versions named some settings differently: see

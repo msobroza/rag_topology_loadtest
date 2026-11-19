@@ -1,4 +1,5 @@
-"""``check_registered_names``: an unknown backend or API format, refused before anything opens.
+"""``check_registered_names``: an unknown backend, API format or orchestrator, refused
+before anything opens.
 
 What a command does with the refusal is tested in
 ``tests/entrypoints/start_up/test_unknown_names_at_start_up.py``.
@@ -11,6 +12,7 @@ from collections.abc import Callable
 
 import pytest
 
+from query_processing.adapters.orchestrator.base_orchestrator import ORCHESTRATORS
 from query_processing.composition.registered_names import check_registered_names
 from query_processing.config.workflow_settings import WorkflowSettings
 from rag_components import FAKE_BACKENDS
@@ -95,6 +97,19 @@ def test_a_component_of_any_name_is_checked_by_its_type(
     settings = settings_factory(**FAKE_BACKENDS, components={"coarse": coarse})
 
     with pytest.raises(ValueError, match="QP_COMPONENTS__COARSE__BACKEND: unknown"):
+        check_registered_names(settings)
+
+
+def test_an_unknown_orchestrator_is_refused_naming_the_registered_ones(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(**FAKE_BACKENDS, orchestrator="pydantic")
+    known = ", ".join(map(repr, ORCHESTRATORS.names()))
+    message = (
+        f"QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: {known})"
+    )
+
+    with pytest.raises(ValueError, match=re.escape(message)):
         check_registered_names(settings)
 
 

@@ -155,6 +155,16 @@ def test_an_override_of_what_qp_deploy_only_defaults_wins() -> None:
     assert workflow.count("QP_RUN_LABEL=") == 1
 
 
+def test_the_orchestrator_is_an_override_with_no_change_to_the_deploy_tool() -> None:
+    overrides = {"orchestrator": "langgraph", "run_label": "monolith+langgraph"}
+    apps = FakeDominoApps(["Running"])
+    run_deploy(apps, make_settings(overrides=overrides))
+    published = scripts(apps)
+    assert list(published) == ["rag-embedder", "rag-reranker", "rag-workflow"]
+    for script in published.values():
+        assert exported(script, "QP_ORCHESTRATOR") == "langgraph"
+
+
 def test_a_dry_run_shows_the_overrides_in_each_apps_entry_script(
     run_main: RunMain,
 ) -> None:

@@ -19,7 +19,9 @@ Each job has its own module, and this class only wires them together:
 - ``registered_components.py``: opens a component of a type that registers
   its implementations on their class line, an extension's, by its own class;
 - ``ovms_calibration.py``: an OVMS App's stream and thread counts, and the
-  folder it serves from.
+  folder it serves from;
+- ``chosen_orchestrator.py``: the orchestrator the settings name, and its
+  check of the graph.
 
 The openers take each component's settings in the workflow file's shape
 (``config/components/component_settings.py``).
@@ -46,7 +48,7 @@ from typing import Any, NamedTuple, TypeVar
 import httpx
 
 from ..adapters.embedder.base_embedder import BaseEmbedder
-from ..adapters.orchestrator.base_orchestrator import ORCHESTRATORS, BaseOrchestrator
+from ..adapters.orchestrator.base_orchestrator import BaseOrchestrator
 from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.graph_check import check_graph
@@ -61,7 +63,6 @@ from ..config.components.component_settings import (
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
-from ..config.components.router_settings import RouterSettings, routes_of
 from ..config.ovms_settings import OvmsSettings
 from ..config.searched_embedder import seeding_embedder
 from ..config.workflow_settings import WorkflowSettings
@@ -69,6 +70,7 @@ from ..domain.components.base_component import BaseComponent
 from ..domain.components.component_resources import ComponentResources
 from ..infrastructure.local_models.cpu_count import BaseCpuCounter, ContainerCpus
 from .calibrated_stages import ComponentCalibration
+from .chosen_orchestrator import check_orchestrator_runs_graph, chosen_orchestrator
 from .component_factory import ComponentFactory
 from .http_resources import HttpResources
 from .local_model_resources import LocalModelResources
@@ -87,7 +89,11 @@ from .ovms_calibration import (
     OvmsServedComponent,
     require_asked_weight_format,
 )
-from .registered_components import component_type_settings, local_settings
+from .registered_components import (
+    component_resources,
+    component_type_settings,
+    local_settings,
+)
 from .resource_scope import ResourceScope
 
 C = TypeVar("C", bound=ComponentSettings)
@@ -186,7 +192,7 @@ class CompositionRoot:
             >>> composition.orchestrator()
             <class 'LangGraphOrchestrator'>
         """
-        return ORCHESTRATORS.get(self.settings.orchestrator)
+        return chosen_orchestrator(self.settings)
 
     async def ingest_ports(self, embedder: str | None = None) -> IngestPorts:
         """Open an embedder and the vector store, for ``qp-ingest``.
@@ -397,18 +403,7 @@ class CompositionRoot:
     def _resources(
         self, name: str, component: RegisteredComponentSettings
     ) -> ComponentResources:
-        catalogue = {route.name: route for route in self.settings.routes}
-        routes = (
-            routes_of(component, catalogue)
-            if isinstance(component, RouterSettings)
-            else {}
-        )
-        return ComponentResources(
-            name=name,
-            type_settings=component.type_block(),
-            component_settings=self._component,
-            routes=routes,
-        )
+        return component_resources(name, component, self.settings, self._component)
 
     def _component(self, name: str) -> ComponentSettings:
         component = self._components.get(name)
@@ -468,12 +463,17 @@ def stage_context(settings: WorkflowSettings) -> StageContext:
 def check_workflow_graph(settings: WorkflowSettings) -> None:
     """Refuse a workflow graph that cannot run, before any component opens.
 
+    The toolkit's checks first, then the chosen orchestrator's, which is so
+    asked only about a graph the toolkit accepts.
+
     Args:
-        settings: The workflow settings, their graph, components and prompts.
+        settings: The workflow settings, their graph, components, prompts and
+            orchestrator.
 
     Raises:
-        WorkflowGraphError: The graph cannot run (``check_graph``); the message
-            names what is wrong and what was expected.
+        WorkflowGraphError: The graph cannot run (``check_graph``), or the
+            orchestrator does not run it, named first; the message names what
+            is wrong and what was expected.
 
     Example:
         >>> check_workflow_graph(WorkflowSettings())  # a use case's: nothing raised
@@ -484,3 +484,4 @@ def check_workflow_graph(settings: WorkflowSettings) -> None:
         stage_context(settings),
         component_type_settings(settings),
     )
+    check_orchestrator_runs_graph(settings)

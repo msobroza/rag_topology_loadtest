@@ -248,13 +248,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         deps = await composition.workflow_dependencies()
         app.state.deps = deps
         context = stage_context(settings)
-        components, orchestrator = deps.components(), composition.orchestrator()
+        components = deps.components()
+        orchestrator = composition.orchestrator()
         workflow = build_workflow(settings.graph, components, context, orchestrator)
         app.state.run = traced(workflow.run, enabled=settings.domino.tracing)
         log_json(
             event="rag_startup",
             topology_alias=settings.topology_alias,
             run_label=settings.run_label,
+            orchestrator=settings.orchestrator,
             models=deps.model_names(),
         )
         yield
@@ -444,9 +446,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ``--domino`` says the app runs as a Domino App: a component on the
     ``served`` backend, a model server of ours and so another App behind
     Domino's proxy, is then called with the run token; off Domino it is called
-    with no key. A settings mistake, an unknown backend or API format and a
-    graph that cannot run included, exits as a usage error before any
-    component opens, not a crash.
+    with no key. A settings mistake, an unknown backend, API format or
+    orchestrator and a graph that cannot run, or that the orchestrator does not
+    run, included, exits as a usage error before any component opens, not a
+    crash.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
