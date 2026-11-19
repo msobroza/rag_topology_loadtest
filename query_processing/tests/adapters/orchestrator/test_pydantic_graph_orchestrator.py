@@ -9,8 +9,6 @@ stages, and accepts the fixture workflow's graph.
 
 from __future__ import annotations
 
-import asyncio
-import dataclasses
 import re
 from collections.abc import Callable
 from typing import Any
@@ -24,51 +22,23 @@ from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator imp
 from query_processing.adapters.orchestrator.pydantic_graph.pydantic_graph_orchestrator import (
     PydanticGraphOrchestrator,
 )
-from query_processing.application.edge_conditions.edge_condition import (
-    EDGE_CONDITIONS,
-)
 from query_processing.application.state_fields import (
     STATE_REDUCERS,
     state_field_types,
 )
-from query_processing.application.workflow_builder import asked_of_state
 from query_processing.application.workflow_state import initial_state
-from query_processing.domain.graph_description import ConditionalEdge, GraphDescription
-from query_processing.domain.opened_graph import (
-    OpenedConditionalEdge,
-    OpenedGraph,
-    StageRun,
-)
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
+from query_processing.domain.graph_description import ConditionalEdge
+from query_processing.domain.opened_graph import OpenedConditionalEdge, OpenedGraph
 from rag_graphs import fixture_graph, rag_graph
-
-ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
-ON_LEAVE = MetadataCondition(attribute="topic", comparator="ne", value="leave")
-# The request's fields, and the label the route stand-in copies (see stand_in).
-REQUEST_FIELDS = {
-    "conversational_query": str,
-    "standalone_query": str,
-    "conversational_history": list[Any],
-    "mode": str,
-    "wanted_route": str,
-}
-
-
-def said(reads: list[str], writes: list[str]) -> dict[str, Any]:
-    """A generate stage of the LLM, which reads and writes these fields."""
-    return {
-        "type": "generate",
-        "call": "llm",
-        "prompt": "say",
-        "reads": reads,
-        "writes": writes,
-    }
-
-
-def asking(source: str, path: str, reads: list[str], rows: dict[Any, str]) -> Any:
-    """A conditional edge out of ``source`` on the edge condition ``path``."""
-    return {"source": source, "path": path, "reads": reads, "path_map": rows}
-
+from workflow_fakes import (
+    ON_LEAVE,
+    ON_PAY,
+    asking,
+    described,
+    opened_of,
+    said,
+    stand_in,
+)
 
 # The RAG's shape: a conditional edge at START, a label branch, a yes-or-no
 # branch, and paths that meet when only one of them is taken.
@@ -118,44 +88,6 @@ REQUESTS = {
 }
 
 
-def stand_in(name: str, writes: list[str]) -> StageRun:
-    """A stage that writes each of its fields, measured as a timed stage is.
-
-    ``route`` copies the request's ``wanted_route``; ``metadata_filter`` adds a
-    condition the client may already hold; every other field says who wrote it.
-    """
-
-    async def run(state: dict[str, Any]) -> dict[str, Any]:
-        update: dict[str, Any] = {field: f"{name} wrote {field}" for field in writes}
-        if "route" in writes:
-            update["route"] = state["wanted_route"]
-        if "metadata_filter" in writes:
-            update["metadata_filter"] = [ON_LEAVE]
-        tokens = {name: {"prompt": len(state), "completion": 1}}
-        return {**update, "timings_ms": {name: 1.0}, "tokens": tokens}
-
-    return run
-
-
-def opened_of(graph: GraphDescription) -> OpenedGraph:
-    """The opened graph of ``graph``: stand-in stages, the registered edge conditions."""
-    written = {field: Any for stage in graph.stages.values() for field in stage.writes}
-    return OpenedGraph(
-        stages={name: stand_in(name, s.writes) for name, s in graph.stages.items()},
-        edges=graph.edge_pairs(),
-        conditional_edges=[
-            OpenedConditionalEdge(e, asked_of_state(EDGE_CONDITIONS.get(e.path), e))
-            for e in graph.conditional_edges
-        ],
-        field_types=state_field_types({**REQUEST_FIELDS, **written}),
-        reducers=STATE_REDUCERS,
-    )
-
-
-def described(graph: dict[str, Any]) -> GraphDescription:
-    return GraphDescription.model_validate(graph)
-
-
 def test_it_registers_as_pydantic_graph() -> None:
     assert ORCHESTRATORS.get("pydantic_graph") is PydanticGraphOrchestrator
 
@@ -191,17 +123,6 @@ async def test_the_first_state_handed_in_is_not_changed() -> None:
     await PydanticGraphOrchestrator(opened_of(rag_graph())).ainvoke(first)
 
     assert first == kept
-
-
-async def test_concurrent_runs_of_one_built_graph_each_end_in_their_own_state() -> None:
-    orchestrator = PydanticGraphOrchestrator(opened_of(described(ROUTED_SHAPE)))
-    questions = [f"q{n}?" for n in range(50)]
-
-    finals = await asyncio.gather(
-        *(orchestrator.ainvoke(initial_state(q, "query")) for q in questions)
-    )
-
-    assert [final["conversational_query"] for final in finals] == questions
 
 
 def test_a_conditional_edge_is_a_step_named_after_its_source_and_edge_condition() -> (
@@ -251,18 +172,6 @@ async def test_an_answer_of_1_does_not_take_the_true_row() -> None:
     # 1 == True in Python: a row matched on equality alone would run polish.
     with pytest.raises(RuntimeError, match="No branch matched"):
         await orchestrator.ainvoke(initial_state("q?", "query"))
-
-
-async def test_a_stages_error_reaches_the_caller_as_itself() -> None:
-    opened = yes_or_no_after(answering(True))
-
-    async def fails(state: dict[str, Any]) -> dict[str, Any]:
-        raise LookupError("no passage")
-
-    failing = dataclasses.replace(opened, stages={**opened.stages, "polish": fails})
-
-    with pytest.raises(LookupError, match="no passage"):
-        await PydanticGraphOrchestrator(failing).ainvoke(initial_state("q?", "query"))
 
 
 @pytest.mark.parametrize(

@@ -1,14 +1,16 @@
 """Named fakes of the ports a stage calls, which record what the workflow asked them,
 a tracer that records the name of every step of a run, which it reaches
-through LangGraph's compiled graph (``compiled_langgraph``), and an orchestrator
-that refuses a graph, registered for one test (``register_orchestrator``).
+through LangGraph's compiled graph (``compiled_langgraph``), an orchestrator
+that refuses a graph, registered for one test (``register_orchestrator``), and
+the opened graph of a description's shape, its stages stand-ins
+(``opened_of``), which an orchestrator is run on through the port.
 
 Shared by the tests of the stage types, of the graphs and of the workflow app.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -30,12 +32,54 @@ from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
+from query_processing.application.edge_conditions.edge_condition import (
+    EDGE_CONDITIONS,
+)
+from query_processing.application.stages.base_stage import StageContext
+from query_processing.application.state_fields import (
+    STATE_REDUCERS,
+    state_field_types,
+)
 from query_processing.application.workflow import CompiledWorkflow
+from query_processing.application.workflow_builder import (
+    asked_of_state,
+    build_workflow,
+)
 from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.graph_description import GraphDescription
-from query_processing.domain.opened_graph import OpenedGraph
+from query_processing.domain.opened_graph import (
+    OpenedConditionalEdge,
+    OpenedGraph,
+    StageRun,
+)
 from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import Passage, ScoredPassage
+
+# Overrides the ``orchestrator`` fixture of tests/application: a test that
+# reaches LangGraph's own graph (a tracer's names, its state type) runs on it alone.
+ON_LANGGRAPH_ALONE = pytest.mark.parametrize(
+    "orchestrator", [LangGraphOrchestrator], ids=["langgraph"]
+)
+
+
+def build_workflow_on(
+    orchestrator: type[BaseOrchestrator],
+    graph: GraphDescription,
+    components: Mapping[str, object],
+    context: StageContext,
+    **registries: Any,
+) -> CompiledWorkflow:
+    """``build_workflow`` of ``graph`` on ``orchestrator``; skipped if it refuses the graph.
+
+    The port promises LangGraph's results only for a graph its check accepts,
+    so a run test is not run on an orchestrator that refuses its graph.
+    ``registries`` are ``build_workflow``'s keywords.
+    """
+    try:
+        orchestrator.check_graph_runs(graph)
+    except ValueError as refused:
+        pytest.skip(f"{orchestrator.__name__} does not run this graph: {refused}")
+    return build_workflow(graph, components, context, orchestrator, **registries)
 
 
 def compiled_langgraph(
@@ -75,6 +119,73 @@ def register_orchestrator(
     """
     monkeypatch.setattr(ORCHESTRATORS, "_entries", dict(ORCHESTRATORS._entries))
     ORCHESTRATORS.register(name)(orchestrator)
+
+
+ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
+ON_LEAVE = MetadataCondition(attribute="topic", comparator="ne", value="leave")
+# The request's fields, and the label the route stand-in copies (see stand_in).
+STAND_IN_REQUEST_FIELDS = {
+    "conversational_query": str,
+    "standalone_query": str,
+    "conversational_history": list[Any],
+    "mode": str,
+    "wanted_route": str,
+}
+
+
+def said(reads: list[str], writes: list[str]) -> dict[str, Any]:
+    """A generate stage of the LLM, which reads and writes these fields."""
+    return {
+        "type": "generate",
+        "call": "llm",
+        "prompt": "say",
+        "reads": reads,
+        "writes": writes,
+    }
+
+
+def asking(source: str, path: str, reads: list[str], rows: dict[Any, str]) -> Any:
+    """A conditional edge out of ``source`` on the edge condition ``path``."""
+    return {"source": source, "path": path, "reads": reads, "path_map": rows}
+
+
+def described(graph: dict[str, Any]) -> GraphDescription:
+    """The description of a ``graph`` block."""
+    return GraphDescription.model_validate(graph)
+
+
+def stand_in(name: str, writes: list[str]) -> StageRun:
+    """A stage that writes each of its fields, measured as a timed stage is.
+
+    ``route`` copies the request's ``wanted_route``; ``metadata_filter`` adds a
+    condition the client may already hold; every other field says who wrote it.
+    """
+
+    async def run(state: dict[str, Any]) -> dict[str, Any]:
+        update: dict[str, Any] = {field: f"{name} wrote {field}" for field in writes}
+        if "route" in writes:
+            update["route"] = state["wanted_route"]
+        if "metadata_filter" in writes:
+            update["metadata_filter"] = [ON_LEAVE]
+        tokens = {name: {"prompt": len(state), "completion": 1}}
+        return {**update, "timings_ms": {name: 1.0}, "tokens": tokens}
+
+    return run
+
+
+def opened_of(graph: GraphDescription) -> OpenedGraph:
+    """The opened graph of ``graph``: stand-in stages, the registered edge conditions."""
+    written = {field: Any for stage in graph.stages.values() for field in stage.writes}
+    return OpenedGraph(
+        stages={name: stand_in(name, s.writes) for name, s in graph.stages.items()},
+        edges=graph.edge_pairs(),
+        conditional_edges=[
+            OpenedConditionalEdge(e, asked_of_state(EDGE_CONDITIONS.get(e.path), e))
+            for e in graph.conditional_edges
+        ],
+        field_types=state_field_types({**STAND_IN_REQUEST_FIELDS, **written}),
+        reducers=STATE_REDUCERS,
+    )
 
 
 def scored(passage_id: str, text: str | None = None) -> ScoredPassage:

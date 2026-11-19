@@ -3,8 +3,8 @@
 The workflow app on the fixture workflow, every component on its fake backend,
 is recorded in process and compared with the record committed in
 ``answer_records/``: every answer identical, on LangGraph, which answered the
-record, and on pydantic-graph, beside which the timings' keys and the tokens
-a record leaves out are LangGraph's. ``make pin-answers`` runs this
+record, and on every registered orchestrator, on which the timings' keys and
+the tokens a record leaves out are LangGraph's. ``make pin-answers`` runs this
 file with ``--pin-answers``, which makes the record again instead.
 """
 
@@ -21,6 +21,7 @@ from query_processing.testing import (
     PinnedAnswerRecord,
     PinnedAnswersDifferError,
     check_pinned_answers,
+    registered_orchestrators,
     workflow_client,
 )
 from rag_components import FAKE_BACKENDS
@@ -56,14 +57,16 @@ def test_the_app_on_fake_backends_answers_as_its_pinned_record(
         )
 
 
-def test_the_app_on_pydantic_graph_answers_as_the_record_langgraph_pinned(
+@pytest.mark.parametrize("orchestrator", registered_orchestrators())
+def test_the_app_on_every_orchestrator_answers_as_the_record_langgraph_pinned(
     settings_factory: SettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    orchestrator: str,
 ) -> None:
     # The record LangGraph answered before any orchestrator was added; never
     # pinned again from here.
-    settings = settings_factory(**FAKE_BACKENDS, orchestrator="pydantic_graph")
+    settings = settings_factory(**FAKE_BACKENDS, orchestrator=orchestrator)
     with workflow_client(settings) as client:
         check_pinned_answers(monkeypatch, client, FIXTURE_WORKFLOW, tmp_path, pin=False)
 
@@ -79,16 +82,17 @@ def measures_of(settings: WorkflowSettings) -> list[tuple[list[str], object]]:
     return measured
 
 
-def test_on_pydantic_graph_the_timings_and_tokens_are_langgraph_s(
-    settings_factory: SettingsFactory,
+@pytest.mark.parametrize("orchestrator", registered_orchestrators())
+def test_on_every_orchestrator_the_timings_and_tokens_are_langgraph_s(
+    settings_factory: SettingsFactory, orchestrator: str
 ) -> None:
     on_langgraph = measures_of(settings_factory(**FAKE_BACKENDS))
 
-    on_pydantic_graph = measures_of(
-        settings_factory(**FAKE_BACKENDS, orchestrator="pydantic_graph")
+    on_this_one = measures_of(
+        settings_factory(**FAKE_BACKENDS, orchestrator=orchestrator)
     )
 
-    assert on_pydantic_graph == on_langgraph
+    assert on_this_one == on_langgraph
     assert on_langgraph[1][0] == ["embed", "retrieve", "rerank", "generate", "total"]
     assert on_langgraph[1][1]  # the fake LLM counts its tokens
 

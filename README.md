@@ -1059,6 +1059,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       router_contract.py  RouterContract: ComponentContract for a router, with routes to write; the route chosen is one of them, the confidence between 0 and 1
       directory_size.py  directory_size_findings, OnePatternFolder, FolderNotYetSplit: rule 9 measured under a distribution's src/ and tests/, each breach a sentence naming the folder, its count and what to do
       pinned_answer_record.py  PinnedAnswerRecord, check_pinned_answers: the workflow app recorded in process on fake backends and compared with its committed answer record, or pinned again with --pin-answers
+      registered_orchestrators.py  registered_orchestrators: the name of every registered orchestrator, read once when the tests are collected, which a test is parametrized over
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)

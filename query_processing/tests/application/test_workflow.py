@@ -1,4 +1,9 @@
-"""The RAG graph of the tests' workflow file, built over fake ports."""
+"""The RAG graph of the tests' workflow file, built over fake ports.
+
+Each test that builds the workflow runs on every registered orchestrator (the
+``orchestrator`` fixture of conftest.py), but the one that reaches LangGraph's
+own graph for the names a tracer is given.
+"""
 
 from __future__ import annotations
 
@@ -9,10 +14,7 @@ import pytest
 from pydantic import BaseModel
 
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
-from query_processing.adapters.orchestrator.base_orchestrator import ORCHESTRATORS
-from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
-    LangGraphOrchestrator,
-)
+from query_processing.adapters.orchestrator.base_orchestrator import BaseOrchestrator
 from query_processing.adapters.reranker.none.no_reranker import NoReranker
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.stages.base_stage import StageContext
@@ -21,7 +23,6 @@ from query_processing.application.workflow import (
     stage_timings,
     stage_tokens,
 )
-from query_processing.application.workflow_builder import build_workflow
 from query_processing.application.workflow_state import initial_state
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.components.component_requests import GenerateAnswer
@@ -32,11 +33,13 @@ from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import RagMode
 from rag_graphs import fixture_graph, rag_graph
 from workflow_fakes import (
+    ON_LANGGRAPH_ALONE,
     ChainNameRecorder,
     DenseOnlyStore,
     RecordingEmbedder,
     RecordingReranker,
     ScriptedStore,
+    build_workflow_on,
     compiled_langgraph,
 )
 
@@ -61,8 +64,10 @@ ASKED_USING = "ASK {{ conversational_query }} USING {% for p in reranked %}[{{ l
 
 
 @pytest.fixture
-def workflow_for(fake_settings: WorkflowSettings) -> WorkflowFor:
-    """Today's graph with ``changes`` (see ``rag_graph``), over ``deps``.
+def workflow_for(
+    fake_settings: WorkflowSettings, orchestrator: type[BaseOrchestrator]
+) -> WorkflowFor:
+    """Today's graph with ``changes`` (see ``rag_graph``), over ``deps``, on ``orchestrator``.
 
     Its prompts are the fixture's, and ``prompts`` adds or replaces some.
     """
@@ -71,8 +76,8 @@ def workflow_for(fake_settings: WorkflowSettings) -> WorkflowFor:
         deps: RagDependencies, prompts: dict[str, Prompt] | None = None, **changes: Any
     ) -> CompiledWorkflow:
         context = StageContext({**fake_settings.prompts, **(prompts or {})})
-        return build_workflow(
-            rag_graph(**changes), deps.components(), context, LangGraphOrchestrator
+        return build_workflow_on(
+            orchestrator, rag_graph(**changes), deps.components(), context
         )
 
     return make
@@ -205,12 +210,13 @@ def rewritten_first() -> GraphDescription:
 async def test_each_generate_stage_that_runs_reports_its_tokens_under_its_name(
     fake_deps: RagDependencies,
     fake_settings: WorkflowSettings,
+    orchestrator: type[BaseOrchestrator],
     mode: RagMode,
     reported: list[str],
 ) -> None:
     context = StageContext({**fake_settings.prompts, "rewrite": REWRITE_PROMPT})
-    workflow = build_workflow(
-        rewritten_first(), fake_deps.components(), context, LangGraphOrchestrator
+    workflow = build_workflow_on(
+        orchestrator, rewritten_first(), fake_deps.components(), context
     )
 
     result = await workflow.run("How many vacation days?", mode=mode)
@@ -280,6 +286,7 @@ def test_the_components_are_those_the_stages_call_by_their_names(
     }
 
 
+@ON_LANGGRAPH_ALONE
 @pytest.mark.parametrize("mode", ["query", "retrieve"])
 async def test_every_step_of_the_graph_reaches_a_tracer_with_a_name(
     fake_deps: RagDependencies, workflow_for: WorkflowFor, mode: Any
@@ -426,14 +433,10 @@ ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
 ON_LEAVE = MetadataCondition(attribute="topic", comparator="ne", value="leave")
 
 
-@pytest.mark.parametrize("orchestrator", ORCHESTRATORS.names())
 async def test_a_condition_the_client_repeats_is_in_the_result_once(
-    fake_deps: RagDependencies, fake_settings: WorkflowSettings, orchestrator: str
+    fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
-    context = StageContext(fake_settings.prompts)
-    workflow = build_workflow(
-        rag_graph(), fake_deps.components(), context, ORCHESTRATORS.get(orchestrator)
-    )
+    workflow = workflow_for(fake_deps)
 
     result = await workflow.run(
         VACATION_QUESTION, metadata_filter=[ON_PAY, ON_LEAVE, ON_PAY]
