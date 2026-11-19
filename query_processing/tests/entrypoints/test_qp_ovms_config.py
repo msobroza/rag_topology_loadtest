@@ -237,16 +237,17 @@ def llm_from_the_hub(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("env", "printed"),
     [
-        ({}, ""),  # OVMS's own defaults: no flag
+        # The defaults read each prompt in one pass.
+        ({}, "--dynamic_split_fuse false --max_num_batched_tokens 8192"),
         (
             {
-                "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
-                "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
+                "QP_OVMS_DYNAMIC_SPLIT_FUSE": "true",
+                "QP_OVMS_MAX_BATCHED_TOKENS": "0",
             },
-            "--dynamic_split_fuse false --max_num_batched_tokens 8192",
+            "",  # OVMS's own batching: no flag
         ),
     ],
-    ids=["defaults", "both-set"],
+    ids=["defaults", "ovms-own"],
 )
 def test_an_llm_gets_its_batching_flags_and_no_calibration(
     tmp_path: Path,

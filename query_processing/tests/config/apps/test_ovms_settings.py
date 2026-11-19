@@ -83,27 +83,33 @@ def test_streams_are_checked_against_threads_only_when_both_are_pinned(
 # --- the LLM's two batching options (OVMS's own flags) -------------------------------
 
 
-def test_the_llms_batching_options_keep_ovmss_defaults() -> None:
+def test_an_llms_default_command_line_reads_each_prompt_in_one_pass() -> None:
     s = ovms_settings()
 
-    assert (s.dynamic_split_fuse, s.max_batched_tokens) == (True, 0)
-    assert s.llm_flags() == []  # at OVMS's defaults, no flag is passed
-
-
-def test_the_llms_batching_options_come_from_their_variables(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QP_OVMS_DYNAMIC_SPLIT_FUSE", "false")
-    monkeypatch.setenv("QP_OVMS_MAX_BATCHED_TOKENS", "8192")
-
-    s = ovms_settings()
-
+    assert (s.dynamic_split_fuse, s.max_batched_tokens) == (False, 8192)
     assert s.llm_flags() == [
         "--dynamic_split_fuse",
         "false",
         "--max_num_batched_tokens",
         "8192",
     ]
+
+
+def test_ovms_own_batching_is_one_setting_each_away() -> None:
+    s = ovms_settings(dynamic_split_fuse=True, max_batched_tokens=0)
+
+    assert s.llm_flags() == []  # at OVMS's own values, no flag is passed
+
+
+def test_the_llms_batching_options_come_from_their_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QP_OVMS_DYNAMIC_SPLIT_FUSE", "true")
+    monkeypatch.setenv("QP_OVMS_MAX_BATCHED_TOKENS", "4096")
+
+    s = ovms_settings()
+
+    assert s.llm_flags() == ["--max_num_batched_tokens", "4096"]
 
 
 def test_a_negative_batched_token_count_is_refused() -> None:
@@ -134,6 +140,17 @@ def test_an_llm_option_on_an_embedder_or_reranker_app_is_refused(
 
 def test_no_llm_option_set_lets_an_embedder_app_start() -> None:
     ovms_settings().require_no_llm_option("embedder")
+
+
+@pytest.mark.parametrize("component", ["embedder", "reranker"])
+def test_an_embedder_or_reranker_app_still_starts_at_the_llms_defaults(
+    component: str,
+) -> None:
+    # The LLM's defaults write two flags, but only a set option is refused.
+    settings = ovms_settings()
+
+    assert settings.llm_flags()
+    settings.require_no_llm_option(component)
 
 
 @pytest.mark.parametrize("variable", ["QP_OVMS_NUM_STREAMS", "QP_OVMS_THREADS"])
@@ -306,6 +323,10 @@ def test_a_server_flag_named_or_passed_through_gives_the_same_command_line(
         ({"metrics": True}, "--metrics_enable"),
         ({"max_num_seqs": 64}, "--max_num_seqs=32"),
         ({"dynamic_split_fuse": False}, "--dynamic_split_fuse true"),
+        # At the defaults the named two are written, so the pass-through
+        # cannot state them a second time.
+        ({}, "--dynamic_split_fuse false"),
+        ({}, "--max_num_batched_tokens=8192"),
         ({}, "--rest_port 9000"),
         ({}, "--config_path /x.json"),
         ({}, "--source-model=org/m"),
@@ -351,7 +372,10 @@ def test_an_llm_option_becomes_its_flag(
 def test_the_llms_flags_leave_the_server_flags_out() -> None:
     settings = ovms_settings(max_batched_tokens=512, rest_workers=2, args="--x 1")
 
-    assert settings.llm_flags() == ["--max_num_batched_tokens", "512"]
+    assert settings.llm_flags() == [
+        *("--dynamic_split_fuse", "false"),
+        *("--max_num_batched_tokens", "512"),
+    ]
     assert settings.server_flags() == ["--rest_workers", "2", "--x", "1"]
 
 
@@ -364,9 +388,18 @@ def test_more_sequences_than_batched_tokens_is_refused() -> None:
     assert "QP_OVMS_MAX_BATCHED_TOKENS=256" in message
 
 
+def test_more_sequences_than_the_default_batched_tokens_is_refused() -> None:
+    with pytest.raises(ValueError, match="QP_OVMS_MAX_BATCHED_TOKENS=8192"):
+        ovms_settings(max_num_seqs=8193)
+
+
 @pytest.mark.parametrize(
     "named",
-    [{"max_num_seqs": 512}, {"max_num_seqs": 256, "max_batched_tokens": 256}],
+    [
+        {"max_num_seqs": 256},  # OVMS's own count, under the default 8192
+        {"max_num_seqs": 9000, "max_batched_tokens": 0},
+        {"max_num_seqs": 256, "max_batched_tokens": 256},
+    ],
 )
 def test_sequences_are_checked_against_batched_tokens_only_when_both_are_set(
     named: dict[str, int],

@@ -86,11 +86,15 @@ class OvmsSettings(BaseSettings):
     embeddings_truncate: bool | None = None
     embeddings_max_length: int = Field(default=0, ge=0)
     # An LLM's only: OVMS's own --dynamic_split_fuse and --max_num_batched_tokens.
-    # Each flag is passed only away from OVMS's default (split fuse on; 0 = OVMS
-    # picks the tokens per step), so the default command line is the one run on
-    # a machine.
-    dynamic_split_fuse: bool = True
-    max_batched_tokens: int = Field(default=0, ge=0)
+    # By default OVMS reads each prompt in one pass: split fuse off, 8192 tokens
+    # a step. Measured on 16 vCPUs with prompts of 750 to 920 tokens
+    # (experiments/2026-11-16-generator-ovms-pytorch-vllm-16-vcpus/): 20.4
+    # tokens a second against 11.6 at OVMS's own batching at 4 users, p50 23 s
+    # against 42 s. 16 and 32 users are not measured. Each flag is passed only
+    # away from OVMS's own value (split fuse on; 0 = OVMS picks the tokens per
+    # step), so true and 0 give OVMS's batching back.
+    dynamic_split_fuse: bool = False
+    max_batched_tokens: int = Field(default=8192, ge=0)
     # An LLM's only, each left out at OVMS's own (ovms_flags.LLM_FLAGS):
     # --max_num_seqs (0 = OVMS's 256; at most max_batched_tokens), --cache_size
     # in GB (0 = dynamic, which OVMS's docs call the most efficient; a tier with
@@ -226,11 +230,13 @@ class OvmsSettings(BaseSettings):
 
         Returns:
             Each flag and its value, only for an option away from OVMS's own
-            value, today's two batching options first; ``[]`` at OVMS's own.
+            value, the two batching options first; ``[]`` at OVMS's own.
 
         Example:
-            >>> OvmsSettings(dynamic_split_fuse=False).llm_flags()
-            ['--dynamic_split_fuse', 'false']
+            >>> OvmsSettings().llm_flags()  # each prompt read in one pass
+            ['--dynamic_split_fuse', 'false', '--max_num_batched_tokens', '8192']
+            >>> OvmsSettings(dynamic_split_fuse=True, max_batched_tokens=0).llm_flags()
+            []
         """
         return self._words_of(LLM_FLAGS)
 

@@ -18,14 +18,16 @@ its App, ``--serve-llm`` checks the settings (a source id to pull, no stream or
 thread count pinned, nothing of the graph OVMS writes itself: the OpenVINO
 block, the pool size, the embeddings options) and prints the flags of the LLM's
 options, then the server's, as shell words on one line, empty at OVMS's own
-defaults. An embedder's or a reranker's App refuses an LLM's option, and a
+values. An embedder's or a reranker's App refuses an LLM's option, and a
 reranker's the embeddings options. ``--server-flags`` prints the server's flags
 alone (``QP_OVMS_REST_WORKERS``, ..., then ``QP_OVMS_ARGS``), for an App of any
 type, to append to the ``ovms`` it starts on the config.
 
 Example:
-    $ QP_OVMS_DYNAMIC_SPLIT_FUSE=false qp-ovms-config --serve-llm llm
-    --dynamic_split_fuse false
+    $ qp-ovms-config --serve-llm llm
+    --dynamic_split_fuse false --max_num_batched_tokens 8192
+    $ QP_OVMS_DYNAMIC_SPLIT_FUSE=true qp-ovms-config --serve-llm llm
+    --max_num_batched_tokens 8192
     $ QP_OVMS_REST_WORKERS=4 qp-ovms-config --server-flags reranker
     --rest_workers 4
     $ qp-ovms-config --serve reranker --models-dir /mnt/data/ovms-models
@@ -118,7 +120,7 @@ def llm_ovms_flags(settings: WorkflowSettings, ovms: OvmsSettings, name: str) ->
 
     Returns:
         The flags of ``ovms.llm_flags()``, then those of ``ovms.server_flags()``,
-        shell-quoted; "" at OVMS's defaults.
+        shell-quoted; "" at OVMS's own values.
 
     Raises:
         ValueError: If the LLM has no source id for OVMS to pull, or a stream
@@ -128,7 +130,7 @@ def llm_ovms_flags(settings: WorkflowSettings, ovms: OvmsSettings, name: str) ->
     Example:
         >>> settings = WorkflowSettings(components={"llm": {"source_id": "org/m-ov"}})
         >>> llm_ovms_flags(settings, OvmsSettings(max_batched_tokens=512), "llm")
-        '--max_num_batched_tokens 512'
+        '--dynamic_split_fuse false --max_num_batched_tokens 512'
     """
     if not settings.model_components()[name].source_id:
         variable = settings.variable_of("components", name, "source_id")

@@ -2,7 +2,9 @@
 
 ``OvmsSettings`` (``ovms_settings.py``) reads the variables; this module says
 which flag each named setting becomes. A flag is written only away from OVMS's
-own value, so the defaults leave the command line a machine has run unchanged.
+own value, so the defaults leave the command line a machine has run unchanged,
+but for an LLM's two batching options, whose defaults read each prompt in one
+pass (``ovms_settings.py`` says why).
 The server flags apply to every App; the LLM's to an LLM's App alone, which
 passes them to ``ovms --pull``.
 

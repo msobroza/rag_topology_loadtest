@@ -315,12 +315,13 @@ def test_every_app_reads_each_override_back_to_its_value_over_the_file(
 LLM_ALIAS = "split-all-llm"
 LLM_ROW = {"embedder": "served", "reranker": "served", "llm": "served"}
 LLM_SOURCE_ID, LLM_SERVED_NAME = "OpenVINO/Fixture-Chat-int4-ov", "fixture-chat"
-# The LLM App's own block: OVMS, and both batching options away from OVMS's own.
+# The LLM App's own block: OVMS, split fuse off as by default, and batched tokens
+# away from the default 8192, to show the block reaches the App.
 LLM_APP = {
     "server": "ovms",
     "settings": {
         "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
-        "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
+        "QP_OVMS_MAX_BATCHED_TOKENS": "4096",
     },
 }
 
@@ -367,7 +368,7 @@ def test_the_llms_entry_script_starts_ovms_on_its_model_through_app_sh(
         f"--rest_port 8888 --source_model {LLM_SOURCE_ID} "
         f"--model_name {LLM_SERVED_NAME} --model_repository_path {models} "
         "--task text_generation --target_device CPU "
-        "--dynamic_split_fuse false --max_num_batched_tokens 8192"
+        "--dynamic_split_fuse false --max_num_batched_tokens 4096"
     )
     assert log(tmp_path, "uv") == ""
     assert not (models / "config_llm.json").exists()

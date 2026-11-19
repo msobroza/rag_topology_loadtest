@@ -65,7 +65,10 @@
 # (QP_OVMS_DYNAMIC_SPLIT_FUSE, QP_OVMS_MAX_BATCHED_TOKENS, QP_OVMS_MAX_NUM_SEQS,
 # ...), then the server's flags, come from `qp-ovms-config --serve-llm`, which
 # checks them (and refuses an empty source id, a pinned stream or thread count,
-# or a flag given twice) before OVMS starts. It runs on the
+# or a flag given twice) before OVMS starts. By default it reads each prompt in
+# one pass (--dynamic_split_fuse false --max_num_batched_tokens 8192, measured
+# faster at 4 users); QP_OVMS_DYNAMIC_SPLIT_FUSE=true and
+# QP_OVMS_MAX_BATCHED_TOKENS=0 give OVMS's own batching back. It runs on the
 # generic environment with QP_BOOTSTRAP=1 and QP_OVMS_BUNDLE, not on the prebuilt
 # `ovms` image.
 

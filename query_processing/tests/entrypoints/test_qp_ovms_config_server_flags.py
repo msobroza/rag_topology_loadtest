@@ -59,7 +59,10 @@ def test_an_llms_flags_come_before_the_server_flags(
 
     assert main(["--serve-llm", "llm"]) == 0
 
-    assert capsys.readouterr().out == "--max_num_seqs 64 --log_level DEBUG\n"
+    assert capsys.readouterr().out == (
+        "--dynamic_split_fuse false --max_num_batched_tokens 8192 "
+        "--max_num_seqs 64 --log_level DEBUG\n"
+    )
 
 
 def test_server_flags_of_no_component_is_a_usage_error(

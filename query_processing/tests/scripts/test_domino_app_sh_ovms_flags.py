@@ -103,9 +103,10 @@ def test_a_default_rerankers_app_runs_todays_command_line(
     assert argv[3].endswith("/config_reranker.json")
 
 
-def test_a_default_llms_app_runs_todays_command_line(
+def test_a_default_llms_app_runs_the_one_pass_command_line(
     tmp_path: Path, bin_dir: Path
 ) -> None:
+    # The LLM's defaults read each prompt in one pass; no server flag follows.
     result = run_llm(tmp_path, bin_dir)
 
     assert result.returncode == 0, result.stderr
@@ -114,6 +115,7 @@ def test_a_default_llms_app_runs_todays_command_line(
         *("--model_name", "fixture-chat"),
         *("--model_repository_path", str(tmp_path / "llm-models")),
         *("--task", "text_generation", "--target_device", "CPU"),
+        *("--dynamic_split_fuse", "false", "--max_num_batched_tokens", "8192"),
     ]
 
 
