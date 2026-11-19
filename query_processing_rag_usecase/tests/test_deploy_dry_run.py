@@ -242,12 +242,9 @@ def test_qp_deploy_writes_a_vllm_apps_entry_script(
 
 
 # The LLM App's own settings, commented under its block: where OVMS pulls the
-# model, and the two batching options the check of 16 November 2026 chose.
-LLM_APP_VALUES = {
-    "QP_OVMS_MODELS_DIR": "/domino/datasets/local/real/ovms-llm",
-    "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
-    "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
-}
+# model. The two batching options the check of 16 November 2026 chose are the
+# defaults now, so the example shows OVMS's own batching, commented within.
+LLM_APP_VALUES = {"QP_OVMS_MODELS_DIR": "/domino/datasets/local/real/ovms-llm"}
 LLM_APP_SETTINGS = "  #   settings:\n" + "".join(
     f"  #     {name}: {value}\n" for name, value in LLM_APP_VALUES.items()
 )

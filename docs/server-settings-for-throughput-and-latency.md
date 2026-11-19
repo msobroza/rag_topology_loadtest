@@ -23,69 +23,70 @@ passed as an object, and AnyIO's thread limit.
 
 ## In short
 
-"Here today" says what this project does with the setting.
+"Here today" says what this project does with the setting, and the variable that
+sets it, since the settings of 19 November 2026 (the README's "Variables").
 
 ### OVMS, embedder and reranker
 
 | Setting | For throughput | For latency | Here today |
 |---|---|---|---|
-| `NUM_STREAMS` | More streams under concurrency: fewer than the requests in flight, never more than the cores | 1 | Calibrated (`QP_OVMS_NUM_STREAMS`); its candidates go up to the CPU count, hyper-threads included |
+| `NUM_STREAMS` | More streams under concurrency: fewer than the requests in flight, never more than the cores | 1 | Calibrated (`QP_OVMS_NUM_STREAMS`); its candidates stop at the cores, the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE` (2) |
 | `INFERENCE_NUM_THREADS` | Every core | The cores of one socket | Calibrated (`QP_OVMS_THREADS`) |
-| `PERFORMANCE_HINT` | `THROUGHPUT`, which picks the streams itself; never with `NUM_STREAMS` | `LATENCY`: one stream | Not set |
-| `ENABLE_HYPER_THREADING` | By platform under `THROUGHPUT` | Off under `LATENCY`: one request does not use both threads of a core | Always on |
-| `ENABLE_CPU_PINNING` | Off when several workloads share the machine | Same | Not set; OVMS turns it off by itself under a container CPU quota |
-| `INFERENCE_PRECISION_HINT` | `bf16` on CPUs with AMX (4th-generation Xeon and later): "significantly faster" | Same | Not set |
+| `PERFORMANCE_HINT` | `THROUGHPUT`, which picks the streams itself; never with `NUM_STREAMS` | `LATENCY`: one stream | Not set (`QP_OVMS_OPENVINO__PERFORMANCE_HINT`); set, it replaces `NUM_STREAMS`, and the streams are not calibrated |
+| `ENABLE_HYPER_THREADING` | By platform under `THROUGHPUT` | Off under `LATENCY`: one request does not use both threads of a core | On by default (`QP_OVMS_OPENVINO__HYPER_THREADING`, `QP_LOCAL_MODELS__OPENVINO__HYPER_THREADING`) |
+| `ENABLE_CPU_PINNING` | Off when several workloads share the machine | Same | Not set (`QP_OVMS_OPENVINO__CPU_PINNING`); OVMS turns it off by itself under a container CPU quota |
+| `INFERENCE_PRECISION_HINT` | `bf16` on CPUs with AMX (4th-generation Xeon and later): "significantly faster" | Same | Not set (`QP_OVMS_OPENVINO__INFERENCE_PRECISION_HINT`, `QP_LOCAL_MODELS__OPENVINO__INFERENCE_PRECISION_HINT`) |
 | Weight format | `int8`, the export helper's default | Same | `fp32` by default (`QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`) |
-| Tokens of a request (passages × length) | Fewer, shorter: one request is one inference, padded to its longest passage | Same | 20 passages, never split |
-| Graph pool (`# OVMS_GRAPH_QUEUE_MAX_SIZE`) | Saves building a graph for each request | Same | Whatever the export helper writes (`AUTO`) |
+| Tokens of a request (passages × length) | Fewer, shorter: one request is one inference, padded to its longest passage | Same | 20 passages (`QP_GRAPH__STAGES__RETRIEVE__TOP_K`), never split |
+| Graph pool (`# OVMS_GRAPH_QUEUE_MAX_SIZE`) | Saves building a graph for each request | Same | As exported, `AUTO` (`QP_OVMS_GRAPH_QUEUE_MAX_SIZE`) |
 | `nireq` | Has no effect: these graphs size their queue from OpenVINO's optimal request count | — | — |
-| `metrics_enable`, `log_level` | Metrics cost a share of CPU on light models; keep `INFO` | Same | Defaults |
+| `metrics_enable`, `log_level` | Metrics cost a share of CPU on light models; keep `INFO` | Same | Defaults (`QP_OVMS_METRICS`, `QP_OVMS_LOG_LEVEL`) |
 
 ### OVMS, LLM
 
 | Setting | For throughput | For latency | Here today |
 |---|---|---|---|
-| `max_num_batched_tokens` | 256, the default, with many clients and short contexts | 4096, 8192 or the context length with few clients and long prompts: sooner first token | `QP_OVMS_MAX_BATCHED_TOKENS`, by hand |
-| `dynamic_split_fuse` | On, the default | Off at very low concurrency or very short prompts, with `max_num_batched_tokens` at the context length | `QP_OVMS_DYNAMIC_SPLIT_FUSE`, by hand |
-| `cache_size` (KV cache) | 0, dynamic: avoids preemption, may take all the memory | Same | Pull-mode default |
-| `enable_prefix_caching` | Less work when prompts repeat | Much sooner first token on a repeated prefix | Pull-mode default (the docs disagree on the default) |
-| `KV_CACHE_PRECISION` | Lower (`u8`, `u4`): more requests fit | Lower "can also improve" it | Pull-mode default (the docs disagree on the default) |
-| `max_num_seqs` | The docs do not say | Keeps the speed of the requests already running | Pull-mode default |
-| NUMA | One OVMS per NUMA node, behind a balancer | — | One App per machine |
-| `rest_workers` | Raise it for very many clients | Lower it to cap connections and avoid overload | Default |
+| `max_num_batched_tokens` | 256, the default, with many clients and short contexts | 4096, 8192 or the context length with few clients and long prompts: sooner first token | 8192 by default (`QP_OVMS_MAX_BATCHED_TOKENS`) |
+| `dynamic_split_fuse` | On, the default | Off at very low concurrency or very short prompts, with `max_num_batched_tokens` at the context length | Off by default (`QP_OVMS_DYNAMIC_SPLIT_FUSE`) |
+| `cache_size` (KV cache) | 0, dynamic: avoids preemption, may take all the memory | Same | Pull-mode default (`QP_OVMS_CACHE_SIZE_GB`) |
+| `enable_prefix_caching` | Less work when prompts repeat | Much sooner first token on a repeated prefix | Pull-mode default (`QP_OVMS_PREFIX_CACHING`; the docs disagree on the default) |
+| `KV_CACHE_PRECISION` | Lower (`u8`, `u4`): more requests fit | Lower "can also improve" it | Pull-mode default (`QP_OVMS_KV_CACHE_PRECISION`; the docs disagree on the default) |
+| `max_num_seqs` | The docs do not say | Keeps the speed of the requests already running | Pull-mode default (`QP_OVMS_MAX_NUM_SEQS`) |
+| NUMA | One OVMS per NUMA node, behind a balancer | — | One App per machine; no variable |
+| `rest_workers` | Raise it for very many clients | Lower it to cap connections and avoid overload | Default (`QP_OVMS_REST_WORKERS`) |
 
 ### vLLM on CPU
 
 | Setting | For throughput | For latency | Here today |
 |---|---|---|---|
-| `VLLM_CPU_OMP_THREADS_BIND` | Check it first: one thread per physical core, each rank on one NUMA node | The docs do not say | vLLM is not a model-server kind here |
-| `VLLM_CPU_NUM_OF_RESERVED_CPU` | Keep 1 or 2 cores for the API server | The docs do not say | — |
-| `--max-num-seqs` | Larger (default 128 under `vllm serve` on CPU) | Smaller | — |
-| `--max-num-batched-tokens` | Default 2048 on CPU; it mostly decides the first token | Smaller: steadier tokens after the first; larger: sooner first token | — |
-| `--performance-mode throughput` | Doubles the two above when they are left unset | — | — |
-| `--enable-chunked-prefill` | On by default; helps both | Same | — |
-| `--enable-prefix-caching` | When requests share a prefix | Prefill only, never decode | — |
-| `--kv-cache-memory-bytes`, `--gpu-memory-utilization` | More KV cache: more requests at once, less preemption. By default the worker reserves 0.92 of the NUMA node's memory | Less preemption | — |
-| `--kv-cache-dtype fp8` | More tokens fit | The docs do not say | — |
-| `--dtype bfloat16` | Advised when float16 misbehaves on CPU | Same | — |
-| Weights | AWQ, GPTQ or INT8 W8A8 on x86 | — | — |
-| `-O0` or `--enforce-eager` | Slower steady state | Fastest start: no compiling | — |
-| `-tp` | One rank per NUMA node | More TP adds synchronisation | — |
-| `--stream-interval` | Larger "may increase" it | 1: smoother streaming | — |
-| Docker `--cap-add SYS_NICE`, seccomp, `--shm-size` | Without them NUMA binding silently does not apply | Same | — |
+| `VLLM_CPU_OMP_THREADS_BIND` | Check it first: one thread per physical core, each rank on one NUMA node | The docs do not say | vLLM's own, `auto` (`QP_VLLM_CPU_OMP_THREADS_BIND`) |
+| `VLLM_CPU_NUM_OF_RESERVED_CPU` | Keep 1 or 2 cores for the API server | The docs do not say | vLLM's own, 1 (`QP_VLLM_CPU_RESERVED_CPUS`) |
+| `--max-num-seqs` | Larger (default 128 under `vllm serve` on CPU) | Smaller | vLLM's own (`QP_VLLM_MAX_NUM_SEQS`) |
+| `--max-num-batched-tokens` | Default 2048 on CPU; it mostly decides the first token | Smaller: steadier tokens after the first; larger: sooner first token | vLLM's own (`QP_VLLM_MAX_NUM_BATCHED_TOKENS`) |
+| `--performance-mode throughput` | Doubles the two above when they are left unset | — | Not set (`QP_VLLM_PERFORMANCE_MODE`) |
+| `--enable-chunked-prefill` | On by default; helps both | Same | vLLM's own, on; no variable of its own (`QP_VLLM_ARGS`) |
+| `--enable-prefix-caching` | When requests share a prefix | Prefill only, never decode | vLLM's own (`QP_VLLM_PREFIX_CACHING`) |
+| `--kv-cache-memory-bytes`, `--gpu-memory-utilization` | More KV cache: more requests at once, less preemption. By default the worker reserves 0.92 of the NUMA node's memory | Less preemption | 8 GiB (`QP_VLLM_KV_CACHE_GIB`), what the one run asked |
+| `--kv-cache-dtype fp8` | More tokens fit | The docs do not say | Not set (`QP_VLLM_KV_CACHE_DTYPE`) |
+| `--dtype bfloat16` | Advised when float16 misbehaves on CPU | Same | Not set (`QP_VLLM_DTYPE`) |
+| Weights | AWQ, GPTQ or INT8 W8A8 on x86 | — | The model's published weights, which the component's `source_id` names |
+| `-O0` or `--enforce-eager` | Slower steady state | Fastest start: no compiling | vLLM's own level, 2 (`QP_VLLM_OPTIMIZATION_LEVEL`; 0 starts with no compilation) |
+| `-tp` | One rank per NUMA node | More TP adds synchronisation | vLLM's own, 1 (`QP_VLLM_TENSOR_PARALLEL_SIZE`) |
+| `--stream-interval` | Larger "may increase" it | 1: smoother streaming | vLLM's own, 1 (`QP_VLLM_STREAM_INTERVAL`) |
+| Docker `--cap-add SYS_NICE`, seccomp, `--shm-size` | Without them NUMA binding silently does not apply | Same | The container's, which Domino sets; no variable: ask an administrator |
 
 ### FastAPI model server and its in-process model
 
 | Setting | For throughput | For latency | Here today |
 |---|---|---|---|
-| Uvicorn `workers` | More processes use more cores; each loads its own copy of the model. On a cluster the docs prefer one process per container and more replicas | The docs do not say | One process, and `uvicorn.run(app, ...)` passes an object, which Uvicorn refuses with `workers > 1` |
-| Model threads (intra-op) | Fewer per request avoids the cost of parallel work and oversubscription | More per request lowers its latency | Calibrated |
-| Batch size | The best one per backend, found by measuring | May differ from the throughput's best | Calibrated, reranker only |
-| Backend (Sentence Transformers) | Cross-encoders on CPU: OpenVINO `int8` if a small loss is acceptable, else OpenVINO, else ONNX `O3` | Same; ONNX is stronger at small batches | OpenVINO, or `torch` |
-| `fp16`, `bf16` on CPU | Avoid: about 0.17 times the speed of `fp32` for cross-encoders | Same | Not used |
-| Memory allocator, OpenMP pinning, `numactl` | jemalloc or TCMalloc, threads pinned, one instance per socket | The docs do not say | Not set |
-| `limit_concurrency` | Sheds load with an immediate 503; to queue it, a proxy in front or more workers | Same | Not set |
-| `backlog` | Matters only while the event loop is blocked | Same | Default, 2048 |
+| Uvicorn `workers` | More processes use more cores; each loads its own copy of the model. On a cluster the docs prefer one process per container and more replicas | The docs do not say | One process (`QP_UVICORN_WORKERS`, 1); above 1 the app goes to Uvicorn as an import string, and the workers divide the CPUs |
+| Model threads (intra-op) | Fewer per request avoids the cost of parallel work and oversubscription | More per request lowers its latency | Calibrated (`QP_COMPONENTS__<NAME>__LOCAL__THREADS`) |
+| Batch size | The best one per backend, found by measuring | May differ from the throughput's best | Calibrated, reranker only (`QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE`) |
+| Backend (Sentence Transformers) | Cross-encoders on CPU: OpenVINO `int8` if a small loss is acceptable, else OpenVINO, else ONNX `O3` | Same; ONNX is stronger at small batches | OpenVINO, or `torch` (`QP_LOCAL_MODELS__RUNTIME`) |
+| `fp16`, `bf16` on CPU | Avoid: about 0.17 times the speed of `fp32` for cross-encoders | Same | Not used; no variable |
+| Memory allocator, OpenMP pinning, `numactl` | jemalloc or TCMalloc, threads pinned, one instance per socket | The docs do not say | Not set (`QP_PROCESS_MEMORY_ALLOCATOR_LIBRARY`, `QP_PROCESS_OMP_PROC_BIND`); no `numactl` |
+| `limit_concurrency` | Sheds load with an immediate 503; to queue it, a proxy in front or more workers | Same | Not set (`QP_UVICORN_LIMIT_CONCURRENCY`) |
+| `backlog` | Matters only while the event loop is blocked | Same | Default, 2048 (`QP_UVICORN_BACKLOG`) |
 
 The model calls run on the project's own bounded thread pool
 (`infrastructure/local_models/model_pool.py`), not on AnyIO's pool of 40, so the
@@ -96,14 +97,15 @@ limit on that pool does not bound them.
 | Setting | For throughput | For latency | Here today |
 |---|---|---|---|
 | One shared client | Fewer handshakes, less CPU | No handshake on each request | One shared `AsyncClient`, created on the first request (`composition/http_resources.py`) |
-| `httpx.Limits` | 100 connections, 20 kept alive, 5 s idle; a full pool waits up to the `pool` timeout | The docs do not say | Defaults |
-| `http2=True` | Worth trying for highly concurrent requests; needs `h2` and a server that speaks HTTP/2 (Uvicorn's own is experimental) | The docs do not say | Off |
+| `httpx.Limits` | 100 connections, 20 kept alive, 5 s idle; a full pool waits up to the `pool` timeout | The docs do not say | Defaults (`QP_HTTP__MAX_CONNECTIONS`, `QP_HTTP__MAX_KEEPALIVE_CONNECTIONS`, `QP_HTTP__KEEPALIVE_EXPIRY_S`) |
+| `http2=True` | Worth trying for highly concurrent requests; needs `h2` and a server that speaks HTTP/2 (Uvicorn's own is experimental) | The docs do not say | Off (`QP_HTTP__HTTP2`) |
 | `loop`, `http` | uvloop and httptools, picked by themselves when installed | Same | Installed with `uvicorn[standard]` |
 
 ## Corrections to `docs/model-servers.md`
 
 That page was written from OVMS 2026.3.1. Its table "What OVMS's own material says
-matters for a reranker" still holds at 2026.4.1, but for two points:
+matters for a reranker" still holds at 2026.4.1, but for two points, corrected
+there on 19 November 2026:
 
 - OVMS adjusts threads, streams and pinning to its container only when it detects
   Docker or Kubernetes on Linux, and it sets a stream count only under the
@@ -114,7 +116,8 @@ matters for a reranker" still holds at 2026.4.1, but for two points:
 
 The advice of one stream a model with cores reserved, when several models share a
 server, rests on a maintainer's answer in issue 3136, not on a page of the
-documentation.
+documentation; that page now says so. Its sentence that the stream candidates go
+above the cores is corrected too: they stop at the cores.
 
 The detail of each server follows: every setting the documentation ties to speed,
 where it is set, its default, and its source.

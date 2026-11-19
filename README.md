@@ -130,7 +130,7 @@ flowchart LR
     end
     WF --> QD["qp-deploy"]
     DF --> QD
-    QD -->|"first: one App per served component"| MS["qp-rag-embedder, qp-rag-reranker<br/>model servers of a model-server kind: fastapi or ovms"]
+    QD -->|"first: one App per served component"| MS["qp-rag-embedder, qp-rag-reranker<br/>model servers of a model-server kind: fastapi, ovms or vllm"]
     QD -->|"then: each component's backend and served URL"| WA["qp-rag-workflow<br/>the workflow app: qp-serve --domino"]
     WA -->|"POST /v3/embeddings, /v3/rerank"| MS
     WA -->|"api backend"| EP["the LLM's endpoint"]
@@ -637,7 +637,7 @@ and no package imports it either, `extension_api` included.
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
 2. **Commands.** A command lives in its own application, in a module named
-   exactly after it with hyphens as underscores: the RAG system's eight in
+   exactly after it with hyphens as underscores: the RAG system's nine in
    `entrypoints/` (`qp-serve` is `entrypoints/qp_serve.py`), `qp-deploy` in
    `deploy/qp_deploy.py`, `qp-compare`, `qp-record-answers` and
    `qp-compare-answers` in `loadtest/` (`loadtest/qp_compare.py`, ...).
@@ -708,10 +708,11 @@ and no package imports it either, `extension_api` included.
    condition call only ports, so they are in the application; the description
    of a graph is in the domain, which both the settings that write it and the
    application that builds it may import. A model-server kind is what the
-   deploy tool publishes and refuses by, so it is in `deploy/`; the /v3 routes
-   it declares are wire-contract constants of the domain, which the FastAPI
-   model server answers on too. Four more kinds serve the components that are
-   called the same way (ADR 0008): an output schema (`OUTPUT_SCHEMAS` in
+   deploy tool publishes and refuses by, so it is in `deploy/`; the routes it
+   declares (the /v3 routes, and vLLM's /v1 ones) are wire-contract constants
+   of the domain, and the FastAPI model server answers on the /v3 ones too.
+   Four more kinds serve the components that are called the same way
+   (ADR 0008): an output schema (`OUTPUT_SCHEMAS` in
    `application/output_schemas.py`), a structured output method
    (`STRUCTURED_OUTPUT_METHODS` in `adapters/llm/api/base_structured_output_method.py`),
    the API format of a component type registered on its class line
@@ -812,7 +813,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
         routes.py     Route, RouteRequest, RouteChoice: a route of routes.yaml (name, description, utterances), and the router's request and answer
       endpoints/      what an Endpoint is and what is said to it
-        api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes
+        api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes (the /v3 routes, vLLM's /v1 ones)
         api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
         standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       retrieval/      what is searched and what comes back
@@ -952,10 +953,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         timed_trials.py  CalibrationLimits, TimedTrials: the trials, the budget rule, the report and its stage_calibrated line
         served_stage_calibration.py  BaseServedStage, calibrate_served: one model server start per candidate, streams then threads
       ovms/           OpenVINO Model Server, run by us
-        ovms_graph.py  ovms_plugin_config, graph_with_plugin_config: the graph's one plugin_config line for a tuning
+        ovms_graph.py  ovms_plugin_config, rewritten_graph: the graph's plugin_config line for a tuning and the App's OpenVINO properties (no NUM_STREAMS under a performance hint), its pool-size line, an embedder's truncate and max_length
         ovms_serving_folder.py  write_ovms_serving_folder: the export linked, a graph of our own; the export is never written; recorded_weight_format: what the export says its weights are stored as
         ovms_process.py  OvmsProcess: one ovms on a free local port for an async with, waited for and stopped
-      openvino_cpu_properties.py  openvino_cpu_properties: INFERENCE_NUM_THREADS and ENABLE_HYPER_THREADING for a thread count
+      openvino_cpu_properties.py  openvino_cpu_properties: INFERENCE_NUM_THREADS for a thread count, then the properties an openvino settings block chose
       one_line_failure.py  one_line_failure: how a command reports a failure an operator can act on, on one stderr line
       fake_text.py    tokenize, cosine: the text helpers the fake implementations share
       json_log.py     log_json: the one log format
@@ -981,7 +982,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         reranker_on_api.py  the reranker of an endpoint we do not run; open_reranker_at, which both use
         reranker_on_fake.py  FakeReranker
         reranker_on_none.py  NoReranker
-        llm_on_served.py  the LLM of a model server of ours (OVMS alone serves one): its served URL, the standard format, its alias
+        llm_on_served.py  the LLM of a model server of ours (OVMS or vLLM serves one): its served URL, the standard format, its alias
         llm_on_api.py  the LLM of an endpoint we do not run, under its own timeout; open_llm_at, which both use
         llm_on_fake.py  FakeLLM
         vector_store_on_elasticsearch.py  Elasticsearch, its client closed with the scope
@@ -993,7 +994,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_served_models.py  qp-served-models: each embedder, reranker and LLM of the workflow file (name, type, source id, alias, then the weight format), one line of shell words each
       qp_export_openvino.py  qp-export-openvino: convert the in-process models of the embedders and rerankers to OpenVINO files
       qp_calibrate.py  qp-calibrate: calibrate the in-process models (or OVMS) here, print the environment paths (or the OVMS App's variables) that pin them
-      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its export held to the weight format asked, its streams and threads calibrated first; with --serve-llm, an LLM's batching flags
+      qp_ovms_config.py  qp-ovms-config: the config an OVMS App starts with, its export held to the weight format asked, its streams and threads calibrated first; with --serve-llm, an LLM's flags; with --server-flags, the ovms server's flags
       qp_vllm_config.py  qp-vllm-config: the words a vLLM App's vllm serve takes for a component (its source id, alias and flags), and the environment it exports
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
@@ -1043,7 +1044,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a use case's Makefile runs it (locust -f) from the use case's directory
   docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002), a use case's directory its project directory
   ovms/               versions.env (single OVMS version pin), export_models.sh (into ovms/models of the working directory, a use case's)
-  domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh), Dockerfile (targets `rag` and `ovms`)
+  domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh, vllm.sh), Dockerfile (targets `rag` and `ovms`; neither is for a vLLM App)
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/, and in a crowded folder one sub-folder per sub-package, module or command (rule 9)
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
@@ -1116,6 +1117,7 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | --- | --- |
 | `USERS`, `SPAWN_RATE`, `RUN_TIME` | Makefile variables passed to `locust -u -r -t` |
 | `QP_LOADTEST_TARGET` | the user class: `rag` (default), `rerank` or `embeddings` |
+| `QP_LOADTEST_MODEL_SERVER_PATH` | the path a `rerank` or `embeddings` target posts to, default empty: `/v3/rerank` or `/v3/embeddings`, the paths of OVMS and of `qp-model-server`; `/v1/rerank` or `/v1/embeddings` for a vLLM App. A path starts with `/`. The row keeps its `/v3` name whatever the path, so `qp-compare` lines a vLLM run up with the same run on another kind |
 | `QP_LOADTEST_QUERY_WEIGHT` / `QP_LOADTEST_RETRIEVE_WEIGHT` | task weights, default `1` / `3`; a whole number of 0 or more |
 | `QP_LOADTEST_WAIT_MIN_S` / `QP_LOADTEST_WAIT_MAX_S` | each user waits a random time in this range between requests, default `0.2` / `1.0` s |
 | `QP_LOADTEST_REQUEST_TIMEOUT_S` | how long a user waits for one answer before Locust records a failure (its `network_timeout`), default `60` s, above 0 |
@@ -1293,8 +1295,8 @@ body), refused before any comparison, naming the first request that differs.
 The check runs on demand only, against real models where they run: nothing of
 it runs in `make check` or in CI but its own tests, on fakes. What to expect:
 the same code on two topologies answers the same, since a component served over
-HTTP returns what it returns in process. Two model servers (FastAPI and OVMS)
-or two weight formats may not: their scores move, and a passage can change
+HTTP returns what it returns in process. Two model-server kinds (FastAPI, OVMS,
+vLLM) or two weight formats may not: their scores move, and a passage can change
 places. Compare each with a baseline of its own.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
@@ -1338,12 +1340,13 @@ make loadtest RUN_NAME=split-reranker-fastapi HOST=http://localhost:8888
 
 On Domino, the model-server kind of each model server App picks the server:
 `server: fastapi` in its block of `deploy.yaml` (or in `defaults`) publishes the
-FastAPI server (no OVMS binary needed), `server: ovms` OVMS, and the two can
-serve the embedder and the reranker of one deploy side by side
-(`split-all+embedder=fastapi+reranker=ovms`). `qp-deploy` points the workflow
-app's `QP_COMPONENTS__RERANKER__SERVED__URL` /
+FastAPI server (no OVMS binary needed), `server: ovms` OVMS, `server: vllm`
+vLLM, and two kinds can serve the embedder and the reranker of one deploy side
+by side (`split-all+embedder=fastapi+reranker=ovms`). `qp-deploy` points the
+workflow app's `QP_COMPONENTS__RERANKER__SERVED__URL` /
 `QP_COMPONENTS__EMBEDDER__SERVED__URL` at each App URL plus the route its kind
-declares, `/v3/rerank` / `/v3/embeddings` for both.
+declares: `/v3/rerank` / `/v3/embeddings` for the first two, `/v1/rerank` /
+`/v1/embeddings` for vLLM ([vLLM](#vllm)).
 `QP_LOADTEST_TARGET` selects the Locust user class: `rag` (default,
 `/query` + `/retrieve`), `rerank` or `embeddings`.
 
@@ -1357,9 +1360,19 @@ FastAPI model server on `fp32`, and the whole lead was the 8-bit weights: on the
 same weights both served the same, 0.24 requests a second each at `fp32` and
 0.36 to 0.38 at `int8`. Ranking quality on `int8` weights was not checked.
 
-`docs/model-servers.md` sets the two servers side by side: what the documentation
-of OVMS and of FastAPI says about serving, how each is set up here, and what the
-sittings measured (streams, batch size, order of service).
+`docs/model-servers.md` sets the model servers side by side: what the
+documentation of OVMS, of FastAPI and of vLLM says about serving, how each is set
+up here, and what the sittings measured (streams, batch size, order of service).
+Nothing has been measured on vLLM here but a first look at the LLM.
+
+A run straight at a vLLM model server sets `QP_LOADTEST_MODEL_SERVER_PATH`, so
+that Locust posts to vLLM's `/v1/rerank` or `/v1/embeddings`. The row keeps the
+name it has on the other two kinds, so `qp-compare` lines the runs up:
+
+```bash
+QP_LOADTEST_MODEL_SERVER_PATH=/v1/rerank make loadtest-models RUN_NAME=rerank-vllm HOST=<URL of the vLLM reranker> TARGET=rerank
+qp-compare results/rerank-ovms results/rerank-vllm --out results/rerank.md
+```
 
 ## HTTP API
 
@@ -1480,7 +1493,8 @@ component on another backend ignores it. Each value it leaves out is the
 default every component shares, the workflow file's top-level `http` block
 (`QP_HTTP__TIMEOUT_S`, `QP_HTTP__RETRIES`, `QP_HTTP__BACKOFF_S`), so
 setting one of these changes it for every component that does not set its
-own. With every default in place the embedder and the reranker wait 30 s per
+own. The connection pool is the top-level block's alone: the workflow app
+holds one HTTP client, so no component's `http` block sets one. With every default in place the embedder and the reranker wait 30 s per
 request and the LLM 120 s, and each makes up to three requests, 0.2 s then
 0.4 s apart:
 
@@ -1495,9 +1509,9 @@ value is the default below; a workflow file may write any of them, and a
 variable named by its path wins over the file:
 
 ```yaml
-local_models: {runtime: openvino, openvino_dir: models/openvino, openvino_weight_format: fp32, workers: 4, cpus: 0}
+local_models: {runtime: openvino, openvino_dir: models/openvino, openvino_weight_format: fp32, workers: 4, cpus: 0, threads_per_core: 2, openvino: {hyper_threading: true}}
 calibration:  {budget_s: 90, rounds: 1, users: 4}
-http:         {timeout_s: 30, retries: 2, backoff_s: 0.2}
+http:         {timeout_s: 30, retries: 2, backoff_s: 0.2, max_connections: 100, max_keepalive_connections: 20, keepalive_expiry_s: 5.0, http2: false}
 domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240, tracing: false}
 ```
 
@@ -1507,13 +1521,17 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 | `local_models` | `openvino_dir` | `models/openvino` | where `qp-export-openvino` writes and the `openvino` runtime looks first, one folder per model and weight format |
 | `local_models` | `openvino_weight_format` | `fp32` | what both OpenVINO exports (in-process and OVMS) store the weights as: `fp32` \| `int8` (8-bit weight compression only); changing it exports again, into `<model>-int8` in-process. See [Weight format](#weight-format) |
 | `local_models` | `workers` | `4` | under the `torch` runtime, at most this many in-process inference calls at once (fewer on a small CPU budget); `openvino` ignores it and runs one call at a time (>= 1) |
-| `local_models` | `cpus` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins |
+| `local_models` | `cpus` | `0` | virtual CPUs for the thread budget; `0` = find out (Domino tier, else container), a positive value wins. Either way they are the App's CPUs, shared by the processes that serve it: under `QP_UVICORN_WORKERS` above 1, `qp-serve` and `qp-model-server` divide them among their workers |
+| `local_models` | `threads_per_core` | `2` | hyper-threads a core: the cores are the CPUs divided by it (>= 1). `2` is Intel x86 with hyper-threading, every machine of the sittings; `1` where it is off. OVMS's calibration tries no more streams than cores |
+| `local_models` | `openvino` | `{hyper_threading: true}` | OpenVINO's CPU properties the in-process models load with, beside their thread count; `torch` ignores them. The keys and their defaults are those of an OVMS App's `QP_OVMS_OPENVINO__*` (see [Variables](#variables)): `performance_hint`, `performance_hint_num_requests`, `hyper_threading`, `cpu_pinning`, `cpu_reservation`, `inference_precision_hint`, `execution_mode_hint`, and `properties` for any other, as OpenVINO spells it |
 | `calibration` | `budget_s` | `90` | per CPU-bound stage, the seconds calibration may search (at start-up or in `qp-calibrate`); no new candidate starts after them, and an OVMS trial still running then is abandoned (> 0) |
 | `calibration` | `rounds` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `calibration` | `users` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
 | `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the RAG's LLM sets `120`); also the timeout of the hardware-tier lookup |
 | `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
 | `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
+| `http` | `max_connections`, `max_keepalive_connections`, `keepalive_expiry_s` | `100`, `20`, `5.0` | the shared client's pool, httpx's own values: connections at once (>= 1), connections kept alive (>= 0), and the seconds an idle one is kept (>= 0). 32 users hold at most 32 calls in flight, and a handshake costs milliseconds against calls of 0.3 to 20 s. The top-level block's only |
+| `http` | `http2` | `false` | HTTP/2 on the shared client; `true` needs the `h2` package (`httpx[http2]`), and is refused without it, and a server that speaks HTTP/2 (Uvicorn's is experimental, OVMS has none). The top-level block's only |
 | `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `qp-serve --domino`, and for an `api` key set to `domino` |
 | `domino` | `token_ttl_s` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `domino` | `tracing` | `false` | wrap the workflow run with Domino `add_tracing` |
@@ -1691,13 +1709,48 @@ before the app serves, with one line in the server's log.
 | `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `QP_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `QP_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
 | `QP_LOCAL_MODELS__...`, `QP_CALIBRATION__...`, `QP_HTTP__...`, `QP_DOMINO__...` | from the workflow file, else the defaults | one value of a block the components share, named by its path, such as `QP_LOCAL_MODELS__CPUS` or `QP_DOMINO__TRACING` (see the shared blocks above) |
-| `QP_OVMS_NUM_STREAMS` | `0` | an OVMS model server App's own, no value of the workflow file: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the CPUs. Set in that App's block of `deploy.yaml` (`apps.<component>.settings`) |
+| `QP_OVMS_NUM_STREAMS` | `0` | an OVMS model server App's own, no value of the workflow file: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the cores (the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE`). Set in that App's block of `deploy.yaml` (`apps.<component>.settings`). Under a performance hint it is not calibrated nor written, and a pinned value is refused |
 | `QP_OVMS_THREADS` | `0` | an OVMS App's own: threads its inference shares, all streams together (`INFERENCE_NUM_THREADS`); `0` = calibrated at start-up, the CPUs down to 1; a pinned value below a pinned `QP_OVMS_NUM_STREAMS` is refused |
 | `QP_OVMS_START_TIMEOUT_S` | `120` | an OVMS App's own: how long one OVMS start may take to answer before its calibration fails (> 0) |
-| `QP_OVMS_DYNAMIC_SPLIT_FUSE` | `true` | an LLM's OVMS App's own: `false` has OVMS read a prompt in one pass (`--dynamic_split_fuse false`); refused on an embedder's or a reranker's App. See "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server) |
-| `QP_OVMS_MAX_BATCHED_TOKENS` | `0` | an LLM's OVMS App's own: the tokens OVMS batches in one step (`--max_num_batched_tokens`), `0` = OVMS's own choice, at least `0`; refused on an embedder's or a reranker's App, like `QP_OVMS_DYNAMIC_SPLIT_FUSE` |
+| `QP_OVMS_OPENVINO__PERFORMANCE_HINT` | empty | an embedder's or a reranker's OVMS App's own, like every `QP_OVMS_OPENVINO__*`: the graph's `PERFORMANCE_HINT`, `LATENCY` or `THROUGHPUT`; empty = not written. Set, it replaces `NUM_STREAMS`, which OVMS refuses beside it: the streams are not calibrated |
+| `QP_OVMS_OPENVINO__PERFORMANCE_HINT_NUM_REQUESTS` | `0` | `PERFORMANCE_HINT_NUM_REQUESTS`, which caps what the `THROUGHPUT` hint creates; `0` = not written, and any other value is refused without that hint |
+| `QP_OVMS_OPENVINO__HYPER_THREADING` | `true` | `ENABLE_HYPER_THREADING`, always written. Measured: a rerank request took 2.94 s with it and 3.38 s without (the sitting of 15 November 2026), against OpenVINO's own default under its latency mode |
+| `QP_OVMS_OPENVINO__CPU_PINNING`, `QP_OVMS_OPENVINO__CPU_RESERVATION` | unset | `ENABLE_CPU_PINNING`, `ENABLE_CPU_RESERVATION`; unset = not written, OVMS and OpenVINO decide (OVMS turns pinning off under a container CPU quota) |
+| `QP_OVMS_OPENVINO__INFERENCE_PRECISION_HINT` | empty | `INFERENCE_PRECISION_HINT`, `f32` or `bf16`; empty = not written: OpenVINO picks `bf16` by itself on a CPU with AMX |
+| `QP_OVMS_OPENVINO__EXECUTION_MODE_HINT` | empty | `EXECUTION_MODE_HINT`, `PERFORMANCE` or `ACCURACY`; empty = not written, OpenVINO's own is `PERFORMANCE` |
+| `QP_OVMS_OPENVINO__PROPERTIES` | `{}` | any other OpenVINO property, a JSON object of strings as OpenVINO names and spells them. A named setting left at its default yields to a property given here; a property a named setting that was set gives too is refused, and so are `NUM_STREAMS` and `INFERENCE_NUM_THREADS`, which calibration chooses |
+| `QP_OVMS_GRAPH_QUEUE_MAX_SIZE` | empty | an embedder's or a reranker's OVMS App's own: the graph's `# OVMS_GRAPH_QUEUE_MAX_SIZE:` line, `AUTO` or a count of graphs; empty = as exported (`AUTO`) |
+| `QP_OVMS_EMBEDDINGS_TRUNCATE`, `QP_OVMS_EMBEDDINGS_MAX_LENGTH` | unset, `0` | an embedder's OVMS App's own: the embeddings graph's `truncate` and `max_length`; unset and `0` = as exported. Refused on a reranker's App |
+| `QP_OVMS_REST_WORKERS` | `0` | every OVMS App's: `--rest_workers`; `0` = left out, OVMS's own, from the CPUs |
+| `QP_OVMS_METRICS` | `false` | every OVMS App's: `--metrics_enable`, OVMS's Prometheus endpoint (a share of CPU on light models) |
+| `QP_OVMS_LOG_LEVEL` | empty | every OVMS App's: `--log_level`, `DEBUG`, `INFO` or `ERROR`; empty = left out, `INFO` |
+| `QP_OVMS_CACHE_DIR` | empty | every OVMS App's: `--cache_dir`, where OVMS keeps compiled models between starts; empty = left out |
+| `QP_OVMS_ARGS` | empty | every OVMS App's: any other `ovms` argument, as written on its command line, split as a shell would, after the named flags. A named setting left at its default yields to a flag given here; a flag given here that a named setting that was set, or the launch script (`--rest_port`, `--config_path`, ...), gives too is refused, naming both |
+| `QP_OVMS_DYNAMIC_SPLIT_FUSE` | `false` | an LLM's OVMS App's own: `--dynamic_split_fuse`; `false` has OVMS read a prompt in one pass, `true`, OVMS's own, leaves the flag out. Refused on an embedder's or a reranker's App, like every LLM option. See "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server) |
+| `QP_OVMS_MAX_BATCHED_TOKENS` | `8192` | an LLM's OVMS App's own: the tokens OVMS batches in one step (`--max_num_batched_tokens`); `0` = left out, OVMS's own choice (>= 0) |
+| `QP_OVMS_MAX_NUM_SEQS` | `0` | an LLM's OVMS App's own: `--max_num_seqs`; `0` = left out, OVMS's 256. Refused above `QP_OVMS_MAX_BATCHED_TOKENS` while both are written |
+| `QP_OVMS_CACHE_SIZE_GB` | `0` | an LLM's OVMS App's own: `--cache_size`, the KV cache in GB; `0` = left out, a cache that grows as needed, which can take all the memory: a tier with little memory sets one |
+| `QP_OVMS_PREFIX_CACHING` | unset | an LLM's OVMS App's own: `--enable_prefix_caching`; unset = left out, on in pull mode |
+| `QP_OVMS_KV_CACHE_PRECISION` | empty | an LLM's OVMS App's own: `--kv_cache_precision`, `u8`, the one value pull mode takes; empty = left out. Its effect on answers is not checked |
+| `QP_OVMS_MODEL_DISTRIBUTION_POLICY` | empty | an LLM's OVMS App's own: `--model_distribution_policy`, `TENSOR_PARALLEL` or `PIPELINE_PARALLEL`, for several sockets; empty = left out |
+| `QP_VLLM_MAX_MODEL_LEN` | `0` | a vLLM model server App's own, like every `QP_VLLM_*`: `--max-model-len`, the most tokens a request may hold; `0` = left out, the model's own. The RAG's LLM states 4096 in its deploy file. See [vLLM](#vllm) |
+| `QP_VLLM_OPTIMIZATION_LEVEL` | unset | `--optimization-level`; unset = left out, vLLM's 2; `0` starts with no compilation, as `--enforce-eager` does |
+| `QP_VLLM_MAX_NUM_SEQS`, `QP_VLLM_MAX_NUM_BATCHED_TOKENS` | `0`, `0` | `--max-num-seqs`, `--max-num-batched-tokens`; `0` = left out, vLLM's 128 and 2048 on a CPU |
+| `QP_VLLM_PERFORMANCE_MODE` | empty | `--performance-mode`, `balanced`, `interactivity` or `throughput`; empty = left out, `balanced` |
+| `QP_VLLM_PREFIX_CACHING` | unset | `--enable-prefix-caching` or `--no-enable-prefix-caching`; unset = left out, vLLM's own (on for an LLM) |
+| `QP_VLLM_KV_CACHE_GIB` | `8` | `--kv-cache-memory-bytes`, in GiB; `0` = left out. The one default that is not vLLM's own: left out, vLLM keeps 0.92 of the host's memory, not the container's, for its cache. `VLLM_CPU_KVCACHE_SPACE` in the App's environment beside it is refused |
+| `QP_VLLM_KV_CACHE_DTYPE`, `QP_VLLM_DTYPE` | empty | `--kv-cache-dtype`, `--dtype`; empty = left out (`auto`, the model's). `fp8` fits more tokens; its effect on answers is not checked |
+| `QP_VLLM_TENSOR_PARALLEL_SIZE`, `QP_VLLM_STREAM_INTERVAL` | `0`, `0` | `--tensor-parallel-size`, `--stream-interval`; `0` = left out, vLLM's 1 |
+| `QP_VLLM_CPU_OMP_THREADS_BIND`, `QP_VLLM_CPU_RESERVED_CPUS` | empty, unset | exported as `VLLM_CPU_OMP_THREADS_BIND` and `VLLM_CPU_NUM_OF_RESERVED_CPU`; not exported by default (vLLM's `auto`, one thread a core, and one CPU kept for its API server). The App's environment holding either at another value is refused |
+| `QP_VLLM_ARGS` | empty | any other `vllm serve` argument, as written on its command line, split as a shell would, after the named flags. The same rule as `QP_OVMS_ARGS`, in each of vLLM's spellings of a flag (`_` for `-`, a value after `=`, `-O3`, `-tp`) |
+| `QP_UVICORN_WORKERS` | `1` | `qp-serve`'s and `qp-model-server`'s, set per App as `QP_OVMS_*` is: Uvicorn's processes, each loading its own models on its share of the CPUs. Above 1 the two commands divide the CPUs of the thread budget among them, and no other command does. On Domino, replicas rather than workers |
+| `QP_UVICORN_LIMIT_CONCURRENCY` | `0` | connections and tasks at once before Uvicorn answers 503; `0` = no limit: this project queues overload |
+| `QP_UVICORN_BACKLOG`, `QP_UVICORN_TIMEOUT_KEEP_ALIVE_S` | `2048`, `5` | the connections the socket holds while the event loop is busy, and the seconds an idle kept-alive connection stays open: Uvicorn's own |
+| `QP_PROCESS_MEMORY_ALLOCATOR_LIBRARY` | empty | `qp-serve`'s and `qp-model-server`'s: the path of a memory allocator, such as `/usr/lib/x86_64-linux-gnu/libjemalloc.so.2`, put first in `LD_PRELOAD` by one restart of the process; empty = the C library's. A path that names no file, a bare library name included, is refused before the restart. Installs nothing: the environment must hold the library |
+| `QP_PROCESS_OMP_PROC_BIND`, `QP_PROCESS_KMP_AFFINITY` | empty | exported as `OMP_PROC_BIND` and `KMP_AFFINITY` by the same restart; empty = not exported. Under `torch` only (OpenVINO pins its own threads); `KMP_AFFINITY` is read by Intel's OpenMP library alone. The environment holding either at another value is refused |
 | `DOMINO_API_PROXY`, `DOMINO_HARDWARE_TIER_ID` | set by Domino | Domino's own run variables, not settings of ours: read as-is (no `QP_` prefix) to look up the run's hardware tier |
 | `QP_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
+| `QP_LOADTEST_MODEL_SERVER_PATH` | empty | Locust side: the path a `rerank` or `embeddings` target posts to; empty = `/v3/rerank` or `/v3/embeddings`; `/v1/rerank` or `/v1/embeddings` for a vLLM App; a path starts with `/` |
 | `QP_TOP_K_RETRIEVE`, `QP_TOP_K_RERANK` | none: required by the `rerank` target | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the use case's sizes, which its `.env.example` states (the RAG's: `20`, `10`, its stages' `top_k`), and the workflow app does not read either. The aliases a model-server target sends default to the workflow file's, which only that target reads |
 | `QP_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
 | `QP_LOADTEST_QUERY_WEIGHT`, `QP_LOADTEST_RETRIEVE_WEIGHT`, `QP_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
@@ -1710,12 +1763,23 @@ Every tunable of the workflow is a setting of a component, a setting the compone
 or a setting of a stage of the graph, each read from the workflow file and its
 environment path; only the topology alias and the run label, two labels, are
 flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
-get the values as constructor arguments from the `composition/` package. An OVMS
-model server App's own variables (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`,
-`QP_OVMS_START_TIMEOUT_S`, and an LLM's `QP_OVMS_DYNAMIC_SPLIT_FUSE` and
-`QP_OVMS_MAX_BATCHED_TOKENS`) are no value of the workflow file: they belong to one
-App and its hardware, so they are flat, the fields of `OvmsSettings` in
-`config/apps/ovms_settings.py`, and set in that App's block of `deploy.yaml`. Sources
+get the values as constructor arguments from the `composition/` package. The
+variables of one App (`QP_OVMS_*`, `QP_VLLM_*`, `QP_UVICORN_*`, `QP_PROCESS_*`)
+are no value of the workflow file: they belong to one App and its hardware, so
+they are flat, the fields of a class of `config/apps/` (`OvmsSettings`,
+`VllmSettings`, `UvicornSettings`, `ProcessEnvironmentSettings`), and set in that
+App's block of `deploy.yaml` or in `.env`. A setting of one component type is
+refused on an App of another, by the type the workflow file gives the component,
+naming the variable: an LLM's option on an embedder's or a reranker's OVMS App,
+an embeddings graph option on a reranker's, the OpenVINO block, the graph-pool
+size or a stream or thread pin on an LLM's. Each server takes named settings and
+a pass-through (`QP_OVMS_ARGS`, `QP_VLLM_ARGS`, `QP_OVMS_OPENVINO__PROPERTIES`,
+`QP_LOCAL_MODELS__OPENVINO__PROPERTIES`): a named setting left at its default
+yields to the pass-through, and a value given both ways, the named setting set,
+is refused at start-up, naming both variables and both values. A named setting
+at its server's own value writes nothing, so the command line a machine has run
+is unchanged, but for the two batching flags of an LLM on OVMS and vLLM's KV
+cache, whose defaults this project chose. Sources
 win in the order the workflow file's section gives. An invalid runtime or
 component type, a run label or topology alias no header can carry (a default
 run label too long or with a component name outside those characters included:
@@ -1752,8 +1816,12 @@ Earlier versions named some settings differently: see
 virtual CPUs: `QP_LOCAL_MODELS__CPUS` if positive; on Domino, the `cores` of the run's
 hardware tier from `GET $DOMINO_API_PROXY/api/hardwaretiers/v1/hardwaretiers/$DOMINO_HARDWARE_TIER_ID`
 (a 403 without `ViewHardwareTiers` only logs a warning); otherwise the
-container's CPUs (`joblib.cpu_count()`, which honours the cgroup quota). How
-the whole CPUs are used depends on `QP_LOCAL_MODELS__RUNTIME`. Under `openvino`
+container's CPUs (`joblib.cpu_count()`, which honours the cgroup quota). These
+are the App's CPUs, a pinned `QP_LOCAL_MODELS__CPUS` too: `qp-serve` and
+`qp-model-server` with `QP_UVICORN_WORKERS` above 1 divide them among their
+worker processes, each loading its own models, and no other command divides
+them (`qp-ingest`, `qp-calibrate` and an OVMS App's calibration count one
+process). How the whole CPUs are used depends on `QP_LOCAL_MODELS__RUNTIME`. Under `openvino`
 one model call runs at a time and each model uses every CPU (8 CPUs: 1 worker x
 8 threads): an OpenVINO model fixes its threads when it loads and holds one
 inference request, so a second call on it while one runs fails with `Infer
@@ -1787,7 +1855,9 @@ Why: on a 2-CPU App machine (one core, two hyper-threads), under `openvino`, a
 rerank request of 20 passages took 5.49 s with one batch of 20, 3.38 s with
 batches of 2, and 2.94 s with batches of 2 on 2 real threads: 0.340 requests
 per second instead of 0.182. OpenVINO had kept to the physical core until it was
-allowed hyper-threads (`ENABLE_HYPER_THREADING`, now always set). Two copies of
+allowed hyper-threads (`ENABLE_HYPER_THREADING`, set by default since:
+`QP_LOCAL_MODELS__OPENVINO__HYPER_THREADING` in-process,
+`QP_OVMS_OPENVINO__HYPER_THREADING` on an OVMS App). Two copies of
 the model with one thread each gave nothing more.
 
 Limits. It times one request at a time, which is how a stage runs under
@@ -1807,9 +1877,14 @@ Streams only pay when several requests are in flight, so a stream count is
 chosen for a stated load: `QP_CALIBRATION__USERS` requests at once, 4 by
 default. A trial is the time until all of them are answered. OVMS takes its
 settings only when it starts, so each candidate is one start of `ovms`. Every
-stream count (1, 2, 4, ... up to the CPUs, 1 first) is timed on all the CPUs;
+stream count (1, 2, 4, ... up to the cores, 1 first) is timed on all the CPUs;
 then each smaller thread count, as long as it is at least the best stream
-count, with that stream count. The warm-up and rounds are the in-process ones,
+count, with that stream count. The cores are the CPUs divided by
+`QP_LOCAL_MODELS__THREADS_PER_CORE` (2 by default): OVMS's guide advises no more
+streams than cores, and 16 streams on 8 cores were the slowest candidate
+measured, so a 2-vCPU App tries one stream alone. A pinned stream count is
+tried as pinned. Under a performance hint (`QP_OVMS_OPENVINO__PERFORMANCE_HINT`)
+OVMS chooses the streams, so only the thread counts are searched. The warm-up and rounds are the in-process ones,
 and so is the sample: a reranker's `local.calibration_passages` passages, all
 kept, or one question an embedder embeds as a query.
 The budget also bounds a trial: one still running when it is spent is
@@ -1895,7 +1970,7 @@ With `--ovms-models DIR` it calibrates OVMS instead, on the export in DIR
 (`ovms` must be on `PATH`), in a temporary folder it removes; `--only` still
 picks one component. It searches both parameters, even pinned ones. Each
 component prints the same two variables, the OVMS App's own, since one OVMS App
-serves one component: pin them in that App's block of `deploy.yaml`
+serves one component (under a performance hint, the threads alone): pin them in that App's block of `deploy.yaml`
 (`apps.<component>.settings`, which its second comment names), not under
 `overrides`, which every App gets.
 
@@ -2066,11 +2141,11 @@ at once. A `served` or `api` embedder or reranker reports ready in `/readyz`
 after one real minimal request to its endpoint, sent once without retry; on a
 metered API that request is billed like any other.
 
-An OVMS or FastAPI model server is called as a `served` component, as in the
+An OVMS, FastAPI or vLLM model server is called as a `served` component, as in the
 split topologies on a laptop ([The real run](#the-real-run)). The LLM's
 `served` backend takes a URL and an alias (`QP_COMPONENTS__LLM__ALIAS`, else
 the last part of its `source_id`) and is called in OpenAI's chat format; OVMS
-is the one model server of ours that serves an LLM, in an App of its own on
+and vLLM are the model servers of ours that serve an LLM, in an App of its own on
 Domino ("A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)).
 
 An OpenAI-compatible gateway, for generation and embeddings:
@@ -2243,7 +2318,24 @@ while converting; with `HF_HUB_OFFLINE=1` or no network it fails, naming the
 model and the folder. The command is for filling the folder ahead of time, as
 the `rag` Docker image does at build. Each call uses the threads the thread
 budget gives it, or fewer when calibration finds them faster (OpenVINO's
-`INFERENCE_NUM_THREADS`, with `ENABLE_HYPER_THREADING`).
+`INFERENCE_NUM_THREADS`).
+
+The model loads with OpenVINO's other CPU properties from the workflow file's
+`local_models.openvino` block (`QP_LOCAL_MODELS__OPENVINO__*`), the block an OVMS
+App reads as `QP_OVMS_OPENVINO__*` (see [Variables](#variables)). At its
+defaults it writes `ENABLE_HYPER_THREADING`, as before, and nothing else:
+OpenVINO's own latency hint, one stream, suits a model that runs one call at a
+time. A site states only what it changes, such as full precision on a CPU with
+AMX, where OpenVINO picks `bf16` by itself, to compare answers across tiers:
+
+```bash
+QP_LOCAL_MODELS__OPENVINO__INFERENCE_PRECISION_HINT=f32 make serve
+```
+
+`QP_LOCAL_MODELS__OPENVINO__PROPERTIES` passes any other property as a JSON
+object; `INFERENCE_NUM_THREADS` and `NUM_STREAMS` there are refused, since the
+thread budget and calibration choose them. The `torch` runtime ignores the
+block.
 
 The OpenVINO packages come with the install (`sentence-transformers[openvino]`).
 Their `optimum-intel` accepts transformers below 5.6 only, so pip holds
@@ -2388,15 +2480,28 @@ of another weight format than the settings ask, then calibrates each of
 OVMS" above), and writes the serving folder for the choice: a copy of the
 export's `config_<component>.json`, and a `<alias>/` folder that links every
 file of the export's but `graph.pbtxt`. The graph is written there with its one
-`plugin_config` line set to `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and
-`ENABLE_HYPER_THREADING`, and no `PERFORMANCE_HINT` (OVMS refuses it with
-`NUM_STREAMS`). The export is never written, so it can stay on a read-only
-Dataset shared by several Apps. With both variables pinned nothing is
+`plugin_config` line set to `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and the
+properties of the App's OpenVINO block (`QP_OVMS_OPENVINO__*`: at its defaults
+`ENABLE_HYPER_THREADING` alone). A performance hint
+(`QP_OVMS_OPENVINO__PERFORMANCE_HINT`) takes the place of `NUM_STREAMS`, which
+OVMS refuses beside it; the hint beside a pinned `QP_OVMS_NUM_STREAMS` is
+refused. The graph's pool-size line (`QP_OVMS_GRAPH_QUEUE_MAX_SIZE`) and an
+embedder's `truncate` and `max_length` (`QP_OVMS_EMBEDDINGS_TRUNCATE`,
+`QP_OVMS_EMBEDDINGS_MAX_LENGTH`) are written only when set; each rewrite adds or
+replaces its line, never writes one twice, and at the defaults the graph is the
+export's but for its `plugin_config`. Then `ovms` starts on that config with
+the server's flags `qp-ovms-config --server-flags` prints, the same at each
+calibration start: `QP_OVMS_REST_WORKERS`, `QP_OVMS_METRICS`,
+`QP_OVMS_LOG_LEVEL`, `QP_OVMS_CACHE_DIR`, each only away from OVMS's own value,
+then the pass-through `QP_OVMS_ARGS`; at the defaults none, so the command is
+`ovms --rest_port 8888 --config_path <config>`. The export is never written, so
+it can stay on a read-only Dataset shared by several Apps. With both variables pinned nothing is
 calibrated and the App starts at once. When `qp-ovms-config` is not on `PATH`
 (the `ovms` kind's bootstrap installs no project), the script installs the
 toolkit and the use case with `uv` into `$HOME/qp-venv` first. Without `uv` it
 serves the export's own config, one stream and not calibrated, and says so on
-standard error; a pinned `QP_OVMS_NUM_STREAMS` or `QP_OVMS_THREADS` then stops
+standard error; a set `QP_OVMS_*` variable that only Python reads (every one but
+`QP_OVMS_MODELS_DIR`, `QP_OVMS_BUNDLE` and `QP_OVMS_PREFIX_PROXY`) then stops
 the App, since it cannot be applied. If `qp-ovms-config` fails, the App stops:
 the command's own line says why, and the script's adds that pinning both
 variables skips a calibration that failed. The prefix
@@ -2405,7 +2510,9 @@ OVMS on 15 November 2026, with the command under its name of that day: OVMS
 follows the linked model files of the serving folder, and it takes
 `NUM_STREAMS`, `INFERENCE_NUM_THREADS` and `ENABLE_HYPER_THREADING` together.
 The prefix proxy and the start without `uv` have only run against stand-ins,
-and so has all of it since the command took the toolkit's names and settings.
+and so has all of it since the command took the toolkit's names and settings:
+the OpenVINO block, the graph options and the server's flags included, so no
+real OVMS has yet read `--metrics_enable` or a performance hint from them.
 
 **An LLM on OVMS.** An `ovms` App of an LLM has no config to find: the script
 asks `qp-served-models` the component's type, then has OVMS pull its
@@ -2416,12 +2523,23 @@ first, and serve it under its `alias`: `ovms --source_model <source id>
 --target_device CPU`. An empty `source_id` stops the App, naming the component
 and the field. Nothing is exported or calibrated, and
 a pinned `QP_OVMS_NUM_STREAMS` or `QP_OVMS_THREADS` on an LLM's App is
-refused. Two options of the App's block of `deploy.yaml`, checked by
-`qp-ovms-config --serve-llm` before OVMS starts, set OVMS's batching:
-`QP_OVMS_DYNAMIC_SPLIT_FUSE` (default `true`; `false` reads a prompt in one
-pass) and `QP_OVMS_MAX_BATCHED_TOKENS` (default `0`, OVMS's own choice; at
-least `0`). Each flag is passed only away from OVMS's default; on an
-embedder's or a reranker's App either option is refused. It needs the
+refused, and so are the OpenVINO block, the graph-pool size and the embeddings
+options: OVMS writes that graph itself. The LLM's options of the App's block of
+`deploy.yaml` (`QP_OVMS_DYNAMIC_SPLIT_FUSE`, `QP_OVMS_MAX_BATCHED_TOKENS`,
+`QP_OVMS_MAX_NUM_SEQS`, `QP_OVMS_CACHE_SIZE_GB`, `QP_OVMS_PREFIX_CACHING`,
+`QP_OVMS_KV_CACHE_PRECISION`, `QP_OVMS_MODEL_DISTRIBUTION_POLICY`: see
+[Variables](#variables)) follow on its command line, then the server's flags,
+all checked by `qp-ovms-config --serve-llm` before OVMS starts. Each flag is
+passed only away from OVMS's default, and the defaults of the two batching
+options are away from it: OVMS reads each prompt in one pass,
+`--dynamic_split_fuse false --max_num_batched_tokens 8192`. On 16 vCPUs with prompts of 750 to 920 tokens
+that served 20.4 tokens a second against 11.6 with OVMS's own batching at
+4 users, p50 23 s against 42 s, and nothing changed at 1 user (the sitting of
+16 November 2026, OVMS by hand); 16 and 32 users are not measured, and OVMS's
+docs warn that large batches cost interactivity at high concurrency.
+`QP_OVMS_DYNAMIC_SPLIT_FUSE=true` with `QP_OVMS_MAX_BATCHED_TOKENS=0` gives
+OVMS's own batching back. On an embedder's or a reranker's App an LLM's option
+is refused. It needs the
 generic environment with `QP_BOOTSTRAP=1` and `QP_OVMS_BUNDLE`, not the
 prebuilt `ovms` image. What a served LLM is, how it is deployed and what is not
 verified of it: "A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
@@ -2482,11 +2600,12 @@ toolkit took its current names are not found again: see
 An App has one of two roles: the workflow app (`QP_ROLE=workflow`, the
 default), or a model server (`QP_ROLE=model-server`), which is told the
 component it serves (`QP_MODEL_SERVER_COMPONENT`, any component of the
-workflow file its kind serves, an LLM on `ovms` alone) and its model-server kind (`QP_MODEL_SERVER_KIND`).
+workflow file its kind serves, an LLM on `ovms` or `vllm`) and its model-server kind (`QP_MODEL_SERVER_KIND`).
 `app.sh` sources the kind's own launch script, `domino/model_servers/<kind>.sh`,
 which holds its bootstrap and its command: `fastapi` runs the FastAPI model
 server (`qp-model-server`, the component's local model on the `/v3` routes and
-formats), `ovms` runs OpenVINO Model Server. Each kind is also one registered
+formats), `ovms` runs OpenVINO Model Server, `vllm` runs vLLM (`vllm serve`, the
+same API formats on its `/v1` routes: [vLLM](#vllm)). Each kind is also one registered
 class (`deploy/model_server_kinds/`) that says which component types it serves,
 on which route, and how a served model is probed; a new kind is one class and
 one script, and neither `qp-deploy`'s flow nor `app.sh` changes. `server` in
@@ -2496,14 +2615,14 @@ follows from its topology alias in `deploy.yaml` (see "Topology aliases"
 below): one model server App per component it serves, then the workflow App.
 The table shows the three aliases of `deploy.example.yaml`.
 
-| Topology | App | `QP_ROLE` (kind: OVMS / FastAPI) | Environment variables | Image: OVMS / FastAPI |
+| Topology | App | `QP_ROLE` (kind: OVMS / FastAPI / vLLM) | Environment variables | Image: OVMS / FastAPI / vLLM |
 | --- | --- | --- | --- | --- |
 | `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
-| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
-| `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi`) | as above | `ovms` / `rag` |
-| | **C** model server: embedder | `model-server` (`ovms` / `fastapi`) | as above, `QP_MODEL_SERVER_COMPONENT=embedder` (FastAPI: weights from `QP_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` |
-| | **B** workflow | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
+| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
+| | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank` (`/v1/rerank` on vLLM), `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
+| `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | as above | `ovms` / `rag` / as above |
+| | **C** model server: embedder | `model-server` (`ovms` / `fastapi` / `vllm`) | as above, `QP_MODEL_SERVER_COMPONENT=embedder` (FastAPI and vLLM: weights from `QP_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` / as above |
+| | **B** workflow | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings` (`/v1/...` on vLLM), `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 
 `qp-deploy` also gives the workflow App `QP_TOPOLOGY_ALIAS`, the alias it
 deploys, which the app only reports as `X-RAG-Topology`. The workflow role runs
@@ -2522,7 +2641,9 @@ ours), pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks 
 pinned binary tarball under `/opt/ovms`. Push both images and create two Domino
 Environments from them (custom base image), or paste one stage's instructions
 into the Dockerfile Instructions field. Workspaces that ingest or run Locust use
-the `rag` environment.
+the `rag` environment. Neither image is for a vLLM App: both are built on
+Domino 6.2's standard environment, Ubuntu 22.04, where vLLM's CPU wheel does not
+install ([vLLM](#vllm)).
 
 **Models Dataset.** An OVMS model server reads its component's
 `config_<component>.json` (`config_reranker.json`, `config_embedder.json`) from
@@ -2580,7 +2701,8 @@ a little CPU on the same pod. Note it in the comparison and keep it identical
 across the OVMS runs. Callers outside prefix every route with the App URL
 (`https://<domino-host><DOMINO_RUN_HOST_PATH>/query`); `QP_COMPONENTS__RERANKER__SERVED__URL` /
 `QP_COMPONENTS__EMBEDDER__SERVED__URL` are the App URLs followed by `/v3/rerank` /
-`/v3/embeddings`.
+`/v3/embeddings`. A vLLM App hands the prefix to vLLM as `--root-path`, with no
+nginx in front ([vLLM](#vllm)); nobody has yet seen vLLM answer under the prefix.
 
 **Tracing and agent deployment.** Agent deployments use the same hosting as
 Apps (same `app.sh`, same `0.0.0.0:8888` rule) plus tracing through
@@ -2622,6 +2744,116 @@ use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (
 | `... holds an OVMS export at weight format ...`, from `app.sh[model-server ovms ...]` or from `qp-ovms-config` | the folder's export is of another weight format than the settings ask; set `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` to the format found (`overrides.local_models.openvino_weight_format` in `deploy.yaml`), or point `QP_OVMS_MODELS_DIR` at another folder |
 | `app.sh[model-server ovms ...]: qp-ovms-config could not write the OVMS config` | the reason is `qp-ovms-config`'s own line, just above; when it is OVMS's calibration that failed, pin `QP_OVMS_NUM_STREAMS` and `QP_OVMS_THREADS` in that App's `settings` to start without it |
 | `404` from an OVMS app on `/v3/...` | Domino forwards the path prefix; set `QP_OVMS_PREFIX_PROXY=1` on that app (see Proxy prefix) |
+| `app.sh[model-server vllm ...]: 'vllm' is not on PATH` | the environment has no `vllm` and the App did not install it: use an environment with glibc 2.39 or later (Ubuntu 24.04) and `uv`, where `QP_BOOTSTRAP=1` installs it, or one that has the command ([vLLM](#vllm)) |
+| `app.sh[model-server vllm ...]: installing vLLM failed` | `uv` could not install the toolkit's `vllm` group (see the lines above it); the wheel needs glibc 2.39, and the message names the environment's |
+| `qp-vllm-config: cannot read the settings: ...` in a vLLM App's log | a `QP_VLLM_*` setting the App refuses, such as a flag given both by name and in `QP_VLLM_ARGS`; the message names both |
+
+### vLLM
+
+vLLM is the third model-server kind, beside the FastAPI model server and OVMS. A
+`vllm` App serves one component of the workflow file, an embedder, a reranker or
+an LLM. It answers the API formats the workflow already speaks, so no adapter is
+added: only the route changes with the kind, `/v1/embeddings`, `/v1/rerank` and
+`/v1/chat/completions`, and it is probed on `/v1/models`. Nothing of this section
+has run on Domino, and most of it has not run on any machine: the end of the
+section says what has.
+
+**The pin.** The toolkit's `pyproject.toml` pins vLLM 0.32.0 in a dependency
+group of its own, `vllm`: the release's one CPU wheel for x86,
+`vllm-0.32.0+cpu-cp38-abi3-manylinux_2_39_x86_64.whl` (148 MB). The wheel needs
+glibc 2.39, so Ubuntu 24.04. It is a group, not an extra, because vLLM 0.32.0
+pins transformers 5.16 to 5.20 and torch 2.14, while the toolkit's
+`optimum-intel` holds transformers below 5.6: the two cannot be resolved
+together. `uv pip install --group vllm` installs the group alone, into a
+virtualenv of its own. No extra and no `make` target brings it.
+
+**How an App gets the `vllm` command.** From its environment, when the command
+is already on `PATH`: then nothing is installed. Otherwise, with
+`QP_BOOTSTRAP=1` (which `qp-deploy` always sets) and `uv`,
+`domino/model_servers/vllm.sh` creates `$HOME/vllm-venv` on the project's Python
+(`.python-version`) and installs the group there with `--torch-backend cpu`.
+vLLM's CPU page asks for Intel OpenMP to be preloaded when vLLM comes from a
+wheel, so the script adds `$HOME/vllm-venv/lib/libiomp5.so` to `LD_PRELOAD` when
+the file is there. When the install fails, the App stops and its message names
+the glibc the environment has. Without `vllm` and without `uv`, the App stops and
+says where the command can come from. Domino 6.2's standard environment, the
+base of both images of `domino/Dockerfile`, is Ubuntu 22.04 with glibc 2.35, so
+there the wheel does not install. A vLLM App on Domino 6.2 names an environment
+of its own (`apps.<part>.environment_id`): one built on Ubuntu 24.04 with `uv`,
+or one that already has the `vllm` command. vLLM's own image,
+`vllm/vllm-openai-cpu:v0.32.0-x86_64` (7.4 GB), has the command, so an
+environment built from it would install nothing. The App also needs
+`qp-vllm-config`: when it is missing, the script installs the toolkit and the
+use case into `$HOME/qp-venv` with `uv`, as an OVMS App does. The toolkit and
+vLLM never share a virtualenv.
+
+**The command line.** The App serves the weights its component's `source_id`
+names, which vLLM loads as published: nothing is exported, calibrated or
+recorded, and vLLM finds by itself that a model is an embedder or a reranker.
+It reads no weight format, so it is compared with the other kinds on `fp32`. An
+App that cannot reach the Hugging Face Hub loads the weights from a folder of a
+Dataset, which its `source_id` then names. `vllm.sh` exports the CPU variables
+`qp-vllm-config --environment <component>` prints, then runs:
+
+```bash
+vllm serve <source id> --served-model-name <alias> <the flags of QP_VLLM_*> \
+  --host 0.0.0.0 --port 8888 [--root-path <prefix>]
+```
+
+The flags are what `qp-vllm-config --serve <component>` prints: each named
+`QP_VLLM_*` setting away from vLLM's own value, in the order of the
+[Variables](#variables) table, then `QP_VLLM_ARGS`, any other argument as written
+on vLLM's command line, split as a shell would. At the defaults that is
+`--kv-cache-memory-bytes 8589934592` alone: left out, vLLM's CPU worker keeps
+0.92 of the NUMA node's memory, the host's and not the container's, for its
+cache, so the App asks 8 GiB, what the one run on a machine asked. The RAG's
+LLM adds `QP_VLLM_MAX_MODEL_LEN: 4096` in its App's block of `deploy.yaml`.
+`--port` is passed because vLLM's own default is 8000 and Domino routes to 8888.
+A flag given both ways, such as `QP_VLLM_MAX_MODEL_LEN=4096` with
+`--max-model-len 8192` in `QP_VLLM_ARGS`, or a flag the script writes, is refused
+before vLLM starts, naming both; the check reads vLLM's other spellings of a
+flag too (`_` for `-`, a value after `=`, `-O`, `-O3` or `-O=3` for the level,
+`-tp` for the parallel size). `VLLM_CPU_KVCACHE_SPACE`, which vLLM's page calls
+legacy and which sets the same cache, is refused in the App's environment while
+`QP_VLLM_KV_CACHE_GIB` or `QP_VLLM_ARGS` sets it.
+
+**The start and the memory.** On the check of 16 November 2026 (vLLM's image by
+hand, `experiments/2026-11-16-generator-ovms-pytorch-vllm-16-vcpus/`), vLLM took
+17 minutes to start on the LLM, because it compiles the model, and a second start
+was no shorter. It held 20 GB, with 8 GB asked for its cache. So a vLLM LLM needs
+a tier with room for that (32 GB), and a deploy whose wait covers the start
+(`wait_timeout_s`, 2400 for example, as `deploy.example.yaml` shows). Every
+replica that starts later pays the same minutes. `QP_VLLM_OPTIMIZATION_LEVEL=0`
+starts with no compilation; nobody has measured what it costs in speed. In
+Docker, vLLM's page runs it with 4 GB of shared memory and two rights for memory
+placement (`--cap-add SYS_NICE` and a seccomp profile), and says it works
+without those rights, possibly more slowly. They are the container's, which
+Domino sets: no App can state them. Domino's 6.3 documentation says a hardware
+tier gives 64 MB of shared memory unless an administrator raises it, so ask one
+before a sitting on vLLM.
+
+**The path prefix.** When Domino gives the App a path prefix
+(`DOMINO_RUN_HOST_PATH`), `vllm.sh` passes it, without its trailing `/`, as
+`--root-path`, vLLM's flag for a server behind a proxy that routes by path. No
+nginx sits in front, unlike OVMS's prefix proxy.
+
+**What vLLM's documentation says of these models.** It serves embedders and
+rerankers (it calls them pooling models) mainly for convenience, with no promise
+of being faster than the same model under Sentence Transformers. Its list of
+models validated on a CPU holds language models only. Its rerankers include BERT,
+RoBERTa, XLM-RoBERTa, ModernBERT and Qwen3, not CamemBERT: the RAG's reranker is a
+`CamembertForSequenceClassification`. Its embedders include XLM-RoBERTa, the RAG's
+embedder's architecture; the model itself is not named. On a CPU it recommends
+x86 with AVX-512 and takes Python 3.11 to 3.14.
+
+**What has run, and what has not.** The RAG's LLM, served by vLLM's image by hand
+on one machine on 16 November 2026 with `--max-model-len 4096`, through no launch
+script. Nothing else has run on a machine: not a vLLM App through `vllm.sh`, not
+vLLM installed by `uv` from the group, not vLLM serving the RAG's embedder or
+reranker, not vLLM answering under Domino's path prefix, not a vLLM LLM with no
+compilation or with the cache asked by its flag, not a Domino environment built
+from vLLM's image, and not a vLLM App on Domino. The tests run the launch script
+against a stand-in `vllm` command.
 
 ### Deploy on Domino in a few commands
 
@@ -2647,7 +2879,8 @@ the package index and the Hugging Face Hub. An environment without Python 3.11
 also needs access to GitHub, where `uv` downloads it from. For an App served by `ovms`, `ovms_bundle` points at the OVMS bundle (a folder with
 `bin/ovms` and `lib/`, or the release `.tar.gz`) at a path the Apps can read, for
 example `/domino/datasets/local/<dataset>/ovms.tar.gz`, and the environment needs
-root or `sudo` for `apt-get`. Run `qp-deploy` from the use case's directory: it
+root or `sudo` for `apt-get`. An App served by `vllm` needs no bundle, but an
+environment of its own on Ubuntu 24.04 ([vLLM](#vllm)). Run `qp-deploy` from the use case's directory: it
 finds the toolkit's launch script going up from there (the first directory that
 holds `query_processing/domino/app.sh`, refusing to publish when there is none),
 and every App runs that script by its absolute path and its role's command in
@@ -2714,9 +2947,12 @@ read back.
 reads that is no value of the workflow file (merged with the defaults', the
 App's winning; YAML numbers and booleans are exported as strings), for example
 `QP_OVMS_MODELS_DIR` (for example `/domino/datasets/local/<dataset>/ovms-models`),
-`QP_BOOTSTRAP_EXTRAS` or `QP_WORKFLOW_FILE`, and an OVMS App's own stream and
-thread counts once calibrated (`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`, in that
-App's block: `qp-calibrate --ovms-models` prints them). A value of the workflow file
+`QP_BOOTSTRAP_EXTRAS` or `QP_WORKFLOW_FILE`, and the variables of one App, each
+in that App's block: an OVMS App's own stream and thread counts once calibrated
+(`QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`: `qp-calibrate --ovms-models` prints
+them) and its other `QP_OVMS_*`, a vLLM App's `QP_VLLM_*`, and the `QP_UVICORN_*`
+and `QP_PROCESS_*` of a workflow App or a FastAPI model server
+([Variables](#variables)). A value of the workflow file
 written there, such as `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, is
 refused before anything is published, naming the place under `overrides` where
 it belongs. `qp-deploy` sets `QP_ROLE`,
@@ -2725,7 +2961,8 @@ its kind's script reads (`QP_OVMS_BUNDLE` for `ovms`), the workflow App's
 `QP_TOPOLOGY_ALIAS`, `QP_COMPONENTS__<COMPONENT>__BACKEND` of each component the
 topology alias names and `QP_COMPONENTS__<COMPONENT>__SERVED__URL` of each served
 one (the model server App's URL plus the route its kind declares for its type,
-`/v3/rerank`, `/v3/embeddings` or, for an LLM, `/v3/chat/completions`), and
+`/v3/rerank`, `/v3/embeddings` or, for an LLM, `/v3/chat/completions`, and on
+vLLM `/v1/rerank`, `/v1/embeddings` or `/v1/chat/completions`), and
 `QP_BOOTSTRAP` itself (they win over the
 settings and the overrides, which come first in the launch script), and
 `QP_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
@@ -2778,32 +3015,37 @@ type does not have (naming the type's backends: the vector store or the LLM on
 `local`, which the workflow App would otherwise refuse when it starts; a type's
 backends are its registered openers, rule 5), a model-server kind no class is registered
 under (naming the kinds), a served component its App's kind cannot serve (naming
-the kinds that can, such as `ovms` for an LLM on `fastapi`, or, when none can,
+the kinds that can, such as `ovms` and `vllm` for an LLM on `fastapi`, or, when none can,
 each kind and what it serves), and an alias
 whose run label the workflow app would refuse (letters, digits and `._+=:-`, up
 to 128 characters). Each message names the value and what was expected.
 
 **A served LLM.** The LLM can run in a model server App of its own, served by
-OpenVINO Model Server: a row that says `llm: served`, such as the example's
-commented `split-all-llm`, and `server: ovms` in `apps.llm` (or
-`defaults.server: ovms`), with `ovms_bundle` set. `ovms` is the one kind that
-serves an LLM, on its chat completions route; `fastapi` serves none. `qp-deploy`
-publishes `<app_name_prefix>-llm` (`qp-rag-llm`) after the other model servers
-and before the workflow App, which gets `QP_COMPONENTS__LLM__BACKEND=served` and
-the App's URL plus `/v3/chat/completions`, and calls it with the run token as it
-calls any served component; the run label gains `+llm=ovms`, and `make
-deploy-llm` publishes that App alone. The model OVMS serves is the LLM's
-`source_id` and the name it is served and asked for under its `alias`, both under
-`overrides.components.llm`, in one place. How the App starts and its two
-batching options: "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server).
+OpenVINO Model Server or by vLLM: a row that says `llm: served`, such as the
+example's commented `split-all-llm`, and `server: ovms` in `apps.llm` (or
+`defaults.server: ovms`), with `ovms_bundle` set, or `server: vllm` with an
+environment of its own. `ovms` and `vllm` serve an LLM, each on its chat
+completions route; `fastapi` serves none. `qp-deploy` publishes
+`<app_name_prefix>-llm` (`qp-rag-llm`) after the other model servers and before
+the workflow App, which gets `QP_COMPONENTS__LLM__BACKEND=served` and the App's
+URL plus `/v3/chat/completions` (`/v1/chat/completions` on vLLM), and calls it
+with the run token as it calls any served component; the run label gains
+`+llm=ovms` or `+llm=vllm`, and `make deploy-llm` publishes that App alone. The
+model the App serves is the LLM's `source_id` and the name it is served and asked
+for under its `alias`, both under `overrides.components.llm`, in one place: OVMS
+pulls OpenVINO's conversion, vLLM loads the weights as published, so moving the
+App from one kind to the other changes its `server` and the `source_id`. How an
+OVMS App starts and its batching options: "An LLM on OVMS" in
+[OpenVINO Model Server](#openvino-model-server); a vLLM App: [vLLM](#vllm).
 The workflow App's `/readyz` does not check the LLM, so it can report ready
-while OVMS still pulls the model on the LLM App's first start; a run started
-then records failed requests.
+while OVMS still pulls the model on the LLM App's first start, or vLLM still
+compiles it at any start; a run started then records failed requests.
 
-**Not verified.** An LLM App on OVMS has never run on a machine: not the App,
-not its launch script (its tests run it against a stand-in `ovms`), not the
-deploy. What has run is the bare `ovms` command, by hand, on 16 November 2026
-(`experiments/`): OVMS 2026.4.1 pulled the model `deploy.example.yaml` names (2.0 GB) and
+**Not verified.** An LLM App on OVMS or on vLLM has never run on a machine: not the App,
+not its launch script (its tests run it against a stand-in `ovms` or `vllm`), not
+the deploy. What has run is the bare `ovms` and `vllm serve` commands, by hand,
+on 16 November 2026 (`experiments/`; vLLM's start and memory: [vLLM](#vllm)).
+OVMS 2026.4.1 pulled the model `deploy.example.yaml` names (2.0 GB) and
 served it on `/v3/chat/completions` 60 s after its first start and 5 s
 after a later one; an App's first start adds its bootstrap and the install of
 the project. OVMS writes its `graph.pbtxt` again at every start with
@@ -2823,7 +3065,7 @@ waits, in order:
 | Domino's proxy, to the workflow App, then to a served LLM's App | Domino's own; the emulated Domino's 30 s | not a setting of this project; on the emulation, `forward_timeout_seconds` ([emulation/README.md](emulation/README.md)) |
 | One call to the LLM | 120 s in the RAG's workflow file | the LLM's `http.timeout_s` |
 | Attempts of that call | 3 (2 retries), 0.2 s then 0.4 s between | the LLM's `http.retries` and `http.backoff_s`, else the top-level `http` block's |
-| nginx in front of OVMS, with `QP_OVMS_PREFIX_PROXY=1` | 300 s | `proxy_read_timeout` in `domino/ovms-proxy.conf`, not a setting |
+| nginx in front of OVMS, with `QP_OVMS_PREFIX_PROXY=1` (none in front of vLLM) | 300 s | `proxy_read_timeout` in `domino/ovms-proxy.conf`, not a setting |
 
 A call that outlasts its timeout or a proxy's wait is sent again: a timeout is
 a transport error and a proxy that gave up answers a 5xx, and both are
@@ -2890,8 +3132,8 @@ Delete the cache file and the Apps are found by name again.
 `{domino_host}/{owner}/{project}/r/notebookSession/{instance id}`, where owner and
 project are the App's `project.ownerUsername` and `project.name` and the instance
 is the `Running` one of its current version (`domino_host` "" = the scheme and host
-of the App's own `url`). That URL, followed by `/v3/rerank` or `/v3/embeddings`,
-is what the workflow App gets as `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_COMPONENTS__EMBEDDER__SERVED__URL`;
+of the App's own `url`). That URL, followed by `/v3/rerank` or `/v3/embeddings`
+(`/v1/rerank` or `/v1/embeddings` on vLLM), is what the workflow App gets as `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_COMPONENTS__EMBEDDER__SERVED__URL`;
 the URL alone is what `qp-deploy url <part>` prints, what `make status` shows and
 checks `/readyz` on, and what the "Running" line after a deploy prints; the App's
 own `url` stays in the messages that point at its page or logs. The instance id
@@ -3038,16 +3280,17 @@ set, in Project → Settings → Environment variables:
 | `rag-ovms-reranker` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
+| `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `QP_DOMINO__TRACING` identical across projects
-(unset, or `true` everywhere). With a `rag-ovms-llm` project made by hand, the
+(unset, or `true` everywhere). With a `rag-ovms-llm` or `rag-vllm-llm` project made by hand, the
 `rag-workflow` project, whose App asks the LLM, must hold what `qp-deploy` would
 export for an alias whose row says `llm: served`: `QP_COMPONENTS__LLM__BACKEND=served`,
 `QP_COMPONENTS__LLM__SERVED__URL` (the LLM App's URL plus
-`/v3/chat/completions`), `QP_COMPONENTS__LLM__ALIAS` set to the same name in
+`/v3/chat/completions`, or `/v1/chat/completions` on vLLM), `QP_COMPONENTS__LLM__ALIAS` set to the same name in
 both projects (the name the LLM is served and asked for under), and
 `QP_TOPOLOGY_ALIAS` set to that alias (such as `split-all-llm`) to report the
 topology. A served LLM is called with the run token, so that project needs no
