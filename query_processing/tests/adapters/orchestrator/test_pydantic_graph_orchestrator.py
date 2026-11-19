@@ -9,6 +9,7 @@ stages, and accepts the fixture workflow's graph.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Callable
 from typing import Any
@@ -166,6 +167,26 @@ async def test_the_yes_row_is_taken_on_an_answer_of_true() -> None:
     assert list(final["timings_ms"]) == ["draft", "polish"]
 
 
+class Label(str):
+    """A ``str`` subclass, as a classifier's ``numpy.str_`` label is."""
+
+
+async def test_a_label_of_a_str_subclass_takes_its_str_row() -> None:
+    edge = ConditionalEdge.model_validate(
+        asking("draft", "label", ["draft"], {"long": "polish", "short": "END"})
+    )
+    opened = dataclasses.replace(
+        yes_or_no_after(answering(True)),
+        conditional_edges=[OpenedConditionalEdge(edge, answering(Label("long")))],
+    )
+
+    final = await PydanticGraphOrchestrator(opened).ainvoke(
+        initial_state("q?", "query")
+    )
+
+    assert list(final["timings_ms"]) == ["draft", "polish"]
+
+
 async def test_an_answer_of_1_does_not_take_the_true_row() -> None:
     orchestrator = PydanticGraphOrchestrator(yes_or_no_after(answering(1)))
 
@@ -190,7 +211,7 @@ def test_it_accepts_one_way_out_of_each_stage_at_a_time(graph: dict[str, Any]) -
 SEVERAL_WAYS_OUT = (
     "{names} {have} more than one way out at once; pydantic-graph ends a run when "
     "the first reaches END and cancels the others (expected one plain edge or one "
-    "conditional edge out of each stage, or the orchestrator 'langgraph')"
+    "conditional edge out of each stage)"
 )
 TWO_PLAIN_EDGES_OUT_OF_START = {
     "stages": {"a": said(["conversational_query"], ["x"]), "b": said(["x"], ["y"])},
@@ -261,6 +282,95 @@ def test_it_refuses_more_than_one_way_out_at_once_naming_the_stages(
         PydanticGraphOrchestrator.check_graph_runs(described(graph))
 
 
+def a_stage_named(name: str) -> dict[str, Any]:
+    """A conditional edge at START to ``rewrite`` or to a stage named ``name``."""
+    return {
+        "stages": {
+            "rewrite": said(["conversational_history"], ["standalone_query"]),
+            name: said(["standalone_query"], ["answer"]),
+        },
+        "edges": [["rewrite", name, "END"]],
+        "conditional_edges": [
+            asking(
+                "START",
+                "has_history",
+                ["conversational_history"],
+                {True: "rewrite", False: name},
+            )
+        ],
+    }
+
+
+@pytest.mark.parametrize("name", ["START:has_history", "START:has_history:decision"])
+def test_it_refuses_a_stage_named_as_a_node_of_a_conditional_edge(name: str) -> None:
+    message = (
+        f"stage {name!r} has the name of a node this orchestrator adds for the "
+        "conditional edge out of 'START' (expected a stage name other than "
+        "'START:has_history' and 'START:has_history:decision')"
+    )
+
+    with pytest.raises(ValueError, match=re.escape(message)):
+        PydanticGraphOrchestrator.check_graph_runs(described(a_stage_named(name)))
+
+
+def test_a_decision_is_a_node_named_after_its_conditional_edge() -> None:
+    orchestrator = PydanticGraphOrchestrator(opened_of(described(ROUTED_SHAPE)))
+
+    steps = set(orchestrator.graph.nodes)
+
+    assert "route:label:decision" in steps
+    assert not any(step.startswith("decision") for step in steps)
+
+
+A_STAGE_WITH_NO_WAY_OUT = {
+    "stages": {"a": said(["conversational_query"], ["x"]), "b": said(["x"], ["y"])},
+    "edges": [["START", "a"]],
+    "conditional_edges": [
+        asking("a", "is_query_mode", ["mode"], {True: "b", False: "END"})
+    ],
+}
+NOTHING_LEADS_TO_END = {
+    "stages": {"a": said(["conversational_query"], ["x"])},
+    "edges": [["START", "a"]],
+}
+A_STAGE_NO_EDGE_LEADS_TO = {
+    "stages": {"a": said(["conversational_query"], ["x"]), "b": said(["x"], ["y"])},
+    "edges": [["START", "a", "END"], ["b", "END"]],
+}
+# What the library says, then what it suggests (suppress=...) of its own API.
+SUPPRESS = (
+    " If this is intentional, you can suppress this error by passing "
+    "`validate_graph_structure=False` to the call to `GraphBuilder.build`."
+)
+
+
+@pytest.mark.parametrize(
+    ("graph", "said_by_the_library"),
+    [
+        (
+            A_STAGE_WITH_NO_WAY_OUT,
+            "The following nodes have no outgoing edges: ['b'].",
+        ),
+        (NOTHING_LEADS_TO_END, "The graph has no edges to the end node."),
+        (
+            A_STAGE_NO_EDGE_LEADS_TO,
+            "The following nodes are not reachable from the start node: ['b'].",
+        ),
+    ],
+    ids=["a-stage-with-no-way-out", "nothing-leads-to-end", "a-stage-no-edge-leads-to"],
+)
+def test_it_refuses_a_graph_its_library_does_not_build_in_the_library_s_words(
+    graph: dict[str, Any], said_by_the_library: str
+) -> None:
+    message = (
+        f"pydantic-graph does not build this graph: {said_by_the_library}{SUPPRESS} "
+        "(expected every stage on a path from START to END)"
+    )
+
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        PydanticGraphOrchestrator.check_graph_runs(described(graph))
+
+
 A_LOOP_ON_ONE_STAGE = {
     "stages": {"draft": said(["conversational_query"], ["answer"])},
     "edges": [["START", "draft"]],
@@ -291,7 +401,7 @@ A_LOOP_THROUGH_TWO_STAGES = {
 def test_it_refuses_a_loop_naming_its_stages(graph: dict[str, Any], loop: str) -> None:
     message = (
         f"the stages {loop} form a loop; pydantic-graph has no limit that stops "
-        "one (expected a graph without a loop, or the orchestrator 'langgraph')"
+        "one (expected a graph without a loop)"
     )
 
     with pytest.raises(ValueError, match=re.escape(message)):

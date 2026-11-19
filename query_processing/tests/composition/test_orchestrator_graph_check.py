@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -43,10 +44,11 @@ def test_an_orchestrators_refusal_is_a_graph_error_that_names_it(
     settings = settings_factory(**FAKE_BACKENDS, orchestrator=refusing)
     message = (
         "orchestrator 'refusing': stage 'rerank' has a conditional edge, which "
-        "this library does not run (expected plain edges only)"
+        "this library does not run (expected plain edges only); the default "
+        "orchestrator 'langgraph' accepts this graph"
     )
 
-    with pytest.raises(WorkflowGraphError, match=re.escape(message)):
+    with pytest.raises(WorkflowGraphError, match=f"^{re.escape(message)}$"):
         check_workflow_graph(settings)
 
 
@@ -73,9 +75,54 @@ def test_a_graph_pydantic_graph_refuses_is_a_graph_error_that_names_it(
     with pytest.raises(WorkflowGraphError) as refused:
         check_workflow_graph(settings)
 
-    assert str(refused.value).startswith(
-        "orchestrator 'pydantic_graph': 'rerank' has more than one way out at once;"
+    assert str(refused.value) == (
+        "orchestrator 'pydantic_graph': 'rerank' has more than one way out at "
+        "once; pydantic-graph ends a run when the first reaches END and cancels "
+        "the others (expected one plain edge or one conditional edge out of each "
+        "stage); the default orchestrator 'langgraph' accepts this graph"
     )
+
+
+def with_rerank_named(name: str) -> dict[str, Any]:
+    """The fixture graph, its stage ``rerank`` named ``name``."""
+    graph = fixture_graph()
+    stages = graph["stages"]
+    graph["stages"] = {(name if s == "rerank" else s): v for s, v in stages.items()}
+    graph["edges"] = [[name if n == "rerank" else n for n in c] for c in graph["edges"]]
+    for edge in graph["conditional_edges"]:
+        edge["source"] = name if edge["source"] == "rerank" else edge["source"]
+    return graph
+
+
+def test_a_refusal_of_the_default_offers_no_other_orchestrator(
+    settings_factory: SettingsFactory,
+) -> None:
+    settings = settings_factory(**FAKE_BACKENDS, graph=with_rerank_named("re:rank"))
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check_workflow_graph(settings)
+
+    assert str(refused.value) == (
+        "orchestrator 'langgraph': stage 're:rank' is no name LangGraph takes for "
+        "a node: ':' is a reserved character and is not allowed in the node "
+        "names. (expected a stage name LangGraph takes)"
+    )
+
+
+def test_a_refusal_offers_no_default_that_refuses_the_graph_too(
+    settings_factory: SettingsFactory,
+) -> None:
+    graph = with_rerank_named("re:rank")
+    graph["edges"].append(["re:rank", "END"])
+    settings = settings_factory(
+        **FAKE_BACKENDS, orchestrator="pydantic_graph", graph=graph
+    )
+
+    with pytest.raises(WorkflowGraphError) as refused:
+        check_workflow_graph(settings)
+
+    assert "'re:rank' has more than one way out at once" in str(refused.value)
+    assert "langgraph" not in str(refused.value)
 
 
 def test_the_orchestrator_is_asked_only_about_a_graph_the_toolkit_accepts(

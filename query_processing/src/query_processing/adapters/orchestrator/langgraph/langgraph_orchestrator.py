@@ -16,6 +16,7 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Hashable, Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any, Protocol, TypedDict, cast
 
 from langgraph.graph import END as LANGGRAPH_END
@@ -67,17 +68,25 @@ class LangGraphOrchestrator(BaseOrchestrator):
 
     @classmethod
     def check_graph_runs(cls, graph: GraphDescription) -> None:
-        """Refuse nothing: LangGraph runs every graph the toolkit's checks accept.
+        """Refuse a stage name LangGraph does not take for a node, in its words.
 
-        It is the reference the other orchestrators are held to, the library
-        the workflow file's names come from (ADR 0010).
+        LangGraph itself is asked: each name is added to a throwaway graph,
+        with a stand-in node, so what it refuses is its own rule, not a list
+        written here. It is the reference the other orchestrators are held to,
+        the library the workflow file's names come from (ADR 0010).
 
         Args:
-            graph: The workflow file's graph.
+            graph: The workflow file's graph, accepted by the toolkit's checks.
+
+        Raises:
+            ValueError: Naming the stage and LangGraph's reason.
 
         Example:
-            >>> LangGraphOrchestrator.check_graph_runs(settings.graph)  # never raises
+            >>> LangGraphOrchestrator.check_graph_runs(a_stage_named("re:rank"))
+            ValueError: stage 're:rank' is no name LangGraph takes for a node: ...
         """
+        for name in graph.stages:
+            _check_langgraph_takes(name)
 
     def __init__(self, opened: OpenedGraph) -> None:
         builder = StateGraph(state_type(opened.field_types, opened.reducers))
@@ -108,6 +117,29 @@ class LangGraphOrchestrator(BaseOrchestrator):
             'Q?!'
         """
         return await self.graph.ainvoke(state)
+
+
+# A dataclass, not a TypedDict: ty 0.0.100 does not match a TypedDict against
+# LangGraph's TypedDictLike bound (see __init__).
+@dataclass
+class _NoFields:
+    """The throwaway graph's state: no field, so only a node's name is asked."""
+
+
+def _check_langgraph_takes(name: str) -> None:
+    try:
+        StateGraph(_NoFields).add_node(name, _never_run)
+    except ValueError as exc:
+        raise ValueError(
+            f"stage {name!r} is no name LangGraph takes for a node: {exc} "
+            "(expected a stage name LangGraph takes)"
+        ) from exc
+
+
+async def _never_run(state: Any) -> dict[str, Any]:
+    # The stand-in node of the throwaway graph, which is never compiled.
+    del state  # LangGraph hands a node the state; the stand-in reads none
+    raise AssertionError("the stand-in node of the check ran")
 
 
 def state_type(

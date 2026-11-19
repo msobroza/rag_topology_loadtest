@@ -1,7 +1,10 @@
 """An orchestrator's library is imported by its adapter alone (ADR 0010).
 
 Read from the source with ``ast``: no module outside the adapter's directory
-imports the library, so the application and the domain import none.
+imports the library, so the application and the domain import none. The
+libraries are the registered orchestrators' names, read when the tests are
+collected: an orchestrator's directory of ``adapters/orchestrator/`` is named
+after the library it imports, so a third one is checked with no edit here.
 """
 
 from __future__ import annotations
@@ -11,14 +14,12 @@ from pathlib import Path
 
 import pytest
 
+from query_processing.testing import registered_orchestrators
 from repo_paths import TOOLKIT_ROOT
 
 PACKAGE = TOOLKIT_ROOT / "src" / "query_processing"
-# An orchestrator's library -> the one directory that may import it, its adapter.
-ORCHESTRATOR_LIBRARY_HOMES = {
-    "langgraph": PACKAGE / "adapters" / "orchestrator" / "langgraph",
-    "pydantic_graph": PACKAGE / "adapters" / "orchestrator" / "pydantic_graph",
-}
+# Each orchestrator's directory, named after its library: the one that may import it.
+ORCHESTRATORS_HOME = PACKAGE / "adapters" / "orchestrator"
 
 
 def imports_library(source: str, library: str) -> bool:
@@ -49,18 +50,21 @@ def test_the_library_reader_on_literal_sources() -> None:
     assert not imports_library("from .pydantic_graph import x", "pydantic_graph")
 
 
-@pytest.mark.parametrize("library", sorted(ORCHESTRATOR_LIBRARY_HOMES))
+@pytest.mark.parametrize("library", registered_orchestrators())
 def test_an_orchestrators_library_is_imported_by_its_adapter_alone(
     library: str,
 ) -> None:
-    home = ORCHESTRATOR_LIBRARY_HOMES[library]
+    home = ORCHESTRATORS_HOME / library
     importers = [
         path
         for path in sorted(PACKAGE.rglob("*.py"))
         if imports_library(path.read_text(encoding="utf-8"), library)
     ]
     offending = [_relative(path) for path in importers if home not in path.parents]
-    assert importers, f"nothing imports {library}: is {_relative(home)} its adapter?"
+    assert importers, (
+        f"nothing under {_relative(home)} imports a library named {library!r}: "
+        "an orchestrator's directory is named after the library it imports"
+    )
     assert not offending, f"only {_relative(home)} may import {library}: {offending}"
 
 

@@ -1850,27 +1850,58 @@ is asked whether it runs it as LangGraph does, still before any component
 opens, and refuses what it does not run: its refusal is a usage error after its
 name, `qp-serve: error: orchestrator '<name>': ...`, naming the stages
 (`composition/chosen_orchestrator.py`). It is asked only about a graph the
-checks above accept. `langgraph`, the default and the reference, refuses none.
-`pydantic_graph` refuses the two shapes its library does not run as LangGraph
-does (seen on pydantic-graph 2.70.0):
+checks above accept. When the orchestrator chosen is not the default and the
+default accepts the graph, the refusal ends by saying so, once; no
+orchestrator's own words name another.
 
+`langgraph`, the default and the reference, refuses a stage name LangGraph
+does not take for a node, in LangGraph's words: its check adds each name to a
+throwaway graph of LangGraph's and keeps no list of its own (LangGraph 1.2.22
+keeps `:` and `|` for itself). A stage `re:rank` is refused so:
+
+```
+qp-serve: error: orchestrator 'langgraph': stage 're:rank' is no name LangGraph takes for a node: ':' is a reserved character and is not allowed in the node names. (expected a stage name LangGraph takes)
+```
+
+`pydantic_graph` refuses what its library does not run as LangGraph does, or
+does not build (seen on pydantic-graph 2.70.0):
+
+- a stage named as a node the adapter adds for a conditional edge: the step
+  that asks its edge condition, `<source>:<edge condition>`, or its decision,
+  `<source>:<edge condition>:decision`;
 - `START` or a stage with more than one way out at once: two plain edges, a
   plain edge and a conditional edge, or two conditional edges on one source.
   pydantic-graph ends a run when the first branch reaches `END` and cancels
   the others, where LangGraph waits for every branch;
 - a loop, found with the standard library's `graphlib`: pydantic-graph has no
-  limit that stops one that never ends.
+  limit that stops one that never ends;
+- a graph its library refuses to build, in the library's words: a stage with
+  no way out, nothing that leads to `END`, a stage no edge from `START`
+  reaches. The check links the graph as the build does, with stand-in steps.
 
 A plain edge from `rerank` to `END` beside its conditional edge is refused so:
 
 ```
-qp-serve: error: orchestrator 'pydantic_graph': 'rerank' has more than one way out at once; pydantic-graph ends a run when the first reaches END and cancels the others (expected one plain edge or one conditional edge out of each stage, or the orchestrator 'langgraph')
+qp-serve: error: orchestrator 'pydantic_graph': 'rerank' has more than one way out at once; pydantic-graph ends a run when the first reaches END and cancels the others (expected one plain edge or one conditional edge out of each stage); the default orchestrator 'langgraph' accepts this graph
 ```
 
-and a stage whose conditional edge leads back to itself so:
+a stage whose conditional edge leads back to itself so:
 
 ```
-qp-serve: error: orchestrator 'pydantic_graph': the stages 'draft' -> 'draft' form a loop; pydantic-graph has no limit that stops one (expected a graph without a loop, or the orchestrator 'langgraph')
+qp-serve: error: orchestrator 'pydantic_graph': the stages 'rerank' -> 'rerank' form a loop; pydantic-graph has no limit that stops one (expected a graph without a loop); the default orchestrator 'langgraph' accepts this graph
+```
+
+a graph without `[generate, END]` so:
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': pydantic-graph does not build this graph: The following nodes have no outgoing edges: ['generate']. If this is intentional, you can suppress this error by passing `validate_graph_structure=False` to the call to `GraphBuilder.build`. (expected every stage on a path from START to END); the default orchestrator 'langgraph' accepts this graph
+```
+
+and the stage `generate` named `rerank:is_query_mode:decision` so, where
+LangGraph would refuse the name too:
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': stage 'rerank:is_query_mode:decision' has the name of a node this orchestrator adds for the conditional edge out of 'rerank' (expected a stage name other than 'rerank:is_query_mode' and 'rerank:is_query_mode:decision')
 ```
 
 The workflow state is built from the same fields: each field the request or a

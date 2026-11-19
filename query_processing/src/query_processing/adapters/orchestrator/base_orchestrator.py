@@ -71,6 +71,11 @@ class BaseOrchestrator(abc.ABC):
     async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
         """Run one request from its first state to its last.
 
+        The first state is the application's (``initial_state``): every field
+        that adds up (the metadata filter, the timings, the tokens) is already
+        set, as its reducer would make it, so an orchestrator does not reduce
+        the first state; it reduces only the stages' updates.
+
         Args:
             state: The state the request starts with.
 

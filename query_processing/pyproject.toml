@@ -207,6 +207,7 @@ ignore_decorators = [
     "@*EDGE_CONDITIONS.register",  # LangGraph calls an edge condition by its registry
     "@*_OPENERS.register",  # a backend's opener, found by ComponentFactory by name
     "@*MODEL_SERVER_KINDS.register",  # a model-server kind, found by the deploy tool by name
+    "@*ORCHESTRATORS.register",  # an orchestrator, found by the composition by name
 ]
 ignore_names = [
     "model_config",  # pydantic reads it off every model class

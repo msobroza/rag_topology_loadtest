@@ -41,9 +41,14 @@ def check_orchestrator_runs_graph(settings: WorkflowSettings) -> None:
         settings: The workflow settings, their graph already accepted by the
             toolkit's checks.
 
+    What the graph can run on instead is said here, once, for every
+    orchestrator: the default, when it is not the one chosen and its own check
+    accepts the graph. An adapter's refusal names no other orchestrator.
+
     Raises:
         WorkflowGraphError: The orchestrator's refusal, after its name:
-            ``orchestrator 'mine': stage 'rerank' has ...``.
+            ``orchestrator 'mine': stage 'rerank' has ...; the default
+            orchestrator 'langgraph' accepts this graph``.
 
     Example:
         >>> check_orchestrator_runs_graph(WorkflowSettings())  # langgraph: no raise
@@ -52,5 +57,17 @@ def check_orchestrator_runs_graph(settings: WorkflowSettings) -> None:
     try:
         orchestrator.check_graph_runs(settings.graph)
     except ValueError as exc:
-        name = settings.orchestrator
-        raise WorkflowGraphError(f"orchestrator {name!r}: {exc}") from exc
+        refusal = f"orchestrator {settings.orchestrator!r}: {exc}"
+        raise WorkflowGraphError(refusal + _instead(settings)) from exc
+
+
+def _instead(settings: WorkflowSettings) -> str:
+    # The default from the settings' own field, so no name is written twice.
+    default = WorkflowSettings.model_fields["orchestrator"].default
+    if settings.orchestrator == default:
+        return ""
+    try:
+        ORCHESTRATORS.get(default).check_graph_runs(settings.graph)
+    except ValueError:
+        return ""
+    return f"; the default orchestrator {default!r} accepts this graph"

@@ -1,5 +1,5 @@
 """The LangGraph orchestrator: its state, its reserved names, its rows, and its
-check, which refuses no graph.
+check, which asks LangGraph which stage names it takes.
 
 The runs of whole graphs on it are the tests of ``application/``: the
 workflow, the builder, and a stage that runs more than once.
@@ -7,6 +7,7 @@ workflow, the builder, and a stage that runs more than once.
 
 from __future__ import annotations
 
+import re
 from typing import Any, get_type_hints
 
 import pytest
@@ -130,5 +131,24 @@ LOOP_ENTERED_AT_START = {
     ],
     ids=["fixture", "dense", "lexical", "hybrid", "joined-at-two-depths", "loop"],
 )
-def test_langgraph_refuses_no_graph_as_the_reference(graph: dict[str, Any]) -> None:
+def test_langgraph_accepts_the_graphs_start_up_accepts(graph: dict[str, Any]) -> None:
     LangGraphOrchestrator.check_graph_runs(GraphDescription.model_validate(graph))
+
+
+@pytest.mark.parametrize("character", [":", "|"])
+def test_it_refuses_a_stage_name_langgraph_does_not_take_with_langgraph_s_reason(
+    character: str,
+) -> None:
+    name = f"re{character}rank"
+    graph = {
+        "stages": {name: said(["conversational_query"], ["answer"])},
+        "edges": [["START", name, "END"]],
+    }
+    message = (
+        f"stage {name!r} is no name LangGraph takes for a node: {character!r} is a "
+        "reserved character and is not allowed in the node names. (expected a "
+        "stage name LangGraph takes)"
+    )
+
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        LangGraphOrchestrator.check_graph_runs(GraphDescription.model_validate(graph))
