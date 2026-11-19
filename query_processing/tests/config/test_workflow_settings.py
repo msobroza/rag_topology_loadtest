@@ -48,6 +48,12 @@ def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     assert s.domino.token_ttl_s == 240.0
 
 
+def test_without_the_key_the_orchestrator_is_langgraph(
+    settings_factory: SettingsFactory,
+) -> None:
+    assert settings_factory().orchestrator == "langgraph"
+
+
 def test_tunables_read_qp_prefixed_env(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

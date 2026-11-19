@@ -24,6 +24,8 @@ from collections.abc import Iterable
 from functools import cache
 from typing import Any
 
+from pydantic import BaseModel
+
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
@@ -199,6 +201,29 @@ def local_settings(
     entry = {**component.model_dump(), "backend": LOCAL}
     # Read with its own class, so a router keeps the keys of its type.
     return type(component).model_validate(entry)
+
+
+def component_type_settings(settings: WorkflowSettings) -> dict[str, BaseModel | None]:
+    """Return the keys of each component's type, by the component's name.
+
+    The start-up checks give a plain call's written fields the labels its
+    component type declares from them, such as a router's routes.
+
+    Args:
+        settings: The workflow settings.
+
+    Returns:
+        Each component's type keys, read with its type's settings class; None
+        for a component whose type has none, or that is not registered.
+
+    Example:
+        >>> component_type_settings(settings)["router"].routes
+        ['self_contained', 'leans_on_history']
+    """
+    return {
+        name: c.type_block() if isinstance(c, RegisteredComponentSettings) else None
+        for name, c in settings.components.items()
+    }
 
 
 def _listed(names: Iterable[str]) -> str:

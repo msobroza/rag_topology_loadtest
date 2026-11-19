@@ -1,5 +1,6 @@
 """Named fakes of the ports a stage calls, which record what the workflow asked them,
-and a tracer that records the name of every step of a run.
+and a tracer that records the name of every step of a run, which it reaches
+through LangGraph's compiled graph (``compiled_langgraph``).
 
 Shared by the tests of the stage types, of the graphs and of the workflow app.
 """
@@ -10,18 +11,32 @@ from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.llm.base_llm import BaseLLM
+from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
+    LangGraphOrchestrator,
+)
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.adapters.vector_store.base_vector_store import (
     BaseLexicalSearch,
     BaseVectorStore,
 )
+from query_processing.application.workflow import CompiledWorkflow
 from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import Passage, ScoredPassage
+
+
+def compiled_langgraph(
+    workflow: CompiledWorkflow,
+) -> CompiledStateGraph[Any, Any, Any, Any]:
+    """LangGraph's compiled graph, of a workflow built on the langgraph orchestrator."""
+    orchestrator = workflow.orchestrator
+    assert isinstance(orchestrator, LangGraphOrchestrator), orchestrator
+    return orchestrator.graph
 
 
 def scored(passage_id: str, text: str | None = None) -> ScoredPassage:

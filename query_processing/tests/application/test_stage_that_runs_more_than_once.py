@@ -14,6 +14,9 @@ import pytest
 from pydantic import BaseModel
 
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
+    LangGraphOrchestrator,
+)
 from query_processing.application.edge_conditions.edge_condition import (
     EDGE_CONDITIONS,
     EdgeCondition,
@@ -103,7 +106,11 @@ async def run_graph(
     check_graph(description, {"llm": "llm"}, CONTEXT, edge_conditions=conditions)
     llm = SameCostLLM()
     workflow = build_workflow(
-        description, {"llm": llm}, CONTEXT, edge_conditions=conditions
+        description,
+        {"llm": llm},
+        CONTEXT,
+        LangGraphOrchestrator,
+        edge_conditions=conditions,
     )
     return await workflow.run("q"), llm
 

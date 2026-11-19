@@ -19,6 +19,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
 
+from query_processing.adapters.orchestrator.base_orchestrator import ORCHESTRATORS
 from query_processing.adapters.router.fake.fake_router import FakeRouter
 from query_processing.composition.openers.component_openers import (
     EMBEDDER_OPENERS,
@@ -330,6 +331,13 @@ COMPONENTS: dict[str, tuple[set[str], tuple[str, ...]]] = {
     ),
     "router": ({"BaseRouter"}, tuple(FakeRouter.backends)),
 }
+# Every package of adapters/: the components, and the orchestrator, the library
+# that runs the graph (ADR 0010), laid out as a component is, with one
+# directory per registered name.
+PORT_PACKAGES = {
+    **COMPONENTS,
+    "orchestrator": ({"BaseOrchestrator"}, ORCHESTRATORS.names()),
+}
 
 
 def port_implementations(source: str, ports: set[str]) -> list[str]:
@@ -443,7 +451,7 @@ def test_the_component_layout_on_a_literal_package(tmp_path: Path) -> None:
 def test_each_component_has_its_port_and_one_directory_per_backend() -> None:
     problems = [
         problem
-        for name, (ports, backends) in COMPONENTS.items()
+        for name, (ports, backends) in PORT_PACKAGES.items()
         for problem in component_problems(ADAPTERS / name, ports, backends)
     ]
     assert problems == []
@@ -452,7 +460,7 @@ def test_each_component_has_its_port_and_one_directory_per_backend() -> None:
 def test_every_port_implementation_lives_in_its_component() -> None:
     misplaced = [
         f"{path.relative_to(PACKAGE)}: {cls}"
-        for name, (ports, _) in COMPONENTS.items()
+        for name, (ports, _) in PORT_PACKAGES.items()
         for path in sorted(PACKAGE.rglob("*.py"))
         if path.relative_to(PACKAGE).parts[:2] != ("adapters", name)
         for cls in port_implementations(path.read_text(encoding="utf-8"), ports)
@@ -489,4 +497,4 @@ def test_the_adapters_rule_on_a_literal_package(tmp_path: Path) -> None:
 
 
 def test_adapters_holds_only_the_component_packages() -> None:
-    assert not_adapters(ADAPTERS, COMPONENTS) == []
+    assert not_adapters(ADAPTERS, PORT_PACKAGES) == []

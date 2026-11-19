@@ -1,6 +1,6 @@
 """The workflow state: what the request provides, and what the response reads.
 
-The state is no closed class: ``state_fields.state_type`` builds it from the
+The state is no closed class: the orchestrator builds it from the
 fields the request and the stages write, each with the type of what writes it.
 A request provides the conversational query, the conversational history (the
 earlier turns the client sends, possibly none), the standalone query, the mode

@@ -32,7 +32,8 @@ Example:
     ...     deps = await composition.workflow_dependencies()
     ...     graph = composition.settings.graph  # from the workflow file
     ...     context = stage_context(composition.settings)  # the prompts
-    ...     workflow = build_workflow(graph, deps.components(), context)
+    ...     orchestrator = composition.orchestrator()  # the settings' library
+    ...     workflow = build_workflow(graph, deps.components(), context, orchestrator)
     ...     result = await workflow.run("How many vacation days?")
 """
 
@@ -43,9 +44,9 @@ from types import TracebackType
 from typing import Any, NamedTuple, TypeVar
 
 import httpx
-from pydantic import BaseModel
 
 from ..adapters.embedder.base_embedder import BaseEmbedder
+from ..adapters.orchestrator.base_orchestrator import ORCHESTRATORS, BaseOrchestrator
 from ..adapters.reranker.base_reranker import BaseReranker
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.graph_check import check_graph
@@ -86,7 +87,7 @@ from .ovms_calibration import (
     OvmsServedComponent,
     require_asked_weight_format,
 )
-from .registered_components import local_settings
+from .registered_components import component_type_settings, local_settings
 from .resource_scope import ResourceScope
 
 C = TypeVar("C", bound=ComponentSettings)
@@ -174,6 +175,18 @@ class CompositionRoot:
             called, key=lambda name: self._component(name).type != "llm"
         )
         return RagDependencies({name: await self._open(name) for name in llms_first})
+
+    def orchestrator(self) -> type[BaseOrchestrator]:
+        """Return the orchestrator the settings name, for the workflow app.
+
+        Returns:
+            The class registered under ``settings.orchestrator``.
+
+        Example:
+            >>> composition.orchestrator()
+            <class 'LangGraphOrchestrator'>
+        """
+        return ORCHESTRATORS.get(self.settings.orchestrator)
 
     async def ingest_ports(self, embedder: str | None = None) -> IngestPorts:
         """Open an embedder and the vector store, for ``qp-ingest``.
@@ -471,26 +484,3 @@ def check_workflow_graph(settings: WorkflowSettings) -> None:
         stage_context(settings),
         component_type_settings(settings),
     )
-
-
-def component_type_settings(settings: WorkflowSettings) -> dict[str, BaseModel | None]:
-    """Return the keys of each component's type, by the component's name.
-
-    The start-up checks give a plain call's written fields the labels its
-    component type declares from them, such as a router's routes.
-
-    Args:
-        settings: The workflow settings.
-
-    Returns:
-        Each component's type keys, read with its type's settings class; None
-        for a component whose type has none, or that is not registered.
-
-    Example:
-        >>> component_type_settings(settings)["router"].routes
-        ['self_contained', 'leans_on_history']
-    """
-    return {
-        name: c.type_block() if isinstance(c, RegisteredComponentSettings) else None
-        for name, c in settings.components.items()
-    }

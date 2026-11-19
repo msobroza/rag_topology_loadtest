@@ -9,6 +9,9 @@ import pytest
 from pydantic import BaseModel
 
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
+    LangGraphOrchestrator,
+)
 from query_processing.adapters.reranker.none.no_reranker import NoReranker
 from query_processing.application.rag_dependencies import RagDependencies
 from query_processing.application.stages.base_stage import StageContext
@@ -32,6 +35,7 @@ from workflow_fakes import (
     RecordingEmbedder,
     RecordingReranker,
     ScriptedStore,
+    compiled_langgraph,
 )
 
 VACATION_QUESTION = synthetic_questions(1)[0]
@@ -65,7 +69,9 @@ def workflow_for(fake_settings: WorkflowSettings) -> WorkflowFor:
         deps: RagDependencies, prompts: dict[str, Prompt] | None = None, **changes: Any
     ) -> CompiledWorkflow:
         context = StageContext({**fake_settings.prompts, **(prompts or {})})
-        return build_workflow(rag_graph(**changes), deps.components(), context)
+        return build_workflow(
+            rag_graph(**changes), deps.components(), context, LangGraphOrchestrator
+        )
 
     return make
 
@@ -201,7 +207,9 @@ async def test_each_generate_stage_that_runs_reports_its_tokens_under_its_name(
     reported: list[str],
 ) -> None:
     context = StageContext({**fake_settings.prompts, "rewrite": REWRITE_PROMPT})
-    workflow = build_workflow(rewritten_first(), fake_deps.components(), context)
+    workflow = build_workflow(
+        rewritten_first(), fake_deps.components(), context, LangGraphOrchestrator
+    )
 
     result = await workflow.run("How many vacation days?", mode=mode)
 
@@ -279,7 +287,7 @@ async def test_every_step_of_the_graph_reaches_a_tracer_with_a_name(
     # on the unnamed step: "'NoneType' object has no attribute 'get'".
     recorder = ChainNameRecorder()
 
-    graph = workflow_for(fake_deps).graph
+    graph = compiled_langgraph(workflow_for(fake_deps))
     await graph.ainvoke(
         initial_state(VACATION_QUESTION, mode), {"callbacks": [recorder]}
     )

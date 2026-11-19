@@ -385,7 +385,8 @@ def test_the_ports_import_only_the_domain() -> None:
         )
         if imported.split(".")[1] != "domain"
     ]
-    assert len(ports) == 5, f"expected the five ports, found {ports}"
+    # The five components' ports and the orchestrator's (ADR 0010).
+    assert len(ports) == 6, f"expected the six ports, found {ports}"
     assert not offending, f"a port may import only the domain: {offending}"
 
 

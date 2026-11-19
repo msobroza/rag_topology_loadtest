@@ -2,34 +2,25 @@
 
 A field exists because the request or a stage writes it, and its type is the
 type of what writes it (spec 3.2). Two writers that disagree on a field's type
-are refused; a writer of type ``Any`` is not compared. LangGraph is handed a
-``TypedDict`` of those fields, built at run time, which always holds
-``timings_ms`` and ``tokens`` with their reducer. ``metadata_filter``
-accumulates: a stage that writes it adds conditions and never removes the
-client's.
+are refused; a writer of type ``Any`` is not compared. The orchestrator is
+handed those fields, which always hold ``timings_ms`` and ``tokens``, and the
+reducer of each field that adds up. ``metadata_filter`` accumulates: a stage
+that writes it adds conditions and never removes the client's.
 
 Example:
     >>> types = field_types_of({"embed": FieldTypes(
     ...     {"standalone_query": str}, {"query_embedding": list[float]})})
-    >>> StateGraph(state_type(types))
+    >>> state_field_types(types)["timings_ms"]
+    dict[str, float]
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from types import UnionType
-from typing import (
-    Annotated,
-    Any,
-    Literal,
-    NamedTuple,
-    TypedDict,
-    Union,
-    cast,
-    get_args,
-    get_origin,
-)
+from typing import Any, Literal, NamedTuple, Union, get_args, get_origin
 
+from ..domain.opened_graph import Reducer
 from ..domain.retrieval.metadata_filter import MetadataCondition
 from .stages.base_stage import FieldTypes, type_name
 from .workflow_state import (
@@ -204,37 +195,34 @@ def _class_accepts(given: Any, annotation: Any) -> bool:
     return all(map(annotation_accepts, given_args, taken_args))
 
 
-def state_type(field_types: Mapping[str, Any]) -> type[Any]:
-    """Return the LangGraph state of these fields, the measured ones with their reducer.
+def state_field_types(field_types: Mapping[str, Any]) -> dict[str, Any]:
+    """Return every field of the workflow state with its type, the measured ones too.
 
     Args:
-        field_types: Each field's type, by name, as ``field_types_of`` gives.
+        field_types: Each field the request and the stages write, with its
+            type, as ``field_types_of`` gives.
 
     Returns:
-        A ``TypedDict`` in which no field is required: a field is set when its
-        writer has run. ``metadata_filter``, ``timings_ms`` and ``tokens``
-        are always there, with their reducers.
+        Those fields, then ``metadata_filter``, ``timings_ms`` and ``tokens``
+        with the types their reducers take: what the orchestrator builds the
+        state from, with ``STATE_REDUCERS``.
 
     Example:
-        >>> get_type_hints(state_type({"draft": str}))["draft"]
-        <class 'str'>
+        >>> list(state_field_types({"draft": str}))[-2:]
+        ['timings_ms', 'tokens']
     """
-    fields = {
+    return {
         **field_types,
-        METADATA_FILTER_FIELD: Annotated[list[MetadataCondition], add_conditions],
-        TIMINGS_FIELD: Annotated[dict[str, float], sum_timings_by_stage],
-        TOKENS_FIELD: Annotated[dict[str, StageTokens], sum_tokens_by_stage],
+        METADATA_FILTER_FIELD: list[MetadataCondition],
+        TIMINGS_FIELD: dict[str, float],
+        TOKENS_FIELD: dict[str, StageTokens],
     }
-    # The functional form, since the fields are known only at run time; mypy
-    # types only a literal dict there.
-    make_typed_dict = cast(Any, TypedDict)
-    return cast(type[Any], make_typed_dict("WorkflowState", fields, total=False))
 
 
 def add_conditions(
     left: Sequence[MetadataCondition], right: Sequence[MetadataCondition]
 ) -> list[MetadataCondition]:
-    """Add a stage's conditions to the metadata filter; the field's LangGraph reducer.
+    """Add a stage's conditions to the metadata filter; the field's reducer.
 
     Args:
         left: The conditions so far, the client's first.
@@ -252,3 +240,12 @@ def add_conditions(
         if condition not in added:
             added.append(condition)
     return added
+
+
+# The fields that add up, each with its reducer: a stage's update is added to
+# the value so far, never put in its place.
+STATE_REDUCERS: dict[str, Reducer] = {
+    METADATA_FILTER_FIELD: add_conditions,
+    TIMINGS_FIELD: sum_timings_by_stage,
+    TOKENS_FIELD: sum_tokens_by_stage,
+}

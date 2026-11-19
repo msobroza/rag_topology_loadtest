@@ -810,6 +810,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
       query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
+      opened_graph.py  OpenedGraph, OpenedConditionalEdge: what an orchestrator is built from, the description with each stage opened and timed, each conditional edge with what it asks, the state's field types and reducers
       run_label.py    the run label: its default (each component with its backend), what a valid one is
       roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
       components/     what a component is and how it is called
@@ -834,12 +835,12 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState, what a request carries from stage to stage by field name (the state's type is built in state_fields); REQUEST_FIELD_TYPES, the fields the request writes; RESPONSE_FIELDS, those the response reads; REQUEST_FIELDS, those a stage may read wherever it is; MEASURED_FIELDS, timings_ms and tokens, which no stage writes; initial_state, sum_timings_by_stage, sum_tokens_by_stage
-      state_fields.py  field_types_of: each field the request and the stages write, with its type; state_type: the LangGraph state built from them; WorkflowGraphError
+      state_fields.py  field_types_of: each field the request and the stages write, with its type; state_field_types and STATE_REDUCERS: every field of the state and the reducers of those that add up, as the orchestrator is given them; WorkflowGraphError
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states: its stages, the field rule and the type rules, the edges through edge_check; fields_set_before
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
       edge_check.py   check_edges: the edges and conditional edges of a graph that cannot run, refused; field_labels: the labels each field can take
-      workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out; asked_of_state
-      workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
+      workflow_builder.py  build_workflow: a graph description, the components and the orchestrator's class in, the opened graph built on that orchestrator out; asked_of_state
+      workflow.py     CompiledWorkflow: one request through the orchestrator, its RagResult out; stage_timings
       prompt_rendering.py  render_prompt, prompt_variables: a prompt rendered into chat messages, each content in Jinja2's sandbox (the one module that uses Jinja2)
       output_schemas.py  OUTPUT_SCHEMAS: the pydantic models a generate stage can ask the LLM for, each field written to the field of its name
       stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
@@ -921,6 +922,10 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         fake/         backend: fake
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
           in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage
+      orchestrator/   the library that runs the workflow graph; importing it imports every module under it, so each orchestrator registers itself
+        base_orchestrator.py  BaseOrchestrator, the port: built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
+        langgraph/    orchestrator: langgraph, the default
+          langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, the one module importing LangGraph; state_type, langgraph_name, path_map
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
@@ -955,7 +960,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       fake_text.py    tokenize, cosine: the text helpers the fake implementations share
       json_log.py     log_json: the one log format
     composition/      the composition root: builds the adapters from the settings (rule 5)
-      composition_root.py  CompositionRoot: settings in, ready ports out; what each command asks for
+      composition_root.py  CompositionRoot: settings in, ready ports out, and the orchestrator's class the settings name; what each command asks for
       resource_scope.py  ResourceScope: each resource opened once, all closed together
       http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
@@ -964,7 +969,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
       registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
-      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names
+      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_type_settings, each component's type keys
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
         component_openers.py  SharedResources (what an opener is given), ComponentOpeners, the four registries (EMBEDDER_OPENERS, ...) and OPENERS_BY_TYPE
         embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for qp-calibrate
