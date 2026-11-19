@@ -22,6 +22,12 @@
 #         environment qp-deploy publishes into, with QP_BOOTSTRAP=1 and the
 #         OVMS bundle (QP_OVMS_BUNDLE).
 #
+# Neither image is for the model servers of kind vllm (QP_MODEL_SERVER_KIND=vllm):
+# both are built on Ubuntu 22.04, where vLLM's CPU wheel does not install (it
+# needs glibc 2.39), and neither holds the vllm command. Those Apps run in an
+# environment on Ubuntu 24.04 with uv and QP_BOOTSTRAP=1, which installs the
+# toolkit's `vllm` dependency group, or in one that already has vllm.
+#
 # Push the images and create two Domino Environments that use them as custom
 # base images, or pick BASE_IMAGE as the base environment and paste one stage's
 # instructions into the environment's "Dockerfile Instructions" field.

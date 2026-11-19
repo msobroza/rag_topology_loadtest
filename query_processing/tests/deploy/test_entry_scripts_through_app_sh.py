@@ -49,6 +49,7 @@ from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.model_server_kinds.base_model_server_kind import (
     MODEL_SERVER_KINDS,
+    model_server_kind,
 )
 from query_processing.deploy.publish import LaunchPaths, entry_script
 from query_processing.deploy.topology_alias import resolve_topology
@@ -58,11 +59,6 @@ APP_URLS = {
     "embedder": "https://domino.test/apps/e1",
     "reranker": "https://domino.test/apps/r1",
     "llm": "https://domino.test/apps/l1",
-}
-ROUTES = {
-    "embedder": "/v3/embeddings",
-    "reranker": "/v3/rerank",
-    "llm": "/v3/chat/completions",
 }
 # The example's three, and one more added to the table with no change in code.
 ALIASES = {
@@ -109,13 +105,20 @@ def expected_start(part: str, kinds: str, tmp_path: Path) -> tuple[str, str]:
     """``(stand-in, argv)`` app.sh must start for an App part and the Apps' kinds.
 
     Every script bootstraps (``QP_BOOTSTRAP=1``), so the project's commands run
-    from the venv ``uv`` made and OVMS from the bundle, on the config the
-    ``qp-ovms-config`` stand-in printed.
+    from the venv ``uv`` made, vLLM from its own venv on the words the
+    ``qp-vllm-config`` stand-in printed (one argument a line), and OVMS from the
+    bundle, on the config the ``qp-ovms-config`` stand-in printed.
     """
     if part == "workflow":
         return "venv-qp-serve", "--host 0.0.0.0 --port 8888 --domino"
     if KINDS[kinds][part] == "fastapi":
         return "venv-qp-model-server", f"--serve {part} --host 0.0.0.0 --port 8888"
+    if KINDS[kinds][part] == "vllm":
+        source_id = f"fixture-org/fixture-{part}"
+        served = [source_id, "--served-model-name", f"fixture-{part}"]
+        cache = ["--kv-cache-memory-bytes", str(8 * 2**30)]
+        listens = ["--host", "0.0.0.0", "--port", "8888"]
+        return "venv-vllm", "\n".join(["serve", *served, *cache, *listens])
     config = served_config(tmp_path)
     assert config.endswith(f"/config_{part}.json")
     return "bundle-ovms", f"--rest_port 8888 --config_path {config}"
@@ -218,7 +221,7 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
     }
     expected = {
         name: (
-            ("served", APP_URLS[name] + ROUTES[name])
+            ("served", APP_URLS[name] + route_of(kinds, name))
             if cell == "served"
             else ("local", "")
         )
@@ -230,6 +233,11 @@ def test_the_workflow_app_reads_each_component_where_the_alias_puts_it(
         alias,
         expected_label(alias, kinds),
     )
+
+
+def route_of(kinds: str, name: str) -> str:
+    """The route a component is served on, by the kind of its App in ``kinds``."""
+    return model_server_kind(KINDS[kinds][name]).route_of(name)
 
 
 def read_back(
@@ -385,7 +393,7 @@ def test_the_workflow_app_calls_the_llm_at_its_apps_chat_route_by_its_alias(
     llm = settings.model_components()["llm"]
     assert (llm.backend, llm.served.url, llm.alias) == (
         "served",
-        APP_URLS["llm"] + ROUTES["llm"],
+        APP_URLS["llm"] + model_server_kind("ovms").route_of("llm"),
         LLM_SERVED_NAME,
     )
     assert settings.run_label == f"{LLM_ALIAS}+embedder=ovms+reranker=ovms+llm=ovms"

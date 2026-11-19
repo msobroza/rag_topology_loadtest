@@ -84,6 +84,16 @@ qp-fake-domino = "fake_domino.server:main"
 # TEMPORARY, with the emulation.
 qp-domino-emulation = "fake_domino.emulation.server:main"
 
+[dependency-groups]
+# vLLM's CPU build, for an App of the vllm model-server kind, in a virtualenv of
+# its own: it pins transformers and torch apart from this project's. Installed
+# alone by domino/model_servers/vllm.sh (`uv pip install --group vllm
+# --torch-backend cpu`); no extra and no `make` target brings it. The wheel
+# needs glibc 2.39 (Ubuntu 24.04).
+vllm = [
+    "vllm @ https://github.com/vllm-project/vllm/releases/download/v0.32.0/vllm-0.32.0+cpu-cp38-abi3-manylinux_2_39_x86_64.whl",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

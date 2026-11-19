@@ -8,8 +8,9 @@
 #                 here, holds the kind's bootstrap and its command (fastapi.sh:
 #                 qp-model-server; ovms.sh: OpenVINO Model Server, on the config
 #                 qp-ovms-config prints, its streams and threads calibrated
-#                 first). A new kind is one more script there, and this dispatch
-#                 does not change.
+#                 first; vllm.sh: vllm serve, on the words qp-vllm-config
+#                 prints). A new kind is one more script there, and this
+#                 dispatch does not change.
 # Domino only routes traffic to processes listening on 0.0.0.0:8888.
 #
 # QP_USE_CASE_DIR (set by qp-deploy: the directory it ran from) is the use
