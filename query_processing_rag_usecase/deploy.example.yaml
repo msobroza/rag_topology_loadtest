@@ -90,9 +90,10 @@ defaults:
   # environment_revision: 7
   # Optional: the hardware tier, by its name in Domino: qp-deploy asks Domino
   # for its id and prints its cores and memory. Left out, the project's
-  # default. The id itself can be written instead, as hardware_tier_id.
-  # `make tiers` shows the tiers and their sizes.
+  # default. `make tiers` shows the tiers and their sizes.
   # hardware_tier: <tier name>
+  # Or, in its place, the tier's id itself:
+  # hardware_tier_id: <tier id>
   # The model-server kind of every model server App, unless its block sets its
   # own: fastapi (qp-model-server) | ovms (OpenVINO Model Server). Each kind is
   # one registered class and one launch script, the toolkit's
@@ -142,7 +143,7 @@ apps:
   # served by ovms alone (needs ovms_bundle): fastapi serves no LLM.
   # llm:
   #   server: ovms
-  #   hardware_tier_id: <a tier with 16 cores>
+  #   hardware_tier: <a tier with 16 cores>
   #   settings:
   #     # A folder this App can write, where OVMS pulls the model on its first
   #     # start (2 GB):

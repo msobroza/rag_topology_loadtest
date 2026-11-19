@@ -2875,7 +2875,8 @@ holds it giving the id: the documented call for the environment
 which gives only three revisions, the latest, the active and the restricted;
 then, only when none of those has the number, the internal route Domino's own
 pages use, which lists every revision (not in Domino's reference: see the list
-below). Each is asked at most once an environment. An App's own revision
+below). Each is asked once an environment, the internal route in two calls
+when its first answer is not its whole list. An App's own revision
 applies to its environment, its own or the default one, and wins over the
 default's, written either way. The default revision goes only with the default
 environment, so an App that sets its own `environment_id` does not take it. A
@@ -2935,7 +2936,7 @@ shows (an unknown name is refused with the names Domino has), and reads
 
 | Look | When | What it is |
 |---|---|---|
-| The list | input and output both a terminal | the arrows move, the space bar opens or closes an item, `/` narrows the items to the names holding the text typed, `escape` brings them all back, `q` quits |
+| The list | input and output both a terminal | the arrows move, the space bar opens or closes an item, `/` narrows the items to the names holding the text typed, `enter` then gives the keys back to the narrowed list (the cursor on its first item), `escape` brings every item back, `q` quits |
 | The table | anywhere else (a pipe, a file, a script), or with `--table` | plain text in aligned columns, no colour |
 | The details | with `--details` | every field Domino gave, as YAML, the name first |
 
@@ -2980,7 +2981,7 @@ first opened, and items named on the command line start open; `>` and `v` stand
 for the closed and open marks Textual draws):
 
 ```
-up/down move   space open/close   / filter   q quit
+up/down move   space open/close   / filter   enter to the list   esc all items   q quit
 
   > Domino Standard Environment Py3.10 R4.5   id 6231328a7a0af0281c01a69a
   v qp-rag                                    id 623132867a0af0281c01a69c
@@ -3183,7 +3184,9 @@ Domino**:
     three documented revisions lack is refused with what the route answered.
 12. The list that opens draws and takes its keys in the terminal of a Domino
     Workspace: its tests drive it with Textual's test pilot, and it was never
-    run in a Workspace's terminal.
+    run in a Workspace's terminal. Opening an environment waits on the internal
+    route, so the list does not answer keys while the call runs (up to
+    `http_timeout_s`).
 
 If one of these fails, the step-by-step section below is the fallback.
 

@@ -176,7 +176,7 @@ LLM_EXPORTS = (
 # alias row and the LLM's App block.
 SERVED_LLM = (
     "  # split-all-llm: {embedder: served, reranker: served, llm: served}\n",
-    "  # llm:\n  #   server: ovms\n  #   hardware_tier_id: real\n",
+    "  # llm:\n  #   server: ovms\n  #   hardware_tier: real\n",
 )
 
 
