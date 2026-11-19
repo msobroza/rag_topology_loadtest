@@ -126,9 +126,10 @@ The example leads with the two new keys. Under `defaults`, these lines take the 
   # environment_revision: 7
   # Optional: the hardware tier, by its name in Domino: qp-deploy asks Domino
   # for its id and prints its cores and memory. Left out, the project's
-  # default. The id itself can be written instead, as hardware_tier_id.
-  # `make tiers` shows the tiers and their sizes.
+  # default. `make tiers` shows the tiers and their sizes.
   # hardware_tier: <tier name>
+  # Or, in its place, the tier's id itself:
+  # hardware_tier_id: <tier id>
 ```
 
 In the comment above `apps`, `environment_revision_id` and `hardware_tier_id` become "`environment_revision` or `environment_revision_id`" and "`hardware_tier` or `hardware_tier_id`". In the Apps' blocks:
