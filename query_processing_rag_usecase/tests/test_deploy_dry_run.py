@@ -215,13 +215,33 @@ def test_the_commented_served_llm_deploys_it_by_ovms_once_uncommented(
     assert f"    export QP_RUN_LABEL={label}\n" in out
 
 
+def test_qp_deploy_writes_a_vllm_apps_entry_script(
+    filled_example: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The served LLM above, its App's kind changed to vllm: no bundle needed.
+    uncomment_the_llm_entry(filled_example, *SERVED_LLM)
+    ovms_app = "  llm:\n    server: ovms\n"
+    text = filled_example.read_text()
+    assert text.count(ovms_app) == 1
+    filled_example.write_text(text.replace(ovms_app, "  llm:\n    server: vllm\n"))
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "split-all-llm")
+
+    code, out, err = dry_run(capsys)
+
+    assert (code, err) == (0, "")
+    assert out.count("    export QP_MODEL_SERVER_KIND=vllm\n") == 1
+    url = re.findall(r"export QP_COMPONENTS__LLM__SERVED__URL=(\S+)", out)
+    assert [u.endswith("/v1/chat/completions") for u in url] == [True]
+    label = "split-all-llm+embedder=fastapi+reranker=fastapi+llm=vllm"
+    assert f"    export QP_RUN_LABEL={label}\n" in out
+
+
 # The LLM App's own settings, commented under its block: where OVMS pulls the
-# model, and the two batching options the check of 16 November 2026 chose.
-LLM_APP_VALUES = {
-    "QP_OVMS_MODELS_DIR": "/domino/datasets/local/real/ovms-llm",
-    "QP_OVMS_DYNAMIC_SPLIT_FUSE": "false",
-    "QP_OVMS_MAX_BATCHED_TOKENS": "8192",
-}
+# model. The two batching options the check of 16 November 2026 chose are the
+# defaults now, so the example shows OVMS's own batching, commented within.
+LLM_APP_VALUES = {"QP_OVMS_MODELS_DIR": "/domino/datasets/local/real/ovms-llm"}
 LLM_APP_SETTINGS = "  #   settings:\n" + "".join(
     f"  #     {name}: {value}\n" for name, value in LLM_APP_VALUES.items()
 )

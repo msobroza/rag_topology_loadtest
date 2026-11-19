@@ -14,6 +14,7 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
 )
 from query_processing.composition.composition_root import CompositionRoot
+from query_processing.config.apps.uvicorn_settings import UvicornSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.retrieval.passages import ScoredPassage
@@ -25,6 +26,8 @@ TOPOLOGY_ALIAS = "split-all"  # a label: every backend stays fake
 RUN_LABEL = "split-all-test-tier"
 QUESTION = "How many paid vacation days do employees accrue each year?"
 RERANK_URL = "http://ovms:8001/v3/rerank"
+# What main passes Uvicorn besides the address when no QP_UVICORN_* is set.
+UVICORNS_OWN = UvicornSettings(_env_file=None).run_arguments()
 RESPONSE_FIELDS = {
     "request_id",
     "topology",
@@ -342,7 +345,7 @@ def test_main_parses_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert main(["--host", "127.0.0.1", "--port", "9999"]) == 0
 
-    assert runs == [(sentinel_app, {"host": "127.0.0.1", "port": 9999})]
+    assert runs == [(sentinel_app, {"host": "127.0.0.1", "port": 9999, **UVICORNS_OWN})]
 
 
 def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -352,7 +355,7 @@ def test_main_defaults_to_domino_app_port(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert main([]) == 0
 
-    assert runs == [{"host": "0.0.0.0", "port": 8888}]
+    assert runs == [{"host": "0.0.0.0", "port": 8888, **UVICORNS_OWN}]
 
 
 def _capture_served_ports(monkeypatch: pytest.MonkeyPatch) -> list[CompositionRoot]:

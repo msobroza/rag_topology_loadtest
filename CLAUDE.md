@@ -8,7 +8,8 @@ rules, and `docs/adr/0003` to `0009` for the design.
   can assemble (package `query_processing`, commands `qp-*`, variables `QP_*`):
   the component types with their requests and answers, the stage types, the
   edge conditions, the API formats, the backends of the embedder, the
-  reranker, the LLM and the vector store, and the router's `fake` and `served`.
+  reranker, the LLM and the vector store, the router's `fake` and `served`,
+  and the three model-server kinds, `fastapi`, `ovms` and `vllm`.
 - `query_processing_rag_usecase/`: the RAG use case. It installs the toolkit and
   holds its settings (`workflow.yaml`, `prompts.yaml`, `routes.yaml`,
   `deploy.example.yaml`, `.env.example`, a `Makefile` of run targets), its

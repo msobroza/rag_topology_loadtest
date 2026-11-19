@@ -14,7 +14,8 @@ the graph as one JSON line, then does what ``behaviour`` says:
 - ``stubborn``: answers, but ignores SIGTERM, so only a kill stops it.
 
 ``write_ovms_export`` writes ``config_<component>.json`` and ``<alias>/`` with a
-``graph.pbtxt`` holding the exporter's one ``plugin_config`` line, and the
+``graph.pbtxt`` holding the exporter's graph-pool directive and its one
+``plugin_config`` line, and the
 folder's ``weight-format`` record, as ``ovms/export_models.sh`` writes it.
 
 Example::
@@ -30,7 +31,10 @@ import sys
 from pathlib import Path
 
 # The calculator options of the exporter's template, trimmed to what matters.
-GRAPH_TEMPLATE = """input_stream: "REQUEST_PAYLOAD:input"
+# OVMS 2026.4.1's export_model.py writes the graph-pool directive as the first
+# line of the embeddings and the rerank graphs.
+GRAPH_TEMPLATE = """# OVMS_GRAPH_QUEUE_MAX_SIZE: AUTO
+input_stream: "REQUEST_PAYLOAD:input"
 output_stream: "RESPONSE_PAYLOAD:output"
 node {
   name: "%(alias)s"
@@ -56,7 +60,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--rest_bind_address", default="0.0.0.0")
 parser.add_argument("--rest_port", type=int, required=True)
 parser.add_argument("--config_path", required=True)
-args = parser.parse_args()
+args, _ = parser.parse_known_args()  # the server flags are recorded, not read
 config_path = Path(args.config_path)
 model = json.loads(config_path.read_text())["model_config_list"][0]["config"]
 folder = config_path.parent / model["base_path"]
@@ -73,7 +77,8 @@ if BEHAVIOUR == "silent":
     time.sleep(600)
 if BEHAVIOUR == "stubborn":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
-slots = threading.Semaphore(int(plugin["NUM_STREAMS"]))
+# Under a performance hint no NUM_STREAMS is written: OpenVINO picks; one here.
+slots = threading.Semaphore(int(plugin.get("NUM_STREAMS", "1")))
 
 
 class Handler(BaseHTTPRequestHandler):

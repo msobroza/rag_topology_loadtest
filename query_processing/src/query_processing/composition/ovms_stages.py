@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import asyncio
 from abc import abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import Generic, Protocol, TypeVar
@@ -30,8 +30,8 @@ import httpx
 
 from ..adapters.embedder.api.api_embedder import ApiEmbedder, open_api_embedder
 from ..adapters.reranker.api.api_reranker import ApiReranker, open_api_reranker
+from ..config.apps.ovms_settings import OvmsSettings
 from ..config.components.component_settings import EmbedderSettings, RerankerSettings
-from ..config.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
 from ..domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
@@ -44,7 +44,11 @@ from ..domain.runtime.calibration import StageTuning, calibration_sample
 from ..infrastructure.calibration.served_stage_calibration import BaseServedStage
 from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
 from ..infrastructure.http.http_policy import HttpPolicy
-from ..infrastructure.ovms.ovms_graph import ovms_plugin_config
+from ..infrastructure.ovms.ovms_graph import (
+    OvmsGraphOptions,
+    ovms_plugin_config,
+    performance_hinted,
+)
 from ..infrastructure.ovms.ovms_process import OvmsProcess
 from ..infrastructure.ovms.ovms_serving_folder import (
     OvmsExport,
@@ -120,13 +124,23 @@ class OvmsServer:
     """What one OVMS calibration starts its candidates on.
 
     Example:
-        >>> server = OvmsServer(export, Path("/tmp/serving"), start_timeout_s=120.0)
+        >>> server = OvmsServer(export, Path("/tmp/serving"), start_timeout_s=120.0,
+        ...                     openvino_properties=ovms.openvino.chosen())
     """
 
     export: OvmsExport  # where OVMS's exporter wrote the model, read only
     serving_dir: Path  # the App's own folder each candidate is served from
     start_timeout_s: float  # how long one start may take (QP_OVMS_START_TIMEOUT_S)
+    # The graph's other CPU properties, beside each candidate's streams and
+    # threads: OvmsSettings.openvino.chosen() (QP_OVMS_OPENVINO__*).
+    openvino_properties: Mapping[str, str] = field(hash=False)
+    # The graph's pool size and embeddings options (QP_OVMS_GRAPH_QUEUE_MAX_SIZE,
+    # QP_OVMS_EMBEDDINGS_*), the same for every candidate.
+    graph_options: OvmsGraphOptions = field(default_factory=OvmsGraphOptions)
     binary: str = "ovms"  # the OVMS executable
+    # The App's ovms flags (OvmsSettings.server_flags()), on every candidate's
+    # start: a candidate is timed as it will be served.
+    server_flags: tuple[str, ...] = ()
 
 
 class _AnswersReady(Protocol):
@@ -179,6 +193,7 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
             ready=self._answers,
             start_timeout_s=self._server.start_timeout_s,
             binary=self._server.binary,
+            server_flags=self._server.server_flags,
         )
         async with process:
             yield
@@ -197,9 +212,9 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
             PosixPath('/tmp/ovms-serving/config_reranker.json')
         """
         server = self._server
-        plugin_config = ovms_plugin_config(tuning)
+        plugin_config = ovms_plugin_config(tuning, server.openvino_properties)
         return write_ovms_serving_folder(
-            server.export, server.serving_dir, plugin_config
+            server.export, server.serving_dir, plugin_config, server.graph_options
         )
 
     async def serve_sample(self) -> None:
@@ -223,16 +238,17 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
             tuning: The tuning to pin.
 
         Returns:
-            ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS``.
+            ``QP_OVMS_NUM_STREAMS`` and ``QP_OVMS_THREADS``; the threads alone
+            under a performance hint, which refuses a pinned stream count.
 
         Example:
             >>> stage.pinned_settings(StageTuning(threads=2, batch_size=1, streams=2))
             {'QP_OVMS_NUM_STREAMS': 2, 'QP_OVMS_THREADS': 2}
         """
-        return {
-            OvmsSettings.variable_of("num_streams"): tuning.streams,
-            OvmsSettings.variable_of("threads"): tuning.threads,
-        }
+        threads = {OvmsSettings.variable_of("threads"): tuning.threads}
+        if performance_hinted(self._server.openvino_properties):
+            return threads
+        return {OvmsSettings.variable_of("num_streams"): tuning.streams, **threads}
 
     def _endpoint(self, origin: str, route: str) -> ApiEndpoint:
         # A model server of ours speaks the standard format of the component's

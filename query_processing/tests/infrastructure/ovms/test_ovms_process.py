@@ -85,6 +85,23 @@ async def test_it_starts_ovms_on_a_free_local_port_and_stops_it(
     assert not is_running(pid)
 
 
+async def test_the_server_flags_reach_every_start(tmp_path: Path, config: Path) -> None:
+    # A candidate is timed as it will be served: with the App's server flags.
+    async with asyncio.timeout(BOUND_S):
+        process = OvmsProcess(
+            config,
+            ready=listens,
+            start_timeout_s=10.0,
+            binary=stand_in(tmp_path),
+            server_flags=("--rest_workers", "4"),
+        )
+        async with process:
+            pass
+
+    [start] = ovms_starts(tmp_path / "ovms.jsonl")
+    assert start["argv"][-2:] == ["--rest_workers", "4"]  # type: ignore[index]
+
+
 async def test_its_output_goes_to_standard_error_not_standard_output(
     tmp_path: Path, config: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:

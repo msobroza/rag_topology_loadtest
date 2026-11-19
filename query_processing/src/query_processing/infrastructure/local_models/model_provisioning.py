@@ -24,7 +24,9 @@ Example:
     >>> model = await provision_local_model(
     ...     "org/embedder",
     ...     runtime="openvino",
-    ...     exports=OpenVinoExports("models/openvino", "fp32"),
+    ...     exports=OpenVinoExports(
+    ...         "models/openvino", "fp32", {"ENABLE_HYPER_THREADING": "YES"}
+    ...     ),
     ...     export=export_embedder,
     ...     require_packages=require_openvino,
     ...     executor=pool,
@@ -70,9 +72,9 @@ async def provision_local_model(
     Args:
         model_id: The model's Hugging Face id or path.
         runtime: ``openvino`` or ``torch``; only ``openvino`` ever exports.
-        exports: The folder holding the OpenVINO exports and the weight format:
-            which folder loads, and what a missing one is exported at. ``torch``
-            ignores it.
+        exports: The folder holding the OpenVINO exports, the weight format
+            (which folder loads, and what a missing one is exported at) and
+            the CPU properties it loads with. ``torch`` ignores it.
         export: Downloads, converts and writes one model to a folder.
         require_packages: Raises when the ``openvino`` runtime's packages are
             missing; called under ``openvino`` before anything loads.
@@ -90,7 +92,7 @@ async def provision_local_model(
     Example:
         >>> model = await provision_local_model(
         ...     "org/reranker", runtime="torch",
-        ...     exports=OpenVinoExports("models/openvino", "fp32"),
+        ...     exports=OpenVinoExports("models/openvino", "fp32", {}),
         ...     export=export_reranker, require_packages=require_openvino,
         ...     executor=pool,
         ... )
@@ -109,6 +111,7 @@ async def provision_local_model(
         runtime=runtime,
         models_dir=exports.models_dir,
         weight_format=exports.weight_format,
+        openvino_properties=exports.properties,
     )
 
 

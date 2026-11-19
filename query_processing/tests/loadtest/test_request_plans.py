@@ -86,3 +86,29 @@ def test_default_pool_has_fifty_questions(monkeypatch: pytest.MonkeyPatch) -> No
     settings = settings_from(monkeypatch, {})
     pool = build_request_pool(settings.question_count, 20, 5)
     assert len(pool.questions) == 50
+
+
+# --- a model server answering elsewhere: the path moves, the row's name does not ---
+# qp-compare lines rows up by name, so a run on vLLM (/v1/...) lines up with the
+# same run on OVMS (/v3/...).
+
+
+def test_a_rerank_target_posts_to_the_path_the_settings_name() -> None:
+    plan = plan_rerank_request("r", POOL, random.Random(7), path="/v1/rerank")
+    assert (plan.path, plan.stats_name) == ("/v1/rerank", "/v3/rerank")
+    assert plan.payload == plan_rerank_request("r", POOL, random.Random(7)).payload
+
+
+def test_without_it_a_rerank_target_posts_to_v3() -> None:
+    plan = plan_rerank_request("r", POOL, random.Random(7), path="")
+    assert (plan.path, plan.stats_name) == ("/v3/rerank", "/v3/rerank")
+
+
+@pytest.mark.parametrize(
+    ("path", "posted"), [("", "/v3/embeddings"), ("/v1/embeddings", "/v1/embeddings")]
+)
+def test_an_embeddings_target_posts_to_the_path_named_else_v3(
+    path: str, posted: str
+) -> None:
+    plan = plan_embeddings_request("e", POOL, random.Random(7), path=path)
+    assert (plan.path, plan.stats_name) == (posted, "/v3/embeddings")

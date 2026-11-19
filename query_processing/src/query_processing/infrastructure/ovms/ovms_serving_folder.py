@@ -8,7 +8,8 @@ serving folder is the App's own and holds:
   ``config_embedder.json``), whose ``base_path`` names ``<alias>`` relative to
   the config file, so it resolves here;
 - ``<alias>/``, a symlink to every entry of the export's ``<alias>/`` but
-  ``graph.pbtxt``, which is written with the plugin config given. The graph's
+  ``graph.pbtxt``, which is written with the plugin config and the graph
+  options given (``ovms_graph.py``). The graph's
   ``models_path: "./"`` is relative to the graph's folder, so it finds the
   linked model files.
 
@@ -22,6 +23,7 @@ Example:
     ...     OvmsExport(Path("/mnt/data/ovms-models"), "config_reranker.json", "rr"),
     ...     Path("/tmp/ovms-serving"),
     ...     {"NUM_STREAMS": "2", "INFERENCE_NUM_THREADS": "2"},
+    ...     OvmsGraphOptions(),
     ... )
 """
 
@@ -32,7 +34,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import NamedTuple
 
-from .ovms_graph import graph_with_plugin_config
+from .ovms_graph import OvmsGraphOptions, rewritten_graph
 
 GRAPH_FILE = "graph.pbtxt"  # the name OVMS's exporter gives every graph
 WEIGHT_FORMAT_FILE = "weight-format"  # one line, written by ovms/export_models.sh
@@ -56,7 +58,10 @@ class OvmsExport(NamedTuple):
 
 
 def write_ovms_serving_folder(
-    export: OvmsExport, serving_dir: Path, plugin_config: Mapping[str, str]
+    export: OvmsExport,
+    serving_dir: Path,
+    plugin_config: Mapping[str, str],
+    graph_options: OvmsGraphOptions,
 ) -> Path:
     """Build in ``serving_dir`` what OVMS serves ``export`` from, its graph rewritten.
 
@@ -64,6 +69,8 @@ def write_ovms_serving_folder(
         export: Where the exporter wrote the model, read only.
         serving_dir: A folder of the App's own; created when missing.
         plugin_config: The properties the graph's ``plugin_config`` holds.
+        graph_options: The graph's pool and embeddings options; at their
+            defaults the export's lines are kept.
 
     Returns:
         The config file to start OVMS with (``--config_path``).
@@ -72,10 +79,12 @@ def write_ovms_serving_folder(
         FileNotFoundError: If the export's graph or config file is missing; the
             message names the path and ``ovms/export_models.sh``.
         ValueError: If the export's graph has not exactly one ``plugin_config``
-            line.
+            line, or holds the graph-pool directive twice.
 
     Example:
-        >>> write_ovms_serving_folder(export, Path("/tmp/s"), {"NUM_STREAMS": "1"})
+        >>> write_ovms_serving_folder(
+        ...     export, Path("/tmp/s"), {"NUM_STREAMS": "1"}, OvmsGraphOptions()
+        ... )
         PosixPath('/tmp/s/config_reranker.json')
     """
     source = export.models_dir / export.alias
@@ -84,8 +93,11 @@ def write_ovms_serving_folder(
     model_dir = serving_dir / export.alias
     model_dir.mkdir(parents=True, exist_ok=True)
     _link_model_files(source, model_dir)
-    text = graph_with_plugin_config(
-        graph.read_text(encoding="utf-8"), plugin_config, source=str(graph)
+    text = rewritten_graph(
+        graph.read_text(encoding="utf-8"),
+        plugin_config,
+        graph_options,
+        source=str(graph),
     )
     (model_dir / GRAPH_FILE).write_text(text, encoding="utf-8")
     served_config = serving_dir / export.config_file

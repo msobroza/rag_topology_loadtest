@@ -9,8 +9,8 @@ so each value has the variable its path names, such as
 - ``local_models``: what the in-process models share, those of the components
   on the ``local`` backend: the runtime that runs them, where the ``openvino``
   runtime keeps their files and what it stores their weights as (the weight
-  format, which OVMS's export reads too), and the workers and CPUs of the
-  thread budget;
+  format, which OVMS's export reads too), its CPU properties (``openvino``),
+  and the workers, CPUs and threads per core of the thread budget;
 - ``calibration``: the budget and the rounds every calibration runs under, and
   the requests in flight a model server is calibrated for;
 - ``http``: the default of each value a component's own ``http`` block leaves
@@ -31,6 +31,7 @@ from pydantic import Field
 
 from ..domain.runtime.backends import LocalModelRuntime, OpenVinoWeightFormat
 from .components.component_settings import SettingsBlock
+from .openvino_cpu_settings import OpenVinoCpuSettings
 
 
 class LocalModelsSettings(SettingsBlock):
@@ -63,6 +64,12 @@ class LocalModelsSettings(SettingsBlock):
     # Virtual CPUs the model calls share (domain/runtime/thread_budget.py): 0 = find
     # out; > 0 wins over every other count.
     cpus: float = Field(default=0, ge=0)
+    # Hyper-threads a core: the cores are the CPUs divided by it. 2 is Intel x86
+    # with hyper-threading, every machine of the sittings; 1 where it is off.
+    threads_per_core: int = Field(default=2, ge=1)
+    # OpenVINO's CPU properties the in-process models load with, beside the
+    # thread count (QP_LOCAL_MODELS__OPENVINO__*); torch ignores them.
+    openvino: OpenVinoCpuSettings = Field(default_factory=OpenVinoCpuSettings)
 
 
 class CalibrationSettings(SettingsBlock):
@@ -92,9 +99,11 @@ class CalibrationSettings(SettingsBlock):
 class DefaultHttpSettings(SettingsBlock):
     """The top-level ``http`` block: the default of every call out.
 
-    A component's own ``http`` block overrides each value for its calls
-    (``components.<name>.http``); the calls that are no component's, such as
-    the Domino hardware-tier lookup, take these as they are.
+    A component's own ``http`` block overrides the timeout, the retries and the
+    backoff for its calls (``components.<name>.http``); the calls that are no
+    component's, such as the Domino hardware-tier lookup, take these as they
+    are. The pool is the block's alone: the workflow app holds one client
+    (``composition/http_resources.py``), so no component sets one.
 
     Example:
         >>> DefaultHttpSettings().retries
@@ -104,6 +113,15 @@ class DefaultHttpSettings(SettingsBlock):
     timeout_s: float = Field(default=30.0, gt=0)  # of one attempt
     retries: int = Field(default=2, ge=0)  # on transport errors, 5xx and 429
     backoff_s: float = Field(default=0.2, ge=0)  # before the 1st retry; doubles
+    # The shared client's pool, at httpx 0.28.1's own values: 32 users hold at
+    # most 32 calls in flight, and a handshake costs milliseconds against calls
+    # of 0.3 to 20 s, so nothing is gained by changing them.
+    max_connections: int = Field(default=100, ge=1)
+    max_keepalive_connections: int = Field(default=20, ge=0)
+    keepalive_expiry_s: float = Field(default=5.0, ge=0)  # idle, before closing
+    # Needs the h2 package (httpx[http2]) and a server speaking HTTP/2: Uvicorn's
+    # is experimental and OVMS has none.
+    http2: bool = False
 
 
 class DominoSettings(SettingsBlock):

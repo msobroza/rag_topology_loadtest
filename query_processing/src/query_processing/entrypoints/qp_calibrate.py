@@ -44,7 +44,7 @@ from ..composition.calibrated_stages import ComponentCalibration
 from ..composition.composition_root import CompositionRoot
 from ..composition.ovms_calibration import OvmsAppCalibration
 from ..composition.registered_names import check_registered_names
-from ..config.ovms_settings import OvmsSettings
+from ..config.apps.ovms_settings import OvmsSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.errors import RagDependencyError
 from ..domain.runtime.calibration import CalibrationReport

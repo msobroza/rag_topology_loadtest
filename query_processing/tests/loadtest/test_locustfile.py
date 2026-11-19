@@ -194,6 +194,36 @@ def test_send_records_a_success_its_stage_rows_and_the_target_pair(
     assert locustfile.RESPONSES_SEEN == {("monolith", "mono"): 1}
 
 
+@pytest.mark.parametrize(
+    ("variables", "rerank_path", "embeddings_path"),
+    [
+        ({}, "/v3/rerank", "/v3/embeddings"),
+        ({"QP_LOADTEST_MODEL_SERVER_PATH": "/v1/x"}, "/v1/x", "/v1/x"),
+    ],
+    ids=["v3", "named"],
+)
+def test_the_model_server_users_post_to_the_path_the_settings_name(
+    monkeypatch: pytest.MonkeyPatch,
+    variables: dict[str, str],
+    rerank_path: str,
+    embeddings_path: str,
+) -> None:
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    module = _import_locustfile(f"locustfile_paths_{rerank_path.replace('/', '_')}")
+    user = FakeLocustUser(FakeCaughtResponse(200, "{}"))
+
+    module.RerankUser.rerank(user)
+    module.EmbeddingsUser.embed(user)
+
+    # The row keeps its /v3 name, so qp-compare lines a vLLM run up with an OVMS one.
+    posted = [(p["path"], p["name"]) for p in user.posted]
+    assert posted == [
+        (rerank_path, "/v3/rerank"),
+        (embeddings_path, "/v3/embeddings"),
+    ]
+
+
 def test_send_counts_a_response_that_reported_no_topology_under_none(
     locustfile: ModuleType,
 ) -> None:

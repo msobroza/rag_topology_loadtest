@@ -20,6 +20,9 @@ from typing import Literal
 Role = Literal["workflow", "model-server"]
 WORKFLOW_ROLE: Role = "workflow"
 MODEL_SERVER_ROLE: Role = "model-server"
+# The component a model server App serves: set by qp-deploy, read by
+# domino/app.sh, and by each worker of a qp-model-server of several.
+MODEL_SERVER_COMPONENT_VARIABLE = "QP_MODEL_SERVER_COMPONENT"
 # Which App of a topology it is: the workflow App, or the model server of one
 # served component, named after that component.
 AppPart = str

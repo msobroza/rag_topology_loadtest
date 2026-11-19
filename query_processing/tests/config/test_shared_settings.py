@@ -10,10 +10,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
 from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
+from query_processing.config.openvino_cpu_settings import OpenVinoCpuSettings
 from query_processing.config.shared_settings import (
     CalibrationSettings,
     DefaultHttpSettings,
@@ -52,6 +54,8 @@ def test_the_shared_blocks_default_to_todays_values(
         openvino_weight_format="fp32",
         workers=4,
         cpus=0,
+        threads_per_core=2,
+        openvino=OpenVinoCpuSettings(),
     )
     assert s.calibration == CalibrationSettings(budget_s=90.0, rounds=1, users=4)
     assert s.http == DefaultHttpSettings(timeout_s=30.0, retries=2, backoff_s=0.2)
@@ -176,6 +180,23 @@ def test_a_weight_format_other_than_fp32_or_int8_is_rejected(
         settings_factory(local_models__openvino_weight_format="int4")
 
 
+def test_the_threads_per_core_default_to_2_and_read_their_variable(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QP_LOCAL_MODELS__THREADS_PER_CORE", raising=False)
+    assert settings_factory().local_models.threads_per_core == 2
+
+    monkeypatch.setenv("QP_LOCAL_MODELS__THREADS_PER_CORE", "1")
+    assert settings_factory().local_models.threads_per_core == 1
+
+
+def test_fewer_than_one_thread_per_core_is_refused(
+    settings_factory: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="threads_per_core"):
+        settings_factory(local_models__threads_per_core=0)
+
+
 def test_the_calibration_users_default_to_4_and_read_their_variable(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -202,3 +223,52 @@ def test_the_tests_settings_refuse_a_name_that_is_no_setting(
     # The settings ignore it: a test passing a removed name would run for real.
     with pytest.raises(TypeError, match="'vector_store_backend' is no setting"):
         settings_factory(vector_store_backend="fake")
+
+
+def test_the_defaults_are_httpx_own() -> None:
+    http = DefaultHttpSettings()
+
+    pool = httpx.Limits(
+        max_connections=http.max_connections,
+        max_keepalive_connections=http.max_keepalive_connections,
+        keepalive_expiry=http.keepalive_expiry_s,
+    )
+    assert pool == httpx.Limits(
+        max_connections=100, max_keepalive_connections=20, keepalive_expiry=5.0
+    )
+    assert http.http2 is False
+
+
+def test_the_pool_is_read_from_its_variables(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QP_HTTP__MAX_CONNECTIONS", "8")
+    monkeypatch.setenv("QP_HTTP__MAX_KEEPALIVE_CONNECTIONS", "0")
+    monkeypatch.setenv("QP_HTTP__KEEPALIVE_EXPIRY_S", "1.5")
+    monkeypatch.setenv("QP_HTTP__HTTP2", "true")
+
+    http = settings_factory().http
+
+    assert (http.max_connections, http.max_keepalive_connections) == (8, 0)
+    assert (http.keepalive_expiry_s, http.http2) == (1.5, True)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("max_connections", 0),
+        ("max_keepalive_connections", -1),
+        ("keepalive_expiry_s", -1),
+    ],
+)
+def test_a_pool_value_out_of_range_is_refused(key: str, value: int) -> None:
+    with pytest.raises(ValidationError, match=f"{key}"):
+        DefaultHttpSettings.model_validate({key: value})
+
+
+def test_a_components_http_block_refuses_a_pool_value(
+    settings_factory: SettingsFactory,
+) -> None:
+    # One client is shared, so its pool is the top-level block's alone.
+    with pytest.raises(ValidationError, match="max_connections"):
+        settings_factory(components__llm__http={"max_connections": 8})

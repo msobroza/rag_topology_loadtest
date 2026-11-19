@@ -182,5 +182,5 @@ def test_a_kind_that_cannot_serve_a_type_is_refused_naming_the_kinds_that_can(
         "topology alias 'split-all' serves component 'embedder', of type "
         "'embedder', with the model-server kind 'rerank-only' (apps.embedder.server, "
         "else defaults.server, in deploy.yaml), which cannot serve it: the kinds "
-        "that can are 'fastapi', 'ovms'"
+        "that can are 'fastapi', 'ovms', 'vllm'"
     )

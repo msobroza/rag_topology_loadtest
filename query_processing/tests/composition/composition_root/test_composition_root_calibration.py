@@ -43,8 +43,10 @@ def four_cpu_settings(
     )
 
 
-async def calibration_of(part: str, settings: WorkflowSettings) -> ComponentCalibration:
-    async with CompositionRoot(settings) as composition:
+async def calibration_of(
+    part: str, settings: WorkflowSettings, **processes: int
+) -> ComponentCalibration:
+    async with CompositionRoot(settings, **processes) as composition:
         return await composition.calibration(part)
 
 
@@ -118,3 +120,23 @@ async def test_the_budget_and_rounds_come_from_the_settings(
     assert tried(calibration) == [(4, 20)]  # the first trial always runs
     assert (report.budget_s, report.cut_short) == (1e-9, True)
     assert fake_weights.batch_sizes == [("predict", 20)] * 4  # warm-up, 3 rounds
+
+
+@pytest.mark.parametrize(
+    ("processes", "cpus"), [({}, 4.0), ({"server_processes": 2}, 2.0)]
+)
+async def test_only_the_servers_count_of_processes_shares_the_cpus(
+    settings_factory: SettingsFactory,
+    fake_weights: FakeSentenceTransformersModule,
+    monkeypatch: pytest.MonkeyPatch,
+    processes: dict[str, int],
+    cpus: float,
+) -> None:
+    # qp-calibrate and qp-ingest build CompositionRoot(settings): one process,
+    # every CPU, whatever .env gives Uvicorn; the two servers pass their count.
+    monkeypatch.setenv("QP_UVICORN_WORKERS", "2")
+    settings = four_cpu_settings(settings_factory, calibration__budget_s=1e-9)
+
+    calibration = await calibration_of("reranker", settings, **processes)
+
+    assert calibration.cpus == cpus

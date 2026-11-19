@@ -116,7 +116,7 @@ def test_an_llm_is_pulled_and_served_by_ovms_with_no_export_nor_calibration(
     result = run_app(tmp_path, bin_dir, QP_OVMS_MODELS_DIR=str(models))
 
     assert result.returncode == 0, result.stderr
-    # At OVMS's own defaults (split fuse on, 0 batched tokens) no flag is passed.
+    # The qp-ovms-config stand-in prints no flag, so none is passed.
     assert log(tmp_path, "ovms").strip() == f"--rest_port 8888 {llm_argv(models)}"
     assert log(tmp_path, "qp-ovms-config").strip() == "--serve-llm llm"
     assert log(tmp_path, "uv") == ""
@@ -137,6 +137,39 @@ def test_the_llms_batching_flags_reach_ovms(tmp_path: Path, bin_dir: Path) -> No
     assert log(tmp_path, "ovms").strip() == (
         f"--rest_port 8888 {llm_argv(models)} --dynamic_split_fuse false "
         "--max_num_batched_tokens 8192"
+    )
+
+
+@pytest.mark.parametrize(
+    ("env", "flags"),
+    [
+        ({}, " --dynamic_split_fuse false --max_num_batched_tokens 8192"),
+        (
+            {"QP_OVMS_DYNAMIC_SPLIT_FUSE": "true", "QP_OVMS_MAX_BATCHED_TOKENS": "0"},
+            "",
+        ),
+    ],
+    ids=["defaults", "ovms-own"],
+)
+def test_a_default_llms_app_reads_each_prompt_in_one_pass(
+    tmp_path: Path, bin_dir: Path, env: dict[str, str], flags: str
+) -> None:
+    # The real qp-ovms-config, so the flags are the settings' defaults.
+    put_the_real_toolkit_command_on_path(bin_dir, "qp-ovms-config")
+    models = tmp_path / "llm-models"
+
+    result = run_app(
+        tmp_path,
+        bin_dir,
+        QP_OVMS_MODELS_DIR=str(models),
+        QP_COMPONENTS__LLM__SOURCE_ID="OpenVINO/Fixture-Chat-int4-ov",
+        QP_WORKFLOW_FILE=os.environ["QP_WORKFLOW_FILE"],
+        **env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert log(tmp_path, "ovms").strip() == (
+        f"--rest_port 8888 {llm_argv(models)}{flags}"
     )
 
 

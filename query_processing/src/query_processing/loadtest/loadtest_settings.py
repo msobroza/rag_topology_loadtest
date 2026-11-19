@@ -14,7 +14,10 @@ app's own target reads none of them, and so needs no workflow file.
 ``DOMINO_API_KEY`` is Domino's. This is the one module of the load-test client
 that imports the config package, and only for the defaults of the two aliases:
 it reads them from the workflow file and never builds the RAG system's
-settings.
+settings. A model-server target posts to the /v3 path of OVMS and of our model
+server unless ``QP_LOADTEST_MODEL_SERVER_PATH`` names another, such as vLLM's
+``/v1/rerank``: a path, not a model-server kind, since the kinds are the deploy
+tool's and this package imports the domain alone.
 
 Example:
     >>> LoadTestSettings().target  # "rag" unless QP_LOADTEST_TARGET says otherwise
@@ -70,6 +73,9 @@ class LoadTestSettings(BaseSettings):
 
     # --- what to drive, and how hard ------------------------------------------------
     target: LoadTarget = "rag"  # rag | rerank | embeddings
+    # The path a model-server target posts to; "" = its /v3 path (OVMS's and
+    # qp-model-server's). A vLLM App answers on /v1/rerank and /v1/embeddings.
+    model_server_path: str = ""
     query_weight: int = 1  # Locust task weights of RagUser; 0 turns a task off
     retrieve_weight: int = 3
     wait_min_s: float = Field(default=0.2, ge=0)  # each user waits between requests
@@ -179,6 +185,16 @@ class LoadTestSettings(BaseSettings):
             return value
         expected = ", ".join(LOAD_TARGETS)
         raise ValueError(f"QP_LOADTEST_TARGET={value!r}; expected one of {expected}")
+
+    @field_validator("model_server_path", mode="before")
+    @classmethod
+    def _a_path_or_empty(cls, value: object) -> object:
+        if value == "" or (isinstance(value, str) and value.startswith("/")):
+            return value
+        raise ValueError(
+            f"QP_LOADTEST_MODEL_SERVER_PATH={value!r}; expected a path that starts "
+            "with /, such as /v1/rerank, or empty for the target's /v3 path"
+        )
 
     @field_validator("query_weight", "retrieve_weight", "question_count", mode="before")
     @classmethod

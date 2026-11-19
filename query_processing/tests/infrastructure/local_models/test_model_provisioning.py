@@ -31,6 +31,7 @@ from query_processing.infrastructure.local_models.openvino_export import (
 )
 
 MODEL_ID = "org/reranker"
+PROPERTIES = {"ENABLE_HYPER_THREADING": "YES", "PERFORMANCE_HINT": "LATENCY"}
 
 
 class RecordingExporter:
@@ -66,7 +67,7 @@ async def provision(
     return await provision_local_model(
         MODEL_ID,
         runtime=runtime,
-        exports=OpenVinoExports(str(tmp_path), weight_format),
+        exports=OpenVinoExports(str(tmp_path), weight_format, PROPERTIES),
         export=exporter,
         require_packages=packages,
         executor=pool,
@@ -99,6 +100,7 @@ async def test_an_exported_folder_loads_once_the_packages_are_there(
     model = await provision(tmp_path, pool, packages, exporter)
 
     assert (model.source, model.runtime) == (str(folder), "openvino")
+    assert model.openvino_properties == PROPERTIES
     assert (packages.checks, exporter.exported) == (1, [])
 
 
