@@ -7,10 +7,11 @@ decided in ``query_processing.loadtest`` (``request_plans``, ``response_checks``
 ``QP_LOADTEST_TARGET`` picks the user class: ``rag`` (default) drives the
 workflow app's ``/query`` and ``/retrieve``; ``rerank`` and ``embeddings`` drive a
 model server directly. Rerank requests carry ``QP_TOP_K_RETRIEVE`` documents and
-``QP_TOP_K_RERANK`` as ``top_n``, like the workflow; ``QP_LOADTEST_QUESTIONS``
-sets how many distinct synthetic questions the users ask, unless
-``QP_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask instead (what
-``qp-fetch-corpus`` writes, or plain text). Each user waits
+``QP_TOP_K_RERANK`` as ``top_n``, like the workflow, to the /v3 path unless
+``QP_LOADTEST_MODEL_SERVER_PATH`` names another (vLLM's ``/v1/...``);
+``QP_LOADTEST_QUESTIONS`` sets how many distinct synthetic questions the users
+ask, unless ``QP_LOADTEST_QUESTIONS_FILE`` names a file of questions to ask
+instead (what ``qp-fetch-corpus`` writes, or plain text). Each user waits
 ``QP_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests, and waits for an
 answer at most ``QP_LOADTEST_REQUEST_TIMEOUT_S``;
 ``QP_LOADTEST_SHAPE=step`` steps through ``QP_LOADTEST_STEP_USERS`` users,
@@ -134,7 +135,7 @@ class RagUser(FastHttpUser):
 
 
 class RerankUser(FastHttpUser):
-    """POST /v3/rerank with the workflow's candidate count and top_n."""
+    """POST /v3/rerank, or the path named, with the workflow's candidates and top_n."""
 
     abstract = SETTINGS.target != "rerank"
     wait_time = WAIT_TIME
@@ -143,11 +144,12 @@ class RerankUser(FastHttpUser):
     @task
     def rerank(self) -> None:
         """Send one rerank request for the served reranker alias."""
-        send(self, plan_rerank_request(SETTINGS.reranker_alias, POOL, RNG))
+        path = SETTINGS.model_server_path
+        send(self, plan_rerank_request(SETTINGS.reranker_alias, POOL, RNG, path))
 
 
 class EmbeddingsUser(FastHttpUser):
-    """POST /v3/embeddings with one question, like the workflow's embed stage."""
+    """POST /v3/embeddings, or the path named, with one question, as the embed stage."""
 
     abstract = SETTINGS.target != "embeddings"
     wait_time = WAIT_TIME
@@ -156,7 +158,8 @@ class EmbeddingsUser(FastHttpUser):
     @task
     def embed(self) -> None:
         """Send one embeddings request for the served embedder alias."""
-        send(self, plan_embeddings_request(SETTINGS.embedder_alias, POOL, RNG))
+        path = SETTINGS.model_server_path
+        send(self, plan_embeddings_request(SETTINGS.embedder_alias, POOL, RNG, path))
 
 
 if SETTINGS.step_shape:

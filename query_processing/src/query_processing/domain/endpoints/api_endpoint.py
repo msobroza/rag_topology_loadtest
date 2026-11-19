@@ -29,6 +29,13 @@ MODEL_SERVER_RERANK_PATH = "/v3/rerank"
 # OVMS's chat completions route, on which the ``ovms`` kind serves an LLM.
 MODEL_SERVER_CHAT_PATH = "/v3/chat/completions"
 MODEL_SERVER_MODEL_ROUTE = "/v3/models/{name}"
+# vLLM's routes (its OpenAI-compatible server, 0.32.0), on which the ``vllm``
+# kind serves each model: OpenAI's embeddings format, Cohere's rerank format,
+# OpenAI's chat completions. It lists its served models at /v1/models.
+VLLM_EMBEDDINGS_PATH = "/v1/embeddings"
+VLLM_RERANK_PATH = "/v1/rerank"
+VLLM_CHAT_PATH = "/v1/chat/completions"
+VLLM_MODELS_ROUTE = "/v1/models"
 # The call route: a component type with no outside API format, its request in
 # and its answer out in its API format (``domain/endpoints/api_format.py``); the FastAPI
 # model server's alone.

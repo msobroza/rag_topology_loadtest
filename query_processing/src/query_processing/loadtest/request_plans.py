@@ -4,9 +4,12 @@ The questions come from ``QP_LOADTEST_QUESTIONS_FILE`` when it is set (what
 ``qp-fetch-corpus`` writes, or plain text), else they are synthetic; each is a
 ``/query`` body, which can carry a conversational history and a metadata filter
 beside its question. A request to a model server carries what the workflow
-app's stage would send. Values in, plans out: ``locustfile.py`` only does the
-Locust I/O around them, so they are tested with plain calls and without gevent
-monkey-patching the interpreter.
+app's stage would send, to the /v3 path unless ``QP_LOADTEST_MODEL_SERVER_PATH``
+names another (vLLM's /v1 ones), and is counted under the /v3 path's name
+whatever the path: ``qp-compare`` lines rows up by name, so a run on vLLM lines
+up with the same run on OVMS. Values in, plans out: ``locustfile.py`` only does
+the Locust I/O around them, so they are tested with plain calls and without
+gevent monkey-patching the interpreter.
 
 Example:
     >>> pool = build_request_pool(settings.question_count, *settings.rerank_sizes,
@@ -228,7 +231,7 @@ def plan_rag_request(
 
 
 def plan_rerank_request(
-    alias: str, pool: RequestPool, rng: random.Random
+    alias: str, pool: RequestPool, rng: random.Random, path: str = ""
 ) -> RequestPlan:
     """Plan a model-server rerank request shaped like the workflow's rerank stage.
 
@@ -236,12 +239,17 @@ def plan_rerank_request(
         alias: The model name the server serves the reranker under.
         pool: Where the query is drawn from, with the candidates and ``top_n``.
         rng: Picks the query.
+        path: Where the server answers (``QP_LOADTEST_MODEL_SERVER_PATH``);
+            ``""`` for ``MODEL_SERVER_RERANK_PATH``.
 
     Returns:
-        The plan for ``MODEL_SERVER_RERANK_PATH``, also its stats name.
+        The plan for that path, under the stats name ``MODEL_SERVER_RERANK_PATH``
+        whatever the path.
 
     Example:
-        >>> plan_rerank_request("reranker-alias", pool, random.Random(7)).path
+        >>> plan_rerank_request("reranker-alias", pool, random.Random(7),
+        ...                     "/v1/rerank").path
+        '/v1/rerank'
     """
     request = CohereRerankRequest(
         model=alias,
@@ -249,12 +257,12 @@ def plan_rerank_request(
         documents=list(pool.rerank_documents),
         top_n=pool.top_n,
     )
-    path = MODEL_SERVER_RERANK_PATH
-    return RequestPlan(path, request.to_wire(), path)
+    row = MODEL_SERVER_RERANK_PATH
+    return RequestPlan(path or row, request.to_wire(), row)
 
 
 def plan_embeddings_request(
-    alias: str, pool: RequestPool, rng: random.Random
+    alias: str, pool: RequestPool, rng: random.Random, path: str = ""
 ) -> RequestPlan:
     """Plan a model-server embeddings request shaped like the workflow's embed stage.
 
@@ -262,13 +270,17 @@ def plan_embeddings_request(
         alias: The model name the server serves the embedder under.
         pool: Where the one question to embed is drawn from.
         rng: Picks the question.
+        path: Where the server answers (``QP_LOADTEST_MODEL_SERVER_PATH``);
+            ``""`` for ``MODEL_SERVER_EMBEDDINGS_PATH``.
 
     Returns:
-        The plan for ``MODEL_SERVER_EMBEDDINGS_PATH``, also its stats name.
+        The plan for that path, under the stats name
+        ``MODEL_SERVER_EMBEDDINGS_PATH`` whatever the path.
 
     Example:
         >>> plan_embeddings_request("embedder-alias", pool, random.Random(7)).path
+        '/v3/embeddings'
     """
     request = OpenAIEmbeddingsRequest(model=alias, input=[_drawn_question(pool, rng)])
-    path = MODEL_SERVER_EMBEDDINGS_PATH
-    return RequestPlan(path, request.to_wire(), path)
+    row = MODEL_SERVER_EMBEDDINGS_PATH
+    return RequestPlan(path or row, request.to_wire(), row)

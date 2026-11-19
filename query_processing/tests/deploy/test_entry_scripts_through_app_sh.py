@@ -178,7 +178,7 @@ def test_every_app_the_deploy_tool_writes_is_exercised_under_each_kind() -> None
         ("split-embedder", "embedder"),
         ("split-embedder", "workflow"),
     }
-    assert {k for _, _, k in COMBINATIONS} == {"fastapi", "ovms", "mixed"}
+    assert {k for _, _, k in COMBINATIONS} == {"fastapi", "ovms", "vllm", "mixed"}
 
 
 @pytest.mark.parametrize(

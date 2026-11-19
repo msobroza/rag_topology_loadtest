@@ -40,7 +40,7 @@ BODIES: dict[str, dict[str, object]] = {
 
 def test_each_registered_kind_has_a_launch_script_and_each_script_a_kind() -> None:
     scripts = sorted(path.stem for path in LAUNCH_SCRIPTS.glob("*.sh"))
-    assert scripts == list(MODEL_SERVER_KINDS.names()) == ["fastapi", "ovms"]
+    assert scripts == list(MODEL_SERVER_KINDS.names()) == ["fastapi", "ovms", "vllm"]
 
 
 @pytest.mark.parametrize("kind", MODEL_SERVER_KINDS.names())
@@ -57,7 +57,7 @@ def test_each_launch_script_defines_the_bootstrap_and_the_command(kind: str) -> 
 @pytest.mark.parametrize(
     ("kind", "serves_an_llm"), [("fastapi", False), ("ovms", True)]
 )
-def test_each_kind_serves_an_embedder_and_a_reranker_and_only_ovms_an_llm(
+def test_the_v3_kinds_serve_an_embedder_and_a_reranker_and_only_ovms_an_llm(
     kind: str, serves_an_llm: bool
 ) -> None:
     served = model_server_kind(kind)
@@ -72,6 +72,26 @@ def test_each_kind_serves_an_embedder_and_a_reranker_and_only_ovms_an_llm(
 
 def test_ovms_serves_an_llm_on_its_chat_completions_route() -> None:
     assert model_server_kind("ovms").route_of("llm") == "/v3/chat/completions"
+
+
+def test_vllm_serves_the_three_model_types_on_v1() -> None:
+    kind = model_server_kind("vllm")
+    assert [kind.route_of(t) for t in ("embedder", "reranker", "llm")] == [
+        "/v1/embeddings",
+        "/v1/rerank",
+        "/v1/chat/completions",
+    ]
+
+
+def test_vllm_is_probed_on_the_list_of_its_served_models() -> None:
+    # vLLM has no route for one model: /v1/models lists every one it serves.
+    probe = model_server_kind("vllm").probe_route
+    assert probe.format(name="qwen") == probe == "/v1/models"
+
+
+def test_vllm_serves_no_registered_type() -> None:
+    import_module("shout_extension.shouting")  # registers shouter, as a file would
+    assert not model_server_kind("vllm").serves("shouter")
 
 
 def test_a_type_a_kind_does_not_serve_has_no_route() -> None:
@@ -96,9 +116,10 @@ def test_only_the_fastapi_kind_serves_a_registered_type_on_its_call_route() -> N
 
 def test_an_unknown_kind_names_every_registered_one() -> None:
     with pytest.raises(ValueError, match="unknown model-server kind") as caught:
-        model_server_kind("vllm")
+        model_server_kind("triton")
     assert str(caught.value) == (
-        "unknown model-server kind 'vllm' (expected one of: 'fastapi', 'ovms')"
+        "unknown model-server kind 'triton' "
+        "(expected one of: 'fastapi', 'ovms', 'vllm')"
     )
 
 
@@ -162,7 +183,7 @@ def test_each_model_server_app_takes_its_own_kind_else_the_default(
 @pytest.mark.parametrize(
     ("text", "where"),
     [
-        ("defaults: {server: vllm}\n", "defaults.server"),
+        ("defaults: {server: triton}\n", "defaults.server"),
         ("apps: {reranker: {server: OVMS}}\n", "apps.reranker.server"),
     ],
 )
@@ -175,7 +196,7 @@ def test_a_kind_no_model_server_is_registered_under_is_refused_naming_the_kinds(
     message = str(caught.value)
     assert where in message
     assert "unknown model-server kind" in message
-    assert "(expected one of: 'fastapi', 'ovms')" in message
+    assert "(expected one of: 'fastapi', 'ovms', 'vllm')" in message
 
 
 def test_a_kind_for_the_workflow_app_is_refused(deploy_file: Path) -> None:
