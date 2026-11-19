@@ -2,13 +2,15 @@
 
 The toolkit `query_processing` and its first use case, a RAG. Read `CONTEXT.md`
 for the vocabulary, the README's "Where a file goes" for the layout and its
-rules, and `docs/adr/0003` to `0009` for the design.
+rules, and `docs/adr/0003` to `0010` for the design.
 
 - `query_processing/`: the toolkit, one distribution holding what any use case
   can assemble (package `query_processing`, commands `qp-*`, variables `QP_*`):
   the component types with their requests and answers, the stage types, the
   edge conditions, the API formats, the backends of the embedder, the
-  reranker, the LLM and the vector store, and the router's `fake` and `served`.
+  reranker, the LLM and the vector store, the router's `fake` and `served`,
+  and the orchestrators that run the workflow graph (`langgraph`, the default,
+  and `pydantic_graph`), one directory each under `adapters/orchestrator/`.
 - `query_processing_rag_usecase/`: the RAG use case. It installs the toolkit and
   holds its settings (`workflow.yaml`, `prompts.yaml`, `routes.yaml`,
   `deploy.example.yaml`, `.env.example`, a `Makefile` of run targets), its
@@ -48,6 +50,12 @@ From the repository's root:
 - `make experiment-charts`: redraw `experiments-explained/` from `experiments/`,
   after a change to the registry (the charts package's tests refuse a table
   that is out of date).
+- `make -C query_processing pin-answers` and
+  `make -C query_processing_rag_usecase pin-answers`: make the pinned answer
+  records again (the toolkit's and the use case's), only after a change that
+  alters the answers on purpose, then commit them. `make check` compares the
+  workflow app on fake backends with them, on every registered orchestrator;
+  never make one again to turn a failing comparison green.
 
 From `query_processing_rag_usecase/`, where the commands find `workflow.yaml`,
 `deploy.yaml` and `.env`:

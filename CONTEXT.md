@@ -33,7 +33,7 @@ _Avoid_: load tester, the client, Locust (that is the tool it runs on)
 ### Code structure
 
 **Port**:
-The abstract class one part of the workflow is used through: `BaseEmbedder`, `BaseReranker`, `BaseVectorStore` with `BaseLexicalSearch`, `BaseLLM`, `BaseRouter`. A use case can add one for a component type of its own.
+The abstract class one part of the workflow is used through: `BaseEmbedder`, `BaseReranker`, `BaseVectorStore` with `BaseLexicalSearch`, `BaseLLM`, `BaseRouter`, and `BaseOrchestrator` for the orchestrator. A use case can add one for a component type of its own.
 _Avoid_: interface, protocol, and "ports" for what builds them (that is the composition root)
 
 **Adapter**:
@@ -51,6 +51,10 @@ _Avoid_: shared, utils, helpers
 **Composition root**:
 The one place that builds the adapters from the settings and owns what they share.
 _Avoid_: factory (a factory builds one port), container, wiring
+
+**Orchestrator**:
+The library that runs the workflow graph along its edges: LangGraph by default, or pydantic-graph. The workflow file's `orchestrator` key chooses it; the graph does not change with it.
+_Avoid_: framework, engine, runtime (that is `local_models.runtime`), executor
 
 ### Deployment shape
 
@@ -314,7 +318,11 @@ What a run observed its target reporting about itself: each topology and run lab
 
 **Answer record**:
 What a target answered to each request of the load test's request pool, sent once each by `qp-record-answers`, without what changes from run to run: the endpoint, the body and the status, then the mode, the metadata filter applied, the answer and each passage's id, text hash, metadata and scores, and the topology aliases and run labels reported. `qp-compare-answers` holds records of the same requests against the first, to check that a refactor or another topology answers the same: what the deterministic components give exactly, the answer an LLM wrote with ROUGE-L against a threshold when asked, never text for text.
-_Avoid_: golden file, snapshot, fixture (it is a deployment's answers, recorded on demand, not a test's expectation)
+_Avoid_: golden file, snapshot, fixture (a deployment's record is recorded on demand; the one a test holds the app to is a pinned answer record)
+
+**Pinned answer record**:
+An answer record of the workflow app on fake backends, committed beside the test that compares the app with it: the answers every change to how the graph runs is held to, on every orchestrator. It is made again only when a change alters the answers on purpose.
+_Avoid_: golden file, snapshot, baseline (that is the first run of a comparison)
 
 **Target**:
 What a run drives: the workflow app, or a model server directly.

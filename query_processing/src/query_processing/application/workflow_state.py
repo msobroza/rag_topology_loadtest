@@ -26,11 +26,11 @@ from ..domain.retrieval.passages import RagMode, ScoredPassage
 
 # What one request carries from stage to stage, by field name: a stage reads
 # the values its reads name and returns the fields it writes, the update
-# LangGraph merges into the state.
+# the orchestrator merges into the state.
 WorkflowState = dict[str, Any]
 
-# The field that holds each stage's wall time under the stage's name; a
-# LangGraph reducer, sum_timings_by_stage, adds the stages' updates, so a stage
+# The field that holds each stage's wall time under the stage's name; its
+# reducer, sum_timings_by_stage, adds the stages' updates, so a stage
 # that runs more than once reports every run.
 TIMINGS_FIELD = "timings_ms"
 # The field that holds the tokens each stage's LLM read and wrote, under the

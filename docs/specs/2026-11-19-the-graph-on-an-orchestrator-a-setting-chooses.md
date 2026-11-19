@@ -439,3 +439,15 @@ A measure of the two libraries' speed on the RAG graph is no part of this design
 - The check on real models is on demand, and waits for the owner's go-ahead.
 - A use case cannot add an orchestrator through `extension_api`.
 - ADR 0010 is written with this document.
+
+## What was built
+
+The design was built as written, with these differences. The README ("Where a file goes", the tree, "The workflow file", "What start-up refuses in a graph" and "One orchestrator against another") describes the whole as it is.
+
+- **`links()`** is a method of `GraphDescription` (`domain/graph_description.py`), which `edge_check.py`, `graph_check.py` and the pydantic-graph adapter call; nothing of it is left in `edge_check.py`.
+- **The orchestrator's class from the settings** is in a module of its own, `composition/chosen_orchestrator.py` (`chosen_orchestrator`, and `check_orchestrator_runs_graph`, which raises the class's `ValueError` as a `WorkflowGraphError` after its name), so that `composition_root.py` stays under 500 lines. `CompositionRoot.orchestrator()` gives the class to qp-serve, and `check_workflow_graph` calls the check after the toolkit's own.
+- **The state's field types and reducers** come from `application/state_fields.py` as `state_field_types` and `STATE_REDUCERS`; the `TypedDict` is built by the LangGraph adapter.
+- **The first state** holds each of the client's metadata conditions once, as its reducer would make it, so no orchestrator has to reduce the first state for its result to be LangGraph's (`application/workflow_state.py`, `initial_state`).
+- **Each library imported by its adapter alone** is checked by a test of its own, `tests/structure/test_orchestrator_imports.py`, not by `test_layering.py`.
+- **The pydantic-graph adapter's concurrency test** runs 50 concurrent requests on one built graph.
+- The line counts of "Where the code goes" are those of 19 November 2026; the tree of the README gives each module as it is.

@@ -2,7 +2,7 @@
 
 ADR 0004 made the graph a file, spelled with LangGraph's names, and LangGraph ran it. The file now runs on an orchestrator: the library the workflow file's `orchestrator` key names, `langgraph` (the default) or `pydantic_graph` (Pydantic AI's graph library). The orchestrator is a port with one adapter per library, shaped as a stage type is: start-up asks its class, before any component opens, to refuse a graph it would not run as LangGraph does; the class is then built from the opened graph, and runs each request. The opened graph is what the application builds with no library: the description's three keys, each stage now what it runs, already timed, and each conditional edge with what it asks of the state.
 
-Designed in [the spec of 19 November 2026](../specs/2026-11-19-the-graph-on-an-orchestrator-a-setting-chooses.md); not built yet.
+Designed in [the spec of 19 November 2026](../specs/2026-11-19-the-graph-on-an-orchestrator-a-setting-chooses.md), whose closing section says what the build changed; the README's "Where a file goes" and "The workflow file" describe it as it is.
 
 ## Considered options
 

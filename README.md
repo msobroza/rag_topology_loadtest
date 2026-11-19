@@ -146,10 +146,10 @@ label: `split-all` publishes three Apps, `monolith` one. Every App runs the
 toolkit's `domino/app.sh`, which starts its command in the use case's directory,
 where the workflow file is read; the git-ignored `deploy.yaml` stays where
 `qp-deploy` ran (ADR 0003). On a laptop, `qp-serve` runs each component on the
-backend its settings give. Inside the workflow app, LangGraph runs the graph of
-the file. The question is both the conversational and the standalone query of
-the workflow state, and the earlier turns the client sends, if any, its
-conversational history. A first message goes straight to `embed`; one with a
+backend its settings give. Inside the workflow app, the orchestrator the
+settings choose runs the graph of the file, LangGraph by default. The question
+is both the conversational and the standalone query of the workflow state,
+and the earlier turns the client sends, if any, its conversational history. A first message goes straight to `embed`; one with a
 conversational history goes to the router, and when it leans on that history,
 the `rewrite` stage makes it a standalone query and may add conditions to the
 metadata filter. `/retrieve` ends after rerank, where
@@ -654,10 +654,14 @@ and no package imports it either, `extension_api` included.
    `api_endpoint.py`).
 4. **Adapters.** `adapters/` holds the ports and their implementations, nothing
    else: one package per component, `embedder/`, `reranker/`, `llm/`
-   (generation), `vector_store/` and `router/`. Its port, the abstract class the
-   application depends on, is `base_<component>.py`; each implementation is a
-   directory named after its Backend value, an embedder's `backend: local`
-   being `embedder/local/`, and holds one implementation of the port. One
+   (generation), `vector_store/` and `router/`, and the orchestrator's,
+   `orchestrator/`. Its port, the abstract class the application depends on,
+   is `base_<component>.py`; each implementation is a directory named after its
+   Backend value, an embedder's `backend: local` being `embedder/local/`, and
+   holds one implementation of the port. The orchestrator's package is laid
+   out the same way, with one directory per registered name: its port is
+   `base_orchestrator.py`, and `orchestrator: pydantic_graph` is
+   `orchestrator/pydantic_graph/`. One
    directory serves two Backends: `api/` implements both `served` and `api`,
    which call an endpoint over HTTP the same way and differ only in how it is
    resolved (two directories would hold the same class twice). The router's
@@ -683,8 +687,10 @@ and no package imports it either, `extension_api` included.
    test); the one factory,
    `component_factory.py`, opens a component once with the opener of its type
    and Backend, so a new Backend is one new module in `openers/` and no
-   factory is edited; `registered_names.py` refuses an unknown Backend or API
-   format before a command opens anything; `composition_root.py` wires them
+   factory is edited; `registered_names.py` refuses an unknown Backend, API
+   format or orchestrator before a command opens anything;
+   `chosen_orchestrator.py` finds the orchestrator's class the settings name
+   and asks it whether it runs the graph; `composition_root.py` wires them
    and gives each command what it asks for.
 6. **Registries.** A registry (`domain/registry.py`) holds named things of one
    sort and names the known ones when asked for an unknown one. Each entry
@@ -692,7 +698,7 @@ and no package imports it either, `extension_api` included.
    the package that holds the entries imports all of its modules from its
    `__init__.py` (`import_package_modules`), so a new entry is one new module
    and no table is edited. The registry is in `domain/` because every package
-   that registers something may import the domain. Six kinds of entry today:
+   that registers something may import the domain. Seven kinds of entry today:
    an API format (each component's `api/` directory holds its formats, one
    module each, and its registry sits beside the formats' base class:
    `RERANK_API_FORMATS` in `base_rerank_api_format.py`), a stage type
@@ -704,7 +710,9 @@ and no package imports it either, `extension_api` included.
    `RERANKER_OPENERS` in `component_openers.py`), a model-server kind
    (`deploy/model_server_kinds/`, one module each, `MODEL_SERVER_KINDS` in
    `base_model_server_kind.py`, and one launch script each in
-   `domino/model_servers/`) and a component type's settings class, which a
+   `domino/model_servers/`), an orchestrator (`adapters/orchestrator/`, one
+   directory each, `ORCHESTRATORS` in `base_orchestrator.py`) and a component
+   type's settings class, which a
    component is read with (`COMPONENT_TYPE_SETTINGS` in
    `config/components/component_settings.py`; the five types of the toolkit
    register their classes there by call, four of them kept in that module and
@@ -771,7 +779,7 @@ and no package imports it either, `extension_api` included.
 `extension_api` or `testing`, and the toolkit's side of rule 8; the use case's
 `tests/test_layering.py` checks its side;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
-rule 4 (only component packages in `adapters/`, their layout with `api/` for
+rule 4 (only component packages and the orchestrator's in `adapters/`, their layout with `api/` for
 both `served` and `api`, and no port implemented anywhere else) and rule 7;
 `tests/structure/test_directory_size_rule.py` checks rule 9 on the toolkit, the use
 case's `tests/test_layering.py` on the use case, with no exception, and the
@@ -1357,6 +1365,32 @@ changes from one process to the next: the fakes hash with SHA-256, never with
 `hash()`, and the synthetic corpus and questions come from a seeded
 `random.Random`.
 
+#### One orchestrator against another
+
+An orchestrator is held to the answers of another at two levels. In the gate,
+`make check` compares the workflow app on every registered orchestrator with
+the pinned answer records above, which LangGraph answered, so an orchestrator
+that answers otherwise fails it. A record is made again only when a change
+alters the answers on purpose, never to make one orchestrator agree.
+
+On a deployment, with real models, record the workflow app once under each
+orchestrator, each run named by a run label of its own, then compare. With
+`qp-deploy`, the overrides of `deploy.yaml` set both (`orchestrator` and
+`run_label`, see [The workflow file](#the-workflow-file)); on one machine:
+
+```bash
+QP_ORCHESTRATOR=langgraph QP_RUN_LABEL=monolith+orchestrator=langgraph make serve            # then:
+make record-answers RUN_NAME=langgraph HOST=http://localhost:8888
+QP_ORCHESTRATOR=pydantic_graph QP_RUN_LABEL=monolith+orchestrator=pydantic_graph make serve  # then:
+make record-answers RUN_NAME=pydantic_graph HOST=http://localhost:8888
+make compare-answers BASELINE=langgraph   # results/answers-comparison.md
+```
+
+The report shows the run label each record saw beside its run, so it says
+which orchestrator answered. The passages, their order and their scores are
+compared as for two topologies; the LLM's text only with
+`QP_LOADTEST_ANSWER_ROUGE_L=true`.
+
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
 `qp-model-server --serve NAME` serves one component of the workflow file per
@@ -1669,9 +1703,40 @@ overrides:
 ```
 
 An unknown name stops every command that opens components, as an unknown
-backend does (see the variables below). The default run label does not name the
-orchestrator: a run on another one is a variant, named with `run_label`. The
-workflow app's `rag_startup` log line names the orchestrator it runs on.
+backend does (see the variables below). The workflow app's `rag_startup` log
+line names the orchestrator it runs on. For every graph its check accepts, an
+orchestrator gives the last state LangGraph gives: the same answer, passages
+and metadata filter, and `timings_ms` and `tokens` with the same keys in the
+same order. Each library is imported by its own directory alone, never by
+`application/` or `domain/`.
+
+Two things do not follow the orchestrator:
+
+- **The run label.** The default run label names each component with its
+  backend, not the orchestrator, so a run on another library is a variant,
+  named with `run_label` as a hardware tier is (`monolith+orchestrator=pydantic_graph`
+  above).
+- **Tracing.** With `QP_DOMINO__TRACING=true` the workflow run is traced with
+  `autolog_frameworks=["langchain"]` whatever the orchestrator (see "Tracing
+  and agent deployment"), so on Domino a request on `pydantic_graph` has no
+  span per stage. The response's `timings_ms` still times each stage.
+
+**Adding a library.** An orchestrator is one directory of
+`adapters/orchestrator/`, named after it, with one module and one class that
+subclasses `BaseOrchestrator` (`adapters/orchestrator/base_orchestrator.py`)
+and registers itself with `@ORCHESTRATORS.register("<name>")`. The class has
+three members: the class method `check_graph_runs(graph)`, which raises a
+`ValueError` naming the stages for a graph the library would not run as
+LangGraph does, and nothing for one it runs; `__init__(opened)`, which builds
+the library's graph from the opened graph (`domain/opened_graph.py`: each stage
+opened and timed, the edges, each conditional edge with what it asks of the
+state, the state's field types and reducers, and `merged`, how the state takes
+a stage's update); and `ainvoke(state)`, which runs one request from its first
+state to its last. Its library is a dependency in the toolkit's
+`pyproject.toml`, and the directory gets its lines in the tree. Nothing else is
+edited: `QP_ORCHESTRATOR=<name>` then chooses it, an unknown name lists it, and
+start-up asks it about the graph. A use case cannot add one: `extension_api`
+does not expose the port.
 
 Lexical retrieval is a workflow file without the embed stage, its components
 the same (ingestion still embeds the passages, with the embedder):
@@ -1775,8 +1840,15 @@ does (seen on pydantic-graph 2.70.0):
 - a loop, found with the standard library's `graphlib`: pydantic-graph has no
   limit that stops one that never ends.
 
+A plain edge from `rerank` to `END` beside its conditional edge is refused so:
+
 ```
 qp-serve: error: orchestrator 'pydantic_graph': 'rerank' has more than one way out at once; pydantic-graph ends a run when the first reaches END and cancels the others (expected one plain edge or one conditional edge out of each stage, or the orchestrator 'langgraph')
+```
+
+and a stage whose conditional edge leads back to itself so:
+
+```
 qp-serve: error: orchestrator 'pydantic_graph': the stages 'draft' -> 'draft' form a loop; pydantic-graph has no limit that stops one (expected a graph without a loop, or the orchestrator 'langgraph')
 ```
 
@@ -1849,10 +1921,16 @@ it opens any, as a settings mistake: the settings cannot see the openers, the
 formats and the orchestrators, which are registered in the composition and the
 adapters, so each
 command asks their registries as it reads its settings, and the registry
-refuses the name, after the variable it is read from, and lists the known ones:
+refuses the name, after the variable it is read from, and lists the known ones.
+An unknown rerank API format:
 
 ```
 qp-serve: error: QP_COMPONENTS__RERANKER__API__API_FORMAT: unknown rerank API format 'jina' (expected one of: 'cohere')
+```
+
+An unknown orchestrator, `QP_ORCHESTRATOR=pydantic`:
+
+```
 qp-serve: error: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph', 'pydantic_graph')
 ```
 
@@ -2699,7 +2777,9 @@ Apps (same `app.sh`, same `0.0.0.0:8888` rule) plus tracing through
 image). With `QP_DOMINO__TRACING=true` the workflow run behind both endpoints is
 wrapped with `add_tracing(name="rag_query", autolog_frameworks=["langchain"])`
 (`domino.aisystems.tracing`, falling back to `domino.agents.tracing`), so the
-LangGraph run and the generation call appear as traces; without the SDK the app logs
+LangGraph run and the generation call appear as traces (on the
+orchestrator `pydantic_graph` no stage has a span of its own: see the workflow
+file's orchestrator); without the SDK the app logs
 a warning and runs untraced. `make deploy` publishes the workflow as an Agent
 with tracing on (see "App or Agent" below); by hand, deploy from Experiment
 Manager → **Deploy Agent** with the same entry point, environment and tier as an
