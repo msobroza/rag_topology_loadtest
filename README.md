@@ -857,6 +857,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         flag_pass_through.py  split_pass_through, names_flag, refuse_given_twice: a model server's pass-through of raw flags beside its named settings, and the refusal of a flag given both ways
         ovms_flags.py  the OVMS flags a named setting gives, and the command-line words OvmsSettings builds from them: the server's, an LLM's
         ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, its OpenVINO block, its graph options, its server flags, an LLM's flags, a pass-through)
+        process_environment_settings.py  ProcessEnvironmentSettings: the environment a process of qp-serve or qp-model-server restarts into once, QP_PROCESS_* (a memory allocator preloaded, OpenMP binding)
         uvicorn_settings.py  UvicornSettings: what a process of qp-serve or qp-model-server runs as, QP_UVICORN_* (workers, concurrency limit, backlog, keep-alive)
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
@@ -934,6 +935,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
         stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate batch size and thread count, keep the fastest
         cpu_count.py  where the CPU count comes from: QP_LOCAL_MODELS__CPUS, the Domino hardware tier, the container
+      process_environment.py  restart_with: start the process again, same interpreter and arguments, in the environment its settings want
       http/           what every adapter that calls out shares
         http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
         json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
