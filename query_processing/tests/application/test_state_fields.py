@@ -10,12 +10,14 @@ import pytest
 from query_processing.application.stages.base_stage import FieldTypes
 from query_processing.application.state_fields import (
     WorkflowGraphError,
-    add_conditions,
     annotation_accepts,
     field_types_of,
     type_fits,
 )
-from query_processing.application.workflow_state import REQUEST_FIELD_TYPES
+from query_processing.application.workflow_state import (
+    REQUEST_FIELD_TYPES,
+    add_conditions,
+)
 from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 

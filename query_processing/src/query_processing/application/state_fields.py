@@ -16,7 +16,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from types import UnionType
 from typing import Any, Literal, NamedTuple, Union, get_args, get_origin
 
@@ -29,6 +29,7 @@ from .workflow_state import (
     TIMINGS_FIELD,
     TOKENS_FIELD,
     StageTokens,
+    add_conditions,
     sum_timings_by_stage,
     sum_tokens_by_stage,
 )
@@ -217,29 +218,6 @@ def state_field_types(field_types: Mapping[str, Any]) -> dict[str, Any]:
         TIMINGS_FIELD: dict[str, float],
         TOKENS_FIELD: dict[str, StageTokens],
     }
-
-
-def add_conditions(
-    left: Sequence[MetadataCondition], right: Sequence[MetadataCondition]
-) -> list[MetadataCondition]:
-    """Add a stage's conditions to the metadata filter; the field's reducer.
-
-    Args:
-        left: The conditions so far, the client's first.
-        right: The conditions a stage writes.
-
-    Returns:
-        ``left``, then each condition of ``right`` it does not hold yet.
-
-    Example:
-        >>> add_conditions([on_pay], [on_pay, not_on_leave])
-        [on_pay, not_on_leave]
-    """
-    added = list(left)
-    for condition in right:
-        if condition not in added:
-            added.append(condition)
-    return added
 
 
 # The fields that add up, each with its reducer: a stage's update is added to

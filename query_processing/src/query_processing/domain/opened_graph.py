@@ -84,7 +84,10 @@ class OpenedGraph:
         The one statement, in the toolkit, of how the state takes an update: a
         field with a reducer is reduced, any other is replaced, and a field the
         update does not hold is kept. LangGraph keeps its own reducers and does
-        not call it; a library without reducers does.
+        not call it; a library without reducers does. A field with a reducer
+        that ``values`` does not hold yet takes the update's value as it is:
+        the first state, which the application made with every field that
+        adds up already set, is taken as it was made and never reduced.
 
         Args:
             values: The workflow state so far; not changed.

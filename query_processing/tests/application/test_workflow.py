@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel
 
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
+from query_processing.adapters.orchestrator.base_orchestrator import ORCHESTRATORS
 from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
     LangGraphOrchestrator,
 )
@@ -27,6 +28,7 @@ from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.prompts import Prompt, PromptMessage
 from query_processing.domain.retrieval.corpus import synthetic_questions
+from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import RagMode
 from rag_graphs import fixture_graph, rag_graph
 from workflow_fakes import (
@@ -416,3 +418,25 @@ def test_stage_tokens_keys_each_reporting_stage_in_the_graph_s_order() -> None:
     tokens = stage_tokens(["rewrite", "embed", "generate"], recorded)
 
     assert list(tokens.items()) == [("rewrite", early), ("generate", late)]
+
+
+# --- the client's metadata filter ---------------------------------------------------
+
+ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
+ON_LEAVE = MetadataCondition(attribute="topic", comparator="ne", value="leave")
+
+
+@pytest.mark.parametrize("orchestrator", ORCHESTRATORS.names())
+async def test_a_condition_the_client_repeats_is_in_the_result_once(
+    fake_deps: RagDependencies, fake_settings: WorkflowSettings, orchestrator: str
+) -> None:
+    context = StageContext(fake_settings.prompts)
+    workflow = build_workflow(
+        rag_graph(), fake_deps.components(), context, ORCHESTRATORS.get(orchestrator)
+    )
+
+    result = await workflow.run(
+        VACATION_QUESTION, metadata_filter=[ON_PAY, ON_LEAVE, ON_PAY]
+    )
+
+    assert result.metadata_filter == [ON_PAY, ON_LEAVE]
