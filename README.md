@@ -855,7 +855,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       openvino_cpu_settings.py  OpenVinoCpuSettings: OpenVINO's CPU properties a site may choose (hint, hyper-threading, pinning, precision, any other), one block read as local_models.openvino and as an OVMS App's QP_OVMS_OPENVINO__*
       apps/           the settings one App owns, flat QP_* variables, no value of the workflow file
         flag_pass_through.py  split_pass_through, names_flag, refuse_given_twice: a model server's pass-through of raw flags beside its named settings, and the refusal of a flag given both ways
-        ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, an LLM's two batching options)
+        ovms_flags.py  the OVMS flags a named setting gives, and the command-line words OvmsSettings builds from them: the server's, an LLM's
+        ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, its OpenVINO block, its graph options, its server flags, an LLM's flags, a pass-through)
+        uvicorn_settings.py  UvicornSettings: what a process of qp-serve or qp-model-server runs as, QP_UVICORN_* (workers, concurrency limit, backlog, keep-alive)
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
         component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
@@ -935,6 +937,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       http/           what every adapter that calls out shares
         http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
         json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
+        uvicorn_run.py  run_uvicorn: one worker serves the app object, several an import string of a factory, each worker told what main was told
       corpora/        an outside source: the public corpora qp-fetch-corpus downloads
         catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
         download.py   download a corpus's files under one HttpPolicy and convert them
