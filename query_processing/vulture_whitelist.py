@@ -61,6 +61,20 @@ cache_dir
 omp_proc_bind
 kmp_affinity
 
+# pydantic: the flag and CPU fields of VllmSettings, read by their names through
+# config/apps/vllm_settings.py's VLLM_FLAGS and CPU_VARIABLES, which pair each
+# with the vLLM flag or variable it writes.
+max_model_len
+optimization_level
+max_num_batched_tokens
+performance_mode
+kv_cache_dtype
+dtype
+tensor_parallel_size
+stream_interval
+cpu_omp_threads_bind
+cpu_reserved_cpus
+
 # pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
 # read only when a body is validated or serialised to JSON.
 accessStatuses

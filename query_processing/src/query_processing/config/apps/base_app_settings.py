@@ -1,8 +1,8 @@
 """The base of an App's flat settings: a field's variable is the prefix and its name.
 
-The settings one App owns (``QP_OVMS_*``, ``QP_UVICORN_*``, ``QP_PROCESS_*``)
-are flat variables, each the class's ``env_prefix`` and the upper-cased field,
-so a message naming one is written from this one rule.
+The settings one App owns (``QP_OVMS_*``, ``QP_VLLM_*``, ``QP_UVICORN_*``,
+``QP_PROCESS_*``) are flat variables, each the class's ``env_prefix`` and the
+upper-cased field, so a message naming one is written from this one rule.
 
 Example:
     >>> UvicornSettings.variable_of("backlog")
