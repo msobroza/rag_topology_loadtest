@@ -1337,16 +1337,18 @@ backend (no socket, no download), records it with `qp-record-answers`, and
 compares the record with the committed one with `qp-compare-answers`: every
 answer identical, its text included, with ROUGE-L at a threshold of 1 (the
 fake LLM's echo is a function of its prompt), and the scores within the score
-tolerance. `make check` runs both.
+tolerance. ROUGE-L at 1 is the same words in the same order, so the test then
+compares the text of each answer exactly: a change of punctuation, case, line
+breaks or a `[1]` marker fails too. `make check` runs both.
 
 | Distribution | Records | Requests |
 | --- | --- | --- |
 | the toolkit | `tests/testing/answer_records/fixture_workflow_answers.json`, the fixture workflow | ten synthetic questions, one per topic of the synthetic corpus |
-| the RAG use case | `tests/answer_records/follow_ups_stand_alone_answers.json` and `follow_ups_rewritten_answers.json`, its own `workflow.yaml` | `tests/answer_records/questions.jsonl`: a first message, then two follow-ups with a conversational history |
+| the RAG use case | `tests/answer_records/follow_ups_stand_alone_answers.json` and `follow_ups_rewritten_answers.json`, its own `workflow.yaml` | `tests/answer_records/questions.jsonl`: a first message, two follow-ups with a conversational history, then a message whose metadata filter states one condition twice |
 
 Each request goes to `/retrieve` and to `/query`. The fake router chooses the
 first of its routes, so the use case's two records cover the three paths of
-its graph: in both, the first message takes no route; with the routes in the
+its graph: in both, a message with no history takes no route; with the routes in the
 file's order a follow-up stands alone, and with `leans_on_history` first
 (`QP_COMPONENTS__ROUTER__ROUTES`) it is rewritten. The code both tests share is
 `query_processing.testing`'s (`PinnedAnswerRecord`, `check_pinned_answers`), so
@@ -1361,7 +1363,9 @@ make -C query_processing_rag_usecase pin-answers  # the use case's two records
 ```
 
 Each runs its test with `--pin-answers`, in process on fake backends, which
-writes the record instead of comparing with it. A record holds nothing that
+writes the record instead of comparing with it. A record is made on the
+default orchestrator, LangGraph, whatever `QP_ORCHESTRATOR` the shell holds:
+the tests unset it. A record holds nothing that
 changes from one process to the next: the fakes hash with SHA-256, never with
 `hash()`, and the synthetic corpus and questions come from a seeded
 `random.Random`.
@@ -1725,19 +1729,35 @@ Two things do not follow the orchestrator:
 **Adding a library.** An orchestrator is one directory of
 `adapters/orchestrator/`, named after it, with one module and one class that
 subclasses `BaseOrchestrator` (`adapters/orchestrator/base_orchestrator.py`)
-and registers itself with `@ORCHESTRATORS.register("<name>")`. The class has
-three members: the class method `check_graph_runs(graph)`, which raises a
-`ValueError` naming the stages for a graph the library would not run as
-LangGraph does, and nothing for one it runs; `__init__(opened)`, which builds
-the library's graph from the opened graph (`domain/opened_graph.py`: each stage
-opened and timed, the edges, each conditional edge with what it asks of the
-state, the state's field types and reducers, and `merged`, how the state takes
-a stage's update); and `ainvoke(state)`, which runs one request from its first
-state to its last. Its library is a dependency in the toolkit's
-`pyproject.toml`, and the directory gets its lines in the tree. Nothing else is
-edited: `QP_ORCHESTRATOR=<name>` then chooses it, an unknown name lists it, and
-start-up asks it about the graph. A use case cannot add one: `extension_api`
-does not expose the port.
+and registers itself with `@ORCHESTRATORS.register("<name>")`. The tree's two
+show the names: `langgraph/langgraph_orchestrator.py` holds
+`LangGraphOrchestrator`, and `pydantic_graph/pydantic_graph_orchestrator.py`
+holds `PydanticGraphOrchestrator`. The class has three members:
+
+- the class method `check_graph_runs(graph: GraphDescription) -> None`, given
+  the workflow file's graph (`domain/graph_description.py`, its stages and
+  edges), which raises a `ValueError` naming the stages for a graph the library
+  would not run as LangGraph does, and returns nothing for one it runs;
+- `__init__(opened: OpenedGraph)`, which builds the library's graph from the
+  opened graph (`domain/opened_graph.py`: each stage opened and timed, the
+  edges, each conditional edge with what it asks of the state, the state's
+  field types and reducers, and `merged`, how the state takes a stage's
+  update);
+- `async ainvoke(state: dict[str, Any]) -> dict[str, Any]`, which takes the
+  state a request starts with and returns the state once the run reached
+  `END`.
+
+Its library is a core dependency in the toolkit's `pyproject.toml`, not an
+extra. As an extra, every App on it would have to name it in
+`QP_BOOTSTRAP_EXTRAS`, and an App started without it would fail only at
+start-up, on Domino; as a core dependency, every install has it. An
+orchestrator has no settings block: `orchestrator` is a name alone. The
+directory gets its lines in the tree. Nothing else is edited:
+`QP_ORCHESTRATOR=<name>` then chooses it, an unknown name lists it, and
+start-up asks it about the graph. `make check` then holds it to the pinned
+answer records and to the port's tests with no test edited, since those tests
+run on every name `query_processing.testing.registered_orchestrators()` gives.
+A use case cannot add one: `extension_api` does not expose the port.
 
 Lexical retrieval is a workflow file without the embed stage, its components
 the same (ingestion still embeds the passages, with the embedder):
@@ -1923,6 +1943,10 @@ formats and the orchestrators, which are registered in the composition and the
 adapters, so each
 command asks their registries as it reads its settings, and the registry
 refuses the name, after the variable it is read from, and lists the known ones.
+The variable is named wherever the name was written: `orchestrator: pydantic`
+in the workflow file is refused as `QP_ORCHESTRATOR: unknown orchestrator
+'pydantic' ...`, as a backend in the file is refused after its
+`QP_COMPONENTS__<NAME>__BACKEND`.
 An unknown rerank API format:
 
 ```
@@ -3259,6 +3283,21 @@ The example copied unchanged stops on the first one:
 ```
 qp-deploy: error: environment_id in defaults of deploy.yaml still holds the example placeholder '<environment id>': replace it with a real value
 ```
+
+The `overrides` are checked against the workflow settings, in a dry run as in a
+deploy: each key must be a place of the workflow file (under `components` and
+`graph.stages`, a name the file declares), an API key is refused unless it is
+empty or `domino`, and each
+value must have the type and range the settings take, with the checks of the
+whole. The deploy tool does not ask the registries nor the orchestrator, so two
+mistakes pass it and only the App's start-up refuses them: a name nobody
+registered (a backend, an API format, an orchestrator) and a graph the chosen
+orchestrator does not run. Such a deploy publishes its Apps, which then exit
+at start-up with the usage error `qp-serve` gives on a laptop: an unknown name
+stops every App, the model servers included, since every command that opens
+components asks the registries about every component and the orchestrator;
+a graph the orchestrator refuses stops the workflow App alone, the one that
+runs the graph.
 
 To click through the API or watch a
 deploy wait, serve the fake Domino and point `qp-deploy` at it:

@@ -6,9 +6,10 @@ edge's ``reads``, that answers yes or no (``-> bool``) or a label (``-> str``,
 a ``Literal`` of strings included). A label edge's ``path_map`` has one row
 for each label of the field it reads. Start-up refuses one that states neither
 answer, or whose annotations cannot be read, and an edge that reads a field of
-another type than a parameter's annotation. It makes no model call. LangGraph
-names a branch after its function, so an edge condition is a named function,
-never a lambda: Domino tracing fails on a step with no name.
+another type than a parameter's annotation. It makes no model call. On
+LangGraph, the default orchestrator, a branch is named after its function, so
+an edge condition is a named function, never a lambda: Domino tracing fails on
+a step with no name.
 
 Example:
     >>> @EDGE_CONDITIONS.register("is_query_mode")

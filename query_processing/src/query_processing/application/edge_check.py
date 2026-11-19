@@ -200,9 +200,8 @@ def _check_conditional_edges(
     for edge in graph.conditional_edges:
         _check_conditional_edge(graph, edge, edge_conditions, labels)
         if (edge.source, edge.path) in asked:
-            # Every orchestrator names what asks after the edge condition
-            # (LangGraph its branch, pydantic-graph its step), so a library
-            # would refuse it too, naming the branch, not the file.
+            # Every orchestrator names what asks after the edge condition, so
+            # the library would refuse it too, in its own words, not the file's.
             raise WorkflowGraphError(
                 f"edge condition {edge.path!r} is used twice on {edge.source!r} "
                 "(expected each edge condition once per source: every orchestrator "

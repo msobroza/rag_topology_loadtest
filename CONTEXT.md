@@ -37,7 +37,7 @@ The abstract class one part of the workflow is used through: `BaseEmbedder`, `Ba
 _Avoid_: interface, protocol, and "ports" for what builds them (that is the composition root)
 
 **Adapter**:
-An implementation of a port, one per backend. Only ports and their implementations are adapters.
+An implementation of a port, one per backend, or per library for an orchestrator. Only ports and their implementations are adapters.
 _Avoid_: adapter for code that implements no port (that is infrastructure)
 
 **Request and answer**:

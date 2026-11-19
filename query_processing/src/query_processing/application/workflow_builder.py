@@ -260,10 +260,12 @@ def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> StageRun:
         stage: The stage to time.
 
     Returns:
-        What LangGraph runs for the stage.
+        What the orchestrator runs for the stage, a stage of the opened graph.
 
     Example:
-        >>> builder.add_node("rerank", timed("rerank", stage))
+        >>> update = await timed("rerank", stage)(state)
+        >>> list(update["timings_ms"])
+        ['rerank']
     """
 
     async def run(state: WorkflowState) -> WorkflowState:
