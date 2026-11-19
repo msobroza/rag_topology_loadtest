@@ -6,12 +6,14 @@ questions of ``questions.jsonl`` (a first message, two follow-ups with a
 conversational history, then a message with a metadata filter that repeats
 its condition), each sent to ``/retrieve`` and ``/query``, and compared with
 the record committed here with ``qp-compare-answers``: every answer
-identical, its text exactly. The fake router chooses the first of its routes, so one
-record keeps the routes in the file's order, where a follow-up stands alone,
-and the other puts ``leans_on_history`` first, where it is rewritten.
-The same comparison runs on every registered orchestrator, with the records
-LangGraph pinned. ``make pin-answers`` runs this file with ``--pin-answers``,
-which makes both records again instead, on LangGraph, the default.
+identical, its text exactly. The fake router chooses the first of its
+routes, so one record keeps the routes in the file's order, where a follow-up
+stands alone, and the other puts ``leans_on_history`` first, where it is
+rewritten. The same comparison runs on every registered orchestrator, with
+the records LangGraph pinned. ``make pin-answers`` runs this file with
+``--pin-answers``, which makes both records again instead, on LangGraph, the
+default, whatever ``QP_ORCHESTRATOR`` the shell holds (conftest's
+``use_case_dir`` unsets every ``QP_`` variable).
 """
 
 from __future__ import annotations
