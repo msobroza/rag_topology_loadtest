@@ -8,8 +8,9 @@ compared with the record committed here with ``qp-compare-answers``: every
 answer identical. The fake router chooses the first of its routes, so one
 record keeps the routes in the file's order, where a follow-up stands alone,
 and the other puts ``leans_on_history`` first, where it is rewritten.
-``make pin-answers`` runs this file with ``--pin-answers``, which makes both
-records again instead.
+The same comparison runs on every registered orchestrator, with the records
+LangGraph pinned. ``make pin-answers`` runs this file with ``--pin-answers``,
+which makes both records again instead, on LangGraph, the default.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import pytest
 from query_processing.testing import (
     PinnedAnswerRecord,
     check_pinned_answers,
+    registered_orchestrators,
     workflow_client,
 )
 
@@ -57,6 +59,31 @@ def test_the_app_on_fake_backends_answers_as_its_pinned_record(
     with workflow_client(settings) as client:
         check_pinned_answers(
             monkeypatch, client, pinned_record(name), tmp_path, pin=pin_answers
+        )
+
+
+@pytest.mark.parametrize("name", sorted(ROUTES))
+@pytest.mark.parametrize("orchestrator", registered_orchestrators())
+def test_the_app_on_every_orchestrator_answers_as_the_records_langgraph_pinned(
+    use_case_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    orchestrator: str,
+    name: str,
+) -> None:
+    del use_case_dir  # requested so the settings are read from this directory
+    # The records LangGraph answered before any orchestrator was added; never
+    # pinned again from here, whatever --pin-answers says.
+    settings = all_fake_settings(
+        monkeypatch,
+        QP_COMPONENTS__ROUTER__ROUTES=ROUTES[name],
+        QP_ORCHESTRATOR=orchestrator,
+    )
+
+    assert settings.orchestrator == orchestrator
+    with workflow_client(settings) as client:
+        check_pinned_answers(
+            monkeypatch, client, pinned_record(name), tmp_path, pin=False
         )
 
 
