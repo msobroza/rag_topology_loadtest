@@ -10,12 +10,15 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
+import httpx
+
 from fake_domino.api_shapes import (
     AppCreationRequest,
     AppVersionCreationRequest,
     ConfigurationType,
 )
 from fake_domino.server import FAKE_DOMINO_URL, create_fake_domino, fake_domino_http
+from fake_domino.stand_ins import fake_environment
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.app_id_cache import AppIdCache
 from query_processing.deploy.apps_client import DominoAppsClient
@@ -91,6 +94,30 @@ def make_client(
 
 def no_sleep(_seconds: float) -> None:
     pass
+
+
+def http_on(apps: FakeDominoApps) -> httpx.Client:
+    """A client whose Domino is the in-process fake holding ``apps``."""
+    return fake_domino_http(create_fake_domino(apps))
+
+
+# --- the lookups and the listings: what the fake Domino has ---
+
+# When the fake's revisions were built, in UTC.
+BUILT_7 = "2026-11-12T09:41:00Z"
+BUILT_6 = "2026-11-03T16:02:00Z"
+# Where a refusal says the value was set.
+WHERE = "App rag-reranker (apps.reranker or defaults in deploy.yaml)"
+# The standard environment: qp-rag, revisions 7 (latest), 6 (active) and 5, the
+# last two built the same day. Not ENV_1, which is the text of a deploy file.
+FAKE_ENV_1 = fake_environment(
+    "env-1",
+    (7, "rev-7", BUILT_7),
+    (6, "rev-6", BUILT_6),
+    (5, "rev-5", BUILT_6),
+    name="qp-rag",
+    active=6,
+)
 
 
 def make_settings(**given: object) -> DeploySettings:

@@ -11,12 +11,11 @@ from pydantic import ValidationError
 
 from domino_deploy_helpers import DEPLOY_YAML
 from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.deploy_refusals import refuse_placeholders, refuse_secrets
 from query_processing.deploy.deploy_settings import (
     AppSettings,
     Autoscaling,
     DeploySettings,
-    refuse_placeholders,
-    refuse_secrets,
     require_deploy_file,
 )
 
@@ -156,7 +155,7 @@ def test_a_setting_that_is_not_a_scalar_is_refused_with_its_name(
     ("text", "where"),
     [
         ("topolgy: monolith\n", "topolgy"),
-        ("apps: {embedder: {hardware_tier: cpu-8}}\n", "apps.embedder.hardware_tier"),
+        ("apps: {embedder: {hardware_teir: cpu-8}}\n", "apps.embedder.hardware_teir"),
         ("defaults: {autoscaling: {max: 4}}\n", "defaults.autoscaling.max"),
     ],
 )

@@ -4,7 +4,7 @@
 # pipeline file). The install and the gates are the repository root's: make
 # install-dev, make check there.
 .DEFAULT_GOAL := help
-.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run record-answers record-answers-domino compare-answers
+.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run tiers environments record-answers record-answers-domino compare-answers
 
 # The toolkit, beside this directory: its Locust file, its OVMS exporter and its
 # local infrastructure.
@@ -102,6 +102,12 @@ status: ## On Domino: each App's status and instance URL, then the workflow App'
 
 deploy-dry-run: ## Run make deploy against an in-process fake Domino: nothing is sent, prints each App's settings and entry script
 	$(BIN)qp-deploy --dry-run deploy all
+
+tiers: ## On Domino: the hardware tiers with their size, a list to move through in a terminal; make tiers ARGS="cpu-16 --details" for every field
+	$(BIN)qp-deploy tiers $(ARGS)
+
+environments: ## On Domino: the environments, a list to move through in a terminal; make environments ARGS="<name> --table" for its revisions and their build dates
+	$(BIN)qp-deploy environments $(ARGS)
 
 loadtest-domino: ## On Domino: loadtest against the workflow App: make loadtest-domino RUN_NAME=split-all
 	host=$$($(BIN)qp-deploy url workflow) && \

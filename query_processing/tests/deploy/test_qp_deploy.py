@@ -379,10 +379,10 @@ def test_deploy_refuses_an_es_api_key_in_deploy_yaml(run_main: RunMain) -> None:
 
 
 def test_a_misspelt_key_in_deploy_yaml_is_named(run_main: RunMain) -> None:
-    Path("deploy.yaml").write_text(ENV_1 + "apps: {embedder: {hardware_tier: x}}\n")
+    Path("deploy.yaml").write_text(ENV_1 + "apps: {embedder: {hardware_teir: x}}\n")
     code, _, err = run_main(["status"], create_fake_domino())
     assert code == 2
-    assert "apps.embedder.hardware_tier" in err
+    assert "apps.embedder.hardware_teir" in err
 
 
 # --- the App id cache ---

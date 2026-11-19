@@ -29,9 +29,11 @@ from domino_deploy_helpers import (
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.app_id_cache import AppIdCache
 from query_processing.deploy.apps_client import (
+    DOMINO_API,
     DominoApp,
     DominoAppsClient,
     DominoDeployError,
+    send_to_domino,
 )
 from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.publish import publish_app
@@ -257,6 +259,16 @@ def test_an_unreachable_domino_is_reported_with_its_address() -> None:
     assert str(caught.value) == (
         "Domino Apps API GET /api/apps/beta/apps could not be reached at "
         "http://localhost:8899: ConnectError: [Errno 61] Connection refused"
+    )
+
+
+def test_a_path_that_is_no_valid_url_is_refused_with_the_path() -> None:
+    http = httpx.Client(base_url="http://localhost:8899")
+    with pytest.raises(DominoDeployError) as caught:
+        send_to_domino(http, "GET", "/api/x/env\t1", api=DOMINO_API)
+    assert str(caught.value).startswith(
+        "Domino API GET /api/x/env\t1 could not be reached at http://localhost:8899: "
+        "InvalidURL: "
     )
 
 

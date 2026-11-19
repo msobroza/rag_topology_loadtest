@@ -57,12 +57,22 @@ def dry_run(
         ("deploy", "qp-deploy deploy all"),
         ("deploy-dry-run", "qp-deploy --dry-run deploy all"),
         ("status", "qp-deploy status"),
+        ("tiers", "qp-deploy tiers"),
+        ("environments", "qp-deploy environments"),
     ],
 )
 def test_each_command_runs_here_with_no_flag(
     use_case_dir: Path, target: str, command: str
 ) -> None:
     assert dry_run(use_case_dir, target) == [f"{TOOLS}{command}"]
+
+
+@pytest.mark.parametrize("target", ["tiers", "environments"])
+def test_a_listing_passes_its_args_to_qp_deploy(
+    use_case_dir: Path, target: str
+) -> None:
+    command = dry_run(use_case_dir, target, "ARGS=qp-rag --details")
+    assert command == [f"{TOOLS}qp-deploy {target} qp-rag --details"]
 
 
 def test_train_router_never_allows_the_fake_embedder(use_case_dir: Path) -> None:

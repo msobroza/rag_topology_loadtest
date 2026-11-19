@@ -1,4 +1,4 @@
-"""The Domino 6.2 beta Apps API shapes, transcribed from its Platform API reference.
+"""The Domino 6.2 API shapes the fake serves, transcribed from its API reference.
 
 Names, fields and required flags are as documented there. The fake Domino serves
 them, so its Swagger page shows the contract ``qp-deploy`` is written against.
@@ -195,7 +195,7 @@ class ListAppInstancesResponse(BaseModel):
     metadata: PaginatedMetadataV1
 
 
-# --- Hardware tiers (GET /api/hardwaretiers/v1/hardwaretiers/{hardwareTierId}) ---
+# --- Hardware tiers (GET /api/hardwaretiers/v1/hardwaretiers[/{hardwareTierId}]) ---
 
 
 class MetadataV1(BaseModel):
@@ -241,8 +241,15 @@ class HardwareTierPodCustomizationV1(BaseModel):
     additionalLimits: dict[str, str] | None = None
 
 
+class HardwareTierGpuConfigurationV1(BaseModel):
+    """The GPUs a hardware tier gives a run."""
+
+    numberOfGpus: int
+    gpuKey: str
+
+
 class HardwareTierV1(BaseModel):
-    """A hardware tier: the required fields; the reference lists more optional ones."""
+    """A hardware tier: the required fields and the GPUs; the reference lists more."""
 
     id: str
     name: str
@@ -253,6 +260,7 @@ class HardwareTierV1(BaseModel):
     updateTime: str
     podCustomization: HardwareTierPodCustomizationV1
     metadata: dict[str, str]
+    gpuConfiguration: HardwareTierGpuConfigurationV1 | None = None
 
 
 class HardwareTierEnvelopeV1(BaseModel):
@@ -260,6 +268,102 @@ class HardwareTierEnvelopeV1(BaseModel):
 
     hardwareTier: HardwareTierV1
     metadata: MetadataV1
+
+
+class PaginatedHardwareTierEnvelopeV1(BaseModel):
+    """One page of hardware tiers."""
+
+    hardwareTiers: list[HardwareTierV1]
+    metadata: PaginatedMetadataV1
+
+
+# --- Environments (GET /api/environments/beta/environments and
+# GET /api/environments/v1/environments/{environmentId}) ---
+
+RevisionStatus = Literal[
+    "queued",
+    "starting",
+    "pulling",
+    "building",
+    "pushing",
+    "succeeded",
+    "failed",
+    "killed",
+]
+
+
+class EnvironmentOwnerV1(BaseModel):
+    """The person or organization that owns an environment."""
+
+    id: str
+    username: str
+    ownerType: str
+
+
+class EnvironmentRevisionV1(BaseModel):
+    """One revision of an environment, as an environment names it."""
+
+    id: str
+    number: int
+    availableTools: list[dict[str, object]]
+    status: RevisionStatus | None = None
+
+
+class EnvironmentV1(BaseModel):
+    """An environment with three of its revisions: latest, selected, restricted."""
+
+    id: str
+    name: str
+    visibility: Literal["global", "private", "organization"]
+    rebuildOnBaseChanges: Literal["never", "followActive"]
+    supportedClusters: list[str]
+    archived: bool
+    owner: EnvironmentOwnerV1 | None = None
+    latestRevision: EnvironmentRevisionV1 | None = None
+    selectedRevision: EnvironmentRevisionV1 | None = None
+    restrictedRevision: EnvironmentRevisionV1 | None = None
+
+
+class EnvironmentEnvelopeV1(BaseModel):
+    """The response body that carries one environment."""
+
+    environment: EnvironmentV1
+    metadata: MetadataV1
+
+
+class PaginatedEnvironmentEnvelopeV1(BaseModel):
+    """One page of environments."""
+
+    environments: list[EnvironmentV1]
+    metadata: PaginatedMetadataV1
+
+
+# --- Every revision of an environment: a shape of the published 6.3.1 spec, whose
+# route (GET /v4/environments/{environmentId}/paginatedRevisionData) is not ---
+
+
+class RevisionSummary(BaseModel):
+    """One revision of an environment; ``created`` counts milliseconds since 1970."""
+
+    id: str
+    number: int
+    created: int
+    active: bool | None = None
+
+
+class PaginatedRevisionInfo(BaseModel):
+    """The paging of a list of revisions; pages count from 0."""
+
+    totalPages: int
+    currentPage: int
+    pageSize: int
+
+
+class PaginatedRevisionData(BaseModel):
+    """One page of an environment's revisions, newest first."""
+
+    revisions: list[RevisionSummary]
+    pageInfo: PaginatedRevisionInfo
 
 
 class FailureEnvelopeV1(BaseModel):

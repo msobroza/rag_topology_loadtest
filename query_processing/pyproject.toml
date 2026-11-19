@@ -44,7 +44,11 @@ chroma = ["chromadb>=1.0"]
 loadtest = ["locust>=2.29", "rouge-score>=0.1.2"]
 # Domino 6.2 agent tracing (`domino.agents.tracing.add_tracing`).
 domino = ["dominodatalab[agents]>=2.2.0"]
+# The list that opens in a terminal (qp-deploy tiers, qp-deploy environments);
+# an App, which installs the toolkit at start-up, never needs it.
+terminal = ["textual>=8.2"]
 dev = [
+    "textual>=8.2",  # the list that opens, as the terminal extra
     "locust>=2.29",
     "rouge-score>=0.1.2",  # qp-compare-answers' ROUGE-L, as the loadtest extra
     "chromadb>=1.0",  # the Chroma store's tests run a real embedded Chroma
