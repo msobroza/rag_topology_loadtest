@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from ..composition.composition_root import CompositionRoot
-from ..config.ovms_settings import OvmsSettings
+from ..config.apps.ovms_settings import OvmsSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.errors import RagDependencyError
 from ..infrastructure.one_line_failure import one_line_failure

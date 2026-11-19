@@ -51,6 +51,7 @@ from ..adapters.vector_store.base_vector_store import BaseVectorStore
 from ..application.graph_check import check_graph
 from ..application.rag_dependencies import RagDependencies
 from ..application.stages.base_stage import StageContext
+from ..config.apps.ovms_settings import OvmsSettings
 from ..config.components.component_settings import (
     ComponentSettings,
     EmbedderSettings,
@@ -61,7 +62,6 @@ from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
 from ..config.components.router_settings import RouterSettings, routes_of
-from ..config.ovms_settings import OvmsSettings
 from ..config.searched_embedder import seeding_embedder
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.components.base_component import BaseComponent

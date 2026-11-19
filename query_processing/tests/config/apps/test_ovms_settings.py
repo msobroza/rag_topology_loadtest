@@ -13,7 +13,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from query_processing.config.ovms_settings import OvmsSettings
+from query_processing.config.apps.ovms_settings import OvmsSettings
 from rag_components import shell_settings
 
 

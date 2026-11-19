@@ -31,7 +31,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config.ovms_settings import OvmsSettings
+from ..config.apps.ovms_settings import OvmsSettings
 from ..config.shared_settings import CalibrationSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.runtime.backends import OpenVinoWeightFormat

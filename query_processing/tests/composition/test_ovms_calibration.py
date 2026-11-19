@@ -21,7 +21,7 @@ from ovms_stand_ins import ovms_starts, write_ovms_export, write_ovms_stand_in
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.composition.ovms_calibration import ovms_candidates
 from query_processing.composition.ovms_stages import calibration_http_policy
-from query_processing.config.ovms_settings import OvmsSettings
+from query_processing.config.apps.ovms_settings import OvmsSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.infrastructure.http.http_policy import HttpPolicy
 from rag_components import FAKE_BACKENDS
