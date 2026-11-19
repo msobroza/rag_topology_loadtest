@@ -854,6 +854,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
       openvino_cpu_settings.py  OpenVinoCpuSettings: OpenVINO's CPU properties a site may choose (hint, hyper-threading, pinning, precision, any other), one block read as local_models.openvino and as an OVMS App's QP_OVMS_OPENVINO__*
       apps/           the settings one App owns, flat QP_* variables, no value of the workflow file
+        base_app_settings.py  BaseAppSettings: what every class of this folder shares, variable_of (the QP_* variable a field is read from)
         flag_pass_through.py  split_pass_through, names_flag, refuse_given_twice: a model server's pass-through of raw flags beside its named settings, and the refusal of a flag given both ways
         ovms_flags.py  the OVMS flags a named setting gives, and the command-line words OvmsSettings builds from them: the server's, an LLM's
         ovms_settings.py  OvmsSettings: an OVMS model server App's own QP_OVMS_* variables (its streams, its threads, its start timeout, its OpenVINO block, its graph options, its server flags, an LLM's flags, a pass-through)
@@ -935,11 +936,12 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         native_threads.py  NativeThreadScope: threadpoolctl scopes, one per model
         stage_calibration.py  BaseCalibratedStage, calibrate: time a CPU-bound stage under each candidate batch size and thread count, keep the fastest
         cpu_count.py  where the CPU count comes from: QP_LOCAL_MODELS__CPUS, the Domino hardware tier, the container
-      process_environment.py  restart_with: start the process again, same interpreter and arguments, in the environment its settings want
+      process_environment.py  restart_with: start the process again as it was started (sys.orig_argv: -m and the interpreter's flags kept), in the environment its settings want
       http/           what every adapter that calls out shares
         http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
         json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
         uvicorn_run.py  run_uvicorn: one worker serves the app object, several an import string of a factory, each worker told what main was told
+        startup_refusal_in_one_line.py  StartupRefusalInOneLine: a server's start-up refused in one line naming the command, for the exception type it is given
       corpora/        an outside source: the public corpora qp-fetch-corpus downloads
         catalog.py    CORPORA: the corpora it knows, one CorpusDefinition each
         download.py   download a corpus's files under one HttpPolicy and convert them
