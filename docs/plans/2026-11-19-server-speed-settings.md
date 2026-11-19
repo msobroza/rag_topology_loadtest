@@ -855,3 +855,41 @@ Until S1 has run, the two rows marked "yes" in 1.2 are a default measured by han
 15. **Keep-alive.** Uvicorn closes an idle connection after 5 s and httpx keeps one for 5 s; no source ties either to speed, and Domino's proxy sits between them. Recommended: keep both; read the transport retries in S1's logs before touching either.
 16. **Flat `QP_VLLM_*`, one App one component**, where the branch had `RAG_VLLM_<COMPONENT>_*`. Recommended: flat, as `QP_OVMS_*`; the LLM's 4096 moves to the use case's deploy file.
 17. **`DYNAMIC_QUANTIZATION_GROUP_SIZE` and `--grpc_workers` get no variable** (section 3). Recommended: accept; the first needs OVMS's LLM graph rewritten, the second a gRPC port.
+
+## 9. What became of it
+
+Approved on 19 November 2026 with its 17 decisions as recommended. Tickets 1 to 13 were built the same day on `claude/server-speed-settings`, one clean-context Opus 5.5 agent a ticket; Fable 5.2 had reached its limit until 24 November, so Opus orchestrated, and ticket 14 waits for Fable.
+
+| Ticket | Commit on the branch |
+|---|---|
+| 1, the App-own settings sub-package | `6193dc4` |
+| 2, the pass-through helper | `4ceac32` |
+| 3, the OpenVINO CPU block | `830813c` |
+| 4, OVMS's graph options, streams up to the cores | `a4500e6` |
+| 5, OVMS's server flags and the LLM's remaining flags | `1e5abcb` |
+| 6, an LLM on OVMS reads each prompt in one pass by default | `1646999` |
+| 7, Uvicorn's four settings | `11bf5af` |
+| 8, the process environment | `3075d3b` |
+| 9, the HTTP client's pool | `3db0337` |
+| 7b, a fix ticket for what the joins found | `c337728`, and `96994fb` for a type error mypy found in it |
+| 10, the `vllm` model-server kind | `4c8f283` |
+| 11, vLLM's settings and `qp-vllm-config` | `2dd38cf` |
+| 12, the `vllm` launch script | `df270f7` |
+| 13, the documents and the example files | `02b8cf8` |
+
+The orchestrator's commits between them list each new module in the README's tree.
+
+Fix ticket 7b, not in the plan, took four defects the joins found: the worker count was read inside the composition, so `QP_UVICORN_WORKERS` in a `.env` divided the CPUs of `qp-ingest` and `qp-calibrate` too (now passed by `qp-serve` and `qp-model-server` alone); `variable_of` was written in three classes (now `BaseAppSettings`); a restart lost `-m` (now `sys.orig_argv`); and since ticket 6's defaults, `QP_OVMS_ARGS` refused a batching flag naming a setting nobody set (now a named setting left at its default yields to the pass-through, as the OpenVINO block's does).
+
+Verified on the laptop, with no network and no model: the full `make check` green on `02b8cf8` (the toolkit's mypy over 258 files, 2951 tests passed and 1 skipped, the use case's 104, the charts' 72); the answers on the fake backends 100 of 100 identical against the record taken on `891fde5` before ticket 1, with one Uvicorn worker and with two (two server processes started).
+
+Not done, and what ticket 14 should look at besides section 5's list:
+
+1. A named setting set explicitly to its "left out" value: vLLM accepts it beside the pass-through (`QP_VLLM_KV_CACHE_GIB=0` with `--kv-cache-memory-bytes` in `QP_VLLM_ARGS`), OVMS refuses any explicitly set flag beside it. One rule for both would be clearer.
+2. On an embedder's or a reranker's OVMS App, an LLM flag given in `QP_OVMS_ARGS` reaches `ovms` unrefused (as before this plan).
+3. A `deploy.yaml` override of `local_models.openvino.properties` may be refused by the deploy tool (a dict field walked as declared names); untested, and the example files show none.
+4. `QP_OVMS_LOG_LEVEL` takes `DEBUG`, `INFO` and `ERROR` only (OVMS also `TRACE` and `WARNING`); a graph queue size of `0` is accepted unchecked; `QP_VLLM_OPTIMIZATION_LEVEL` has no upper bound; `QP_PROCESS_OMP_PROC_BIND` takes any text.
+5. `QP_LOADTEST_MODEL_SERVER_PATH` is ignored, not refused, on the `rag` target.
+6. The OpenVINO block's errors name its field, not the full variable, since it does not know which of its two homes it was read from.
+7. `composition/composition_root.py` is 498 lines, two under the limit.
+8. None of section 7's sittings has run: the two changed defaults of an LLM's OVMS App are measured at 4 users only, and no vLLM App has started from `vllm.sh`.
