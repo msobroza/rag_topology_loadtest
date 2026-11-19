@@ -321,7 +321,7 @@ What a target answered to each request of the load test's request pool, sent onc
 _Avoid_: golden file, snapshot, fixture (a deployment's record is recorded on demand; the one a test holds the app to is a pinned answer record)
 
 **Pinned answer record**:
-An answer record of the workflow app on fake backends, committed beside the test that compares the app with it: the answers every change to how the graph runs is held to, on every orchestrator. It is made again only when a change alters the answers on purpose.
+An answer record of the workflow app on fake backends, committed beside the test that compares the app with it: the answers every change to how the graph runs is held to, on every orchestrator, each answer's text held exactly. It is made again only when a change alters the answers on purpose.
 _Avoid_: golden file, snapshot, baseline (that is the first run of a comparison)
 
 **Target**:

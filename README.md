@@ -933,9 +933,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       orchestrator/   the library that runs the workflow graph; importing it imports every module under it, so each orchestrator registers itself
         base_orchestrator.py  BaseOrchestrator, the port: check_graph_runs refuses a graph before anything opens, built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
         langgraph/    orchestrator: langgraph, the default
-          langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing no graph, the one module importing LangGraph; state_type, langgraph_name, path_map
+          langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing only a stage name LangGraph does not take for a node, the one module importing LangGraph; state_type, langgraph_name, path_map
         pydantic_graph/  orchestrator: pydantic_graph, pydantic-graph (Pydantic AI's graph library)
-          pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision; refuses more than one way out at once and a loop; the one module importing pydantic-graph
+          pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision named after it; refuses a stage named as one of those nodes, more than one way out at once, a loop, and what its library does not build; the one module importing pydantic-graph
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
@@ -1727,7 +1727,8 @@ Two things do not follow the orchestrator:
   span per stage. The response's `timings_ms` still times each stage.
 
 **Adding a library.** An orchestrator is one directory of
-`adapters/orchestrator/`, named after it, with one module and one class that
+`adapters/orchestrator/`, named after the library it imports, which is also the
+name it registers under, with one module and one class that
 subclasses `BaseOrchestrator` (`adapters/orchestrator/base_orchestrator.py`)
 and registers itself with `@ORCHESTRATORS.register("<name>")`. The tree's two
 show the names: `langgraph/langgraph_orchestrator.py` holds

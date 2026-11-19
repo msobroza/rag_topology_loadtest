@@ -18,8 +18,9 @@ Designed in [the spec of 19 November 2026](../specs/2026-11-19-the-graph-on-an-o
 ## Consequences
 
 - The file's names (`stages`, `source`, `path`, `path_map`, `START`, `END`) are the toolkit's. They came from LangGraph, and they stay.
-- A graph that runs today runs the same on LangGraph, which refuses nothing start-up accepts.
-- pydantic-graph refuses a stage or `START` with more than one way out at once, since the library ends the run when the first branch reaches `END` and cancels the others (seen on 2.70.0). It refuses a loop, since nothing stops one that never ends.
+- A graph that runs today runs the same on LangGraph. Its check refuses only a stage name LangGraph does not take for a node, in LangGraph's own words: such a name failed before too, but at the build, with the components open.
+- pydantic-graph refuses a stage or `START` with more than one way out at once, since the library ends the run when the first branch reaches `END` and cancels the others (seen on 2.70.0). It refuses a loop, since nothing stops one that never ends. It also refuses a stage named as a node its adapter adds for a conditional edge, and what its library refuses to build: a stage with no way out, nothing that leads to `END`, a stage no edge from `START` reaches.
+- Each check asks its library where it can, on a graph linked with stand-in stages, so a rule of a library is not written a second time in its adapter.
 - How the workflow state takes a stage's update is now stated in the toolkit: a field with a reducer is reduced, any other is replaced. LangGraph keeps its own reducers; a library without them uses that rule.
 - `application/` and `domain/` name no library; each library is imported by its adapter alone.
 - A third library is one directory with one class that registers itself. The checks, the builder, the setting and the tests find it through the registry.
