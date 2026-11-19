@@ -1,13 +1,14 @@
 """``CompiledWorkflow``: one request through a compiled graph, its result out.
 
-``workflow_builder.build_workflow`` compiles the graph from its description;
-this module only runs it. The request's question starts the workflow state,
+``workflow_builder.build_workflow`` builds the orchestrator's graph from its
+description; this module only runs it. The request's question starts the workflow state,
 and the final state becomes the result: the answer in ``query`` mode, the
 reranked passages, and each stage's wall time, keyed by the stages of the
 graph that ran.
 
 Example:
-    >>> workflow = build_workflow(settings.graph, deps.components(), context)
+    >>> workflow = build_workflow(
+    ...     settings.graph, deps.components(), context, orchestrator)
     >>> result = await workflow.run("How many vacation days?", mode="retrieve")
 """
 
@@ -15,10 +16,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping, Sequence
-from typing import Any
 
-from langgraph.graph.state import CompiledStateGraph
-
+from ..adapters.orchestrator.base_orchestrator import BaseOrchestrator
 from ..domain.conversation import HistoryMessage
 from ..domain.retrieval.metadata_filter import MetadataCondition
 from ..domain.retrieval.passages import TOTAL_TIMING_KEY, RagMode, RagResult
@@ -35,17 +34,16 @@ class CompiledWorkflow:
     """A compiled graph; build it once, ``run`` it per request.
 
     Args:
-        graph: The compiled LangGraph graph over the workflow state.
+        orchestrator: The library's graph of the opened stages, which runs
+            each request.
         stage_names: The graph's stages, in the order of its description: the
             keys of every result's ``timings_ms``, before the total.
     """
 
-    # Any, not WorkflowState: ty 0.0.100 does not match a TypedDict against
-    # LangGraph's TypedDictLike bound (its __optional_keys__); mypy accepts it.
     def __init__(
-        self, graph: CompiledStateGraph[Any, Any, Any, Any], stage_names: Sequence[str]
+        self, orchestrator: BaseOrchestrator, stage_names: Sequence[str]
     ) -> None:
-        self.graph = graph
+        self.orchestrator = orchestrator
         self.stage_names = tuple(stage_names)
 
     async def run(
@@ -82,7 +80,7 @@ class CompiledWorkflow:
             conversational_history=conversational_history,
             metadata_filter=metadata_filter,
         )
-        final = await self.graph.ainvoke(state)
+        final = await self.orchestrator.ainvoke(state)
         total_ms = (time.perf_counter() - started) * 1000
         return RagResult(
             question=question,

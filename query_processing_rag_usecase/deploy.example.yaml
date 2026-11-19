@@ -177,8 +177,12 @@ apps:
 # for components.llm.http.timeout_s) and wins over the workflow file. They are
 # checked against the workflow settings before anything is published: a key the
 # workflow file has no place for, a component or stage it does not declare, an
-# api_key, or a value the workflow app would refuse stops the deploy, naming its
-# place. qp-deploy's own exports win over them: QP_TOPOLOGY_ALIAS, and the
+# api_key, or a value of a type or range the workflow settings refuse stops the
+# deploy, naming its place. Then the workflow file with them is refused, with
+# the line qp-serve prints, if an App's start-up would refuse it: a name nobody
+# registered (a backend, an API format, a structured output method, an
+# orchestrator) or a graph the chosen orchestrator does not run.
+# qp-deploy's own exports win over them: QP_TOPOLOGY_ALIAS, and the
 # backend and served URL of each component the topology alias names. The run
 # label is the alias plus each served component's kind unless run_label is set
 # here (to name a variant, such as a hardware tier).

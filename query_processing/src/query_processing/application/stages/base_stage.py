@@ -168,8 +168,8 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             state: The workflow state so far.
 
         Returns:
-            The fields the stage writes, the update LangGraph merges into the
-            state.
+            The fields the stage writes, the update the orchestrator merges
+            into the state.
         """
 
     def read_fields(self, state: WorkflowState) -> list[Any]:
@@ -193,7 +193,7 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             value: What the stage produced.
 
         Returns:
-            The update LangGraph merges into the state.
+            The update the orchestrator merges into the state.
 
         Example:
             >>> stage.write_field("the answer")

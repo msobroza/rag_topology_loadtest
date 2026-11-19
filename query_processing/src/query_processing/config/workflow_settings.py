@@ -109,6 +109,9 @@ class WorkflowSettings(BaseSettings):
     # The workflow file's graph block: its stages with their own settings (the
     # retrieval mode, the sizes, the prompts), its edges and conditional edges.
     graph: GraphDescription
+    # The library that runs the graph along its edges, a name registered in
+    # ORCHESTRATORS (ADR 0010); the graph does not change with it.
+    orchestrator: str = "langgraph"
     # The workflow file's components block: each model and the vector store by
     # name, its backend, its settings and one block per backend.
     components: dict[str, Component]

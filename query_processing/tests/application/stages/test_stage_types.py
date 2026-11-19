@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, get_type_hints
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -28,7 +28,7 @@ from query_processing.application.stages.retrieve_stage import (
     RetrieveSettings,
     RetrieveStage,
 )
-from query_processing.application.state_fields import field_types_of, state_type
+from query_processing.application.state_fields import field_types_of, state_field_types
 from query_processing.application.workflow_builder import open_stage
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.prompts import PromptMessage
@@ -97,7 +97,7 @@ async def test_each_rag_stage_reads_and_writes_fields_of_the_workflow_state(
         for name, description in graph.stages.items()
     }
     types = field_types_of({name: stage.field_types for name, stage in stages.items()})
-    state_fields = set(get_type_hints(state_type(types)))
+    state_fields = set(state_field_types(types))
 
     for name, description in graph.stages.items():
         assert description.reads, name

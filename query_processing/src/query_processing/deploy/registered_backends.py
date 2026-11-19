@@ -2,9 +2,13 @@
 
 A component type of the toolkit's four has its backends' openers in
 ``composition/openers/``, one module each, named ``<type>_on_<backend>.py``
-(the README's rule 5). The deploy tool may not import the composition root
-(rule 1), and importing the openers would load the adapters, so it reads those
-backends from the modules' names, without importing them. A test checks that
+(the README's rule 5). This module reads those backends from the modules'
+names, without importing them: of the composition, the deploy tool imports
+only the two start-up checks, in ``workflow_components`` alone (rule 1), and
+they ask about the workflow file with the overrides, not about the backends
+a topology alias exports. Reading the backends from the openers' registry
+instead is left for later (the design of 19 November 2026, "The deploy
+refuses what an App's start-up would refuse", non-goals). A test checks that
 the names give exactly the backends the openers register.
 
 A registered component type, one that registers in the domain's

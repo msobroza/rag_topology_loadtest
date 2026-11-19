@@ -5,39 +5,35 @@ instance of the stage type its description names, built with the component its
 ``call`` names, its own settings and its ``reads`` and ``writes``, or, when it is
 of no stage type, a plain call bound by them; each is timed under its name; the
 workflow's
-results are keyed by those names, in the description's order. The LangGraph
-state is built from the fields the request and the stages write. Each chain of
-plain edges becomes one LangGraph edge per pair, the reserved ``START`` and
-``END`` becoming LangGraph's own. Each conditional edge asks the edge condition
-its ``path`` names about the values of the fields its ``reads`` names, through
-a function that keeps the edge condition's name: LangGraph names the branch
-after the function, and Domino tracing needs that name. The answer, a bool or a
-label, picks its row of ``path_map``.
+results are keyed by those names, in the description's order. The state's
+fields are those the request and the stages write. Each conditional edge asks
+the edge condition its ``path`` names about the values of the fields its
+``reads`` names, through a function that keeps the edge condition's name: an
+orchestrator names the branch after it, and Domino tracing needs that name.
+The answer, a bool or a label, picks its row of ``path_map``. All of it is
+handed, as the opened graph, to the orchestrator's class, which links the
+stages with its library (ADR 0010).
 
 Example:
-    >>> workflow = build_workflow(
-    ...     settings.graph, deps.components(), stage_context(settings))
+    >>> workflow = build_workflow(settings.graph, deps.components(),
+    ...     stage_context(settings), composition.orchestrator())
     >>> result = await workflow.run("How many vacation days?")
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Hashable, Mapping
-from typing import Any, Protocol
+from collections.abc import Callable, Mapping
+from typing import Any
 
-from langgraph.graph import END as LANGGRAPH_END
-from langgraph.graph import START as LANGGRAPH_START
-from langgraph.graph import StateGraph
-
+from ..adapters.orchestrator.base_orchestrator import BaseOrchestrator
 from ..domain.components.base_component import BaseComponent
 from ..domain.graph_description import (
-    END,
-    START,
     ConditionalEdge,
     GraphDescription,
     StageDescription,
 )
+from ..domain.opened_graph import OpenedConditionalEdge, OpenedGraph, StageRun
 from ..domain.registry import Registry
 from .edge_check import edge_name
 from .edge_conditions.edge_condition import EDGE_CONDITIONS, EdgeCondition
@@ -45,49 +41,28 @@ from .graph_check import WorkflowGraphError
 from .stage_binding import bind_call, stage_fields, stage_type_of
 from .stages.base_stage import STAGE_TYPES, BaseStage, StageContext, StageTypes
 from .stages.call_stage import CallStage
-from .state_fields import field_types_of, state_type
+from .state_fields import STATE_REDUCERS, field_types_of, state_field_types
 from .workflow import CompiledWorkflow
 from .workflow_state import TIMINGS_FIELD, TOKENS_FIELD, WorkflowState
-
-# The description's reserved names, as LangGraph spells them.
-_LANGGRAPH_NAMES = {START: LANGGRAPH_START, END: LANGGRAPH_END}
-
-
-class LangGraphNode(Protocol):
-    """What LangGraph runs for one stage (LangGraph calls it a node).
-
-    A Protocol rather than ``Callable[[WorkflowState], ...]`` because LangGraph
-    1.x types a node by a parameter named ``state``; a ``Callable`` alias erases
-    the name and mypy then rejects ``StateGraph.add_node``. Its state is
-    ``Any``: the state type is built at run time, and LangGraph bounds a node's
-    input by a TypedDict-like type that a plain ``dict`` is not.
-    """
-
-    def __call__(self, state: Any) -> Awaitable[WorkflowState]:
-        """Run the stage.
-
-        Args:
-            state: The workflow state so far.
-
-        Returns:
-            An awaitable of the stage's update.
-        """
 
 
 def build_workflow(
     graph: GraphDescription,
     components: Mapping[str, object],
     context: StageContext,
+    orchestrator: type[BaseOrchestrator],
     *,
     stage_types: StageTypes = STAGE_TYPES,
     edge_conditions: Registry[EdgeCondition] = EDGE_CONDITIONS,
 ) -> CompiledWorkflow:
-    """Build and compile the graph a description gives.
+    """Build the graph a description gives, on the orchestrator handed in.
 
     Args:
         graph: The stages, the chains of plain edges and the conditional edges.
         components: What a stage's ``call`` names, by name.
         context: What every stage of a stage type is given, such as the prompts.
+        orchestrator: The library that runs the graph, the class the
+            composition found under the settings' ``orchestrator``.
         stage_types: Where a stage's type is found; the registered stage types
             unless a test hands in its own.
         edge_conditions: Where a conditional edge's ``path`` is found; the
@@ -106,23 +81,26 @@ def build_workflow(
             two types.
 
     Example:
-        >>> build_workflow(settings.graph, deps.components(), stage_context(settings))
+        >>> build_workflow(settings.graph, deps.components(),
+        ...                stage_context(settings), composition.orchestrator())
     """
     stages = {
         name: open_stage(name, description, components, stage_types, context)
         for name, description in graph.stages.items()
     }
     types = field_types_of({name: stage.field_types for name, stage in stages.items()})
-    builder = StateGraph(state_type(types))
-    for name, stage in stages.items():
-        builder.add_node(name, timed(name, stage))
-    for source, target in graph.edge_pairs():
-        builder.add_edge(langgraph_name(source), langgraph_name(target))
-    for edge in graph.conditional_edges:
-        asked = asked_of_state(edge_conditions.get(edge.path), edge)
-        source = langgraph_name(edge.source)
-        builder.add_conditional_edges(source, asked, path_map(edge))
-    return CompiledWorkflow(builder.compile(), stage_names=list(graph.stages))
+    asked = [
+        OpenedConditionalEdge(e, asked_of_state(edge_conditions.get(e.path), e))
+        for e in graph.conditional_edges
+    ]
+    opened = OpenedGraph(
+        stages={name: timed(name, stage) for name, stage in stages.items()},
+        edges=graph.edge_pairs(),
+        conditional_edges=asked,
+        field_types=state_field_types(types),
+        reducers=STATE_REDUCERS,
+    )
+    return CompiledWorkflow(orchestrator(opened), stage_names=list(graph.stages))
 
 
 def asked_of_state(
@@ -131,10 +109,10 @@ def asked_of_state(
     """Return the edge condition asked of the state, its answer checked for a row.
 
     The condition is handed the values of the edge's ``reads``, in order. The
-    function keeps the edge condition's name: LangGraph names the branch
-    after it, and Domino tracing fails on a step with no name. An answer the
-    edge has no row for is refused here: LangGraph would fail on it with a bare
-    ``KeyError``.
+    function keeps the edge condition's name: the orchestrator names the
+    branch after it, and Domino tracing fails on a step with no name. An answer
+    the edge has no row for is refused here: LangGraph would fail on it with a
+    bare ``KeyError``.
 
     Args:
         condition: The registered edge condition.
@@ -271,7 +249,7 @@ def open_call(description: StageDescription, component: object) -> CallStage:
     return CallStage(component, binding)
 
 
-def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> LangGraphNode:
+def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> StageRun:
     """Wrap a stage so its update carries its measures under its name.
 
     The update gains ``{"timings_ms": {name: ms}}``, and the tokens the stage
@@ -282,10 +260,12 @@ def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> LangGraphNode:
         stage: The stage to time.
 
     Returns:
-        What LangGraph runs for the stage.
+        What the orchestrator runs for the stage, a stage of the opened graph.
 
     Example:
-        >>> builder.add_node("rerank", timed("rerank", stage))
+        >>> update = await timed("rerank", stage)(state)
+        >>> list(update["timings_ms"])
+        ['rerank']
     """
 
     async def run(state: WorkflowState) -> WorkflowState:
@@ -298,36 +278,3 @@ def timed(name: str, stage: BaseStage[Any, Any] | CallStage) -> LangGraphNode:
         return {**update, **measured}
 
     return run
-
-
-def langgraph_name(name: str) -> str:
-    """Return a stage name as LangGraph knows it: the reserved names its own way.
-
-    Args:
-        name: A stage name, ``START`` or ``END``.
-
-    Returns:
-        LangGraph's start or end for the reserved names, else ``name``.
-
-    Example:
-        >>> langgraph_name("END")
-        '__end__'
-    """
-    return _LANGGRAPH_NAMES.get(name, name)
-
-
-def path_map(edge: ConditionalEdge) -> dict[Hashable, str]:
-    """Return a conditional edge's ``path_map`` with LangGraph's names.
-
-    Args:
-        edge: The conditional edge.
-
-    Returns:
-        Each answer of the edge condition, mapped to where it leads.
-
-    Example:
-        >>> path_map(ConditionalEdge(source="rerank", path="is_query_mode",
-        ...          reads=["mode"], path_map={True: "generate", False: "END"}))
-        {True: 'generate', False: '__end__'}
-    """
-    return {answer: langgraph_name(to) for answer, to in edge.path_map.items()}

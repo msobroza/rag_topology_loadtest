@@ -4,7 +4,7 @@
 # pipeline file). The install and the gates are the repository root's: make
 # install-dev, make check there.
 .DEFAULT_GOAL := help
-.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run tiers environments record-answers record-answers-domino compare-answers
+.PHONY: help ingest train-router serve model-server loadtest loadtest-models compare ovms-export openvino-export calibrate infra-up infra-down deploy deploy-embedder deploy-reranker deploy-llm deploy-workflow status loadtest-domino deploy-dry-run tiers environments record-answers record-answers-domino compare-answers pin-answers
 
 # The toolkit, beside this directory: its Locust file, its OVMS exporter and its
 # local infrastructure.
@@ -72,6 +72,12 @@ ANSWER_RECORDS = $(sort $(patsubst %_answers.json,%,$(wildcard results/*_answers
 ANSWER_RUNS = $(strip $(if $(BASELINE),results/$(BASELINE)) $(filter-out results/$(BASELINE),$(ANSWER_RECORDS)))
 compare-answers: ## Compare every answer record under results/ with the first (BASELINE=<run> picks it) into results/answers-comparison.md
 	$(BIN)qp-compare-answers $(ANSWER_RUNS) --out results/answers-comparison.md
+
+# The test that compares the workflow app here with its pinned answer records,
+# run to make them again instead: in process, every component on its fake
+# backend, no socket, nothing downloaded.
+pin-answers: ## Make the pinned answer records of this workflow on fake backends again, after a change that alters the answers on purpose (commit them)
+	$(BIN)pytest tests/answer_records/test_pinned_answer_records.py --pin-answers
 
 ovms-export: ## Export each embedder and reranker of the workflow file, the router's embedder included, to ovms/models (needs HF access)
 	$(TOOLKIT)/ovms/export_models.sh

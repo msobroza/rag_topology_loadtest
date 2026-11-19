@@ -28,9 +28,15 @@ from query_processing.domain.retrieval.metadata_filter import (
 )
 from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints.qp_serve import create_app
+from query_processing.testing import registered_orchestrators
 
 from query_processing_rag_usecase.config.knn_router_settings import KnnRouterSettings
-from workflow_on_fakes import COMPONENTS, FAKE_RUN_LABEL, settings_here
+from workflow_on_fakes import (
+    COMPONENTS,
+    FAKE_RUN_LABEL,
+    all_fake_settings,
+    settings_here,
+)
 
 QUESTION = "How many paid vacation days do employees accrue each year?"
 EARLIER_TURNS = [
@@ -105,6 +111,19 @@ def test_the_workflow_file_builds_a_graph_that_answers(
         assert answered["answer"].startswith("[fake-llm] Context:\n[1] ")
     else:
         assert answered["answer"] is None
+
+
+@pytest.mark.parametrize("orchestrator", registered_orchestrators())
+def test_every_orchestrator_accepts_the_files_graph_at_start_up(
+    use_case_dir: Path, monkeypatch: pytest.MonkeyPatch, orchestrator: str
+) -> None:
+    # all_fake_settings refuses the settings as qp-serve does at start-up:
+    # the workflow-graph check asks the chosen orchestrator about the graph.
+    settings = all_fake_settings(monkeypatch, QP_ORCHESTRATOR=orchestrator)
+
+    assert settings.orchestrator == orchestrator
+    # The file names none: the same file runs on each, LangGraph by default.
+    assert "orchestrator" not in written_workflow(use_case_dir)
 
 
 def test_the_file_names_its_extension_and_writes_the_runtime(

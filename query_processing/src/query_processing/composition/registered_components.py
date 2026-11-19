@@ -20,13 +20,16 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from functools import cache
 from typing import Any
+
+from pydantic import BaseModel
 
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
+from ..config.components.router_settings import RouterSettings, routes_of
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.components.base_component import BaseComponent
 from ..domain.components.component_resources import ComponentResources
@@ -199,6 +202,63 @@ def local_settings(
     entry = {**component.model_dump(), "backend": LOCAL}
     # Read with its own class, so a router keeps the keys of its type.
     return type(component).model_validate(entry)
+
+
+def component_resources(
+    name: str,
+    component: RegisteredComponentSettings,
+    settings: WorkflowSettings,
+    component_settings: Callable[[str], BaseModel],
+) -> ComponentResources:
+    """Return what a registered component's implementation may use besides its block.
+
+    Args:
+        name: The component's name.
+        component: Its settings, as it opens.
+        settings: The workflow settings, for the routes file's catalogue.
+        component_settings: Finds another component's settings by its name.
+
+    Returns:
+        Its name, its type's keys, the lookup of the other components, and a
+        router's routes read from the catalogue; no routes for another type.
+
+    Example:
+        >>> component_resources("router", router, settings, lookup).routes
+        {'self_contained': Route(...), 'leans_on_history': Route(...)}
+    """
+    catalogue = {route.name: route for route in settings.routes}
+    routes = (
+        routes_of(component, catalogue) if isinstance(component, RouterSettings) else {}
+    )
+    return ComponentResources(
+        name=name,
+        type_settings=component.type_block(),
+        component_settings=component_settings,
+        routes=routes,
+    )
+
+
+def component_type_settings(settings: WorkflowSettings) -> dict[str, BaseModel | None]:
+    """Return the keys of each component's type, by the component's name.
+
+    The start-up checks give a plain call's written fields the labels its
+    component type declares from them, such as a router's routes.
+
+    Args:
+        settings: The workflow settings.
+
+    Returns:
+        Each component's type keys, read with its type's settings class; None
+        for a component whose type has none, or that is not registered.
+
+    Example:
+        >>> component_type_settings(settings)["router"].routes
+        ['self_contained', 'leans_on_history']
+    """
+    return {
+        name: c.type_block() if isinstance(c, RegisteredComponentSettings) else None
+        for name, c in settings.components.items()
+    }
 
 
 def _listed(names: Iterable[str]) -> str:

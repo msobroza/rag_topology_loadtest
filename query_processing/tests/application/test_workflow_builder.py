@@ -6,15 +6,19 @@ shouts it only when the message is a question:
 
     START -> draft -?-> shout -> END
                    \\-> END
+
+Each test runs on every registered orchestrator, but those of LangGraph's own graph.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, get_type_hints
 
 import pytest
 
 from echo_components import Upper
+from query_processing.adapters.orchestrator.base_orchestrator import BaseOrchestrator
 from query_processing.application.edge_conditions.edge_condition import EdgeCondition
 from query_processing.application.edge_conditions.label import label
 from query_processing.application.graph_check import WorkflowGraphError
@@ -30,10 +34,7 @@ from query_processing.application.stages.call_stage import CallStage
 from query_processing.application.workflow import CompiledWorkflow
 from query_processing.application.workflow_builder import (
     asked_of_state,
-    build_workflow,
-    langgraph_name,
     open_stage,
-    path_map,
     timed,
 )
 from query_processing.application.workflow_state import (
@@ -47,7 +48,14 @@ from query_processing.domain.graph_description import (
     StageDescription,
 )
 from query_processing.domain.registry import Registry
-from workflow_fakes import ChainNameRecorder
+from workflow_fakes import (
+    ON_LANGGRAPH_ALONE,
+    ChainNameRecorder,
+    build_workflow_on,
+    compiled_langgraph,
+)
+
+FixtureWorkflow = Callable[..., CompiledWorkflow]
 
 
 class FakeScribe:
@@ -144,6 +152,10 @@ def says_maybe(conversational_query: str) -> bool:
 
 
 FIXTURE_EDGE_CONDITIONS.register("label")(label)
+FIXTURE_REGISTRIES: dict[str, Any] = {
+    "stage_types": FIXTURE_STAGE_TYPES,
+    "edge_conditions": FIXTURE_EDGE_CONDITIONS,
+}
 
 DRAFT_LISTS = {"reads": ["conversational_query"], "writes": ["answer"]}
 SHOUT = {"call": "scribe", "reads": ["answer"], "writes": ["answer"]}
@@ -172,15 +184,18 @@ LABEL_EDGE = {
 }
 
 
-def fixture_workflow(scribe: FakeScribe, **changes: Any) -> CompiledWorkflow:
-    graph = GraphDescription.model_validate({**FIXTURE_GRAPH, **changes})
-    return build_workflow(
-        graph,
-        {"scribe": scribe},
-        StageContext(),
-        stage_types=FIXTURE_STAGE_TYPES,
-        edge_conditions=FIXTURE_EDGE_CONDITIONS,
-    )
+@pytest.fixture
+def fixture_workflow(orchestrator: type[BaseOrchestrator]) -> FixtureWorkflow:
+    """The fixture graph with ``changes`` over ``scribe``, on ``orchestrator``."""
+
+    def make(scribe: FakeScribe, **changes: Any) -> CompiledWorkflow:
+        graph = GraphDescription.model_validate({**FIXTURE_GRAPH, **changes})
+        components = {"scribe": scribe}
+        return build_workflow_on(
+            orchestrator, graph, components, StageContext(), **FIXTURE_REGISTRIES
+        )
+
+    return make
 
 
 @pytest.mark.parametrize(
@@ -191,7 +206,7 @@ def fixture_workflow(scribe: FakeScribe, **changes: Any) -> CompiledWorkflow:
     ],
 )
 async def test_a_graph_of_another_shape_takes_the_branch_its_edge_condition_picks(
-    message: str, answer: str, written: list[str]
+    message: str, answer: str, written: list[str], fixture_workflow: FixtureWorkflow
 ) -> None:
     scribe = FakeScribe()
 
@@ -205,11 +220,11 @@ async def test_a_graph_of_another_shape_takes_the_branch_its_edge_condition_pick
     ("message", "timed_stages"), [("who?", {"draft", "shout"}), ("hello", {"draft"})]
 )
 async def test_each_stage_that_runs_is_timed_under_its_own_name(
-    message: str, timed_stages: set[str]
+    message: str, timed_stages: set[str], fixture_workflow: FixtureWorkflow
 ) -> None:
-    graph = fixture_workflow(FakeScribe()).graph
+    built = fixture_workflow(FakeScribe()).orchestrator
 
-    final = await graph.ainvoke(initial_state(message, "query"))
+    final = await built.ainvoke(initial_state(message, "query"))
 
     assert set(final["timings_ms"]) == timed_stages
     assert all(ms > 0 for ms in final["timings_ms"].values())
@@ -219,7 +234,7 @@ async def test_each_stage_that_runs_is_timed_under_its_own_name(
     ("message", "skipped"), [("who?", set[str]()), ("hello", {"shout"})]
 )
 async def test_the_result_times_every_stage_of_the_graph_by_name_then_the_total(
-    message: str, skipped: set[str]
+    message: str, skipped: set[str], fixture_workflow: FixtureWorkflow
 ) -> None:
     result = await fixture_workflow(FakeScribe()).run(message)
 
@@ -228,7 +243,9 @@ async def test_the_result_times_every_stage_of_the_graph_by_name_then_the_total(
     assert zero == skipped  # a stage that did not run keeps its key, at 0
 
 
-async def test_the_result_lists_the_stages_in_the_order_the_description_gives() -> None:
+async def test_the_result_lists_the_stages_in_the_order_the_description_gives(
+    fixture_workflow: FixtureWorkflow,
+) -> None:
     stages = {"shout": SHOUT, **FIXTURE_GRAPH["stages"]}
 
     result = await fixture_workflow(FakeScribe(), stages=stages).run("who?")
@@ -236,9 +253,12 @@ async def test_the_result_lists_the_stages_in_the_order_the_description_gives() 
     assert list(result.timings_ms) == ["shout", "draft", "total"]
 
 
-async def test_every_step_reaches_a_tracer_with_a_name() -> None:
+@ON_LANGGRAPH_ALONE
+async def test_every_step_reaches_a_tracer_with_a_name(
+    fixture_workflow: FixtureWorkflow,
+) -> None:
     recorder = ChainNameRecorder()
-    graph = fixture_workflow(FakeScribe()).graph
+    graph = compiled_langgraph(fixture_workflow(FakeScribe()))
 
     await graph.ainvoke(initial_state("who?", "query"), {"callbacks": [recorder]})
 
@@ -247,11 +267,12 @@ async def test_every_step_reaches_a_tracer_with_a_name() -> None:
     assert {"draft", "is_a_question", "shout"} <= set(recorder.names)
 
 
+@ON_LANGGRAPH_ALONE
 @pytest.mark.parametrize(
     ("message", "answer"), [("who?", "WHO?!"), ("hello", "hello!")]
 )
 async def test_a_label_answer_takes_its_row_of_the_path_map(
-    message: str, answer: str
+    message: str, answer: str, fixture_workflow: FixtureWorkflow
 ) -> None:
     stages = {**FIXTURE_GRAPH["stages"], "classify": CLASSIFY}
     workflow = fixture_workflow(
@@ -262,7 +283,7 @@ async def test_a_label_answer_takes_its_row_of_the_path_map(
     )
     recorder = ChainNameRecorder()
 
-    final = await workflow.graph.ainvoke(
+    final = await compiled_langgraph(workflow).ainvoke(
         initial_state(message, "query"), {"callbacks": [recorder]}
     )
 
@@ -272,7 +293,7 @@ async def test_a_label_answer_takes_its_row_of_the_path_map(
 
 @pytest.mark.parametrize(("message", "answer"), [("who?", "who?!"), ("hello", None)])
 async def test_a_conditional_edge_can_start_at_start(
-    message: str, answer: str | None
+    message: str, answer: str | None, fixture_workflow: FixtureWorkflow
 ) -> None:
     from_start = {**FIXTURE_GRAPH["conditional_edges"][0], "source": "START"}
     from_start["path_map"] = {True: "draft", False: "END"}
@@ -280,12 +301,14 @@ async def test_a_conditional_edge_can_start_at_start(
         FakeScribe(), edges=[["draft", "END"]], conditional_edges=[from_start]
     )
 
-    final = await workflow.graph.ainvoke(initial_state(message, "query"))
+    final = await workflow.orchestrator.ainvoke(initial_state(message, "query"))
 
     assert final.get("answer") == answer
 
 
-async def test_an_answer_its_edge_has_no_row_for_fails_naming_the_edge() -> None:
+async def test_an_answer_its_edge_has_no_row_for_fails_naming_the_edge(
+    fixture_workflow: FixtureWorkflow,
+) -> None:
     maybe = {**FIXTURE_GRAPH["conditional_edges"][0], "path": "says_maybe"}
     workflow = fixture_workflow(FakeScribe(), conditional_edges=[maybe])
 
@@ -305,8 +328,11 @@ def test_asked_of_state_hands_the_values_read_and_keeps_the_name() -> None:
     assert asked({"standalone_query": "who?", "conversational_query": "hi"}) is True
 
 
-def test_the_state_holds_the_fields_the_file_names_with_their_writers_types() -> None:
-    graph = fixture_workflow(FakeScribe()).graph
+@ON_LANGGRAPH_ALONE
+def test_the_state_holds_the_fields_the_file_names_with_their_writers_types(
+    fixture_workflow: FixtureWorkflow,
+) -> None:
+    graph = compiled_langgraph(fixture_workflow(FakeScribe()))
 
     hints = get_type_hints(graph.builder.state_schema, include_extras=True)
 
@@ -314,7 +340,9 @@ def test_the_state_holds_the_fields_the_file_names_with_their_writers_types() ->
     assert set(hints) == {*REQUEST_FIELDS, "answer"}  # with timings_ms
 
 
-def test_two_stages_that_write_one_field_as_two_types_are_refused() -> None:
+def test_two_stages_that_write_one_field_as_two_types_are_refused(
+    orchestrator: type[BaseOrchestrator],
+) -> None:
     loud = {"call": "echo", "reads": ["answer"], "writes": ["answer", "size"]}
     sized = {
         "call": "echo",
@@ -332,21 +360,29 @@ def test_two_stages_that_write_one_field_as_two_types_are_refused() -> None:
         WorkflowGraphError,
         match="'answer' is written as str by 'loud' and as int by 'sized'",
     ):
-        build_workflow(
-            graph, {"echo": Upper()}, StageContext(), stage_types=FIXTURE_STAGE_TYPES
+        build_workflow_on(
+            orchestrator,
+            graph,
+            {"echo": Upper()},
+            StageContext(),
+            stage_types=FIXTURE_STAGE_TYPES,
         )
 
 
-def test_a_longer_chain_is_one_edge_per_pair() -> None:
+@ON_LANGGRAPH_ALONE
+def test_a_longer_chain_is_one_edge_per_pair(fixture_workflow: FixtureWorkflow) -> None:
     chained = [["START", "draft", "shout", "END"]]
 
     workflow = fixture_workflow(FakeScribe(), edges=chained, conditional_edges=[])
 
-    edges = {(edge.source, edge.target) for edge in workflow.graph.get_graph().edges}
+    graph = compiled_langgraph(workflow).get_graph()
+    edges = {(edge.source, edge.target) for edge in graph.edges}
     assert edges == {("__start__", "draft"), ("draft", "shout"), ("shout", "__end__")}
 
 
-def test_a_setting_its_stage_type_does_not_know_is_refused_naming_it() -> None:
+def test_a_setting_its_stage_type_does_not_know_is_refused_naming_it(
+    fixture_workflow: FixtureWorkflow,
+) -> None:
     misspelt = {**FIXTURE_GRAPH["stages"]["draft"], "sufix": "!"}
     stages = {**FIXTURE_GRAPH["stages"], "draft": misspelt}
 
@@ -354,19 +390,18 @@ def test_a_setting_its_stage_type_does_not_know_is_refused_naming_it() -> None:
         fixture_workflow(FakeScribe(), stages=stages)
 
 
-async def test_a_plain_call_in_the_graph_answers_through_its_component() -> None:
+async def test_a_plain_call_in_the_graph_answers_through_its_component(
+    orchestrator: type[BaseOrchestrator],
+) -> None:
     # "loud" is no stage type: it states its lists, so it is a plain call.
     loud = {"call": "echo", "reads": ["answer"], "writes": ["answer"]}
     stages = {**FIXTURE_GRAPH["stages"], "loud": loud}
     graph = GraphDescription.model_validate(
         {"stages": stages, "edges": [["START", "draft", "loud", "END"]]}
     )
-    workflow = build_workflow(
-        graph,
-        {"scribe": FakeScribe(), "echo": Upper()},
-        StageContext(),
-        stage_types=FIXTURE_STAGE_TYPES,
-        edge_conditions=FIXTURE_EDGE_CONDITIONS,
+    components = {"scribe": FakeScribe(), "echo": Upper()}
+    workflow = build_workflow_on(
+        orchestrator, graph, components, StageContext(), **FIXTURE_REGISTRIES
     )
 
     result = await workflow.run("hello")
@@ -375,7 +410,9 @@ async def test_a_plain_call_in_the_graph_answers_through_its_component() -> None
     assert list(result.timings_ms) == ["draft", "shout", "loud", "total"]
 
 
-def test_a_plain_call_of_something_that_answers_no_ainvoke_is_refused() -> None:
+def test_a_plain_call_of_something_that_answers_no_ainvoke_is_refused(
+    fixture_workflow: FixtureWorkflow,
+) -> None:
     loud = {"call": "scribe", "reads": ["answer"], "writes": ["answer"]}
 
     with pytest.raises(WorkflowGraphError, match="stage 'loud': a plain call calls"):
@@ -460,19 +497,3 @@ async def test_timed_puts_the_tokens_a_stage_hands_under_its_name() -> None:
     update = await timed("loud", stage)({"answer": "hi"})
 
     assert update["tokens"] == {"loud": {"prompt": 7, "completion": 2}}
-
-
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [("START", "__start__"), ("END", "__end__"), ("draft", "draft")],
-)
-def test_langgraph_name_spells_the_reserved_names_langgraph_s_way(
-    name: str, expected: str
-) -> None:
-    assert langgraph_name(name) == expected
-
-
-def test_path_map_leads_each_answer_where_langgraph_knows_the_target() -> None:
-    edge = ConditionalEdge.model_validate(FIXTURE_GRAPH["conditional_edges"][0])
-
-    assert path_map(edge) == {True: "shout", False: "__end__"}

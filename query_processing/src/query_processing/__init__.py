@@ -2,9 +2,10 @@
 
 Three applications over one shared ``domain`` (value objects, errors, prompts,
 the run label, the corpus; no I/O). The RAG system is split by layer:
-``application`` (the LangGraph workflow, ingest), ``config`` (settings, Domino
-rules), ``adapters`` (the ports and their implementations, one package per
-component), ``infrastructure`` (technical code that implements no port),
+``application`` (the workflow, which the orchestrator the settings choose
+runs, and ingest), ``config`` (settings, Domino rules), ``adapters`` (the
+ports and their implementations, one package per component and one for the
+orchestrator), ``infrastructure`` (technical code that implements no port),
 ``composition`` (the composition root, which builds the adapters from the
 settings) and ``entrypoints`` (FastAPI apps and CLIs). ``deploy`` is qp-deploy
 and ``loadtest`` the Locust request plans and the run comparison. The README's

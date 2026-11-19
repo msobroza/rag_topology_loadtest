@@ -1,0 +1,2851 @@
+{
+  "seen": [
+    {
+      "topology": null,
+      "run_label": "embedder=fake+reranker=fake+llm=fake+vector_store=fake",
+      "responses": 20
+    }
+  ],
+  "answers": [
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "How many paid vacation days do employees accrue each year at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0090:0",
+          "text_sha256": "75f997d418b35b33fa3f612e5228b56554aff5ba234d4d08fb01e8c6d37d0727",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 90,
+            "doc_id": "doc-0090",
+            "title": "Northwind Analytics Vacation Policy (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7078702665436842,
+          "rerank_score": 0.23809523809523808
+        },
+        {
+          "id": "doc-0100:0",
+          "text_sha256": "3288216d7287845d0415c841ff5d92900d3afe23879ed1c1144ea13b7a1c8157",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 100,
+            "doc_id": "doc-0100",
+            "title": "Northwind Analytics Vacation Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7224185081767337,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0050:0",
+          "text_sha256": "517e5b359dafefdd20c3dddbcae87ae6e77acd8becbc3845275b8c8af3bca983",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 50,
+            "doc_id": "doc-0050",
+            "title": "Northwind Analytics Vacation Policy (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7139304961248962,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0110:0",
+          "text_sha256": "5ede4cd842bf60a436f7d27a7838c727c99f3764458187c53958c9e16b67efe6",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 110,
+            "doc_id": "doc-0110",
+            "title": "Northwind Analytics Vacation Policy (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7106978518012541,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0020:0",
+          "text_sha256": "d856fb5d794a883dd9d7112beee599fe4bf35e50b1b05ea62b3eae3c685aa36c",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 20,
+            "doc_id": "doc-0020",
+            "title": "Northwind Analytics Vacation Policy (revision 11)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7103994742335397,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0070:0",
+          "text_sha256": "5daf4eff3e1d67a9b24d8cf8052236010b204211257686aa2c0d161dee669ad4",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 70,
+            "doc_id": "doc-0070",
+            "title": "Northwind Analytics Vacation Policy (revision 9)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7044041811885282,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0170:0",
+          "text_sha256": "f9863ec56d5d64dd9b0083334daa2a045585ac31cb9fe5f162b04f80f7c98f6f",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 170,
+            "doc_id": "doc-0170",
+            "title": "Northwind Analytics Vacation Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7035182976980655,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0030:0",
+          "text_sha256": "de0c2dae49efb3f5beaf2d584d8b204c6c7c17f2186ea832f0046f7f7b60f6c5",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 30,
+            "doc_id": "doc-0030",
+            "title": "Northwind Analytics Vacation Policy (revision 15)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6983227105492735,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0160:0",
+          "text_sha256": "038baa8c6b7079a58c5c75f888750fcec6c4719d819706dd483d71f661390057",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 160,
+            "doc_id": "doc-0160",
+            "title": "Northwind Analytics Vacation Policy (revision 19)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6980602391531705,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0060:0",
+          "text_sha256": "52811e266c1c16e43ce804cfbf03beb962afc61b7ade4a17ab88227de51fe5c9",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 60,
+            "doc_id": "doc-0060",
+            "title": "Northwind Analytics Vacation Policy (revision 18)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6979270097871191,
+          "rerank_score": 0.23255813953488372
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "How many paid vacation days do employees accrue each year at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Full-time employees at Northwind Analytics accrue 15 paid vacation days each year; part-time employees accrue vacation pro rata. Vacation days must be requested at least 29 days ahead so ",
+      "passages": [
+        {
+          "id": "doc-0090:0",
+          "text_sha256": "75f997d418b35b33fa3f612e5228b56554aff5ba234d4d08fb01e8c6d37d0727",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 90,
+            "doc_id": "doc-0090",
+            "title": "Northwind Analytics Vacation Policy (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7078702665436842,
+          "rerank_score": 0.23809523809523808
+        },
+        {
+          "id": "doc-0100:0",
+          "text_sha256": "3288216d7287845d0415c841ff5d92900d3afe23879ed1c1144ea13b7a1c8157",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 100,
+            "doc_id": "doc-0100",
+            "title": "Northwind Analytics Vacation Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7224185081767337,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0050:0",
+          "text_sha256": "517e5b359dafefdd20c3dddbcae87ae6e77acd8becbc3845275b8c8af3bca983",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 50,
+            "doc_id": "doc-0050",
+            "title": "Northwind Analytics Vacation Policy (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7139304961248962,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0110:0",
+          "text_sha256": "5ede4cd842bf60a436f7d27a7838c727c99f3764458187c53958c9e16b67efe6",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 110,
+            "doc_id": "doc-0110",
+            "title": "Northwind Analytics Vacation Policy (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7106978518012541,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0020:0",
+          "text_sha256": "d856fb5d794a883dd9d7112beee599fe4bf35e50b1b05ea62b3eae3c685aa36c",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 20,
+            "doc_id": "doc-0020",
+            "title": "Northwind Analytics Vacation Policy (revision 11)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7103994742335397,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0070:0",
+          "text_sha256": "5daf4eff3e1d67a9b24d8cf8052236010b204211257686aa2c0d161dee669ad4",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 70,
+            "doc_id": "doc-0070",
+            "title": "Northwind Analytics Vacation Policy (revision 9)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7044041811885282,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0170:0",
+          "text_sha256": "f9863ec56d5d64dd9b0083334daa2a045585ac31cb9fe5f162b04f80f7c98f6f",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 170,
+            "doc_id": "doc-0170",
+            "title": "Northwind Analytics Vacation Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7035182976980655,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0030:0",
+          "text_sha256": "de0c2dae49efb3f5beaf2d584d8b204c6c7c17f2186ea832f0046f7f7b60f6c5",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 30,
+            "doc_id": "doc-0030",
+            "title": "Northwind Analytics Vacation Policy (revision 15)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6983227105492735,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0160:0",
+          "text_sha256": "038baa8c6b7079a58c5c75f888750fcec6c4719d819706dd483d71f661390057",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 160,
+            "doc_id": "doc-0160",
+            "title": "Northwind Analytics Vacation Policy (revision 19)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6980602391531705,
+          "rerank_score": 0.23255813953488372
+        },
+        {
+          "id": "doc-0060:0",
+          "text_sha256": "52811e266c1c16e43ce804cfbf03beb962afc61b7ade4a17ab88227de51fe5c9",
+          "metadata": {
+            "topic": "vacation-policy",
+            "seq": 60,
+            "doc_id": "doc-0060",
+            "title": "Northwind Analytics Vacation Policy (revision 18)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6979270097871191,
+          "rerank_score": 0.23255813953488372
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "Do I need a receipt for an expense claim under 1875 dollars to get reimbursement at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0181:0",
+          "text_sha256": "6127c8d7b0f93bc31c405e77031de0babe52dbacbd400177a848b39480707dd4",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 181,
+            "doc_id": "doc-0181",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7416016495177867,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0071:0",
+          "text_sha256": "5377ca39bb46ed1eed9514292feadad07d417149abbfb2c34b57ea1fff590237",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 71,
+            "doc_id": "doc-0071",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 12)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7367567412438188,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0051:0",
+          "text_sha256": "8c840c8469d2725dc60fadaba6b8ef09e7c29f52a508e638cbfbd2e13b4ddcaf",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 51,
+            "doc_id": "doc-0051",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 6)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.735641449957767,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0041:0",
+          "text_sha256": "879e4002c136258f7300b9982d3708d677105ac0dcc980d59b386ef895468fc0",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 41,
+            "doc_id": "doc-0041",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7351530343128018,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0081:0",
+          "text_sha256": "b29c4fcbb9eec258d76aea88f183791324bb351e1ab15bec40d54d11fde5b9a4",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 81,
+            "doc_id": "doc-0081",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 25)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7321358231360356,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0001:0",
+          "text_sha256": "15048e842d94e3bc4dbc226209cc118d7d53f4c345035b79e3abb8052349d77f",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 1,
+            "doc_id": "doc-0001",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7276177781922901,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0141:0",
+          "text_sha256": "b4187dfde42d2e489046686072d1f4a166c7ce33fa03af14e3fa2bf5d0960604",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 141,
+            "doc_id": "doc-0141",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7263431712868686,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0111:0",
+          "text_sha256": "fc43682cafc41327273113c715c1ec6a91b00f7d64f50d24949bd57a16d15661",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 111,
+            "doc_id": "doc-0111",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 27)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.697177165223502,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0061:0",
+          "text_sha256": "43045c95b4745df85967ced5ebe10dd61620410f986ab8efacd6e01d623e959a",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 61,
+            "doc_id": "doc-0061",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 21)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6915081733112517,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0031:0",
+          "text_sha256": "cdf33447a1b82c3848637a24187032b71f50a32a4b67a9dc9d22df018003a4ae",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 31,
+            "doc_id": "doc-0031",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 4)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6874432590345303,
+          "rerank_score": 0.22916666666666666
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "Do I need a receipt for an expense claim under 1875 dollars to get reimbursement at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Northwind Analytics pays reimbursement for a business expense claim filed through the claim portal within 21 weeks. An itemized receipt is required for a claim over 175 dollars; a claim u",
+      "passages": [
+        {
+          "id": "doc-0181:0",
+          "text_sha256": "6127c8d7b0f93bc31c405e77031de0babe52dbacbd400177a848b39480707dd4",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 181,
+            "doc_id": "doc-0181",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7416016495177867,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0071:0",
+          "text_sha256": "5377ca39bb46ed1eed9514292feadad07d417149abbfb2c34b57ea1fff590237",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 71,
+            "doc_id": "doc-0071",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 12)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7367567412438188,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0051:0",
+          "text_sha256": "8c840c8469d2725dc60fadaba6b8ef09e7c29f52a508e638cbfbd2e13b4ddcaf",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 51,
+            "doc_id": "doc-0051",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 6)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.735641449957767,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0041:0",
+          "text_sha256": "879e4002c136258f7300b9982d3708d677105ac0dcc980d59b386ef895468fc0",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 41,
+            "doc_id": "doc-0041",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7351530343128018,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0081:0",
+          "text_sha256": "b29c4fcbb9eec258d76aea88f183791324bb351e1ab15bec40d54d11fde5b9a4",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 81,
+            "doc_id": "doc-0081",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 25)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7321358231360356,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0001:0",
+          "text_sha256": "15048e842d94e3bc4dbc226209cc118d7d53f4c345035b79e3abb8052349d77f",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 1,
+            "doc_id": "doc-0001",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7276177781922901,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0141:0",
+          "text_sha256": "b4187dfde42d2e489046686072d1f4a166c7ce33fa03af14e3fa2bf5d0960604",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 141,
+            "doc_id": "doc-0141",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7263431712868686,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0111:0",
+          "text_sha256": "fc43682cafc41327273113c715c1ec6a91b00f7d64f50d24949bd57a16d15661",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 111,
+            "doc_id": "doc-0111",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 27)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.697177165223502,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0061:0",
+          "text_sha256": "43045c95b4745df85967ced5ebe10dd61620410f986ab8efacd6e01d623e959a",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 61,
+            "doc_id": "doc-0061",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 21)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6915081733112517,
+          "rerank_score": 0.22916666666666666
+        },
+        {
+          "id": "doc-0031:0",
+          "text_sha256": "cdf33447a1b82c3848637a24187032b71f50a32a4b67a9dc9d22df018003a4ae",
+          "metadata": {
+            "topic": "expense-reimbursement",
+            "seq": 31,
+            "doc_id": "doc-0031",
+            "title": "Northwind Analytics Expense Reimbursement Guide (revision 4)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6874432590345303,
+          "rerank_score": 0.22916666666666666
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "How often can employees work remotely from home each week at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0032:0",
+          "text_sha256": "51212e37b13085f6b6fd4b34a599cbfab73ddac8d2d83ad6b8da8dc55377f92b",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 32,
+            "doc_id": "doc-0032",
+            "title": "Northwind Analytics Remote Work Policy (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5550687303646759,
+          "rerank_score": 0.20833333333333334
+        },
+        {
+          "id": "doc-0052:0",
+          "text_sha256": "282a1df89d70c83715a20c84800062bb02848d14f4faa774a5bf55f357048384",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 52,
+            "doc_id": "doc-0052",
+            "title": "Northwind Analytics Remote Work Policy (revision 2)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.4433656088567618,
+          "rerank_score": 0.20833333333333334
+        },
+        {
+          "id": "doc-0172:0",
+          "text_sha256": "ab65985b09fe9935b35761336e069e04029c626874d0c7f340181a9f11f7087e",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 172,
+            "doc_id": "doc-0172",
+            "title": "Northwind Analytics Remote Work Policy (revision 6)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5831700579328213,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0022:0",
+          "text_sha256": "224af9c6ba083e72d17cb78fa019f213be61824e47c7ba8328bca3900e09116a",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 22,
+            "doc_id": "doc-0022",
+            "title": "Northwind Analytics Remote Work Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5708572884294286,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0102:0",
+          "text_sha256": "d34c9e165b17079e690e3fc1fe29def1f2a9f67a903f2548cf0ab6006d620b46",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 102,
+            "doc_id": "doc-0102",
+            "title": "Northwind Analytics Remote Work Policy (revision 2)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5668779155347539,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0152:0",
+          "text_sha256": "feb3673616119c5302934829d3048e6c189b3b989a6de678dfb231740ade055c",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 152,
+            "doc_id": "doc-0152",
+            "title": "Northwind Analytics Remote Work Policy (revision 17)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5640505122564534,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0132:0",
+          "text_sha256": "5cf97654258abd009aa87199e1f37138bf17f7e2556aa99ffa3af3ce5460a4c7",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 132,
+            "doc_id": "doc-0132",
+            "title": "Northwind Analytics Remote Work Policy (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5607147851682294,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0072:0",
+          "text_sha256": "9173f15d935800d1bafe6a1be7be1228fa05f53803f078d2e5a4d04070f7d058",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 72,
+            "doc_id": "doc-0072",
+            "title": "Northwind Analytics Remote Work Policy (revision 17)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5571108932800217,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0062:0",
+          "text_sha256": "611fbb9311c5534c1e45dcb3b3425b9e586b87c2137a841094b3a6109eda1c47",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 62,
+            "doc_id": "doc-0062",
+            "title": "Northwind Analytics Remote Work Policy (revision 27)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5453032798178853,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0082:0",
+          "text_sha256": "4d516eeb7c35ef1128d3e62f7b252d55f3b27c54380efac89f0c784f994e2087",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 82,
+            "doc_id": "doc-0082",
+            "title": "Northwind Analytics Remote Work Policy (revision 16)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5425981792632064,
+          "rerank_score": 0.20408163265306123
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "How often can employees work remotely from home each week at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Employees at Northwind Analytics may work remotely from home up to 15 times per week with their manager's agreement. Remote work from home requires a secure home network and a company com",
+      "passages": [
+        {
+          "id": "doc-0032:0",
+          "text_sha256": "51212e37b13085f6b6fd4b34a599cbfab73ddac8d2d83ad6b8da8dc55377f92b",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 32,
+            "doc_id": "doc-0032",
+            "title": "Northwind Analytics Remote Work Policy (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5550687303646759,
+          "rerank_score": 0.20833333333333334
+        },
+        {
+          "id": "doc-0052:0",
+          "text_sha256": "282a1df89d70c83715a20c84800062bb02848d14f4faa774a5bf55f357048384",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 52,
+            "doc_id": "doc-0052",
+            "title": "Northwind Analytics Remote Work Policy (revision 2)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.4433656088567618,
+          "rerank_score": 0.20833333333333334
+        },
+        {
+          "id": "doc-0172:0",
+          "text_sha256": "ab65985b09fe9935b35761336e069e04029c626874d0c7f340181a9f11f7087e",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 172,
+            "doc_id": "doc-0172",
+            "title": "Northwind Analytics Remote Work Policy (revision 6)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5831700579328213,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0022:0",
+          "text_sha256": "224af9c6ba083e72d17cb78fa019f213be61824e47c7ba8328bca3900e09116a",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 22,
+            "doc_id": "doc-0022",
+            "title": "Northwind Analytics Remote Work Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5708572884294286,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0102:0",
+          "text_sha256": "d34c9e165b17079e690e3fc1fe29def1f2a9f67a903f2548cf0ab6006d620b46",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 102,
+            "doc_id": "doc-0102",
+            "title": "Northwind Analytics Remote Work Policy (revision 2)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5668779155347539,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0152:0",
+          "text_sha256": "feb3673616119c5302934829d3048e6c189b3b989a6de678dfb231740ade055c",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 152,
+            "doc_id": "doc-0152",
+            "title": "Northwind Analytics Remote Work Policy (revision 17)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5640505122564534,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0132:0",
+          "text_sha256": "5cf97654258abd009aa87199e1f37138bf17f7e2556aa99ffa3af3ce5460a4c7",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 132,
+            "doc_id": "doc-0132",
+            "title": "Northwind Analytics Remote Work Policy (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5607147851682294,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0072:0",
+          "text_sha256": "9173f15d935800d1bafe6a1be7be1228fa05f53803f078d2e5a4d04070f7d058",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 72,
+            "doc_id": "doc-0072",
+            "title": "Northwind Analytics Remote Work Policy (revision 17)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5571108932800217,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0062:0",
+          "text_sha256": "611fbb9311c5534c1e45dcb3b3425b9e586b87c2137a841094b3a6109eda1c47",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 62,
+            "doc_id": "doc-0062",
+            "title": "Northwind Analytics Remote Work Policy (revision 27)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5453032798178853,
+          "rerank_score": 0.20408163265306123
+        },
+        {
+          "id": "doc-0082:0",
+          "text_sha256": "4d516eeb7c35ef1128d3e62f7b252d55f3b27c54380efac89f0c784f994e2087",
+          "metadata": {
+            "topic": "remote-work",
+            "seq": 82,
+            "doc_id": "doc-0082",
+            "title": "Northwind Analytics Remote Work Policy (revision 16)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5425981792632064,
+          "rerank_score": 0.20408163265306123
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "How often do staff finish the mandatory security module and phishing tests at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0193:0",
+          "text_sha256": "0e0dbfdfddfe223b74efb117a2200c20084e0458ace814b851fdbe4ccd6b44fc",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 193,
+            "doc_id": "doc-0193",
+            "title": "Northwind Analytics Security Training Requirements (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6613792492135097,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0073:0",
+          "text_sha256": "d96042f7b74807b58b1f0b3a0b2048f20e41b2b1b2b2688a8ec8dcbb0daf820b",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 73,
+            "doc_id": "doc-0073",
+            "title": "Northwind Analytics Security Training Requirements (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6373372897429305,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0153:0",
+          "text_sha256": "f8ac035b1434bc027c5c38e174165d08f49727dd49cb3d7442053661687c31be",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 153,
+            "doc_id": "doc-0153",
+            "title": "Northwind Analytics Security Training Requirements (revision 2)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.563462632372274,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0123:0",
+          "text_sha256": "8b1d1b94cdc0940eb72c3827342bf0f1f936d8a025e7675d179cb20ee4e33317",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 123,
+            "doc_id": "doc-0123",
+            "title": "Northwind Analytics Security Training Requirements (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6730362097740462,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0183:0",
+          "text_sha256": "95fda19c28df7e896da1898761167812d071d00834d3efa6f0093a263895713f",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 183,
+            "doc_id": "doc-0183",
+            "title": "Northwind Analytics Security Training Requirements (revision 22)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6694108166716981,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0173:0",
+          "text_sha256": "711a9e393144c8a25aa5c21ac3ccbce0afecf8d5699dab6e115f23dbbd68ae5f",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 173,
+            "doc_id": "doc-0173",
+            "title": "Northwind Analytics Security Training Requirements (revision 6)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6631146130821293,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0063:0",
+          "text_sha256": "27b279377c7db7ac05912d16e591981e646b89a2a65948c636e81c67efd4c2e8",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 63,
+            "doc_id": "doc-0063",
+            "title": "Northwind Analytics Security Training Requirements (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6604923022068641,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0143:0",
+          "text_sha256": "d4de9ef8abeeb63d92657edc870e523cb4c78d44d495637e2306605e51483bee",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 143,
+            "doc_id": "doc-0143",
+            "title": "Northwind Analytics Security Training Requirements (revision 17)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6572376763867454,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0133:0",
+          "text_sha256": "f64531a7341516a71d228b029e7ecb922d04b7341a2fa19513910f2528cd8327",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 133,
+            "doc_id": "doc-0133",
+            "title": "Northwind Analytics Security Training Requirements (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6563172066315102,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0033:0",
+          "text_sha256": "619efcc58a116954a68df857a42d448d86ad27966eb0a36d88ff907d7b2ce50d",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 33,
+            "doc_id": "doc-0033",
+            "title": "Northwind Analytics Security Training Requirements (revision 12)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6518820123915753,
+          "rerank_score": 0.2558139534883721
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "How often do staff finish the mandatory security module and phishing tests at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Every quarter all staff at Northwind Analytics finish the mandatory security module within 26 weeks of it opening. The security module covers phishing, password hygiene and safe file hand",
+      "passages": [
+        {
+          "id": "doc-0193:0",
+          "text_sha256": "0e0dbfdfddfe223b74efb117a2200c20084e0458ace814b851fdbe4ccd6b44fc",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 193,
+            "doc_id": "doc-0193",
+            "title": "Northwind Analytics Security Training Requirements (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6613792492135097,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0073:0",
+          "text_sha256": "d96042f7b74807b58b1f0b3a0b2048f20e41b2b1b2b2688a8ec8dcbb0daf820b",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 73,
+            "doc_id": "doc-0073",
+            "title": "Northwind Analytics Security Training Requirements (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6373372897429305,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0153:0",
+          "text_sha256": "f8ac035b1434bc027c5c38e174165d08f49727dd49cb3d7442053661687c31be",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 153,
+            "doc_id": "doc-0153",
+            "title": "Northwind Analytics Security Training Requirements (revision 2)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.563462632372274,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0123:0",
+          "text_sha256": "8b1d1b94cdc0940eb72c3827342bf0f1f936d8a025e7675d179cb20ee4e33317",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 123,
+            "doc_id": "doc-0123",
+            "title": "Northwind Analytics Security Training Requirements (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6730362097740462,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0183:0",
+          "text_sha256": "95fda19c28df7e896da1898761167812d071d00834d3efa6f0093a263895713f",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 183,
+            "doc_id": "doc-0183",
+            "title": "Northwind Analytics Security Training Requirements (revision 22)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6694108166716981,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0173:0",
+          "text_sha256": "711a9e393144c8a25aa5c21ac3ccbce0afecf8d5699dab6e115f23dbbd68ae5f",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 173,
+            "doc_id": "doc-0173",
+            "title": "Northwind Analytics Security Training Requirements (revision 6)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6631146130821293,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0063:0",
+          "text_sha256": "27b279377c7db7ac05912d16e591981e646b89a2a65948c636e81c67efd4c2e8",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 63,
+            "doc_id": "doc-0063",
+            "title": "Northwind Analytics Security Training Requirements (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6604923022068641,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0143:0",
+          "text_sha256": "d4de9ef8abeeb63d92657edc870e523cb4c78d44d495637e2306605e51483bee",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 143,
+            "doc_id": "doc-0143",
+            "title": "Northwind Analytics Security Training Requirements (revision 17)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6572376763867454,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0133:0",
+          "text_sha256": "f64531a7341516a71d228b029e7ecb922d04b7341a2fa19513910f2528cd8327",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 133,
+            "doc_id": "doc-0133",
+            "title": "Northwind Analytics Security Training Requirements (revision 1)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6563172066315102,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0033:0",
+          "text_sha256": "619efcc58a116954a68df857a42d448d86ad27966eb0a36d88ff907d7b2ce50d",
+          "metadata": {
+            "topic": "security-training",
+            "seq": 33,
+            "doc_id": "doc-0033",
+            "title": "Northwind Analytics Security Training Requirements (revision 12)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6518820123915753,
+          "rerank_score": 0.2558139534883721
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "What does the onboarding checklist cover for a new hire and their buddy at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0134:0",
+          "text_sha256": "1f7745f24cc6bab22a9938d2f9e2640bfc2b407f0e8ceb70e4584c41399660c5",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 134,
+            "doc_id": "doc-0134",
+            "title": "Northwind Analytics Onboarding Checklist (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7487647871159154,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0084:0",
+          "text_sha256": "08f7dd2c0881a32edfc2767c70106fca5f0708a6bb7b0e586e60e3a8041582a9",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 84,
+            "doc_id": "doc-0084",
+            "title": "Northwind Analytics Onboarding Checklist (revision 28)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8074608724892187,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0104:0",
+          "text_sha256": "015b6da61800c14acd16522c552f0ee567dd67b376c1897e6f3f8eb2a63166d9",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 104,
+            "doc_id": "doc-0104",
+            "title": "Northwind Analytics Onboarding Checklist (revision 22)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8020788855907321,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0044:0",
+          "text_sha256": "6c60d1a7f17183e7273d27727650f0cd0fde410ca93ab2a114f5f7a2370e38aa",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 44,
+            "doc_id": "doc-0044",
+            "title": "Northwind Analytics Onboarding Checklist (revision 10)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7955076114427541,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0124:0",
+          "text_sha256": "6fb8212211199bb31847bdd798bee1de3ae8b2a268cc0dc4953527a81f77a0d3",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 124,
+            "doc_id": "doc-0124",
+            "title": "Northwind Analytics Onboarding Checklist (revision 29)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7905308192495959,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0194:0",
+          "text_sha256": "9901f0683e9789d6de401355163ab7717bdf5df7b8e07916ae8a81c661755e44",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 194,
+            "doc_id": "doc-0194",
+            "title": "Northwind Analytics Onboarding Checklist (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7894859551710292,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0154:0",
+          "text_sha256": "4de20328901844c2e9548c51d220d200fb99f84ce9d63c3393bd7c674d07d914",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 154,
+            "doc_id": "doc-0154",
+            "title": "Northwind Analytics Onboarding Checklist (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7865920473822363,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0004:0",
+          "text_sha256": "2c6e67fee108d1a1c5dffb8eb4d3eb61806b1b12cf633a050c68abdb452b1c0e",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 4,
+            "doc_id": "doc-0004",
+            "title": "Northwind Analytics Onboarding Checklist (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7821311527217485,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0094:0",
+          "text_sha256": "39683d05e6b323cf1db5a594858c16cd7afdbebfd7f99f9e42dd7cb0293b681d",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 94,
+            "doc_id": "doc-0094",
+            "title": "Northwind Analytics Onboarding Checklist (revision 18)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7744783100055453,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0144:0",
+          "text_sha256": "e8e3fb527ef1eb8ba7bdf9bc234a3057b1b23180950af60bbf1ef986fa825728",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 144,
+            "doc_id": "doc-0144",
+            "title": "Northwind Analytics Onboarding Checklist (revision 10)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7744707918359147,
+          "rerank_score": 0.25
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "What does the onboarding checklist cover for a new hire and their buddy at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Onboarding at Northwind Analytics lasts 2 weeks and follows an onboarding checklist owned by the hire's manager. The onboarding checklist covers accounts, badge access, tooling setup and ",
+      "passages": [
+        {
+          "id": "doc-0134:0",
+          "text_sha256": "1f7745f24cc6bab22a9938d2f9e2640bfc2b407f0e8ceb70e4584c41399660c5",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 134,
+            "doc_id": "doc-0134",
+            "title": "Northwind Analytics Onboarding Checklist (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7487647871159154,
+          "rerank_score": 0.2558139534883721
+        },
+        {
+          "id": "doc-0084:0",
+          "text_sha256": "08f7dd2c0881a32edfc2767c70106fca5f0708a6bb7b0e586e60e3a8041582a9",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 84,
+            "doc_id": "doc-0084",
+            "title": "Northwind Analytics Onboarding Checklist (revision 28)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8074608724892187,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0104:0",
+          "text_sha256": "015b6da61800c14acd16522c552f0ee567dd67b376c1897e6f3f8eb2a63166d9",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 104,
+            "doc_id": "doc-0104",
+            "title": "Northwind Analytics Onboarding Checklist (revision 22)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8020788855907321,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0044:0",
+          "text_sha256": "6c60d1a7f17183e7273d27727650f0cd0fde410ca93ab2a114f5f7a2370e38aa",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 44,
+            "doc_id": "doc-0044",
+            "title": "Northwind Analytics Onboarding Checklist (revision 10)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7955076114427541,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0124:0",
+          "text_sha256": "6fb8212211199bb31847bdd798bee1de3ae8b2a268cc0dc4953527a81f77a0d3",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 124,
+            "doc_id": "doc-0124",
+            "title": "Northwind Analytics Onboarding Checklist (revision 29)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7905308192495959,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0194:0",
+          "text_sha256": "9901f0683e9789d6de401355163ab7717bdf5df7b8e07916ae8a81c661755e44",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 194,
+            "doc_id": "doc-0194",
+            "title": "Northwind Analytics Onboarding Checklist (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7894859551710292,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0154:0",
+          "text_sha256": "4de20328901844c2e9548c51d220d200fb99f84ce9d63c3393bd7c674d07d914",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 154,
+            "doc_id": "doc-0154",
+            "title": "Northwind Analytics Onboarding Checklist (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7865920473822363,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0004:0",
+          "text_sha256": "2c6e67fee108d1a1c5dffb8eb4d3eb61806b1b12cf633a050c68abdb452b1c0e",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 4,
+            "doc_id": "doc-0004",
+            "title": "Northwind Analytics Onboarding Checklist (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7821311527217485,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0094:0",
+          "text_sha256": "39683d05e6b323cf1db5a594858c16cd7afdbebfd7f99f9e42dd7cb0293b681d",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 94,
+            "doc_id": "doc-0094",
+            "title": "Northwind Analytics Onboarding Checklist (revision 18)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7744783100055453,
+          "rerank_score": 0.25
+        },
+        {
+          "id": "doc-0144:0",
+          "text_sha256": "e8e3fb527ef1eb8ba7bdf9bc234a3057b1b23180950af60bbf1ef986fa825728",
+          "metadata": {
+            "topic": "onboarding",
+            "seq": 144,
+            "doc_id": "doc-0144",
+            "title": "Northwind Analytics Onboarding Checklist (revision 10)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7744707918359147,
+          "rerank_score": 0.25
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "Within how many minutes must the on-call engineers respond to a production incident alert at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0065:0",
+          "text_sha256": "04c4bfa89c992c3eadd75f40cd9f89315ab459ef4e9a077a41833dad4cd6e45a",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 65,
+            "doc_id": "doc-0065",
+            "title": "Northwind Analytics Incident Response Runbook (revision 22)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8812300614931202,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0145:0",
+          "text_sha256": "353667d35ce4b3f6b624db78a330e2546be049ffde293851cf8cfdf934167452",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 145,
+            "doc_id": "doc-0145",
+            "title": "Northwind Analytics Incident Response Runbook (revision 19)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.880666669191151,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0085:0",
+          "text_sha256": "629503632548a7fc4acf6dfe1627987ecb98fc4d49de1da0ccfbd47daf4bcf9e",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 85,
+            "doc_id": "doc-0085",
+            "title": "Northwind Analytics Incident Response Runbook (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8805937516064012,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0185:0",
+          "text_sha256": "d50b303eb2afaa2b56030141b7b772bb3f610a37c26cfc85851c1983c3c85bf5",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 185,
+            "doc_id": "doc-0185",
+            "title": "Northwind Analytics Incident Response Runbook (revision 11)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8776220054731022,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0055:0",
+          "text_sha256": "80184fb4cf6295203639bf59b4a88b3bdfd6e5a21f13c02a379f44147fbdf9d2",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 55,
+            "doc_id": "doc-0055",
+            "title": "Northwind Analytics Incident Response Runbook (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8762303830382183,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0045:0",
+          "text_sha256": "3394f7366d791c783e2deebc4d679ec5505b4a78e3d434d7dd7ebef40ecccda4",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 45,
+            "doc_id": "doc-0045",
+            "title": "Northwind Analytics Incident Response Runbook (revision 16)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8711517915955564,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0165:0",
+          "text_sha256": "081a860f23c812b333237c7e03011538fd5d8b463ec70f5b36620c952d5dd710",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 165,
+            "doc_id": "doc-0165",
+            "title": "Northwind Analytics Incident Response Runbook (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8650294351659751,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0095:0",
+          "text_sha256": "77a7c0ab66ddbe646752eec1dbd311ce64d3af245e7dce9a023521a5e1bd35f1",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 95,
+            "doc_id": "doc-0095",
+            "title": "Northwind Analytics Incident Response Runbook (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8629092834908632,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0025:0",
+          "text_sha256": "d8dfdf9d294426cfb759c75fc74611d3abf936689e90bc86f2edd7ea6b58e829",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 25,
+            "doc_id": "doc-0025",
+            "title": "Northwind Analytics Incident Response Runbook (revision 30)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8615855473724343,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0125:0",
+          "text_sha256": "3a6fce9aeb410c1d62923580f077c21fa967eca65f4569d11ff25b80e9ce7c2c",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 125,
+            "doc_id": "doc-0125",
+            "title": "Northwind Analytics Incident Response Runbook (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8583864173805413,
+          "rerank_score": 0.325
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "Within how many minutes must the on-call engineers respond to a production incident alert at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] The on-call engineers must respond to a production incident alert within 30 minutes of the alert firing. A severity-one production incident pages 6 engineers and the on-call lead coordina",
+      "passages": [
+        {
+          "id": "doc-0065:0",
+          "text_sha256": "04c4bfa89c992c3eadd75f40cd9f89315ab459ef4e9a077a41833dad4cd6e45a",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 65,
+            "doc_id": "doc-0065",
+            "title": "Northwind Analytics Incident Response Runbook (revision 22)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8812300614931202,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0145:0",
+          "text_sha256": "353667d35ce4b3f6b624db78a330e2546be049ffde293851cf8cfdf934167452",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 145,
+            "doc_id": "doc-0145",
+            "title": "Northwind Analytics Incident Response Runbook (revision 19)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.880666669191151,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0085:0",
+          "text_sha256": "629503632548a7fc4acf6dfe1627987ecb98fc4d49de1da0ccfbd47daf4bcf9e",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 85,
+            "doc_id": "doc-0085",
+            "title": "Northwind Analytics Incident Response Runbook (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8805937516064012,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0185:0",
+          "text_sha256": "d50b303eb2afaa2b56030141b7b772bb3f610a37c26cfc85851c1983c3c85bf5",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 185,
+            "doc_id": "doc-0185",
+            "title": "Northwind Analytics Incident Response Runbook (revision 11)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8776220054731022,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0055:0",
+          "text_sha256": "80184fb4cf6295203639bf59b4a88b3bdfd6e5a21f13c02a379f44147fbdf9d2",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 55,
+            "doc_id": "doc-0055",
+            "title": "Northwind Analytics Incident Response Runbook (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8762303830382183,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0045:0",
+          "text_sha256": "3394f7366d791c783e2deebc4d679ec5505b4a78e3d434d7dd7ebef40ecccda4",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 45,
+            "doc_id": "doc-0045",
+            "title": "Northwind Analytics Incident Response Runbook (revision 16)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8711517915955564,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0165:0",
+          "text_sha256": "081a860f23c812b333237c7e03011538fd5d8b463ec70f5b36620c952d5dd710",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 165,
+            "doc_id": "doc-0165",
+            "title": "Northwind Analytics Incident Response Runbook (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8650294351659751,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0095:0",
+          "text_sha256": "77a7c0ab66ddbe646752eec1dbd311ce64d3af245e7dce9a023521a5e1bd35f1",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 95,
+            "doc_id": "doc-0095",
+            "title": "Northwind Analytics Incident Response Runbook (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8629092834908632,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0025:0",
+          "text_sha256": "d8dfdf9d294426cfb759c75fc74611d3abf936689e90bc86f2edd7ea6b58e829",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 25,
+            "doc_id": "doc-0025",
+            "title": "Northwind Analytics Incident Response Runbook (revision 30)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8615855473724343,
+          "rerank_score": 0.325
+        },
+        {
+          "id": "doc-0125:0",
+          "text_sha256": "3a6fce9aeb410c1d62923580f077c21fa967eca65f4569d11ff25b80e9ce7c2c",
+          "metadata": {
+            "topic": "incident-response",
+            "seq": 125,
+            "doc_id": "doc-0125",
+            "title": "Northwind Analytics Incident Response Runbook (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8583864173805413,
+          "rerank_score": 0.325
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "How long does Northwind Analytics retain customer data and backups?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0156:0",
+          "text_sha256": "ad0b08438b5f8dbf9c716587dee75ebc627d62ce5c28439ae2a093565bb75a32",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 156,
+            "doc_id": "doc-0156",
+            "title": "Northwind Analytics Data Retention Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5762171166128374,
+          "rerank_score": 0.16279069767441862
+        },
+        {
+          "id": "doc-0066:0",
+          "text_sha256": "d85247856155d067acf3d1e7359502eefb5dede4ca120c6865459bd5ab33e675",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 66,
+            "doc_id": "doc-0066",
+            "title": "Northwind Analytics Data Retention Policy (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6300445857362273,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0166:0",
+          "text_sha256": "3c0e05e9fa8501a375f79c740b08df5df32a9853d8832bfc8a3021cfcebc2a63",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 166,
+            "doc_id": "doc-0166",
+            "title": "Northwind Analytics Data Retention Policy (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5986496864237099,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0106:0",
+          "text_sha256": "8b08997882e9aa938752cda95c06f73058e78243f57b157c911d5ee603d0564c",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 106,
+            "doc_id": "doc-0106",
+            "title": "Northwind Analytics Data Retention Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5964614776019561,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0176:0",
+          "text_sha256": "af0e49e1e5be6ad9127fbf7da24be791e635ebfa78e70d04db8bc4c67cab6428",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 176,
+            "doc_id": "doc-0176",
+            "title": "Northwind Analytics Data Retention Policy (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5958437455493869,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0136:0",
+          "text_sha256": "3fc3c77f8b7b1b60aee953b459c66e5b67db108aabfbfeebcbfff67a7c4e808a",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 136,
+            "doc_id": "doc-0136",
+            "title": "Northwind Analytics Data Retention Policy (revision 27)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5845936220699515,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0016:0",
+          "text_sha256": "c75165fa65487e3767a2b851af97c91ce06af51c79178eef92779ed9b042bdcc",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 16,
+            "doc_id": "doc-0016",
+            "title": "Northwind Analytics Data Retention Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5841203707386274,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0006:0",
+          "text_sha256": "0e2ab4f638c62cfd3402ba2c5049d6ad3bb9ec2279066c56b68e4141b488734b",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 6,
+            "doc_id": "doc-0006",
+            "title": "Northwind Analytics Data Retention Policy (revision 9)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5836159878945791,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0076:0",
+          "text_sha256": "4caa1926eb95119e28b52798d5ab27cf0cdac9ba4d46c9b34aa152e516e4749e",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 76,
+            "doc_id": "doc-0076",
+            "title": "Northwind Analytics Data Retention Policy (revision 12)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.577771103706275,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0086:0",
+          "text_sha256": "8b1eaaaeb2283845aa19d8195e4a708885c55cd23ead9fbc72ae605a965aeb6d",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 86,
+            "doc_id": "doc-0086",
+            "title": "Northwind Analytics Data Retention Policy (revision 28)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5767790341920577,
+          "rerank_score": 0.1590909090909091
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "How long does Northwind Analytics retain customer data and backups?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] The data retention policy at Northwind Analytics is to retain customer data for 19 months after a contract ends. Encrypted backups of customer data are retained for 19 months, then the ba",
+      "passages": [
+        {
+          "id": "doc-0156:0",
+          "text_sha256": "ad0b08438b5f8dbf9c716587dee75ebc627d62ce5c28439ae2a093565bb75a32",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 156,
+            "doc_id": "doc-0156",
+            "title": "Northwind Analytics Data Retention Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5762171166128374,
+          "rerank_score": 0.16279069767441862
+        },
+        {
+          "id": "doc-0066:0",
+          "text_sha256": "d85247856155d067acf3d1e7359502eefb5dede4ca120c6865459bd5ab33e675",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 66,
+            "doc_id": "doc-0066",
+            "title": "Northwind Analytics Data Retention Policy (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6300445857362273,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0166:0",
+          "text_sha256": "3c0e05e9fa8501a375f79c740b08df5df32a9853d8832bfc8a3021cfcebc2a63",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 166,
+            "doc_id": "doc-0166",
+            "title": "Northwind Analytics Data Retention Policy (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5986496864237099,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0106:0",
+          "text_sha256": "8b08997882e9aa938752cda95c06f73058e78243f57b157c911d5ee603d0564c",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 106,
+            "doc_id": "doc-0106",
+            "title": "Northwind Analytics Data Retention Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5964614776019561,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0176:0",
+          "text_sha256": "af0e49e1e5be6ad9127fbf7da24be791e635ebfa78e70d04db8bc4c67cab6428",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 176,
+            "doc_id": "doc-0176",
+            "title": "Northwind Analytics Data Retention Policy (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5958437455493869,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0136:0",
+          "text_sha256": "3fc3c77f8b7b1b60aee953b459c66e5b67db108aabfbfeebcbfff67a7c4e808a",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 136,
+            "doc_id": "doc-0136",
+            "title": "Northwind Analytics Data Retention Policy (revision 27)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5845936220699515,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0016:0",
+          "text_sha256": "c75165fa65487e3767a2b851af97c91ce06af51c79178eef92779ed9b042bdcc",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 16,
+            "doc_id": "doc-0016",
+            "title": "Northwind Analytics Data Retention Policy (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5841203707386274,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0006:0",
+          "text_sha256": "0e2ab4f638c62cfd3402ba2c5049d6ad3bb9ec2279066c56b68e4141b488734b",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 6,
+            "doc_id": "doc-0006",
+            "title": "Northwind Analytics Data Retention Policy (revision 9)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5836159878945791,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0076:0",
+          "text_sha256": "4caa1926eb95119e28b52798d5ab27cf0cdac9ba4d46c9b34aa152e516e4749e",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 76,
+            "doc_id": "doc-0076",
+            "title": "Northwind Analytics Data Retention Policy (revision 12)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.577771103706275,
+          "rerank_score": 0.1590909090909091
+        },
+        {
+          "id": "doc-0086:0",
+          "text_sha256": "8b1eaaaeb2283845aa19d8195e4a708885c55cd23ead9fbc72ae605a965aeb6d",
+          "metadata": {
+            "topic": "data-retention",
+            "seq": 86,
+            "doc_id": "doc-0086",
+            "title": "Northwind Analytics Data Retention Policy (revision 28)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.5767790341920577,
+          "rerank_score": 0.1590909090909091
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "Do I need approval for a business trip flight before the airfare is booked at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0127:0",
+          "text_sha256": "8c77ead9b03044c552f83fb15a945f5aea36b55e08eb5a0b1a9eaf52f4e466bf",
+          "metadata": {
+            "topic": "travel-booking",
+            "seq": 127,
+            "doc_id": "doc-0127",
+            "title": "Northwind Analytics Travel Booking Policy (revision 20)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6091922234707257,
+          "rerank_score": 0.3181818181818182
+        },
+        {
+          "id": "doc-0048:0",
+          "text_sha256": "39e03570ad880a885bf4d710457e1041197555e8212c593431e30d4e536d4db5",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 48,
+            "doc_id": "doc-0048",
+            "title": "Northwind Analytics Performance Review Process (revision 21)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6704794880989603,
+          "rerank_score": 0.14893617021276595
+        },
+        {
+          "id": "doc-0088:0",
+          "text_sha256": "d6a18db29d6d1080b77aba5ff6a623d30d371609956d9c4092c007e1f878ddfc",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 88,
+            "doc_id": "doc-0088",
+            "title": "Northwind Analytics Performance Review Process (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6553646598480206,
+          "rerank_score": 0.14893617021276595
+        },
+        {
+          "id": "doc-0108:0",
+          "text_sha256": "e8c95121a42eeddbd46ea587cf2b5b0c320ad4ff70dd1874b913eb44f44d6e79",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 108,
+            "doc_id": "doc-0108",
+            "title": "Northwind Analytics Performance Review Process (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6328105372587667,
+          "rerank_score": 0.14893617021276595
+        },
+        {
+          "id": "doc-0038:0",
+          "text_sha256": "91d50061cea6b1a93842d841f7cdaf4359951e9a3144556e7196759e559a6d53",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 38,
+            "doc_id": "doc-0038",
+            "title": "Northwind Analytics Performance Review Process (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6883142331472664,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0188:0",
+          "text_sha256": "152a13d79aa176d17063d78eac64d7f3653c6f0b81534a67deab52ff1a047d49",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 188,
+            "doc_id": "doc-0188",
+            "title": "Northwind Analytics Performance Review Process (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6765195189285862,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0068:0",
+          "text_sha256": "233fe9e7e5e7d06968fc093c6c4d40f2e832697e54f398cbd704a578d385168a",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 68,
+            "doc_id": "doc-0068",
+            "title": "Northwind Analytics Performance Review Process (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6679374384657013,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0138:0",
+          "text_sha256": "c80eab71bc2ebf930c05a90d00d1f1497c6a3a5a3e6f1afb7f17cea28f7352ad",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 138,
+            "doc_id": "doc-0138",
+            "title": "Northwind Analytics Performance Review Process (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6625491180688435,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0178:0",
+          "text_sha256": "700ab71bdbbe955b9e731257fe0dde50fa3ed60c409c06b776e08a442fc16729",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 178,
+            "doc_id": "doc-0178",
+            "title": "Northwind Analytics Performance Review Process (revision 16)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6613761649105234,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0158:0",
+          "text_sha256": "6b0ef4f88eede09a9085e493fc96a4c051b69775da45919b96bf972830ab4b3f",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 158,
+            "doc_id": "doc-0158",
+            "title": "Northwind Analytics Performance Review Process (revision 25)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6567029207933082,
+          "rerank_score": 0.14583333333333334
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "Do I need approval for a business trip flight before the airfare is booked at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Staff get approval for every business trip via the Northwind Analytics travel portal at least 21 weeks before the flight departs. A flight over 150 dollars requires manager approval via t",
+      "passages": [
+        {
+          "id": "doc-0127:0",
+          "text_sha256": "8c77ead9b03044c552f83fb15a945f5aea36b55e08eb5a0b1a9eaf52f4e466bf",
+          "metadata": {
+            "topic": "travel-booking",
+            "seq": 127,
+            "doc_id": "doc-0127",
+            "title": "Northwind Analytics Travel Booking Policy (revision 20)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6091922234707257,
+          "rerank_score": 0.3181818181818182
+        },
+        {
+          "id": "doc-0048:0",
+          "text_sha256": "39e03570ad880a885bf4d710457e1041197555e8212c593431e30d4e536d4db5",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 48,
+            "doc_id": "doc-0048",
+            "title": "Northwind Analytics Performance Review Process (revision 21)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6704794880989603,
+          "rerank_score": 0.14893617021276595
+        },
+        {
+          "id": "doc-0088:0",
+          "text_sha256": "d6a18db29d6d1080b77aba5ff6a623d30d371609956d9c4092c007e1f878ddfc",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 88,
+            "doc_id": "doc-0088",
+            "title": "Northwind Analytics Performance Review Process (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6553646598480206,
+          "rerank_score": 0.14893617021276595
+        },
+        {
+          "id": "doc-0108:0",
+          "text_sha256": "e8c95121a42eeddbd46ea587cf2b5b0c320ad4ff70dd1874b913eb44f44d6e79",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 108,
+            "doc_id": "doc-0108",
+            "title": "Northwind Analytics Performance Review Process (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6328105372587667,
+          "rerank_score": 0.14893617021276595
+        },
+        {
+          "id": "doc-0038:0",
+          "text_sha256": "91d50061cea6b1a93842d841f7cdaf4359951e9a3144556e7196759e559a6d53",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 38,
+            "doc_id": "doc-0038",
+            "title": "Northwind Analytics Performance Review Process (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6883142331472664,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0188:0",
+          "text_sha256": "152a13d79aa176d17063d78eac64d7f3653c6f0b81534a67deab52ff1a047d49",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 188,
+            "doc_id": "doc-0188",
+            "title": "Northwind Analytics Performance Review Process (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6765195189285862,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0068:0",
+          "text_sha256": "233fe9e7e5e7d06968fc093c6c4d40f2e832697e54f398cbd704a578d385168a",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 68,
+            "doc_id": "doc-0068",
+            "title": "Northwind Analytics Performance Review Process (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6679374384657013,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0138:0",
+          "text_sha256": "c80eab71bc2ebf930c05a90d00d1f1497c6a3a5a3e6f1afb7f17cea28f7352ad",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 138,
+            "doc_id": "doc-0138",
+            "title": "Northwind Analytics Performance Review Process (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6625491180688435,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0178:0",
+          "text_sha256": "700ab71bdbbe955b9e731257fe0dde50fa3ed60c409c06b776e08a442fc16729",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 178,
+            "doc_id": "doc-0178",
+            "title": "Northwind Analytics Performance Review Process (revision 16)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6613761649105234,
+          "rerank_score": 0.14583333333333334
+        },
+        {
+          "id": "doc-0158:0",
+          "text_sha256": "6b0ef4f88eede09a9085e493fc96a4c051b69775da45919b96bf972830ab4b3f",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 158,
+            "doc_id": "doc-0158",
+            "title": "Northwind Analytics Performance Review Process (revision 25)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6567029207933082,
+          "rerank_score": 0.14583333333333334
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "How often is a performance review held and how is the review score scale applied at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0048:0",
+          "text_sha256": "39e03570ad880a885bf4d710457e1041197555e8212c593431e30d4e536d4db5",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 48,
+            "doc_id": "doc-0048",
+            "title": "Northwind Analytics Performance Review Process (revision 21)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8920314216709321,
+          "rerank_score": 0.2682926829268293
+        },
+        {
+          "id": "doc-0088:0",
+          "text_sha256": "d6a18db29d6d1080b77aba5ff6a623d30d371609956d9c4092c007e1f878ddfc",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 88,
+            "doc_id": "doc-0088",
+            "title": "Northwind Analytics Performance Review Process (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8852487991968813,
+          "rerank_score": 0.2682926829268293
+        },
+        {
+          "id": "doc-0108:0",
+          "text_sha256": "e8c95121a42eeddbd46ea587cf2b5b0c320ad4ff70dd1874b913eb44f44d6e79",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 108,
+            "doc_id": "doc-0108",
+            "title": "Northwind Analytics Performance Review Process (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8819667235412529,
+          "rerank_score": 0.2682926829268293
+        },
+        {
+          "id": "doc-0118:0",
+          "text_sha256": "546b63d1b32445887aca3741b0f3860fa4365337567ec687f3c2dafd270e0018",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 118,
+            "doc_id": "doc-0118",
+            "title": "Northwind Analytics Performance Review Process (revision 15)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8995482775544098,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0078:0",
+          "text_sha256": "b8e08a818b7e92c0659a267cc71fd5b9486c5b95f289162dc95247a3cf47c781",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 78,
+            "doc_id": "doc-0078",
+            "title": "Northwind Analytics Performance Review Process (revision 25)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8925904504470805,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0128:0",
+          "text_sha256": "b6036133cf7e1c58e868e559871b8d7887accbcda3299d70c8e5ea1d83cd6383",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 128,
+            "doc_id": "doc-0128",
+            "title": "Northwind Analytics Performance Review Process (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8889473313436365,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0008:0",
+          "text_sha256": "ae33a0aac45cb5b188605f59047809d2c921594741da94517b40203d5545fc20",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 8,
+            "doc_id": "doc-0008",
+            "title": "Northwind Analytics Performance Review Process (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8814159424152546,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0058:0",
+          "text_sha256": "07110835f2275fd206d1124d527a5a13b0a99f2aec58100e05c8e0c5c028fd9c",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 58,
+            "doc_id": "doc-0058",
+            "title": "Northwind Analytics Performance Review Process (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8813821816474402,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0198:0",
+          "text_sha256": "a59c5fff31c87163d90f47d71e603f8b945bfa25a26182702a5ce7793c6b839b",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 198,
+            "doc_id": "doc-0198",
+            "title": "Northwind Analytics Performance Review Process (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8770706816224094,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0068:0",
+          "text_sha256": "233fe9e7e5e7d06968fc093c6c4d40f2e832697e54f398cbd704a578d385168a",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 68,
+            "doc_id": "doc-0068",
+            "title": "Northwind Analytics Performance Review Process (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8763553110257187,
+          "rerank_score": 0.2619047619047619
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "How often is a performance review held and how is the review score scale applied at Northwind Analytics?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] A performance review is held twice a year at Northwind Analytics; a self-evaluation is due on day 1 of the review cycle. Each performance review produces a review score on a scale from 1 ",
+      "passages": [
+        {
+          "id": "doc-0048:0",
+          "text_sha256": "39e03570ad880a885bf4d710457e1041197555e8212c593431e30d4e536d4db5",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 48,
+            "doc_id": "doc-0048",
+            "title": "Northwind Analytics Performance Review Process (revision 21)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8920314216709321,
+          "rerank_score": 0.2682926829268293
+        },
+        {
+          "id": "doc-0088:0",
+          "text_sha256": "d6a18db29d6d1080b77aba5ff6a623d30d371609956d9c4092c007e1f878ddfc",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 88,
+            "doc_id": "doc-0088",
+            "title": "Northwind Analytics Performance Review Process (revision 8)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8852487991968813,
+          "rerank_score": 0.2682926829268293
+        },
+        {
+          "id": "doc-0108:0",
+          "text_sha256": "e8c95121a42eeddbd46ea587cf2b5b0c320ad4ff70dd1874b913eb44f44d6e79",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 108,
+            "doc_id": "doc-0108",
+            "title": "Northwind Analytics Performance Review Process (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8819667235412529,
+          "rerank_score": 0.2682926829268293
+        },
+        {
+          "id": "doc-0118:0",
+          "text_sha256": "546b63d1b32445887aca3741b0f3860fa4365337567ec687f3c2dafd270e0018",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 118,
+            "doc_id": "doc-0118",
+            "title": "Northwind Analytics Performance Review Process (revision 15)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8995482775544098,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0078:0",
+          "text_sha256": "b8e08a818b7e92c0659a267cc71fd5b9486c5b95f289162dc95247a3cf47c781",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 78,
+            "doc_id": "doc-0078",
+            "title": "Northwind Analytics Performance Review Process (revision 25)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8925904504470805,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0128:0",
+          "text_sha256": "b6036133cf7e1c58e868e559871b8d7887accbcda3299d70c8e5ea1d83cd6383",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 128,
+            "doc_id": "doc-0128",
+            "title": "Northwind Analytics Performance Review Process (revision 13)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8889473313436365,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0008:0",
+          "text_sha256": "ae33a0aac45cb5b188605f59047809d2c921594741da94517b40203d5545fc20",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 8,
+            "doc_id": "doc-0008",
+            "title": "Northwind Analytics Performance Review Process (revision 14)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8814159424152546,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0058:0",
+          "text_sha256": "07110835f2275fd206d1124d527a5a13b0a99f2aec58100e05c8e0c5c028fd9c",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 58,
+            "doc_id": "doc-0058",
+            "title": "Northwind Analytics Performance Review Process (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8813821816474402,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0198:0",
+          "text_sha256": "a59c5fff31c87163d90f47d71e603f8b945bfa25a26182702a5ce7793c6b839b",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 198,
+            "doc_id": "doc-0198",
+            "title": "Northwind Analytics Performance Review Process (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8770706816224094,
+          "rerank_score": 0.2619047619047619
+        },
+        {
+          "id": "doc-0068:0",
+          "text_sha256": "233fe9e7e5e7d06968fc093c6c4d40f2e832697e54f398cbd704a578d385168a",
+          "metadata": {
+            "topic": "performance-reviews",
+            "seq": 68,
+            "doc_id": "doc-0068",
+            "title": "Northwind Analytics Performance Review Process (revision 24)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.8763553110257187,
+          "rerank_score": 0.2619047619047619
+        }
+      ]
+    },
+    {
+      "endpoint": "/retrieve",
+      "body": {
+        "question": "Where do I request a laptop or monitor from IT at Northwind Analytics, and when does the hardware arrive?"
+      },
+      "status": 200,
+      "mode": "retrieve",
+      "metadata_filter": [],
+      "answer": null,
+      "passages": [
+        {
+          "id": "doc-0149:0",
+          "text_sha256": "d4cba055a94711752fc90a4d4b101e44a638c629eeb11ff6a6fb30f4caa4f709",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 149,
+            "doc_id": "doc-0149",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7797117633009847,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0159:0",
+          "text_sha256": "23644e0dd2ead2f46d35e373643f88a987210f1a43f6a89e57b1c9d1aa17add9",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 159,
+            "doc_id": "doc-0159",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7446637366954292,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0009:0",
+          "text_sha256": "e54ba970a6c1b4f0e8e25c8532e7855f17e8043b82c59f00f3bb199c89d09969",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 9,
+            "doc_id": "doc-0009",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7283627726281707,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0069:0",
+          "text_sha256": "85ef8736875038d05a7e5ef2f016c7ed812451834b79d6a31365cdb093d19589",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 69,
+            "doc_id": "doc-0069",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7247699976999452,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0089:0",
+          "text_sha256": "f6e423ba6b7e154a5d2f89e6409873b5cfdf188e88e5e607af3f2119675725b7",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 89,
+            "doc_id": "doc-0089",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 4)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7115003453259748,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0189:0",
+          "text_sha256": "0d318d3d3e3c4d7e378c0f1b7d76b8dfa37fc75e44295eb5fab38b28c691cdb2",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 189,
+            "doc_id": "doc-0189",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 19)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.711087570931808,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0179:0",
+          "text_sha256": "b094e83ddcba5276cfea2577bf2e3b49607c1928c9bdb5088fb720a581ecb2d8",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 179,
+            "doc_id": "doc-0179",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 4)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7086446202663921,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0059:0",
+          "text_sha256": "43d1cac0db10c0120b5418dd1a99ea3f9cc0cef95e4965ea5f32339274aa631e",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 59,
+            "doc_id": "doc-0059",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.701524994983447,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0199:0",
+          "text_sha256": "a1ac55ab39cd7a8b6d2420b97ed9cca7b8f1135eabf91a9c12b89e2e81fed1e9",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 199,
+            "doc_id": "doc-0199",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 30)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6990249188275843,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0029:0",
+          "text_sha256": "5c93ca31743de306b72c2add9659a70d55a78cd496fa761fa19978c33319d1a6",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 29,
+            "doc_id": "doc-0029",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.691223453404661,
+          "rerank_score": 0.2608695652173913
+        }
+      ]
+    },
+    {
+      "endpoint": "/query",
+      "body": {
+        "question": "Where do I request a laptop or monitor from IT at Northwind Analytics, and when does the hardware arrive?"
+      },
+      "status": 200,
+      "mode": "query",
+      "metadata_filter": [],
+      "answer": "[fake-llm] Context:\n[1] Staff request a laptop, monitor or headset from IT through the Northwind Analytics hardware portal; IT answers each hardware request within 72 hours. A standard laptop request from IT is ",
+      "passages": [
+        {
+          "id": "doc-0149:0",
+          "text_sha256": "d4cba055a94711752fc90a4d4b101e44a638c629eeb11ff6a6fb30f4caa4f709",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 149,
+            "doc_id": "doc-0149",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 26)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7797117633009847,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0159:0",
+          "text_sha256": "23644e0dd2ead2f46d35e373643f88a987210f1a43f6a89e57b1c9d1aa17add9",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 159,
+            "doc_id": "doc-0159",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 5)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7446637366954292,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0009:0",
+          "text_sha256": "e54ba970a6c1b4f0e8e25c8532e7855f17e8043b82c59f00f3bb199c89d09969",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 9,
+            "doc_id": "doc-0009",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 23)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7283627726281707,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0069:0",
+          "text_sha256": "85ef8736875038d05a7e5ef2f016c7ed812451834b79d6a31365cdb093d19589",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 69,
+            "doc_id": "doc-0069",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7247699976999452,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0089:0",
+          "text_sha256": "f6e423ba6b7e154a5d2f89e6409873b5cfdf188e88e5e607af3f2119675725b7",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 89,
+            "doc_id": "doc-0089",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 4)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7115003453259748,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0189:0",
+          "text_sha256": "0d318d3d3e3c4d7e378c0f1b7d76b8dfa37fc75e44295eb5fab38b28c691cdb2",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 189,
+            "doc_id": "doc-0189",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 19)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.711087570931808,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0179:0",
+          "text_sha256": "b094e83ddcba5276cfea2577bf2e3b49607c1928c9bdb5088fb720a581ecb2d8",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 179,
+            "doc_id": "doc-0179",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 4)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.7086446202663921,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0059:0",
+          "text_sha256": "43d1cac0db10c0120b5418dd1a99ea3f9cc0cef95e4965ea5f32339274aa631e",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 59,
+            "doc_id": "doc-0059",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 3)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.701524994983447,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0199:0",
+          "text_sha256": "a1ac55ab39cd7a8b6d2420b97ed9cca7b8f1135eabf91a9c12b89e2e81fed1e9",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 199,
+            "doc_id": "doc-0199",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 30)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.6990249188275843,
+          "rerank_score": 0.2608695652173913
+        },
+        {
+          "id": "doc-0029:0",
+          "text_sha256": "5c93ca31743de306b72c2add9659a70d55a78cd496fa761fa19978c33319d1a6",
+          "metadata": {
+            "topic": "equipment-requests",
+            "seq": 29,
+            "doc_id": "doc-0029",
+            "title": "Northwind Analytics Equipment Request Procedure (revision 7)",
+            "chunk": 0
+          },
+          "retrieval_score": 0.691223453404661,
+          "rerank_score": 0.2608695652173913
+        }
+      ]
+    }
+  ]
+}

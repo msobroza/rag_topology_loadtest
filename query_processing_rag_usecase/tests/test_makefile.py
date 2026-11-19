@@ -189,6 +189,19 @@ def test_compare_answers_compares_every_record_under_results(
     )
 
 
+def test_pin_answers_runs_the_pinned_records_test_to_make_the_records_again(
+    use_case_dir: Path,
+) -> None:
+    # The test that compares the app with its pinned answer records, which the
+    # option turns into the run that writes them.
+    test_file = "tests/answer_records/test_pinned_answer_records.py"
+
+    assert dry_run(use_case_dir, "pin-answers") == [
+        f"{TOOLS}pytest {test_file} --pin-answers"
+    ]
+    assert (use_case_dir / test_file).is_file()
+
+
 def stand_in(path: Path, line: str) -> None:
     """An executable at ``path`` that runs one shell line."""
     path.write_text(f"#!/bin/sh\n{line}\n")

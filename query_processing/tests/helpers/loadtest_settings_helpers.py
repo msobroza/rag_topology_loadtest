@@ -11,16 +11,9 @@ from collections.abc import Mapping
 import pytest
 
 from query_processing.loadtest.loadtest_settings import LoadTestSettings
+from query_processing.testing import clear_loadtest_variables
 
-LOADTEST_VARIABLES = tuple(
-    LoadTestSettings.variable_of(field) for field in LoadTestSettings.model_fields
-)
-
-
-def clear_loadtest_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unset every variable ``LoadTestSettings`` reads, for this test only."""
-    for name in LOADTEST_VARIABLES:
-        monkeypatch.delenv(name, raising=False)
+__all__ = ["clear_loadtest_variables", "settings_from"]
 
 
 def settings_from(

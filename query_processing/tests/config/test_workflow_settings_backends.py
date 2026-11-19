@@ -223,6 +223,7 @@ def test_settings_field_set_is_pinned() -> None:
     # the topology alias and the run label, two labels, and Domino's own run
     # variables stay flat. The extensions are the packages the file loads; the
     # prompts and the routes, the catalogue routers list from, files of their own.
+    # The orchestrator is the library that runs the graph (ADR 0010).
     assert sorted(WorkflowSettings.model_fields) == [
         "calibration",
         "components",
@@ -233,6 +234,7 @@ def test_settings_field_set_is_pinned() -> None:
         "graph",
         "http",
         "local_models",
+        "orchestrator",
         "prompts",
         "routes",
         "run_label",

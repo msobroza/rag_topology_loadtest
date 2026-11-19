@@ -12,8 +12,8 @@ from pydantic import BaseModel
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.adapters.router.base_router import BaseRouter
 from query_processing.application.graph_check import WorkflowGraphError
-from query_processing.composition.composition_root import (
-    check_workflow_graph,
+from query_processing.composition.composition_root import check_workflow_graph
+from query_processing.composition.registered_components import (
     component_type_settings,
 )
 from query_processing.config.files.routes_file import ROUTES_FILE_VAR

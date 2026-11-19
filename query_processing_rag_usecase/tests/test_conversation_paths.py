@@ -6,9 +6,11 @@ differ by are named fakes that record what they were asked: the two embedders,
 the router and the LLM. A first message is answered as before the router
 existed; a message with a conversational history is routed; and one the router
 says leans on it is rewritten first, into the standalone query the rest of the
-graph searches with, with conditions when the LLM names a source. ``timings_ms``
-cannot tell the paths apart: it keeps a key for a stage that did not run;
-``tokens`` can, since only a stage whose LLM reported its counts has a key.
+graph searches with, with conditions when the LLM names a source. Each path is
+driven on every registered orchestrator, and asks the fakes the same on each.
+``timings_ms`` cannot tell the paths apart: it keeps a key for a stage that
+did not run; ``tokens`` can, since only a stage whose LLM reported its counts
+has a key.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.components.routes import RouteChoice, RouteRequest
 from query_processing.entrypoints.qp_serve import create_app
 from query_processing.extension_api import GenerateAnswer
+from query_processing.testing import registered_orchestrators
 
 from workflow_on_fakes import all_fake_settings
 
@@ -121,17 +124,26 @@ class AppOnRecordingFakes:
         return answered
 
 
+@pytest.fixture(params=registered_orchestrators())
+def on_each_orchestrator(
+    use_case_dir: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> WorkflowSettings:
+    """Conftest's ``all_fake``, once on each registered orchestrator."""
+    del use_case_dir  # requested so the settings are read from this directory
+    return all_fake_settings(monkeypatch, QP_ORCHESTRATOR=request.param)
+
+
 def routed_to(route: str, **llm: Any) -> AppOnRecordingFakes:
     """An app whose router says ``route`` for every message it is asked about."""
     return AppOnRecordingFakes(router=RecordingRouter(route), llm=RecordingLLM(**llm))
 
 
 def test_a_first_message_skips_the_router_and_the_rewrite(
-    all_fake: WorkflowSettings,
+    on_each_orchestrator: WorkflowSettings,
 ) -> None:
     app = routed_to("leans_on_history")  # which nothing asks
 
-    answered = app.query(all_fake, question=FIRST_MESSAGE)
+    answered = app.query(on_each_orchestrator, question=FIRST_MESSAGE)
 
     assert app.router_embedder.queries == []
     assert app.router.embeddings == []
@@ -141,12 +153,12 @@ def test_a_first_message_skips_the_router_and_the_rewrite(
 
 
 def test_a_follow_up_that_stands_alone_is_routed_and_not_rewritten(
-    all_fake: WorkflowSettings,
+    on_each_orchestrator: WorkflowSettings,
 ) -> None:
     app = routed_to("self_contained")
 
     answered = app.query(
-        all_fake, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
+        on_each_orchestrator, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
     )
 
     # The router is asked about the message as the user sent it, embedded by
@@ -159,12 +171,12 @@ def test_a_follow_up_that_stands_alone_is_routed_and_not_rewritten(
 
 
 def test_a_follow_up_the_router_says_leans_on_the_conversation_is_rewritten(
-    all_fake: WorkflowSettings,
+    on_each_orchestrator: WorkflowSettings,
 ) -> None:
     app = routed_to("leans_on_history")
 
     answered = app.query(
-        all_fake, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
+        on_each_orchestrator, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
     )
 
     assert app.router_embedder.queries == [FOLLOW_UP]
@@ -188,10 +200,12 @@ def test_a_follow_up_the_router_says_leans_on_the_conversation_is_rewritten(
 
 
 def test_the_rewrite_is_asked_for_conditions_on_the_stores_source_only(
-    all_fake: WorkflowSettings,
+    on_each_orchestrator: WorkflowSettings,
 ) -> None:
     app = routed_to("leans_on_history")
-    app.query(all_fake, question=FOLLOW_UP, conversational_history=EARLIER_TURNS)
+    app.query(
+        on_each_orchestrator, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
+    )
     schema = app.llm.schemas()[0]
     assert schema is not None
 
@@ -211,13 +225,13 @@ def test_the_rewrite_is_asked_for_conditions_on_the_stores_source_only(
 
 
 def test_a_rewrites_conditions_join_the_metadata_filter_and_its_query_is_searched(
-    all_fake: WorkflowSettings,
+    on_each_orchestrator: WorkflowSettings,
 ) -> None:
     rewrite = {"standalone_query": STANDALONE, "metadata_filter": [ON_AMF]}
     app = routed_to("leans_on_history", rewrite=rewrite)
 
     answered = app.query(
-        all_fake, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
+        on_each_orchestrator, question=FOLLOW_UP, conversational_history=EARLIER_TURNS
     )
 
     assert app.embedder.queries == [STANDALONE]
@@ -234,12 +248,21 @@ def test_a_rewrites_conditions_join_the_metadata_filter_and_its_query_is_searche
     [(FILE_ORDER, 0), (LEANING_FIRST, 1)],
     ids=["self-contained-first", "leaning-first"],
 )
+@pytest.mark.parametrize("orchestrator", registered_orchestrators())
 def test_the_fake_router_of_the_settings_decides_whether_a_follow_up_is_rewritten(
-    use_case_dir: Path, monkeypatch: pytest.MonkeyPatch, routes: str, rewrites: int
+    use_case_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    orchestrator: str,
+    routes: str,
+    rewrites: int,
 ) -> None:
     # The router here is the one the settings build, not a test's: the
     # toolkit's fake, which chooses the first of the routes it lists.
-    settings = all_fake_settings(monkeypatch, QP_COMPONENTS__ROUTER__ROUTES=routes)
+    settings = all_fake_settings(
+        monkeypatch,
+        QP_COMPONENTS__ROUTER__ROUTES=routes,
+        QP_ORCHESTRATOR=orchestrator,
+    )
     llm = FakeLLM()
     body = {"question": FOLLOW_UP, "conversational_history": EARLIER_TURNS}
 

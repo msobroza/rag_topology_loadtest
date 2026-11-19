@@ -75,10 +75,10 @@ ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # For the defaults of the four QP_* values a load test sends, and of the
     # retries qp-record-answers makes (the shared http block's), nothing else.
     "query_processing.loadtest.loadtest_settings": {"config"},
-    # The deploy tool reads the workflow settings, to know the components a
-    # topology alias names (ADR 0003) and to check the overrides against them;
+    # The deploy tool reads the workflow settings (ADR 0003), checks the overrides,
+    # and asks the composition's two start-up checks what an App would refuse;
     # the rest of deploy reads them through it.
-    "query_processing.deploy.workflow_components": {"config"},
+    "query_processing.deploy.workflow_components": {"config", "composition"},
 }
 # The named exceptions that load modules by name, as an extension is loaded,
 # from a package their own may not import: one module each, and the modules
@@ -385,7 +385,8 @@ def test_the_ports_import_only_the_domain() -> None:
         )
         if imported.split(".")[1] != "domain"
     ]
-    assert len(ports) == 5, f"expected the five ports, found {ports}"
+    # The five components' ports and the orchestrator's (ADR 0010).
+    assert len(ports) == 6, f"expected the six ports, found {ports}"
     assert not offending, f"a port may import only the domain: {offending}"
 
 

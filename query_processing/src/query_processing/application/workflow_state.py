@@ -1,6 +1,6 @@
 """The workflow state: what the request provides, and what the response reads.
 
-The state is no closed class: ``state_fields.state_type`` builds it from the
+The state is no closed class: the orchestrator builds it from the
 fields the request and the stages write, each with the type of what writes it.
 A request provides the conversational query, the conversational history (the
 earlier turns the client sends, possibly none), the standalone query, the mode
@@ -26,11 +26,11 @@ from ..domain.retrieval.passages import RagMode, ScoredPassage
 
 # What one request carries from stage to stage, by field name: a stage reads
 # the values its reads name and returns the fields it writes, the update
-# LangGraph merges into the state.
+# the orchestrator merges into the state.
 WorkflowState = dict[str, Any]
 
-# The field that holds each stage's wall time under the stage's name; a
-# LangGraph reducer, sum_timings_by_stage, adds the stages' updates, so a stage
+# The field that holds each stage's wall time under the stage's name; its
+# reducer, sum_timings_by_stage, adds the stages' updates, so a stage
 # that runs more than once reports every run.
 TIMINGS_FIELD = "timings_ms"
 # The field that holds the tokens each stage's LLM read and wrote, under the
@@ -44,7 +44,7 @@ StageTokens = dict[str, int]
 # The fields the workflow measures for each stage: no stage writes them.
 MEASURED_FIELDS: tuple[str, ...] = (TIMINGS_FIELD, TOKENS_FIELD)
 # The conditions a search must meet: the client's, then those stages add. The
-# one field that accumulates; state_fields.add_conditions is its reducer.
+# one field that accumulates; add_conditions is its reducer.
 METADATA_FILTER_FIELD = "metadata_filter"
 # The earlier turns the request carries: a prompt's placeholder splices them.
 CONVERSATIONAL_HISTORY_FIELD = "conversational_history"
@@ -133,6 +133,31 @@ def _add_counts(early: StageTokens, late: StageTokens) -> StageTokens:
     return {name: early.get(name, 0) + late.get(name, 0) for name in {**early, **late}}
 
 
+def add_conditions(
+    left: Sequence[MetadataCondition], right: Sequence[MetadataCondition]
+) -> list[MetadataCondition]:
+    """Add a stage's conditions to the metadata filter; the field's reducer.
+
+    Also what makes the client's conditions the first state's, each once.
+
+    Args:
+        left: The conditions so far, the client's first.
+        right: The conditions a stage writes.
+
+    Returns:
+        ``left``, then each condition of ``right`` it does not hold yet.
+
+    Example:
+        >>> add_conditions([on_pay], [on_pay, not_on_leave])
+        [on_pay, not_on_leave]
+    """
+    added = list(left)
+    for condition in right:
+        if condition not in added:
+            added.append(condition)
+    return added
+
+
 def initial_state(
     question: str,
     mode: RagMode,
@@ -150,7 +175,10 @@ def initial_state(
         metadata_filter: The client's conditions, which every search meets.
 
     Returns:
-        The request's fields, and no timings nor tokens.
+        The request's fields, and no timings nor tokens. The metadata filter
+        holds each of the client's conditions once, as its reducer would make
+        it: so no orchestrator has to reduce the first state for its result to
+        be LangGraph's, which passes the first state through its reducers.
 
     Example:
         >>> initial_state("vacation days?", "query")["conversational_history"]
@@ -161,7 +189,7 @@ def initial_state(
         "standalone_query": question,
         CONVERSATIONAL_HISTORY_FIELD: list(conversational_history),
         "mode": mode,
-        METADATA_FILTER_FIELD: list(metadata_filter),
+        METADATA_FILTER_FIELD: add_conditions([], metadata_filter),
         **{field: {} for field in MEASURED_FIELDS},
     }
 

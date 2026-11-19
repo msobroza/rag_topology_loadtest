@@ -2,7 +2,7 @@
 
 So that a use case can change its graph without code, and a new step is one registered stage type, the graph is declared in `workflow.yaml`: the stages, each calling a named component, then `edges` and `conditional_edges` spelled with LangGraph's own argument names (`source`, `path`, `path_map`, `START`, `END`). A conditional edge names a registered edge condition: a function of the workflow state that returns a bool.
 
-Amended by [ADR 0007](0007-an-edge-condition-can-answer-with-a-label.md), where an edge condition can also answer with a label, and by [ADR 0008](0008-every-component-is-called-the-same-way.md), where the file states each stage's fields.
+Amended by [ADR 0007](0007-an-edge-condition-can-answer-with-a-label.md), where an edge condition can also answer with a label, by [ADR 0008](0008-every-component-is-called-the-same-way.md), where the file states each stage's fields, and by [ADR 0010](0010-the-graph-runs-on-an-orchestrator-a-setting-chooses.md), where the file runs on an orchestrator a setting chooses, LangGraph by default.
 
 ## Considered options
 
@@ -14,7 +14,7 @@ Amended by [ADR 0007](0007-an-edge-condition-can-answer-with-a-label.md), where 
 ## Consequences
 
 - The author keeps the edge conditions of one source mutually exclusive: when two are true, both branches run in the same step.
-- One edge condition cannot be used twice on the same source, because LangGraph names a branch after its function. The loader refuses it with its own message.
+- One edge condition cannot be used twice on the same source, because every orchestrator names what asks after the edge condition: LangGraph its branch, pydantic-graph its step. The loader refuses it with its own message.
 - Each stage type declares the state fields it reads and writes, and start-up refuses a graph in which a stage reads a field nothing before it writes. Lexical retrieval is therefore a file without the embed stage, no longer a rule in the code.
 - Timings are keyed by the stage names of the file, and the load-test client takes its rows from the response.
 - The file says `stages` where LangGraph says nodes: the glossary keeps Stage.

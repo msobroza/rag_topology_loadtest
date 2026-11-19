@@ -15,6 +15,9 @@ dependencies = [
     "starlette>=0.40",  # imported directly (ASGI types, TestClient for --dry-run)
     "uvicorn[standard]>=0.30",
     "langgraph>=0.2",
+    # The orchestrator pydantic_graph (QP_ORCHESTRATOR): core, not an extra, so an
+    # App on it needs no extra named at start-up; its floor is the version tried.
+    "pydantic-graph>=2.70",
     "langchain-core>=0.3",
     "langchain-elasticsearch>=1.0",
     "elasticsearch[async]>=8.13",  # aiohttp node for AsyncElasticsearchStore
@@ -24,7 +27,7 @@ dependencies = [
     # huggingface-hub at the versions it supports.
     "sentence-transformers[openvino]>=6.2",
     "httpx>=0.27",
-    "pydantic>=2.7",
+    "pydantic>=2.12",  # the floor of pydantic-graph, which every install gets
     "pydantic-settings>=2.3",
     "pyyaml>=6",  # a use case's workflow.yaml, read by pydantic-settings and workflow_file.py
     "jinja2>=3.1",  # the contents of a use case's prompts.yaml, rendered in prompt_rendering.py
@@ -215,6 +218,7 @@ ignore_decorators = [
     "@*EDGE_CONDITIONS.register",  # LangGraph calls an edge condition by its registry
     "@*_OPENERS.register",  # a backend's opener, found by ComponentFactory by name
     "@*MODEL_SERVER_KINDS.register",  # a model-server kind, found by the deploy tool by name
+    "@*ORCHESTRATORS.register",  # an orchestrator, found by the composition by name
 ]
 ignore_names = [
     "model_config",  # pydantic reads it off every model class

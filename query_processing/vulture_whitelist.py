@@ -10,6 +10,9 @@ tasks) are in ``ignore_decorators`` instead.
 EmbeddingsUser
 RerankUser
 
+# pytest: calls this conftest hook by name (tests/conftest.py adds --pin-answers).
+pytest_addoption
+
 # pydantic-settings: calls this classmethod hook to order the settings sources.
 settings_customise_sources
 

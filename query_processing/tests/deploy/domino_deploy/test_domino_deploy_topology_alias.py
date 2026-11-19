@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from domino_deploy_helpers import (
     AGENT_EXPORTS,
@@ -57,6 +58,18 @@ def workflow_script(apps: FakeDominoApps) -> str:
 
 def served_url(app: int, route: str) -> str:
     return f"{INSTANCES_URL}/app-{app}-v1-i{route}"
+
+
+def with_reranker_fr(path: Path) -> None:
+    """Write at ``path`` the tests' workflow file with a second reranker, reranker_fr.
+
+    The whole file, graph and all, as an App would read it: the deploy refuses
+    what the App's start-up refuses, a file with no graph included.
+    """
+    data = yaml.safe_load(FIXTURE_WORKFLOW.read_text(encoding="utf-8"))
+    reranker_fr = {"type": "reranker", "backend": "local", "source_id": "org/r"}
+    data["components"]["reranker_fr"] = reranker_fr
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
 
 
 def with_alias(alias: str, row: dict[str, str], **overrides: object) -> DeploySettings:
@@ -205,11 +218,7 @@ def test_the_workflow_file_the_workflow_app_names_is_the_one_read(
     tmp_path: Path,
 ) -> None:
     workflow = tmp_path / "two-rerankers.yaml"
-    workflow.write_text(
-        "components:\n"
-        "  embedder: {backend: local, source_id: org/e}\n"
-        "  reranker_fr: {type: reranker, backend: local, source_id: org/r}\n"
-    )
+    with_reranker_fr(workflow)
     own = {"settings": {"QP_WORKFLOW_FILE": str(workflow)}}
     # The tests' file, which QP_WORKFLOW_FILE names here, has no reranker_fr.
     settings = with_alias("fr", {"reranker_fr": "local"}, apps={"workflow": own})
@@ -275,11 +284,7 @@ def test_a_served_component_of_any_name_gets_a_model_server_app_of_its_own(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, server: str
 ) -> None:
     workflow = tmp_path / "workflow.yaml"
-    workflow.write_text(
-        "components:\n"
-        "  embedder: {backend: local, source_id: org/e}\n"
-        "  reranker_fr: {type: reranker, backend: local, source_id: org/r}\n"
-    )
+    with_reranker_fr(workflow)
     monkeypatch.setenv("QP_WORKFLOW_FILE", str(workflow))
     settings = with_alias(
         "split-fr",

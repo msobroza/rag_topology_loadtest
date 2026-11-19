@@ -1,0 +1,4 @@
+{"question": "How many paid vacation days do employees accrue each year at Northwind Analytics?"}
+{"question": "And can they carry them over to next year?", "conversational_history": [{"role": "user", "content": "How many paid vacation days do employees accrue each year at Northwind Analytics?"}, {"role": "assistant", "content": "Full-time employees accrue paid vacation days each year."}]}
+{"question": "What about meals on that trip?", "conversational_history": [{"role": "user", "content": "How do I get reimbursed for travel expenses?"}, {"role": "assistant", "content": "Submit an expense report with your receipts."}]}
+{"question": "What does the AMF say about paid vacation days?", "metadata_filter": [{"attribute": "source", "comparator": "in", "value": ["AMF"]}, {"attribute": "source", "comparator": "in", "value": ["AMF"]}]}

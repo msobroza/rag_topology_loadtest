@@ -22,10 +22,22 @@ from pathlib import Path
 
 import pytest
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.testing import add_pin_answers_option, pin_answers_asked
 
 from workflow_on_fakes import all_fake_settings
 
 USE_CASE_DIR = Path(__file__).resolve().parents[1]
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """``--pin-answers``: ``make pin-answers`` makes the pinned answer records again."""
+    add_pin_answers_option(parser)
+
+
+@pytest.fixture
+def pin_answers(request: pytest.FixtureRequest) -> bool:
+    """Whether the run makes each pinned answer record again (``--pin-answers``)."""
+    return pin_answers_asked(request.config)
 
 
 @pytest.fixture

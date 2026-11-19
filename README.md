@@ -146,10 +146,10 @@ label: `split-all` publishes three Apps, `monolith` one. Every App runs the
 toolkit's `domino/app.sh`, which starts its command in the use case's directory,
 where the workflow file is read; the git-ignored `deploy.yaml` stays where
 `qp-deploy` ran (ADR 0003). On a laptop, `qp-serve` runs each component on the
-backend its settings give. Inside the workflow app, LangGraph runs the graph of
-the file. The question is both the conversational and the standalone query of
-the workflow state, and the earlier turns the client sends, if any, its
-conversational history. A first message goes straight to `embed`; one with a
+backend its settings give. Inside the workflow app, the orchestrator the
+settings choose runs the graph of the file, LangGraph by default. The question
+is both the conversational and the standalone query of the workflow state,
+and the earlier turns the client sends, if any, its conversational history. A first message goes straight to `embed`; one with a
 conversational history goes to the router, and when it leans on that history,
 the `rewrite` stage makes it a standalone query and may add conditions to the
 metadata filter. `/retrieve` ends after rerank, where
@@ -638,7 +638,7 @@ and no package imports it either, `extension_api` included.
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003) |
+   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse; they open nothing |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
@@ -654,10 +654,14 @@ and no package imports it either, `extension_api` included.
    `api_endpoint.py`).
 4. **Adapters.** `adapters/` holds the ports and their implementations, nothing
    else: one package per component, `embedder/`, `reranker/`, `llm/`
-   (generation), `vector_store/` and `router/`. Its port, the abstract class the
-   application depends on, is `base_<component>.py`; each implementation is a
-   directory named after its Backend value, an embedder's `backend: local`
-   being `embedder/local/`, and holds one implementation of the port. One
+   (generation), `vector_store/` and `router/`, and the orchestrator's,
+   `orchestrator/`. Its port, the abstract class the application depends on,
+   is `base_<component>.py`; each implementation is a directory named after its
+   Backend value, an embedder's `backend: local` being `embedder/local/`, and
+   holds one implementation of the port. The orchestrator's package is laid
+   out the same way, with one directory per registered name: its port is
+   `base_orchestrator.py`, and `orchestrator: pydantic_graph` is
+   `orchestrator/pydantic_graph/`. One
    directory serves two Backends: `api/` implements both `served` and `api`,
    which call an endpoint over HTTP the same way and differ only in how it is
    resolved (two directories would hold the same class twice). The router's
@@ -683,8 +687,10 @@ and no package imports it either, `extension_api` included.
    test); the one factory,
    `component_factory.py`, opens a component once with the opener of its type
    and Backend, so a new Backend is one new module in `openers/` and no
-   factory is edited; `registered_names.py` refuses an unknown Backend or API
-   format before a command opens anything; `composition_root.py` wires them
+   factory is edited; `registered_names.py` refuses an unknown Backend, API
+   format or orchestrator before a command opens anything;
+   `chosen_orchestrator.py` finds the orchestrator's class the settings name
+   and asks it whether it runs the graph; `composition_root.py` wires them
    and gives each command what it asks for.
 6. **Registries.** A registry (`domain/registry.py`) holds named things of one
    sort and names the known ones when asked for an unknown one. Each entry
@@ -692,7 +698,7 @@ and no package imports it either, `extension_api` included.
    the package that holds the entries imports all of its modules from its
    `__init__.py` (`import_package_modules`), so a new entry is one new module
    and no table is edited. The registry is in `domain/` because every package
-   that registers something may import the domain. Six kinds of entry today:
+   that registers something may import the domain. Seven kinds of entry today:
    an API format (each component's `api/` directory holds its formats, one
    module each, and its registry sits beside the formats' base class:
    `RERANK_API_FORMATS` in `base_rerank_api_format.py`), a stage type
@@ -704,7 +710,9 @@ and no package imports it either, `extension_api` included.
    `RERANKER_OPENERS` in `component_openers.py`), a model-server kind
    (`deploy/model_server_kinds/`, one module each, `MODEL_SERVER_KINDS` in
    `base_model_server_kind.py`, and one launch script each in
-   `domino/model_servers/`) and a component type's settings class, which a
+   `domino/model_servers/`), an orchestrator (`adapters/orchestrator/`, one
+   directory each, `ORCHESTRATORS` in `base_orchestrator.py`) and a component
+   type's settings class, which a
    component is read with (`COMPONENT_TYPE_SETTINGS` in
    `config/components/component_settings.py`; the five types of the toolkit
    register their classes there by call, four of them kept in that module and
@@ -772,7 +780,7 @@ and no package imports it either, `extension_api` included.
 `extension_api` or `testing`, and the toolkit's side of rule 8; the use case's
 `tests/test_layering.py` checks its side;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
-rule 4 (only component packages in `adapters/`, their layout with `api/` for
+rule 4 (only component packages and the orchestrator's in `adapters/`, their layout with `api/` for
 both `served` and `api`, and no port implemented anywhere else) and rule 7;
 `tests/structure/test_directory_size_rule.py` checks rule 9 on the toolkit, the use
 case's `tests/test_layering.py` on the use case, with no exception, and the
@@ -799,7 +807,7 @@ only rule 9 applies to it.
 ### The tree
 
 ```text
-query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (its install, its gates, fake-domino),
+query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile (its install, its gates, pin-answers, fake-domino),
                     vulture_whitelist.py; no workflow file and no use case's file
   src/query_processing/
     __init__.py       package docstring, __version__
@@ -811,6 +819,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
       query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
+      opened_graph.py  OpenedGraph, OpenedConditionalEdge: what an orchestrator is built from, the description with each stage opened and timed, each conditional edge with what it asks, the state's field types and reducers; merged, how the state takes a stage's update
       run_label.py    the run label: its default (each component with its backend), what a valid one is
       roles.py        the Role each App is published as (Role: workflow or model-server), AppPart, WORKFLOW_APP
       components/     what a component is and how it is called
@@ -835,12 +844,12 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     application/      use cases over the ports; imports domain and the adapters' ports only
       rag_dependencies.py  RagDependencies: the components a workflow calls, open, by the names its stages call them; their probes and model names
       workflow_state.py  WorkflowState, what a request carries from stage to stage by field name (the state's type is built in state_fields); REQUEST_FIELD_TYPES, the fields the request writes; RESPONSE_FIELDS, those the response reads; REQUEST_FIELDS, those a stage may read wherever it is; MEASURED_FIELDS, timings_ms and tokens, which no stage writes; initial_state, sum_timings_by_stage, sum_tokens_by_stage
-      state_fields.py  field_types_of: each field the request and the stages write, with its type; state_type: the LangGraph state built from them; WorkflowGraphError
+      state_fields.py  field_types_of: each field the request and the stages write, with its type; state_field_types and STATE_REDUCERS: every field of the state and the reducers of those that add up, as the orchestrator is given them; WorkflowGraphError
       graph_check.py  check_graph: a graph that cannot run refused before anything opens, from what each stage type declares or each plain call states: its stages, the field rule and the type rules, the edges through edge_check; fields_set_before
       stage_binding.py  stage_type_of: a stage's stage type, or none for a plain call; bind_call: a plain call's keys, reads and writes bound to its component's request and answer
       edge_check.py   check_edges: the edges and conditional edges of a graph that cannot run, refused; field_labels: the labels each field can take
-      workflow_builder.py  build_workflow: a graph description and the components in, the LangGraph graph out; asked_of_state
-      workflow.py     CompiledWorkflow: one request through the compiled graph, its RagResult out; stage_timings
+      workflow_builder.py  build_workflow: a graph description, the components and the orchestrator's class in, the opened graph built on that orchestrator out; asked_of_state
+      workflow.py     CompiledWorkflow: one request through the orchestrator, its RagResult out; stage_timings
       prompt_rendering.py  render_prompt, prompt_variables: a prompt rendered into chat messages, each content in Jinja2's sandbox (the one module that uses Jinja2)
       output_schemas.py  OUTPUT_SCHEMAS: the pydantic models a generate stage can ask the LLM for, each field written to the field of its name
       stages/         the stage types (rule 6) and the plain call; importing it imports every module, so each stage type registers itself
@@ -855,7 +864,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         label.py      label: answers with the one field it reads, such as a route
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
-      workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
+      workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the orchestrator, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
@@ -930,6 +939,12 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         fake/         backend: fake
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
           in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage
+      orchestrator/   the library that runs the workflow graph; importing it imports every module under it, so each orchestrator registers itself
+        base_orchestrator.py  BaseOrchestrator, the port: check_graph_runs refuses a graph before anything opens, built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
+        langgraph/    orchestrator: langgraph, the default
+          langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing only a stage name LangGraph does not take for a node, the one module importing LangGraph; state_type, langgraph_name, path_map
+        pydantic_graph/  orchestrator: pydantic_graph, pydantic-graph (Pydantic AI's graph library)
+          pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision named after it; refuses a stage named as one of those nodes, more than one way out at once, a loop, and what its library does not build; the one module importing pydantic-graph
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
@@ -967,7 +982,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       fake_text.py    tokenize, cosine: the text helpers the fake implementations share
       json_log.py     log_json: the one log format
     composition/      the composition root: builds the adapters from the settings (rule 5)
-      composition_root.py  CompositionRoot: settings in, ready ports out; what each command asks for
+      composition_root.py  CompositionRoot: settings in, ready ports out, and the orchestrator's class the settings name; what each command asks for; check_workflow_graph: the toolkit's checks of the graph, then the orchestrator's
       resource_scope.py  ResourceScope: each resource opened once, all closed together
       http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
@@ -975,8 +990,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
-      registered_names.py  check_registered_names: an unknown Backend or API format refused before a command opens anything
-      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names
+      registered_names.py  check_registered_names: an unknown Backend, API format or orchestrator refused before a command opens anything
+      registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_resources, what it is given besides its block; component_type_settings, each component's type keys
+      chosen_orchestrator.py  chosen_orchestrator: the orchestrator's class the settings name; check_orchestrator_runs_graph: its refusal of the graph, after its name
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
         component_openers.py  SharedResources (what an opener is given), ComponentOpeners, the four registries (EMBEDDER_OPENERS, ...) and OPENERS_BY_TYPE
         embedder_on_local.py  the in-process embedder, its threads calibrated at 0; calibrate_embedder_on_local for qp-calibrate
@@ -1007,8 +1023,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     deploy/           the deploy tool: qp-deploy on Domino 6.2
       deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
       deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
-      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
-      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
+      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks)
+      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
       topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
       model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
@@ -1056,6 +1072,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       component_contract.py  ComponentContract: subclassed with make_component and make_request, it checks the answer's shape, the API format both ways, and the served class through an in-process model server
       router_contract.py  RouterContract: ComponentContract for a router, with routes to write; the route chosen is one of them, the confidence between 0 and 1
       directory_size.py  directory_size_findings, OnePatternFolder, FolderNotYetSplit: rule 9 measured under a distribution's src/ and tests/, each breach a sentence naming the folder, its count and what to do
+      pinned_answer_record.py  PinnedAnswerRecord, check_pinned_answers: the workflow app recorded in process on fake backends and compared with its committed answer record, or pinned again with --pin-answers
+      registered_orchestrators.py  registered_orchestrators: the name of every registered orchestrator, read once when the tests are collected, which a test is parametrized over
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)
@@ -1072,6 +1090,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh, vllm.sh), Dockerfile (targets `rag` and `ovms`; neither is for a vLLM App)
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/, and in a crowded folder one sub-folder per sub-package, module or command (rule 9)
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
+    testing/answer_records/   the pinned answer record of the fixture workflow on fake backends (make -C query_processing pin-answers)
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
     structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
@@ -1091,8 +1110,8 @@ query_processing_rag_usecase/   the RAG use case, one distribution that installs
     entrypoints/train_router.py       qp-rag-train-router: embeds the utterances, fits and scores the pipeline, writes the file (make train-router)
   deploy.example.yaml  its deploy settings example: the topology aliases, the Apps, this site's overrides (cp to deploy.yaml)
   .env.example        its environment example, the load-test sizes of a rerank request included (cp to .env)
-  Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, ...), run here
-  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports; helpers/ on pytest's path
+  Makefile            its run targets (serve, ingest, train-router, loadtest, compare, the exports, calibrate, deploy, status, infra-up, pin-answers, ...), run here
+  tests/              its own tests, through the two seams: its workflow file answers, a dry run of each topology alias; its router through RouterContract; its imports; helpers/ on pytest's path; answer_records/, its pinned answer records on fake backends, one for each way a follow-up takes, with their questions file (make pin-answers)
   results/            load-test output (git-ignored), as data/, models/, ovms/models/ and chroma/ written here
 experiment_charts/  the charts of the measurements, one distribution (experiment-charts): not the product, it draws experiments-explained/ from experiments/
   pyproject.toml      the distribution: matplotlib and PyYAML, nothing of the product; its package under src/
@@ -1317,12 +1336,80 @@ body), refused before any comparison, naming the first request that differs.
 `make compare-answers` compares every `results/*_answers.json`, sorted;
 `BASELINE=split-all` puts that run first.
 
-The check runs on demand only, against real models where they run: nothing of
-it runs in `make check` or in CI but its own tests, on fakes. What to expect:
-the same code on two topologies answers the same, since a component served over
-HTTP returns what it returns in process. Two model-server kinds (FastAPI, OVMS,
-vLLM) or two weight formats may not: their scores move, and a passage can change
-places. Compare each with a baseline of its own.
+The check on real models runs on demand only, where they run: of it, `make
+check` and CI run its own tests and the pinned answer records below, on
+fakes. What to expect: the same code on two topologies answers the same, since
+a component served over HTTP returns what it returns in process. Two model-server
+kinds (FastAPI, OVMS, vLLM) or two weight formats may not: their scores move,
+and a passage can change places. Compare each with a baseline of its own.
+
+#### Pinned answer records: the answers on fake backends, in the gate
+
+What the workflow app answers on fake backends is committed as answer
+records, the "before" a change to how the graph runs is held to. A test of each
+distribution starts the app in process with every component on its fake
+backend (no socket, no download), records it with `qp-record-answers`, and
+compares the record with the committed one with `qp-compare-answers`: every
+answer identical, its text included, with ROUGE-L at a threshold of 1 (the
+fake LLM's echo is a function of its prompt), and the scores within the score
+tolerance. ROUGE-L at 1 is the same words in the same order, so the test then
+compares the text of each answer exactly: a change of punctuation, case, line
+breaks or a `[1]` marker fails too. `make check` runs both.
+
+| Distribution | Records | Requests |
+| --- | --- | --- |
+| the toolkit | `tests/testing/answer_records/fixture_workflow_answers.json`, the fixture workflow | ten synthetic questions, one per topic of the synthetic corpus |
+| the RAG use case | `tests/answer_records/follow_ups_stand_alone_answers.json` and `follow_ups_rewritten_answers.json`, its own `workflow.yaml` | `tests/answer_records/questions.jsonl`: a first message, two follow-ups with a conversational history, then a message whose metadata filter states one condition twice |
+
+Each request goes to `/retrieve` and to `/query`. The fake router chooses the
+first of its routes, so the use case's two records cover the three paths of
+its graph: in both, a message with no history takes no route; with the routes in the
+file's order a follow-up stands alone, and with `leans_on_history` first
+(`QP_COMPONENTS__ROUTER__ROUTES`) it is rewritten. The code both tests share is
+`query_processing.testing`'s (`PinnedAnswerRecord`, `check_pinned_answers`), so
+a use case's tests pin their own records the same way.
+
+A change that alters the answers on purpose makes the records again, from the
+repository's root, then commits them; the failing test names the command:
+
+```bash
+make -C query_processing pin-answers              # the fixture workflow's record
+make -C query_processing_rag_usecase pin-answers  # the use case's two records
+```
+
+Each runs its test with `--pin-answers`, in process on fake backends, which
+writes the record instead of comparing with it. A record is made on the
+default orchestrator, LangGraph, whatever `QP_ORCHESTRATOR` the shell holds:
+the tests unset it. A record holds nothing that
+changes from one process to the next: the fakes hash with SHA-256, never with
+`hash()`, and the synthetic corpus and questions come from a seeded
+`random.Random`.
+
+#### One orchestrator against another
+
+An orchestrator is held to the answers of another at two levels. In the gate,
+`make check` compares the workflow app on every registered orchestrator with
+the pinned answer records above, which LangGraph answered, so an orchestrator
+that answers otherwise fails it. A record is made again only when a change
+alters the answers on purpose, never to make one orchestrator agree.
+
+On a deployment, with real models, record the workflow app once under each
+orchestrator, each run named by a run label of its own, then compare. With
+`qp-deploy`, the overrides of `deploy.yaml` set both (`orchestrator` and
+`run_label`, see [The workflow file](#the-workflow-file)); on one machine:
+
+```bash
+QP_ORCHESTRATOR=langgraph QP_RUN_LABEL=monolith+orchestrator=langgraph make serve            # then:
+make record-answers RUN_NAME=langgraph HOST=http://localhost:8888
+QP_ORCHESTRATOR=pydantic_graph QP_RUN_LABEL=monolith+orchestrator=pydantic_graph make serve  # then:
+make record-answers RUN_NAME=pydantic_graph HOST=http://localhost:8888
+make compare-answers BASELINE=langgraph   # results/answers-comparison.md
+```
+
+The report shows the run label each record saw beside its run, so it says
+which orchestrator answered. The passages, their order and their scores are
+compared as for two topologies; the LLM's text only with
+`QP_LOADTEST_ANSWER_ROUGE_L=true`.
 
 ## Experiment 2: serving the models with FastAPI versus OVMS
 
@@ -1629,6 +1716,81 @@ A stage checks only its own settings, so nothing checks any more that the rerank
 stays within the retrieve stage's: above it, the reranker keeps every candidate,
 and a reranker endpoint is asked for a `top_n` above the documents it is sent.
 
+The orchestrator is the library that runs the graph along its edges (ADR
+0010): `langgraph`, the default, or another name registered in `ORCHESTRATORS`
+(`adapters/orchestrator/`). It is the top-level key `orchestrator`, a name and
+not a block, and the graph does not change with it. A workflow file states it
+only to run on another one. Like any value of the file it is set three ways:
+
+```bash
+QP_ORCHESTRATOR=langgraph make serve
+```
+
+```yaml
+# or as a top-level key of a workflow file
+orchestrator: langgraph
+```
+
+```yaml
+# or for the Apps of a deploy, in deploy.yaml, with the run label that names the variant
+overrides:
+  orchestrator: langgraph
+  run_label: monolith+orchestrator=langgraph
+```
+
+An unknown name stops every command that opens components, as an unknown
+backend does (see the variables below). The workflow app's `rag_startup` log
+line names the orchestrator it runs on. For every graph its check accepts, an
+orchestrator gives the last state LangGraph gives: the same answer, passages
+and metadata filter, and `timings_ms` and `tokens` with the same keys in the
+same order. Each library is imported by its own directory alone, never by
+`application/` or `domain/`.
+
+Two things do not follow the orchestrator:
+
+- **The run label.** The default run label names each component with its
+  backend, not the orchestrator, so a run on another library is a variant,
+  named with `run_label` as a hardware tier is (`monolith+orchestrator=pydantic_graph`
+  above).
+- **Tracing.** With `QP_DOMINO__TRACING=true` the workflow run is traced with
+  `autolog_frameworks=["langchain"]` whatever the orchestrator (see "Tracing
+  and agent deployment"), so on Domino a request on `pydantic_graph` has no
+  span per stage. The response's `timings_ms` still times each stage.
+
+**Adding a library.** An orchestrator is one directory of
+`adapters/orchestrator/`, named after the library it imports, which is also the
+name it registers under, with one module and one class that
+subclasses `BaseOrchestrator` (`adapters/orchestrator/base_orchestrator.py`)
+and registers itself with `@ORCHESTRATORS.register("<name>")`. The tree's two
+show the names: `langgraph/langgraph_orchestrator.py` holds
+`LangGraphOrchestrator`, and `pydantic_graph/pydantic_graph_orchestrator.py`
+holds `PydanticGraphOrchestrator`. The class has three members:
+
+- the class method `check_graph_runs(graph: GraphDescription) -> None`, given
+  the workflow file's graph (`domain/graph_description.py`, its stages and
+  edges), which raises a `ValueError` naming the stages for a graph the library
+  would not run as LangGraph does, and returns nothing for one it runs;
+- `__init__(opened: OpenedGraph)`, which builds the library's graph from the
+  opened graph (`domain/opened_graph.py`: each stage opened and timed, the
+  edges, each conditional edge with what it asks of the state, the state's
+  field types and reducers, and `merged`, how the state takes a stage's
+  update);
+- `async ainvoke(state: dict[str, Any]) -> dict[str, Any]`, which takes the
+  state a request starts with and returns the state once the run reached
+  `END`.
+
+Its library is a core dependency in the toolkit's `pyproject.toml`, not an
+extra. As an extra, every App on it would have to name it in
+`QP_BOOTSTRAP_EXTRAS`, and an App started without it would fail only at
+start-up, on Domino; as a core dependency, every install has it. An
+orchestrator has no settings block: `orchestrator` is a name alone. The
+directory gets its lines in the tree. Nothing else is edited:
+`QP_ORCHESTRATOR=<name>` then chooses it, an unknown name lists it, and
+start-up asks it about the graph. `make check` then holds it to the pinned
+answer records and to the port's tests with no test edited, since those tests
+run on every name `query_processing.testing.registered_orchestrators()` gives.
+A use case cannot add one: `extension_api` does not expose the port.
+
 Lexical retrieval is a workflow file without the embed stage, its components
 the same (ingestion still embeds the passages, with the embedder):
 
@@ -1715,6 +1877,65 @@ qp-serve: error: stage 'retrieve' reads 'query_embedding' as str, but 'embed' wr
 - a key of a plain call that does not fit the type of the request attribute it
   fills, such as `top_k: ten`, naming the key, its value and the type expected.
 
+Once these checks accept the graph, the orchestrator the workflow file chooses
+is asked whether it runs it as LangGraph does, still before any component
+opens, and refuses what it does not run: its refusal is a usage error after its
+name, `qp-serve: error: orchestrator '<name>': ...`, naming the stages
+(`composition/chosen_orchestrator.py`). It is asked only about a graph the
+checks above accept. When the orchestrator chosen is not the default and the
+default accepts the graph, the refusal ends by saying so, once; no
+orchestrator's own words name another.
+
+`langgraph`, the default and the reference, refuses a stage name LangGraph
+does not take for a node, in LangGraph's words: its check adds each name to a
+throwaway graph of LangGraph's and keeps no list of its own (LangGraph 1.2.22
+keeps `:` and `|` for itself). A stage `re:rank` is refused so:
+
+```
+qp-serve: error: orchestrator 'langgraph': stage 're:rank' is no name LangGraph takes for a node: ':' is a reserved character and is not allowed in the node names. (expected a stage name LangGraph takes)
+```
+
+`pydantic_graph` refuses what its library does not run as LangGraph does, or
+does not build (seen on pydantic-graph 2.70.0):
+
+- a stage named as a node the adapter adds for a conditional edge: the step
+  that asks its edge condition, `<source>:<edge condition>`, or its decision,
+  `<source>:<edge condition>:decision`;
+- `START` or a stage with more than one way out at once: two plain edges, a
+  plain edge and a conditional edge, or two conditional edges on one source.
+  pydantic-graph ends a run when the first branch reaches `END` and cancels
+  the others, where LangGraph waits for every branch;
+- a loop, found with the standard library's `graphlib`: pydantic-graph has no
+  limit that stops one that never ends;
+- a graph its library refuses to build, in the library's words: a stage with
+  no way out, nothing that leads to `END`, a stage no edge from `START`
+  reaches. The check links the graph as the build does, with stand-in steps.
+
+A plain edge from `rerank` to `END` beside its conditional edge is refused so:
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': 'rerank' has more than one way out at once; pydantic-graph ends a run when the first reaches END and cancels the others (expected one plain edge or one conditional edge out of each stage); the default orchestrator 'langgraph' accepts this graph
+```
+
+a stage whose conditional edge leads back to itself so:
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': the stages 'rerank' -> 'rerank' form a loop; pydantic-graph has no limit that stops one (expected a graph without a loop); the default orchestrator 'langgraph' accepts this graph
+```
+
+a graph without `[generate, END]` so:
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': pydantic-graph does not build this graph: The following nodes have no outgoing edges: ['generate']. If this is intentional, you can suppress this error by passing `validate_graph_structure=False` to the call to `GraphBuilder.build`. (expected every stage on a path from START to END); the default orchestrator 'langgraph' accepts this graph
+```
+
+and the stage `generate` named `rerank:is_query_mode:decision` so, where
+LangGraph would refuse the name too:
+
+```
+qp-serve: error: orchestrator 'pydantic_graph': stage 'rerank:is_query_mode:decision' has the name of a node this orchestrator adds for the conditional edge out of 'rerank' (expected a stage name other than 'rerank:is_query_mode' and 'rerank:is_query_mode:decision')
+```
+
 The workflow state is built from the same fields: each field the request or a
 stage writes, with its type, and `timings_ms` and `tokens`
 (`application/state_fields.py`).
@@ -1729,6 +1950,7 @@ before the app serves, with one line in the server's log.
 | --- | --- | --- |
 | `QP_TOPOLOGY_ALIAS` | unset | the topology alias deployed, which `qp-deploy` sets: a label only, it changes no backend; echoed as `topology` and `X-RAG-Topology`, and unset (or empty) the header is left out and `topology` is `null`; letters, digits and `._+=:-`, 1 to 128 characters |
 | `QP_RUN_LABEL` | the default run label | names the measured configuration, echoed as `run_label` and `X-RAG-Run-Label`; default: each component with its backend, in the workflow file's order, joined by `+` (`embedder=local+router_embedder=local+router=local+reranker=local+llm=api+vector_store=elasticsearch` for the RAG's file); `qp-deploy` sets it to the topology alias plus each served component's model-server kind; a variant the backends do not show, such as a retrieval mode or a hardware tier, sets its own (`run_label` under the overrides of `deploy.yaml`, with `qp-deploy`); letters, digits and `._+=:-`, 1 to 128 characters |
+| `QP_ORCHESTRATOR` | `langgraph` | the library that runs the workflow graph, a name registered in `ORCHESTRATORS`; also the workflow file's top-level `orchestrator` and a key of the overrides of `deploy.yaml` (see the workflow file above); an unknown name is refused before any component opens, listing the registered ones |
 | `QP_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory (environment only, not `.env`); with neither, a command stops, naming both places |
 | `QP_PROMPTS_FILE`, `QP_ROUTES_FILE` | unset | the prompts file and the routes file to read, before a `prompts.yaml` and a `routes.yaml` in the working directory; with neither, there are no prompts or no routes, and a stage or a router that names one is refused at start-up |
 | `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
@@ -1786,8 +2008,8 @@ before the app serves, with one line in the server's log.
 
 Every tunable of the workflow is a setting of a component, a setting the components share,
 or a setting of a stage of the graph, each read from the workflow file and its
-environment path; only the topology alias and the run label, two labels, are
-flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
+environment path; only the topology alias and the run label, two labels, and
+the orchestrator, a name, are flat. They are the fields of `WorkflowSettings` in `config/workflow_settings.py`; adapters
 get the values as constructor arguments from the `composition/` package. The
 variables of one App (`QP_OVMS_*`, `QP_VLLM_*`, `QP_UVICORN_*`, `QP_PROCESS_*`)
 are no value of the workflow file: they belong to one App and its hardware, so
@@ -1823,15 +2045,27 @@ graph is built. All are at start-up, with the offending value. For example:
 QP_COMPONENTS__RERANKER__BACKEND='served' needs QP_COMPONENTS__RERANKER__SERVED__URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''
 ```
 
-An unknown backend or API format stops every command that opens components
-(`qp-serve`, `qp-model-server`, `qp-ingest`, `qp-calibrate`) before it opens
-any, as a settings mistake: the settings cannot see the openers and the
-formats, which are registered in the composition and the adapters, so each
+An unknown backend, API format or orchestrator stops every command that opens
+components (`qp-serve`, `qp-model-server`, `qp-ingest`, `qp-calibrate`) before
+it opens any, as a settings mistake: the settings cannot see the openers, the
+formats and the orchestrators, which are registered in the composition and the
+adapters, so each
 command asks their registries as it reads its settings, and the registry
-refuses the name, after the variable it is read from, and lists the known ones:
+refuses the name, after the variable it is read from, and lists the known ones.
+The variable is named wherever the name was written: `orchestrator: pydantic`
+in the workflow file is refused as `QP_ORCHESTRATOR: unknown orchestrator
+'pydantic' ...`, as a backend in the file is refused after its
+`QP_COMPONENTS__<NAME>__BACKEND`.
+An unknown rerank API format:
 
 ```
 qp-serve: error: QP_COMPONENTS__RERANKER__API__API_FORMAT: unknown rerank API format 'jina' (expected one of: 'cohere')
+```
+
+An unknown orchestrator, `QP_ORCHESTRATOR=pydantic`:
+
+```
+qp-serve: error: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph', 'pydantic_graph')
 ```
 
 Earlier versions named some settings differently: see
@@ -2735,7 +2969,9 @@ Apps (same `app.sh`, same `0.0.0.0:8888` rule) plus tracing through
 image). With `QP_DOMINO__TRACING=true` the workflow run behind both endpoints is
 wrapped with `add_tracing(name="rag_query", autolog_frameworks=["langchain"])`
 (`domino.aisystems.tracing`, falling back to `domino.agents.tracing`), so the
-LangGraph run and the generation call appear as traces; without the SDK the app logs
+LangGraph run and the generation call appear as traces (on the
+orchestrator `pydantic_graph` no stage has a span of its own: see the workflow
+file's orchestrator); without the SDK the app logs
 a warning and runs untraced. `make deploy` publishes the workflow as an Agent
 with tracing on (see "App or Agent" below); by hand, deploy from Experiment
 Manager → **Deploy Agent** with the same entry point, environment and tier as an
@@ -3334,6 +3570,28 @@ The example copied unchanged stops on the first one:
 ```
 qp-deploy: error: environment_id in defaults of deploy.yaml still holds the example placeholder '<environment id>': replace it with a real value
 ```
+
+The `overrides` are checked against the workflow settings, in a dry run as in a
+deploy: each key must be a place of the workflow file (under `components` and
+`graph.stages`, a name the file declares), an API key is refused unless it is
+empty or `domino`, and each
+value must have the type and range the settings take, with the checks of the
+whole. Then the workflow file with the overrides, read with the prompts and
+routes files found here as the App finds them, is asked what an App's start-up
+refuses before it opens anything, with start-up's own two checks, in a dry run
+as in a deploy, and even when `deploy.yaml` has no `overrides`: a name nobody
+registered (a backend, an API format, a structured output method, an
+orchestrator), then a graph that cannot run or that the chosen orchestrator
+does not run. The refusal names the two files, then gives the line `qp-serve`
+prints for the same settings, and nothing is published:
+
+```
+qp-deploy: error: the workflow file 'workflow.yaml' with the overrides of deploy.yaml makes settings an App refuses at start-up: QP_ORCHESTRATOR: unknown orchestrator 'pydantic' (expected one of: 'langgraph', 'pydantic_graph')
+```
+
+What `qp-deploy` exports itself (the backend and URL of each component the
+topology alias names) is not part of that check: the alias's backends are held
+to the registered ones when the alias is resolved.
 
 To click through the API or watch a
 deploy wait, serve the fake Domino and point `qp-deploy` at it:

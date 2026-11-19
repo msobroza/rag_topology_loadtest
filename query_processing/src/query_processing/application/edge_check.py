@@ -142,28 +142,6 @@ def _labels_said(labels: tuple[str, ...] | None) -> str:
     return "no labels" if labels is None else f"the labels {quoted(labels)}"
 
 
-def links(graph: GraphDescription) -> list[tuple[str, str]]:
-    """Return every way from one stage to the next: each plain edge, each answer's row.
-
-    Args:
-        graph: The chains of plain edges and the conditional edges.
-
-    Returns:
-        ``(source, target)`` for each plain edge, then for each row of each
-        conditional edge's ``path_map``.
-
-    Example:
-        >>> links(graph)
-        [('START', 'embed'), ..., ('rerank', 'generate'), ('rerank', 'END')]
-    """
-    answers = [
-        (edge.source, target)
-        for edge in graph.conditional_edges
-        for target in edge.path_map.values()
-    ]
-    return [*graph.edge_pairs(), *answers]
-
-
 def edge_name(edge: ConditionalEdge) -> str:
     """Return a conditional edge as a refusal names it.
 
@@ -222,12 +200,14 @@ def _check_conditional_edges(
     for edge in graph.conditional_edges:
         _check_conditional_edge(graph, edge, edge_conditions, labels)
         if (edge.source, edge.path) in asked:
-            # LangGraph would refuse it too, naming the branch, not the file.
+            # Every orchestrator names what asks after the edge condition, so
+            # the library would refuse it too, in its own words, not the file's.
             raise WorkflowGraphError(
                 f"edge condition {edge.path!r} is used twice on {edge.source!r} "
-                "(expected each edge condition once per source: LangGraph names a "
-                "branch after its edge condition, and one conditional edge "
-                "already says where each of its answers leads)"
+                "(expected each edge condition once per source: every orchestrator "
+                "names the branch, or the step that asks it, after its edge "
+                "condition, and one conditional edge already says where each of "
+                "its answers leads)"
             )
         asked.add((edge.source, edge.path))
 
@@ -321,7 +301,7 @@ def _said(answer: bool | str) -> str:
 
 
 def _check_entry(graph: GraphDescription) -> None:
-    if all(source != START for source, _ in links(graph)):
+    if all(source != START for source, _ in graph.links()):
         raise WorkflowGraphError(
             "the graph has no edge from START (expected a chain of plain edges "
             "that starts with START, or a conditional edge from START)"
