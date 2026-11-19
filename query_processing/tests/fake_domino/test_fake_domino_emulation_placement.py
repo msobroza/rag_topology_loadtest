@@ -166,6 +166,17 @@ def test_with_placement_an_unknown_tier_is_404() -> None:
     assert "no hardware tier 'gpu-1'" in response.json()["detail"]
 
 
+def test_the_emulated_domino_lists_the_tiers_of_its_placement_file() -> None:
+    body = http_to(placed_apps(FakeAppLauncher())).get(TIERS_PATH).json()
+    listed = {
+        tier["name"]: (tier["id"], tier["resources"]["cores"])
+        for tier in body["hardwareTiers"]
+    }
+    # CPU_8 and CPU_16 of the support file
+    assert listed == {"cpu-8": ("cpu-8", 8.0), "cpu-16": ("cpu-16", 16.0)}
+    assert body["metadata"]["totalCount"] == 2
+
+
 def test_without_placement_any_tier_keeps_its_fixed_size() -> None:
     tier = http_to(FakeDominoApps()).get(f"{TIERS_PATH}/gpu-1").json()["hardwareTier"]
     assert (tier["resources"]["cores"], tier["resources"]["memory"]["value"]) == (4, 16)

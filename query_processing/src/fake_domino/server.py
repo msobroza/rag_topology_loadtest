@@ -26,7 +26,14 @@ from starlette.types import ASGIApp, Lifespan
 from .api_shapes import FailureEnvelopeV1
 from .apps_routes import APPS_API_PATH, _apps_router, _state
 from .instances import VersionRefusedError
-from .stand_ins import _stand_ins_router, _tiers_router
+from .stand_ins import (
+    ENVIRONMENTS_LIST_PATH,
+    ENVIRONMENTS_PATH,
+    HARDWARE_TIERS_PATH,
+    _environments_router,
+    _stand_ins_router,
+    _tiers_router,
+)
 from .state import FAKE_DOMINO_BEHAVIOURS, FakeDominoApps
 
 FAKE_DOMINO_URL = "http://fake-domino.test"  # the base URL of an in-process fake
@@ -41,11 +48,19 @@ async def _record_and_forbid(
 ) -> Response:
     apps = _state(request)
     apps.received.append((request.method, request.url.path))
-    if apps.forbidden and request.url.path.startswith(APPS_API_PATH):
+    if apps.forbidden and _forbidden_path(request.url.path):
         errors = ["Forbidden by the fake Domino (behaviour: forbidden)"]
         body = FailureEnvelopeV1(errors=errors, requestId="fake-request")
         return JSONResponse(body.model_dump(), status_code=403)
     return await call_next(request)
+
+
+def _forbidden_path(path: str) -> bool:
+    # What the `forbidden` behaviour refuses: the Apps API and the documented
+    # lookups, not one tier by its id nor the stand-ins.
+    if path.startswith((APPS_API_PATH, ENVIRONMENTS_PATH)):
+        return True
+    return path in (HARDWARE_TIERS_PATH, ENVIRONMENTS_LIST_PATH)
 
 
 async def _version_refused(_request: Request, exc: Exception) -> Response:
@@ -88,7 +103,8 @@ def create_fake_domino(
     fake.state.fake_domino_apps = apps or FakeDominoApps()
     fake.middleware("http")(_record_and_forbid)
     fake.add_exception_handler(VersionRefusedError, _version_refused)
-    for router in (*routers, _apps_router, _tiers_router, _stand_ins_router):
+    own = (_apps_router, _tiers_router, _environments_router, _stand_ins_router)
+    for router in (*routers, *own):
         fake.include_router(router)
     return fake
 

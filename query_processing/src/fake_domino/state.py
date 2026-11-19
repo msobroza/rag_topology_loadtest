@@ -1,4 +1,4 @@
-"""The fake Domino's state: its Apps and versions, and the scripted behaviours.
+"""The fake Domino's state: its Apps, tiers and environments, and the behaviours.
 
 What a new version's instance reports is decided by an ``BaseInstanceScheduler``
 (``instances.py``): by default scripted, one status per GET of the App (a
@@ -13,6 +13,7 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from .api_shapes import (
@@ -20,6 +21,9 @@ from .api_shapes import (
     AppInstanceSummaryResponse,
     AppVersionCreationRequest,
     AppVersionResponse,
+    EnvironmentV1,
+    HardwareTierV1,
+    RevisionSummary,
 )
 from .instances import (
     BaseInstanceScheduler,
@@ -59,9 +63,31 @@ FAKE_DOMINO_BEHAVIOURS: dict[str, FakeBehaviour] = {
         (None,),
     ),
     "forbidden": FakeBehaviour(
-        "every Apps API call answers 403 with a FailureEnvelopeV1", (None,), True
+        "every Apps API call, the list of hardware tiers and the environments "
+        "answer 403 with a FailureEnvelopeV1",
+        (None,),
+        True,
     ),
 }
+
+
+@dataclass(frozen=True)
+class FakeEnvironment:
+    """An environment of the fake, with every one of its revisions.
+
+    Attributes:
+        environment: What the documented call for one environment answers.
+        revisions: Every revision, newest first, as the internal route lists them.
+
+    Example:
+        >>> from fake_domino.stand_ins import fake_environment  # builds one
+        >>> fake = fake_environment("env-1", (1, "rev-1", "2026-11-03T16:02:00Z"))
+        >>> fake.revisions[0].number
+        1
+    """
+
+    environment: EnvironmentV1
+    revisions: tuple[RevisionSummary, ...]
 
 
 class FakeDominoApps:
@@ -72,9 +98,16 @@ class FakeDominoApps:
             (the last repeats; None = no instance).
         stale_gets: GETs after a new version that still report the previous one
             as current and Running.
-        forbidden: Whether every Apps API call answers 403.
+        forbidden: Whether every Apps API call, the list of hardware tiers and
+            the environments answer 403.
         scheduler: Decides what instances report instead of ``statuses`` and
             ``stale_gets``; None scripts them (``ScriptedInstances``).
+        tiers: The hardware tiers the list of tiers gives, in that order.
+        environments: The environments it has, listed in that order.
+
+    Attributes:
+        revisions_route_status: What the internal route of revisions answers;
+            a test sets another status than 200 to make it fail.
 
     Example:
         >>> create_fake_domino(FakeDominoApps(["Pending", "Running"], stale_gets=2))
@@ -87,8 +120,13 @@ class FakeDominoApps:
         stale_gets: int = 0,
         forbidden: bool = False,
         scheduler: BaseInstanceScheduler | None = None,
+        tiers: Sequence[HardwareTierV1] = (),
+        environments: Sequence[FakeEnvironment] = (),
     ) -> None:
         self.statuses, self.forbidden = list(statuses), forbidden
+        self.tiers: list[HardwareTierV1] = list(tiers)
+        self.environments = {e.environment.id: e for e in environments}
+        self.revisions_route_status = 200
         self.scheduler = scheduler or ScriptedInstances(statuses, stale_gets)
         self.apps: dict[str, FakeApp] = {}
         self.received: list[tuple[str, str]] = []  # (method, path), in order

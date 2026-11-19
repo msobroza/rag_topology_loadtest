@@ -17,11 +17,8 @@ from pathlib import Path
 import pytest
 import yaml
 from query_processing.deploy.apps_client import DominoDeployError
-from query_processing.deploy.deploy_settings import (
-    DeploySettings,
-    refuse_placeholders,
-    refuse_secrets,
-)
+from query_processing.deploy.deploy_refusals import refuse_placeholders, refuse_secrets
+from query_processing.deploy.deploy_settings import DeploySettings
 from query_processing.deploy.qp_deploy import main
 
 # The Apps each topology alias publishes, by App part, in the order published:
@@ -179,7 +176,7 @@ LLM_EXPORTS = (
 # alias row and the LLM's App block.
 SERVED_LLM = (
     "  # split-all-llm: {embedder: served, reranker: served, llm: served}\n",
-    "  # llm:\n  #   server: ovms\n  #   hardware_tier_id: real\n",
+    "  # llm:\n  #   server: ovms\n  #   hardware_tier: real\n",
 )
 
 

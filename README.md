@@ -168,7 +168,7 @@ install both distributions in one command, the toolkit first, since no package
 index has it:
 
 ```bash
-make install-dev    # the toolkit with locust, rouge-score, pytest and the gate tools, the use case, and the charts package
+make install-dev    # the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
@@ -178,6 +178,10 @@ name, such as `qp-serve`, needs its `bin/` on your `PATH`
 which [Development](#development) describes, and the charts package
 (`experiment_charts/`, which draws `experiments-explained/` and is not part of
 the product).
+It also leaves out Textual, which draws the list `qp-deploy tiers` and
+`qp-deploy environments` open in a terminal (the toolkit's `terminal` extra:
+`pip install -e "./query_processing[terminal]"`); without it they print their
+table there.
 
 ### First run, on fake backends
 
@@ -217,8 +221,10 @@ run's files under `results/`, among them `first-run_stats.csv` and the target
 record `first-run_target.json`, which counts the responses under that run
 label; `make compare` writes `results/comparison.md`, one table per endpoint and
 per stage. `sed` copies the deploy example with each `<placeholder>` made a
-value; the dry run runs every check of a real deploy against a fake Domino in
-its own process, and sends nothing. It lists `qp-rag-embedder` and
+value; against a fake Domino in its own process, the dry run runs every check of
+a real deploy that needs no answer from Domino, and sends nothing (a hardware tier's
+name and a revision's number are shown as written: their ids are asked of
+Domino only at a deploy). It lists `qp-rag-embedder` and
 `qp-rag-reranker`, model servers of kind `fastapi`, then `qp-rag-workflow`,
 whose entry script holds:
 
@@ -986,7 +992,8 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_ingest.py    qp-ingest: JSONL loader, chunk, embed and upsert a corpus
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
-      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked); Placement (local or served); override_values, each override by its path
+      deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
+      deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
       workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models
       overrides.py    the overrides, this site's values of the workflow file: checked before anything is published (and a workflow setting refused in a free list), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
@@ -999,8 +1006,26 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
       app_id_cache.py the App ids already seen (.qp-deploy-cache.json): an App is redeployed, never created twice
       status.py       qp-deploy status: one line per App, then the workflow App's /readyz
-      qp_deploy.py    qp-deploy: the parser, url, --dry-run
-      apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running
+      qp_deploy.py    qp-deploy: the parser, url, --dry-run, tiers and environments (refused in a dry run)
+      apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running; send_to_domino, domino_json and describe_failure, shared by every call to Domino
+      domino_lookups/  what qp-deploy reads of Domino besides its Apps
+        paged_list.py   read_pages: a list of Domino's documented API read page after page, a 401 or 403 refused with the permission it needs
+        hardware_tiers.py  HardwareTier (its size, every field Domino gave), list_hardware_tiers, tier_named: one tier by its exact name, or a refusal listing the tiers Domino has
+        environments.py  EnvironmentRevision, DominoEnvironment (its latest, active and restricted revisions, every field Domino gave), list_environments
+        revision_sources.py  BaseRevisionSource, DocumentedRevisions (one environment's three revisions, asked once), revision_numbered: a revision by its number from the sources in order, or a refusal saying what each holds
+        internal_revisions.py  InternalRevisions: every revision of an environment with its build date, through the internal route Domino's own pages use (not in Domino's reference, not verified on a live Domino); a route that fails gives no revision and is told, never raised
+        base_domino_ids.py  AppWithIds, BaseDominoIds (an App's tier name and revision number turned into the ids its version sends), where_set, find_every_id: every App's ids found, then printed, before the first App is published
+        domino_ids_asked.py  DominoIdsAsked: the ids asked of Domino, the tiers listed once, a revision from the documented call then the internal route
+        domino_ids_not_asked.py  DominoIdsNotAsked: a dry run's ids, the name and the number as written, nothing asked
+      domino_listings/  what qp-deploy tiers and qp-deploy environments show of Domino's answers
+        aligned_table.py  aligned_table: plain text in columns padded to their widest value, some aligned right, no colour
+        listing_names.py  only_named: the items of the names given, in Domino's order, or a refusal listing the names Domino has; details_yaml: every field Domino gave as YAML, the name first
+        listing_looks.py  Look, chosen_look: the details when asked, else the table when asked or with no terminal, else the list
+        listing_settings.py  ListingSettings: what a listing reads of deploy.yaml, how to reach Domino and nothing else, so no App block needs to be valid
+        tiers_listing.py  tiers_table (the default tier marked), tiers_details
+        environments_listing.py  environments_table (the active and latest numbers), shown_revisions (every revision of the internal route with its documented status, or the three and a note), revisions_table (dates in UTC, marks), revision_lines (an open environment's revisions in the list), environments_details
+        opening_list.py  OpeningItem, OpeningList, run_opening_list: the list that opens in a terminal, drawn by Textual (the extra terminal), the only module importing it; an item's lines asked when first opened, / matching its name
+        listing_commands.py  show_tiers, show_environments: ask Domino, then show the look, the list without Textual the table and how to install it; tier_items, environment_items, list_is_installed; the internal route asked only for an environment named or opened
     loadtest/         the load-test client, with locustfile.py
       loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
@@ -1020,11 +1045,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   src/fake_domino/    a stand-in for Domino 6.2's Apps API: qp-deploy's test double and what --dry-run runs.
                       It imports nothing from query_processing, and only deploy/qp_deploy.py imports it (both checked by
                       tests/structure/test_layering.py)
-    api_shapes.py     the Apps API request/response shapes, transcribed from the 6.2 reference (what the fake serves)
-    state.py          FakeDominoApps: the fake's Apps, versions and instances
+    api_shapes.py     the Apps API, hardware tier and environment shapes, transcribed from the 6.2 reference, and the published shape of an environment's every revision (what the fake serves)
+    state.py          FakeDominoApps: the fake's Apps, versions and instances, its hardware tiers and its environments (FakeEnvironment, with every revision)
     instances.py      BaseInstanceScheduler: what decides an instance's status; by default the --behaviour scripts
     apps_routes.py    /api/apps/beta/apps: list, create, add a version, get, list a version's instances
-    stand_ins.py      hardware tiers, /access-token and an App instance's /readyz
+    stand_ins.py      hardware tiers (the list, one by its id), environments (the list, one with its three revisions), fake_tier, fake_environment, and the stand-ins: every revision of an environment, /access-token and an App instance's /readyz
     server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, qp-fake-domino
     emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
   locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a use case's Makefile runs it (locust -f) from the use case's directory
@@ -2657,8 +2682,8 @@ App:
 ```yaml
 defaults:
   environment_id: env-123          # required: the compute environment's id (in its page's URL)
-  environment_revision_id: rev-7   # optional: one build of env-123; "" = Domino chooses
-  hardware_tier_id: small          # "" = the project's default tier
+  environment_revision: 7          # optional: build v7 of env-123, its id asked of Domino; left out, Domino chooses
+  hardware_tier_id: small-k8s      # a tier by its id; left out, the project's default tier
   server: fastapi                  # every model server App's kind, unless its own block says
 apps:
   workflow:
@@ -2666,8 +2691,8 @@ apps:
     autoscaling: {min_replicas: 1, max_replicas: 4, target_cpu_pct: 70}
   reranker:
     server: ovms                   # this model server App alone is OVMS (needs ovms_bundle)
-    environment_id: env-456        # its own environment, so not rev-7: Domino chooses
-    hardware_tier_id: cpu-16
+    environment_id: env-456        # its own environment, so not revision 7: Domino chooses
+    hardware_tier: cpu-16          # a tier by its name in Domino, its id asked of Domino
     settings: {QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models}
 overrides:                         # the workflow file's shape
   http: {timeout_s: 30, retries: 2, backoff_s: 0.2}
@@ -2837,15 +2862,147 @@ installs `.[domino]`, the extra that brings the tracing
 library. An existing App of the other kind is not converted: `qp-deploy` stops
 and says to delete it in Domino or change `kind`.
 
-**Environment revision.** `environment_revision_id` holds an App to one build
-of its environment: `qp-deploy` sends it in the App's version as
-`environmentRevisionId`, the name Domino's Apps API gives it, and sends nothing
-when it is unset, so that Domino chooses the revision. An App's own revision
-applies to its environment, its own or the default one. The default revision
-goes only with the default environment, so an App that sets its own
-`environment_id` does not take it. A default revision without a default
-`environment_id` is refused before anything is published, and so is an App with
-a revision but no environment.
+**Environment revision.** `environment_revision` holds an App to one build of
+its environment, by the revision's number as Domino shows it (v7 is `7`, written
+bare: `"7"`, `v7` or `0` is refused when the file is read).
+`environment_revision_id` takes the revision's id itself instead; a block that
+sets both, each not empty, is refused, and `""` counts as not set. `qp-deploy`
+sends the id in the App's version as `environmentRevisionId`, the name Domino's
+Apps API gives it, and sends nothing when neither is set, so that Domino chooses
+the revision. A number is found in two places, in this order, the first that
+holds it giving the id: the documented call for the environment
+(`GET /api/environments/v1/environments/{environmentId}`, `ViewEnvironment`),
+which gives only three revisions, the latest, the active and the restricted;
+then, only when none of those has the number, the internal route Domino's own
+pages use, which lists every revision (not in Domino's reference: see the list
+below). Each is asked once an environment, the internal route in two calls
+when its first answer is not its whole list. An App's own revision
+applies to its environment, its own or the default one, and wins over the
+default's, written either way. The default revision goes only with the default
+environment, so an App that sets its own `environment_id` does not take it. A
+default revision without a default `environment_id` is refused before anything
+is published, and so is an App with a revision but no environment. A number no
+source has is refused before anything is published:
+
+```
+qp-deploy: error: environment_revision 9 of App qp-rag-reranker (apps.reranker or defaults in deploy.yaml) is no revision Domino gives for environment '623132867a0af0281c01a69c': the documented API gives its latest (7), active (7) and restricted (none) revisions; the internal route GET /v4/environments/623132867a0af0281c01a69c/paginatedRevisionData lists 3 revisions (7 to 5). Write the revision's id as environment_revision_id
+```
+
+When the internal route fails, the message says what it answered in place of
+its revisions. An environment Domino does not have (404) is refused naming its
+id, and a 401 or 403 with Domino's answer and the permission `ViewEnvironment`;
+the internal route is not asked in place of a documented call that failed.
+
+**Hardware tier.** `hardware_tier` names an App's hardware tier by its name in
+Domino, exactly, capitals included; `hardware_tier_id` takes the tier's id
+instead, under the same rules as the revision's two keys (one of the two a
+block, `""` not set, the App's own winning over the default's, a value still
+holding an `<angle-bracket>` placeholder refused). Left out, the App runs on the
+project's default tier. When an App being deployed names a tier, `qp-deploy`
+lists Domino's tiers once (`GET /api/hardwaretiers/v1/hardwaretiers`, page
+after page, `ViewHardwareTiers`) and finds each name there. Before it publishes
+the first App, it prints one line for each tier and revision it found:
+
+```
+qp-rag-reranker: hardware tier cpu-16 (id large-k8s): 16 cores, 64 GiB
+qp-rag-reranker: environment revision 7 (id 62313cfd7a0af0281c01a6a6)
+```
+
+A tier with GPUs adds `, 1 GPU`, and the memory keeps the unit Domino gives. A
+wrong name stops the deploy with nothing published, listing every tier Domino
+has:
+
+```
+qp-deploy: error: hardware_tier 'cpu-32' of App qp-rag-reranker (apps.reranker or defaults in deploy.yaml) names no hardware tier of Domino, which has: cpu-8 (id small-k8s, 8 cores, 32 GiB); cpu-16 (id large-k8s, 16 cores, 64 GiB); gpu-1 (id gpu-k8s, 8 cores, 32 GiB, 1 GPU)
+```
+
+A name two tiers share is refused with their ids, saying to write
+`hardware_tier_id`; a 401 or 403 on the tiers' list names `ViewHardwareTiers`
+and says that `hardware_tier_id` needs no such call. Every name and number of
+every App being deployed is found before the first App is published. An App
+whose block gives ids is published as before, with no call to find them, so its
+tier's size is not printed; `qp-deploy status` and `qp-deploy url` look nothing
+up. The calls take `http_timeout_s` and `http_retries`, as every call of
+`qp-deploy` does.
+
+**What Domino has.** Two commands only read, and show what to write in
+`deploy.yaml`: `make tiers` (`qp-deploy tiers`) Domino's hardware tiers with
+their size, and `make environments` (`qp-deploy environments`) the environments
+the person can see, with their revisions. Each takes names to narrow what it
+shows (an unknown name is refused with the names Domino has), and reads
+`deploy.yaml` only for how to reach Domino (`project_id`, `http_timeout_s`,
+`http_retries`), so no App block needs to be valid. Both are refused with
+`--dry-run`, since they ask Domino. Each has three looks:
+
+| Look | When | What it is |
+|---|---|---|
+| The list | input and output both a terminal | the arrows move, the space bar opens or closes an item, `/` narrows the items to the names holding the text typed, `enter` then gives the keys back to the narrowed list (the cursor on its first item), `escape` brings every item back, `q` quits |
+| The table | anywhere else (a pipe, a file, a script), or with `--table` | plain text in aligned columns, no colour |
+| The details | with `--details` | every field Domino gave, as YAML, the name first |
+
+```bash
+make tiers                                # qp-deploy tiers
+make tiers ARGS="cpu-16 --details"        # every field Domino gave for cpu-16
+make environments ARGS="qp-rag --table"   # every revision of qp-rag, with its build date
+```
+
+The tiers' table, in Domino's order, the default tier marked:
+
+```
+NAME    CORES  MEMORY  GPUS  DEFAULT  ID
+cpu-8       8  32 GiB     -  yes      small-k8s
+cpu-16     16  64 GiB     -           large-k8s
+gpu-1       8  32 GiB     1           gpu-k8s
+```
+
+The environments' table gives each environment's active and latest revision
+numbers. An environment named on the command line is shown with every
+revision, newest first, through the internal route (asked for that environment
+alone), its build date in UTC and its marks; the status is known
+for the three revisions the documented API gives, and left empty for the
+others:
+
+```
+qp-rag   id 623132867a0af0281c01a69c   private, owner fake-owner
+
+REVISION         BUILT (UTC)       STATUS     ID
+7 active latest  2026-11-12 09:41  succeeded  62313cfd7a0af0281c01a6a6
+6                2026-11-03 16:02             6229a1b07a0af0281c01a511
+5                2026-10-21 11:15             62219e447a0af0281c01a402
+```
+
+With `--details` the same environment is its documented fields as YAML, then
+`revisions`, each with its `number`, `id`, `built`, `marks` and `status`. When
+the internal route fails, the documented fields and the three documented
+revisions are still shown, followed by a line saying what the route answered
+(`revisions_note` with `--details`). In a terminal, the list, here with
+`qp-rag` opened (an environment's revisions are asked of Domino when it is
+first opened, and items named on the command line start open; `>` and `v` stand
+for the closed and open marks Textual draws):
+
+```
+up/down move   space open/close   / filter   enter to the list   esc all items   q quit
+
+  > Domino Standard Environment Py3.10 R4.5   id 6231328a7a0af0281c01a69a
+  v qp-rag                                    id 623132867a0af0281c01a69c
+      id 623132867a0af0281c01a69c
+      v7  active latest  built 2026-11-12 09:41  id 62313cfd7a0af0281c01a6a6
+      v6                 built 2026-11-03 16:02  id 6229a1b07a0af0281c01a511
+      v5                 built 2026-10-21 11:15  id 62219e447a0af0281c01a402
+      - name: qp-rag
+        ...
+```
+
+An open tier shows every field Domino gave for it. The list is drawn by Textual,
+in the toolkit's optional `terminal` extra (also in `dev`), so an App never
+installs it. In a terminal without it, the command prints the table and, on the
+error output:
+
+```
+qp-deploy: the interactive list needs the toolkit's "terminal" extra (pip install -e "query_processing[terminal]" from the repository's root); here is the table
+```
+
+Neither command writes anything, to Domino or to `deploy.yaml`.
 
 **Autoscaling.** `autoscaling` becomes the version's `autoscalingSpecification`
 (`enabled`, `minReplicas`, `maxReplicas`, `targetCpuAvgUtilizationPct`). Replicas
@@ -2902,13 +3059,22 @@ make deploy-dry-run      # qp-deploy --dry-run deploy all: nothing is sent to Do
 prints each App `qp-deploy` would publish for the chosen topology alias (kind,
 environment, environment revision, hardware tier, autoscaling, entry script:
 what the App receives, its `settings`, then every override, then what
-`qp-deploy` sets itself), with every check of a real deploy;
-`QP_DEPLOY_TOPOLOGY=<alias> make deploy-dry-run` shows another alias. One of
-them: no value may still hold an `<angle-bracket>` placeholder from the example
-(in the `settings` of the Apps being deployed, their `environment_id`,
-`environment_revision_id` and `hardware_tier_id`, `ovms_bundle`, and the
-`overrides`, which every App gets). The example copied unchanged stops on the
-first one:
+`qp-deploy` sets itself), with every check of a real deploy but the two that ask
+Domino: a dry run asks Domino nothing, so it does not look up a hardware tier's
+name or a revision's number, and shows them as written in place of their ids:
+
+```
+  environmentRevisionId: (revision 7: its id is asked of Domino at deploy)
+  hardwareTierId: (tier cpu-16: its id is asked of Domino at deploy)
+```
+
+The rules of the two keys (one way a block, a whole number from 1 up) are
+checked as in a deploy. `QP_DEPLOY_TOPOLOGY=<alias> make deploy-dry-run` shows
+another alias. One of the checks: no value may still hold an `<angle-bracket>`
+placeholder from the example (in the `settings` of the Apps being deployed,
+their `environment_id`, `environment_revision_id`, `hardware_tier` and
+`hardware_tier_id`, `ovms_bundle`, and the `overrides`, which every App gets).
+The example copied unchanged stops on the first one:
 
 ```
 qp-deploy: error: environment_id in defaults of deploy.yaml still holds the example placeholder '<environment id>': replace it with a real value
@@ -2933,14 +3099,25 @@ Domino Workspace, where that port is taken.
 | `slow` | `Queued`, `Pending`, `Preparing`, `Pulling`, then `Running` |
 | `fails` | `Pending`, then `Failed` |
 | `never-starts` | creates the App or version but no instance (6.2 has no start call) |
-| `forbidden` | every Apps API call answers 403 with a `FailureEnvelopeV1` |
+| `forbidden` | every Apps API call, the list of hardware tiers and the environments answer 403 with a `FailureEnvelopeV1` |
 
 The fake is transcribed from the Domino 6.2 API reference, so it shows what
 `qp-deploy` expects of Domino, not what a live Domino does. Besides the Apps
 calls it lists a version's instances, answers `/readyz` at each instance's
 `/fake-owner/fake-project/r/notebookSession/<instance id>` URL, and describes any
 hardware tier (`GET /api/hardwaretiers/v1/hardwaretiers/<id>`) with a fixed
-number of cores.
+number of cores. For the hardware tiers and the environments it lists the tiers
+of its state by pages (`GET /api/hardwaretiers/v1/hardwaretiers`), lists the
+environments of its state (`GET /api/environments/beta/environments`), and
+gives one environment with its three revisions
+(`GET /api/environments/v1/environments/<id>`, 404 for an id it does not have),
+each in the reference's shape. Among its stand-ins for what is not Domino's
+documented API (the run token, `/readyz`), it serves the internal route that
+lists every revision of an environment with its build date
+(`GET /v4/environments/<id>/paginatedRevisionData`), in the shape the 6.3.1
+spec publishes. The tests give its state tiers and environments; served by
+`make fake-domino` it has none, so `qp-deploy tiers` and `qp-deploy
+environments` list nothing there.
 
 The fake only stands in for the Apps API. Imitating Domino at run time (the
 proxy in front of every App, Apps placed on machines) is the job of a temporary
@@ -2976,6 +3153,40 @@ Domino**:
 8. Domino accepts every App name that `app_name_prefix`'s rule allows. The rule is
    `qp-deploy`'s own; a name Domino refuses stops the deploy at that App's
    creation, with Domino's answer.
+9. The tiers' list (`GET /api/hardwaretiers/v1/hardwaretiers`) answers the
+   person who deploys, who needs `ViewHardwareTiers`; if it answers 403,
+   `hardware_tier_id` needs no such call.
+10. The environment calls (`GET /api/environments/beta/environments` and
+    `GET /api/environments/v1/environments/{id}`) answer through
+    `DOMINO_API_PROXY`.
+11. The internal route that lists every revision of an environment: its path,
+    `GET /v4/environments/{id}/paginatedRevisionData`, is remembered, not
+    published (only its shape, `PaginatedRevisionData`, is in the 6.3.1 spec);
+    its two parameters, `page` and `pageSize` (`qp-deploy` sends `pageSize`
+    alone, and none on its first call); that it answers through
+    `DOMINO_API_PROXY`; and that `created` counts milliseconds. From a
+    Workspace, these two commands print its status and the names of its fields,
+    not their values:
+
+    ```bash
+    curl -s -o /tmp/revisions.json -w "HTTP %{http_code}\n" "$DOMINO_API_PROXY/v4/environments/<environment id>/paginatedRevisionData"
+    ```
+
+    ```bash
+    python3 -c 'import json; shape = lambda v: {k: shape(x) for k, x in v.items()} if isinstance(v, dict) else [shape(v[0])] if isinstance(v, list) and v else type(v).__name__; print(json.dumps(shape(json.load(open("/tmp/revisions.json"))), indent=1))'
+    ```
+
+    Expected: `HTTP 200`, then `revisions` with `id`, `number`, `created`, and
+    `pageInfo` with `totalPages`, `currentPage`, `pageSize`. Otherwise the
+    browser's network panel on the Revisions tab of an environment's page shows
+    the real request, and the path is corrected in the one module that holds
+    it (`deploy/domino_lookups/internal_revisions.py`). Until then a number the
+    three documented revisions lack is refused with what the route answered.
+12. The list that opens draws and takes its keys in the terminal of a Domino
+    Workspace: its tests drive it with Textual's test pilot, and it was never
+    run in a Workspace's terminal. Opening an environment waits on the internal
+    route, so the list does not answer keys while the call runs (up to
+    `http_timeout_s`).
 
 If one of these fails, the step-by-step section below is the fallback.
 

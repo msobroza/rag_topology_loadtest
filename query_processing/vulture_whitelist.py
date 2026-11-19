@@ -28,22 +28,42 @@ utterances
 # in tests/helpers/workflow_fakes.py).
 on_chain_start
 
+# Textual: reads an App's BINDINGS and calls its compose, the action a binding
+# names (action_<name>) and a message's handler (on_<widget>_<message>, on_mount)
+# by name, and reads the display and show_root fields a widget is given
+# (OpeningList in deploy/domino_listings/opening_list.py).
+BINDINGS
+action_filter
+action_unfilter
+compose
+on_input_changed
+on_input_submitted
+on_mount
+on_tree_node_collapsed
+on_tree_node_expanded
+display
+show_root
+
 # pydantic: RecordedPassage.text_sha256, written to an answer record and compared
 # by name (loadtest/answer_comparison.py's _EXACT_PASSAGE_FIELDS).
 text_sha256
 
-# pydantic + FastAPI: fields of the Domino Apps API bodies in fake_domino/api_shapes.py,
-# read only when a body is validated or serialised to JSON.
+# pydantic + FastAPI: fields of the Domino API bodies in fake_domino/api_shapes.py
+# (Apps, hardware tiers, environments and their revisions), read only when a body
+# is validated or serialised to JSON.
 accessStatuses
 additionalLimits
 additionalRequests
 allowSharedMemoryToExceedDefault
+archived
+availableTools
 bundleId
 centsPerMinute
 coresLimit
 createdAt
 creationTime
 currentInstance
+currentPage
 currentVersion
 describeUrl
 dfsCommitId
@@ -51,7 +71,10 @@ discoverable
 entryPoint
 externalVolumeMountIds
 gitRef
+gpuConfiguration
+gpuKey
 hardwareTier
+hardwareTiers
 isArchived
 isDataAnalystTier
 isDefault
@@ -59,25 +82,34 @@ isDefaultForModelApi
 isGlobal
 isModelApiTier
 isVisible
+latestRevision
 maxReplicas
 memoryLimit
 mountDatasets
 mountNetAppVolumes
 netAppVolumeIds
 notices
+numberOfGpus
 ownerId
+ownerType
 ownerUsername
+pageInfo
 podCustomization
 projectType
 publisher
+rebuildOnBaseChanges
 renderIFrame
 requestId
+restrictedRevision
 scaleDownStabilizationWindowSeconds
 scaleUpStabilizationWindowSeconds
+selectedRevision
 sendNotifications
+supportedClusters
 targetCpuAvgUtilizationPct
 targetMemoryAvgUtilizationPct
 totalCount
+totalPages
 units
 updateTime
 updatedAt
