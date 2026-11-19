@@ -41,6 +41,7 @@ from ..composition.composition_root import (
     stage_context,
 )
 from ..composition.registered_names import check_registered_names
+from ..config.apps.process_environment_settings import ProcessEnvironmentSettings
 from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
@@ -54,6 +55,7 @@ from ..domain.retrieval.metadata_filter import (
 from ..domain.retrieval.passages import RagMode, ScoredPassage
 from ..infrastructure.http.uvicorn_run import run_uvicorn
 from ..infrastructure.json_log import log_json
+from ..infrastructure.process_environment import restart_with
 
 logger = logging.getLogger("query_processing")
 # --domino, "1" or "0", for a worker of several, which never sees the arguments.
@@ -469,6 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        restart_with(ProcessEnvironmentSettings().restart_environment(os.environ))
         settings, server = WorkflowSettings(), UvicornSettings()
         check_registered_names(settings)
         check_workflow_graph(settings)
