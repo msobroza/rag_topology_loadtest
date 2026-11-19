@@ -288,7 +288,7 @@ When both the input and the output are a terminal, each command opens an interac
 ```
 $ qp-deploy environments
 
-  up/down move   space open/close   / filter   q quit
+  up/down move   space open/close   / filter   enter to the list   esc all items   q quit
 
   > Domino Standard Environment Py3.10 R4.5
   v qp-rag             id 623132867a0af0281c01a69c
@@ -297,7 +297,7 @@ $ qp-deploy environments
   > team-gpu-env
 ```
 
-- The arrows move the cursor, the space bar opens or closes the item under it, `/` narrows the list to the names holding the text typed, and `q` quits.
+- The arrows move the cursor, the space bar opens or closes the item under it, `/` narrows the list to the names holding the text typed, `enter` gives the keys back to the narrowed list, `escape` brings every item back, and `q` quits.
 - An open tier shows every field Domino gave for it. An open environment shows its id, its documented fields and every revision with its date and marks.
 - An environment's revisions are asked of Domino when it is first opened, so the internal route is called only for what the person looks at.
 - Names given on the command line narrow the list, and those items start open.
