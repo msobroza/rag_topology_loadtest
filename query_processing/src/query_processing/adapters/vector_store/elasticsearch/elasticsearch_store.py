@@ -17,9 +17,11 @@ mapping then gives it exactly what it got before this adapter created indices.
 
 Its API key comes from a key source, when its block names one: a call that
 Elasticsearch refuses for its key (its 401) opens a new client with the key
-the source then gives, closes the old one and is made once more, a single
-further attempt (``elasticsearch_client_key.py``). Every call goes through
-``_call``, so each one, a write and the readiness check included, does so.
+the source then gives and is made once more, a single further attempt
+(``elasticsearch_client_key.py``). The replaced client is closed with the
+store, not at once, so a call still in flight on it gets its answer. Every
+call goes through ``_call``, so each one, a write and the readiness check
+included, does so.
 """
 
 from __future__ import annotations
@@ -85,6 +87,9 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         self._key = key
         # One new client for calls refused together, not one each.
         self._reconnecting = asyncio.Lock()
+        # Clients a refused key replaced, closed with the store: a call still in
+        # flight on one gets its answer.
+        self._replaced: list[Any] = []
 
     @classmethod
     async def open(
@@ -291,8 +296,10 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         return count > 0, status
 
     async def aclose(self) -> None:
-        """Close the Elasticsearch connections held by the store in use."""
-        await self._store.aclose()
+        """Close the client in use and every client a refused key replaced."""
+        for client in [*self._replaced, self._store]:
+            await client.aclose()
+        self._replaced.clear()
 
     async def _ensure_index(self, dimensions: int) -> None:
         # Create a missing index before LangChain's first write would try to and
@@ -374,7 +381,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             if self._store is not refused_on or self._key is None:
                 return
             self._store = await self._key.reconnected()
-            await refused_on.aclose()
+            self._replaced.append(refused_on)
 
     def _failure(self, exc: Exception) -> RagDependencyError:
         detail = self._key.described(exc) if self._key else describe_error(exc)

@@ -2,21 +2,22 @@
 
 The store opens its client with the key its source gives, and with none when it
 has no source. When Elasticsearch refuses that key (its 401), the store tells
-its source, opens a new client with the key the source then gives, closes the
-old one and makes the call once more: one further attempt, for every call that
-reaches Elasticsearch. No error holds a key. Basic authentication written in
+its source, opens a new client with the key the source then gives and makes the
+call once more: one further attempt, for every call that reaches Elasticsearch.
+A replaced client is closed with the store, so a call in flight on it ends. No error holds a key. Basic authentication written in
 the URL is the client's own, as before.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
 from elasticsearch import AuthenticationException, AuthorizationException
-from test_elasticsearch_store import INDEX, FakeLangChainStore, dense_strategy
+from test_elasticsearch_store import INDEX, FakeLangChainStore, dense_strategy, es_hit
 
 from model_api_fakes import FakeKeySource
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
@@ -25,7 +26,7 @@ from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store im
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.retrieval.passages import Passage
 
-OLD_KEY, NEW_KEY = "es-key-old-4711", "es-key-new-0815"
+OLD_KEY, MID_KEY, NEW_KEY = "es-key-old-4711", "es-key-mid-2342", "es-key-new-0815"
 StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
 OPERATIONS = pytest.mark.parametrize(
     "operation",
@@ -47,6 +48,47 @@ def es_refusal(status: int, key: str) -> Exception:
     return error(f"key {key} refused", meta=meta, body={"key": key})
 
 
+class ClosableLangChainStore(FakeLangChainStore):
+    """The fake LangChain store, failing any use after its close and counting closes."""
+
+    def __init__(self, **options: Any) -> None:
+        super().__init__(**options)
+        self.closes = 0
+
+    async def aclose(self) -> None:
+        await super().aclose()
+        self.closes += 1
+
+    def _maybe_fail(self) -> None:
+        if self.closed:
+            raise ConnectionError("the client is closed")
+        super()._maybe_fail()
+
+
+class InFlightLangChainStore(ClosableLangChainStore):
+    """A client whose vector search is in flight until released; its text search is
+    refused for its key (a 401)."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(hits=[(es_hit("p1", "alpha", {}), 0.5)], exists=True)
+        self.refusal, self.released = es_refusal(401, key), asyncio.Event()
+        self.search_started = asyncio.Event()
+
+    async def _search_text(
+        self, *, index: str, query: dict[str, Any], size: int
+    ) -> dict[str, Any]:
+        raise self.refusal
+
+    async def asimilarity_search_by_vector_with_relevance_scores(
+        self, embedding: list[float], k: int, **options: Any
+    ) -> list[tuple[Any, float]]:
+        self.search_started.set()
+        await self.released.wait()  # the answer comes after the other call's refusal
+        return await super().asimilarity_search_by_vector_with_relevance_scores(
+            embedding, k, **options
+        )
+
+
 class FakeConnector:
     """Builds a fake LangChain store for each key; a refused key's store gets ``status``.
 
@@ -56,13 +98,13 @@ class FakeConnector:
     def __init__(self, *refused: str, status: int = 401) -> None:
         self.refused, self.status = set(refused), status
         self.keys: list[str | None] = []
-        self.stores: list[FakeLangChainStore] = []
+        self.stores: list[ClosableLangChainStore] = []
 
-    def __call__(self, key: str | None) -> FakeLangChainStore:
+    def __call__(self, key: str | None) -> ClosableLangChainStore:
         failure = (
             es_refusal(self.status, str(key)) if str(key) in self.refused else None
         )
-        store = FakeLangChainStore(exists=True, count=3, failure=failure)
+        store = ClosableLangChainStore(exists=True, count=3, failure=failure)
         self.keys.append(key)
         self.stores.append(store)
         return store
@@ -99,7 +141,7 @@ async def test_es_a_refused_key_opens_a_new_client_with_the_new_key_and_calls_ag
     assert source.refusals == [OLD_KEY]
     assert connect.keys == [OLD_KEY, NEW_KEY]
     old, new = connect.stores
-    assert old.closed
+    assert not old.closed  # the old one is closed with the store
     assert not new.closed
     assert new.exists_calls or new.search_calls or new.lexical_calls
 
@@ -114,6 +156,48 @@ async def test_es_the_new_client_serves_the_next_calls_and_is_closed_with_the_st
     await store.aclose()
     assert connect.keys == [OLD_KEY, NEW_KEY]
     assert connect.stores[1].closed
+
+
+async def test_es_a_call_in_flight_on_the_replaced_client_still_gets_its_answer() -> (
+    None
+):
+    old = InFlightLangChainStore(OLD_KEY)
+    connect = FakeConnector()
+    keyed = iter([old, None])
+
+    def connect_old_then_new(key: str | None) -> ClosableLangChainStore:
+        return next(keyed) or connect(key)
+
+    store = await ElasticsearchVectorStore.open_with(
+        connect_old_then_new,
+        INDEX,
+        index_strategy=dense_strategy(),
+        key_source=FakeKeySource(OLD_KEY, NEW_KEY),
+    )
+    in_flight = asyncio.create_task(store.query([0.1], top_k=1))
+    await old.search_started.wait()
+
+    await store.lexical_query("alpha", top_k=1)  # refused: a new client replaces it
+    old.released.set()
+
+    [hit] = await in_flight
+    assert hit.id == "p1"
+    assert connect.keys == [NEW_KEY]
+
+
+async def test_es_aclose_closes_every_client_opened_the_replaced_ones_included() -> (
+    None
+):
+    connect = FakeConnector(OLD_KEY, MID_KEY)
+    store = await store_over(connect, FakeKeySource(OLD_KEY, MID_KEY, NEW_KEY))
+    with pytest.raises(RagDependencyError):
+        await store.count()  # OLD_KEY, then MID_KEY, refused
+    await store.count()  # MID_KEY refused, NEW_KEY taken
+
+    await store.aclose()
+
+    assert connect.keys == [OLD_KEY, MID_KEY, NEW_KEY]
+    assert [client.closes for client in connect.stores] == [1, 1, 1]
 
 
 @OPERATIONS

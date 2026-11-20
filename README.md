@@ -2580,8 +2580,9 @@ showing the text. The fake LLM answers a valid instance.
   source its `elasticsearch.key` block names, such as `{source: env, variable:
   ES_API_KEY}`; with no block, no key is sent. When Elasticsearch refuses the
   key (a 401), the store tells its source, opens a new client with the key the
-  source then gives, closes the old one and makes the call once more; a second
-  refusal is the store's error, which says where the key comes from and holds
+  source then gives and makes the call once more, keeping the old client until
+  the store closes so a call in flight on it ends; a second refusal is the
+  store's error, which says where the key comes from and holds
   no key. Any Elasticsearch 8 or 9 cluster works; the compose file
   runs a single 9.0.0 node with security disabled, for development only.
 * Failures surface as `503 vector_store_unavailable`; `/readyz` reports

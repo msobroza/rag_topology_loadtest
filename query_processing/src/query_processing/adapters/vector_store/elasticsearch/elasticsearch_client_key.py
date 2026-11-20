@@ -4,9 +4,10 @@ Elasticsearch's client takes its key when it is built, as an Elasticsearch API
 key (``ApiKey <key>``), not a bearer header. So a key its source rotated is
 taken by building a new client: told of Elasticsearch's 401, this tells the
 source which key was refused and builds the client again with the key the
-source then gives. Without a source the client is built with no key, and basic
-authentication written in the URL is the client's own. Every key sent is
-masked in an error.
+source then gives; the store closes the client it replaced only when it
+closes itself, so a call in flight on it ends. Without a source the client is
+built with no key, and basic authentication written in the URL is the
+client's own. Every key sent is masked in an error.
 
 Example:
     >>> key = ElasticsearchClientKey(connect, source)
@@ -47,7 +48,7 @@ class ElasticsearchClientKey:
         """Build LangChain's store with the key the source gives now.
 
         Returns:
-            The new store; the caller closes the one it replaces.
+            The new store; the caller keeps the one it replaces until it closes.
 
         Raises:
             RagDependencyError: If the source could not get its key.
@@ -61,7 +62,7 @@ class ElasticsearchClientKey:
         """Tell the source its key was refused and build the store with its next one.
 
         Returns:
-            The new store; the caller closes the one it replaces.
+            The new store; the caller keeps the one it replaces until it closes.
 
         Raises:
             RagDependencyError: If the source could not get its key.
