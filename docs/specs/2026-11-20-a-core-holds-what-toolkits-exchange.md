@@ -68,7 +68,7 @@ One word
 
 The same answers
 
-32. As the owner, I want the move of the four modules to the core to leave every pinned answer record equal and the count of tests equal, so that the move is shown to change nothing.
+32. As the owner, I want the move of the first three modules to the core to leave every pinned answer record equal and the count of tests equal, so that the move is shown to change nothing.
 33. As the owner, I want the class swapped while the response keeps its shape, with every pinned answer record still equal, so that the swap and the new shape are never one change with two possible causes.
 34. As the owner, I want the pinned answer records made again once, when the response changes shape, and a test written first to hold the new ones to the old through a stated mapping, so that the same ids, text hashes, scores and answers are shown under the new shape.
 35. As the person who compares a deployment, I want `qp-compare-answers` to read an answer record of the old shape through that same mapping, so that a branch can be held to main and to the records of 17 November.
@@ -102,7 +102,8 @@ Getting doclang's core
 
 ### What moves, and what stays
 
-- Four modules move whole, each with its tests: the metadata filter, the conversational history, the request body, and the response body. The response body leaves the `qp-serve` entrypoint, and takes with it the mode and the name of the total timing, the two names the load-test client already shares with the workflow.
+- Three modules move whole in the first step, each with its tests: the metadata filter, the conversational history and the request body.
+- The response body leaves the `qp-serve` entrypoint for the core in the third step, in its new shape, and takes with it the mode and the name of the total timing, the two names the load-test client already shares with the workflow. It cannot move sooner: until then it holds the toolkit's scored passage, and the core may not import the toolkit.
 - The vector-store record's module is new. It holds doclang's `VectorStoreRecord`, handed on, and `ScoredVectorStoreRecord`, a subclass with `retrieval_score` and `rerank_score`. A record is frozen and refuses unknown keys, so the scores cannot sit beside it any other way.
 - The workflow's result stays in the toolkit: it is what the application hands the entrypoint. So do the function that keeps the best-scored records, rank fusion, the retrieval mode, the synthetic corpus, the errors, the components with their requests and answers, the endpoints, the registries, the graph, the prompts, the roles, the run label and the runtime. The module that held the passages is renamed after what it keeps.
 - The type of a metadata value stays defined in the core's metadata filter. A test holds it equal to doclang's scalar type.
@@ -153,9 +154,9 @@ Getting doclang's core
 
 ### The order
 
-1. **The core is created and the four modules move.** Nothing else changes. doclang is not yet needed.
+1. **The core is created and three modules move**: the metadata filter, the conversational history and the request body. Nothing else changes. doclang is not yet needed.
 2. **The record replaces `Passage` inside the workflow**, with the stores' contract, while the response keeps today's shape through one mapping in the entrypoint. doclang's core is needed from here on, on the laptop, in CI and at an App's start.
-3. **The response returns the records as they are, and the names change**: the key, the attributes, the setting, the handbook's key and the word everywhere else. The entrypoint's mapping goes.
+3. **The response returns the records as they are, and the names change**: the response body, now the core's, the key, the attributes, the setting, the handbook's key and the word everywhere else. The entrypoint's mapping goes.
 4. **On the owner's word**, answers are recorded from main and from the branch on real models, on one index, and compared.
 
 ## Testing Decisions
@@ -199,7 +200,7 @@ The toolkit ships no new test class: a use case cannot add a kind of record.
 
 ## Further Notes
 
-- **A possible cut into tickets,** for the owner to make: the core with the four moved modules; doclang's core on the laptop and in CI; the record in the workflow with the stores' contract; the response's shape, the answer records' mapping and the pinned records made again; the word, with its structure test; the wheel for an App and for the emulation; the documents; and last, on demand, the comparison on real models. The first carries the non-regression criterion that the others repeat.
+- **A possible cut into tickets,** for the owner to make: the core with the three moved modules; doclang's core on the laptop and in CI; the record in the workflow with the stores' contract; the response's shape, the answer records' mapping and the pinned records made again; the word, with its structure test; the wheel for an App and for the emulation; the documents; and last, on demand, the comparison on real models. The first carries the non-regression criterion that the others repeat.
 - **What must be in place before step 2 is merged or deployed.** The deploy key and its secret, or the checks on GitHub fail. The wheel on the Dataset and the deploy setting that names its directory, or an App that installs at its start does not start.
 - **Decided here and not put to the owner in these words.** The design session settled the core, the record, the names and the delivery. These follow from it, and the owner can strike any of them:
   1. The scored class is named `ScoredVectorStoreRecord`.
