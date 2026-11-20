@@ -1,6 +1,6 @@
 """Doubles shared by the tests of the ``local`` embedder and reranker.
 
-A scope that records where a call ran, scored passages, a stand-in for the
+A scope that records where a call ran, scored records, a stand-in for the
 ``sentence_transformers`` package that records each model's load, and one whose
 models refuse overlapping calls as an OpenVINO model does. The fixtures over
 them are in ``local_model_fixtures.py``.

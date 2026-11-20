@@ -1,4 +1,4 @@
-"""A metadata filter: a flat list of conditions on a passage's metadata, all to hold.
+"""A metadata filter: a flat list of conditions on a record's metadata, all to hold.
 
 A condition names an ``attribute`` of the metadata, a ``comparator`` and a
 ``value``. A vector store declares the fields a filter can name, each with its
@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# A value of a passage's metadata, and of a condition on it.
+# A value of a vector-store record's metadata, and of a condition on it.
 MetadataValue = str | int | float | bool
 Comparator = Literal["eq", "ne", "gt", "gte", "lt", "lte", "in", "nin"]
 MetadataFieldType = Literal["string", "integer", "float", "boolean"]
@@ -78,7 +78,7 @@ class MetadataFieldInfo(BaseModel):
 
     Example:
         >>> MetadataFieldInfo(name="topic", type="string",
-        ...                   description="what the passage is about")
+        ...                   description="what the record is about")
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

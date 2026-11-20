@@ -60,9 +60,9 @@ def test_the_fake_store_ranks_the_vacation_policy_first_in_each_mode(
     settings = settings_factory(**FAKE_BACKENDS, graph=rag_graph(mode))
 
     with TestClient(create_app(CompositionRoot(settings))) as app:
-        passages = app.post("/retrieve", json={"question": QUESTION}).json()["records"]
+        records = app.post("/retrieve", json={"question": QUESTION}).json()["records"]
 
-    assert passages[0]["metadata"]["topic"] == "vacation-policy"
+    assert records[0]["metadata"]["topic"] == "vacation-policy"
 
 
 @pytest.mark.parametrize("mode", ["lexical", "hybrid"])

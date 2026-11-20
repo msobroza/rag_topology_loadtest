@@ -182,7 +182,7 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             One value per field of ``reads``.
 
         Example:
-            >>> question, passages = stage.read_fields(state)
+            >>> question, records = stage.read_fields(state)
         """
         return [state[field] for field in self.fields.reads]
 

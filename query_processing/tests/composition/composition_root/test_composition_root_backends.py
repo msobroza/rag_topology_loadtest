@@ -47,19 +47,19 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
         components__embedder__backend="fake",
         components__vector_store__backend="chroma",
         components__vector_store__chroma__path=str(tmp_path / "chroma"),
-        components__vector_store__chroma__collection="passages_under_test",
+        components__vector_store__chroma__collection="records_under_test",
     )
 
     async with CompositionRoot(settings) as composition:
         embedder, store = await composition.ingest_ports()
-        passage = VectorStoreRecord(
+        record = VectorStoreRecord(
             text="Employees accrue vacation days", metadata={"id": "p1"}
         )
-        await store.upsert([passage], await embedder.embed_documents([passage.text]))
+        await store.upsert([record], await embedder.embed_documents([record.text]))
 
         assert isinstance(store, ChromaVectorStore)
-        assert await store.ready() == (True, "1 records in passages_under_test")
-        [vector] = await embedder.embed_documents([passage.text])
+        assert await store.ready() == (True, "1 records in records_under_test")
+        [vector] = await embedder.embed_documents([record.text])
         [hit] = await store.query(vector, 5)
         assert hit.id == "p1"
     assert (tmp_path / "chroma").is_dir()  # embedded: written where the settings say
@@ -465,7 +465,7 @@ async def test_concurrent_openvino_reranks_never_overlap_on_one_model(
 ) -> None:
     settings = exported_settings(settings_factory, tmp_path)
     container = FakeCpuCounter(8, "container")
-    passages = [
+    records = [
         ScoredVectorStoreRecord(
             text="vacation", metadata={"id": "p1"}, retrieval_score=0.5
         )
@@ -473,7 +473,7 @@ async def test_concurrent_openvino_reranks_never_overlap_on_one_model(
     async with CompositionRoot(settings, container_cpus=container) as composition:
         reranker = await composition.local_reranker("reranker")
         ranked = await asyncio.gather(
-            *(reranker.rerank(f"q{i}", passages, top_n=1) for i in range(4))
+            *(reranker.rerank(f"q{i}", records, top_n=1) for i in range(4))
         )
 
     assert [[p.id for p in result] for result in ranked] == [["p1"]] * 4

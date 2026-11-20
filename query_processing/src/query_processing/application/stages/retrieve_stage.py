@@ -2,10 +2,10 @@
 
 The stage builds a ``SearchRequest`` from the fields its ``reads`` names, in
 order: the query's vector for ``dense``, its words for ``lexical``, both for
-``hybrid``, then the metadata filter every passage found must meet. Its
+``hybrid``, then the metadata filter every record found must meet. Its
 retrieval mode and ``top_k`` complete the request. The store's ``ainvoke``
-searches by that mode, and fuses a hybrid search; the passages found
-go to the one field its ``writes`` names. Lexical and hybrid need a store that
+searches by that mode, and fuses a hybrid search; the records found go
+to the one field its ``writes`` names. Lexical and hybrid need a store that
 ranks text: the store's own ``BaseLexicalSearch``, refused when the stage is
 built if it has none.
 
@@ -45,7 +45,7 @@ from .base_stage import (
     fields_in_order,
 )
 
-# What every retrieval mode reads last: the conditions a passage must meet.
+# What every retrieval mode reads last: the conditions a record must meet.
 _FILTER_READ = {"metadata_filter": list[MetadataCondition]}
 # What each retrieval mode reads of the state, in order: the search request's
 # attributes its reads fill, each with its type.
@@ -54,7 +54,7 @@ READS_BY_RETRIEVAL_MODE: dict[RetrievalMode, dict[str, Any]] = {
     "lexical": {"text": str, **_FILTER_READ},
     "hybrid": {"embedding": list[float], "text": str, **_FILTER_READ},
 }
-# What it writes: the passages found.
+# What it writes: the vector-store records found.
 RETRIEVE_WRITE_TYPES = {"candidates": list[ScoredVectorStoreRecord]}
 
 
@@ -150,7 +150,7 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             state: The workflow state; the fields of ``reads`` are read.
 
         Returns:
-            The field of ``writes``: at most ``top_k`` passages, best first.
+            The field of ``writes``: at most ``top_k`` records, best first.
         """
         attributes = READS_BY_RETRIEVAL_MODE[self.settings.retrieval_mode]
         request = SearchRequest(

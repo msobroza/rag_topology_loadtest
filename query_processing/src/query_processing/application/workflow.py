@@ -3,7 +3,7 @@
 ``workflow_builder.build_workflow`` builds the orchestrator's graph from its
 description; this module only runs it. The request's question starts the workflow state,
 and the final state becomes the result: the answer in ``query`` mode, the
-reranked passages, and each stage's wall time, keyed by the stages of the
+reranked records, and each stage's wall time, keyed by the stages of the
 graph that ran.
 
 Example:

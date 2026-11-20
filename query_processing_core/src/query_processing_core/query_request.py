@@ -22,7 +22,7 @@ class QueryRequest(BaseModel):
     """The question to answer, 1 to 2000 characters, its history and its conditions.
 
     ``conversational_history`` is optional: the earlier turns, in order, for the
-    prompts to read. ``metadata_filter`` is optional: every passage retrieved
+    prompts to read. ``metadata_filter`` is optional: every record retrieved
     meets all its conditions. Each condition, a history message's included, is
     checked against the fields the vector stores declare, by the app, which
     knows them.

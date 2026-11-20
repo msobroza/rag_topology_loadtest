@@ -8,17 +8,17 @@ from query_processing_core.retrieval.vector_store_record import ScoredVectorStor
 from query_processing.domain.retrieval.rank_fusion import reciprocal_rank_fusion
 
 
-def hit(passage_id: str, score: float = 0.5) -> ScoredVectorStoreRecord:
+def hit(record_id: str, score: float = 0.5) -> ScoredVectorStoreRecord:
     return ScoredVectorStoreRecord(
-        text=passage_id, metadata={"id": passage_id}, retrieval_score=score
+        text=record_id, metadata={"id": record_id}, retrieval_score=score
     )
 
 
-def ids(passages: list[ScoredVectorStoreRecord]) -> list[str]:
-    return [passage.id for passage in passages]
+def ids(records: list[ScoredVectorStoreRecord]) -> list[str]:
+    return [record.id for record in records]
 
 
-def test_a_passage_in_both_rankings_beats_one_ranked_first_in_one() -> None:
+def test_a_record_in_both_rankings_beats_one_ranked_first_in_one() -> None:
     dense = [hit("a"), hit("b"), hit("c")]
     lexical = [hit("b"), hit("d")]
 
@@ -30,7 +30,7 @@ def test_a_passage_in_both_rankings_beats_one_ranked_first_in_one() -> None:
 def test_the_fused_score_is_the_sum_of_reciprocal_ranks() -> None:
     fused = reciprocal_rank_fusion([[hit("a"), hit("b")], [hit("b")]], k=60, top_k=2)
 
-    scores = {passage.id: passage.retrieval_score for passage in fused}
+    scores = {record.id: record.retrieval_score for record in fused}
     assert scores["b"] == pytest.approx(1 / 62 + 1 / 61)
     assert scores["a"] == pytest.approx(1 / 61)
 
@@ -53,21 +53,21 @@ def test_fusion_truncates_to_top_k() -> None:
 
 
 def test_fusion_keeps_text_and_metadata_and_drops_nothing_else() -> None:
-    passage = ScoredVectorStoreRecord(
+    record = ScoredVectorStoreRecord(
         text="vacation", metadata={"id": "a", "doc": "handbook"}, retrieval_score=0.9
     )
 
-    [fused] = reciprocal_rank_fusion([[passage]], k=60, top_k=1)
+    [fused] = reciprocal_rank_fusion([[record]], k=60, top_k=1)
 
     assert (fused.text, fused.metadata, fused.rerank_score) == (
         "vacation",
         {"id": "a", "doc": "handbook"},
         None,
     )
-    assert passage.retrieval_score == 0.9  # the input is not modified
+    assert record.retrieval_score == 0.9  # the input is not modified
 
 
-def test_no_ranking_gives_no_passage() -> None:
+def test_no_ranking_gives_no_record() -> None:
     assert reciprocal_rank_fusion([], k=60, top_k=5) == []
     assert reciprocal_rank_fusion([[], []], k=60, top_k=5) == []
 

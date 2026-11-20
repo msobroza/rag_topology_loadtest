@@ -4,14 +4,14 @@
 answer_from_context:
   - role: system
     content: Answer from the numbered fixture passages only.
-  # The passages numbered one per line, as the generate stage's user_prompt
+  # The records' texts numbered one per line, as the generate stage's user_prompt
   # setting gave them before this file: nothing between the two blank lines
-  # when no passage is kept.
+  # when no record is kept.
   - role: user
     content: |-
       Context:
-      {% for passage in reranked %}
-      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {% for record in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ record.text }}
       {%- endfor %}
 
 

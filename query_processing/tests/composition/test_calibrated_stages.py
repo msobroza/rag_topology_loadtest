@@ -195,7 +195,7 @@ async def test_the_rerankers_calibration_records_bound_the_batch_sizes_tried(
 
     trials = tried(calibrated_lines(caplog)["rerank"])
     assert trials[:4] == [(4, 8), (4, 4), (4, 2), (4, 1)]
-    assert ("predict", 8) in fake_weights.batch_sizes  # a request of 8 passages
+    assert ("predict", 8) in fake_weights.batch_sizes  # a request of 8 records
 
 
 async def test_rerank_calibration_reads_no_stages_setting(
@@ -207,7 +207,7 @@ async def test_rerank_calibration_reads_no_stages_setting(
     await open_reranker(four_thread_settings(settings_factory, graph=graph), caplog)
 
     trials = tried(calibrated_lines(caplog)["rerank"])
-    assert trials[0] == (4, 20)  # the reranker's 20 passages, not retrieve's 7
+    assert trials[0] == (4, 20)  # the reranker's 20 records, not retrieve's 7
 
 
 async def test_the_rerank_sample_is_one_question_and_its_calibration_records(

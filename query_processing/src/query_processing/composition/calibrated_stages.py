@@ -144,14 +144,14 @@ async def component_calibration(
 class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
     """The rerank stage on the in-process cross-encoder, as calibration times it.
 
-    Its sample is a question and ``records`` passages, all kept: the model
-    scores every candidate whatever it keeps, so the number kept does not
-    change the time.
+    Its sample is a question and as many vector-store records as ``records``,
+    all kept: the model scores every candidate whatever it keeps, so the number
+    kept does not change the time.
 
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
-        records: How many passages the sample request reranks.
+        records: How many vector-store records the sample request reranks.
 
     Example:
         >>> stage = CalibratedRerankStage(model, pool, records=20)
@@ -164,7 +164,7 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         self._model, self._pool = model, pool
         sample = calibration_sample(records)
         self._question = sample.question
-        self._passages = [
+        self._records = [
             ScoredVectorStoreRecord(
                 text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
             )
@@ -187,11 +187,11 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
     def rebatched(
         self, adapter: CrossEncoderReranker, batch_size: int
     ) -> CrossEncoderReranker:
-        """Return ``adapter`` at ``batch_size`` passages per predict batch.
+        """Return ``adapter`` at ``batch_size`` records per predict batch.
 
         Args:
             adapter: A loaded reranker.
-            batch_size: Passages per predict batch.
+            batch_size: Records per predict batch.
 
         Returns:
             The reranker on the same model.
@@ -199,13 +199,13 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         return adapter.with_batch_size(batch_size)
 
     async def serve_sample(self, adapter: CrossEncoderReranker) -> None:
-        """Rerank the sample's passages, as the workflow reranks its candidates.
+        """Rerank the sample's records, as the workflow reranks its candidates.
 
         Args:
             adapter: The reranker under trial.
         """
-        passages = self._passages
-        await adapter.rerank(self._question, passages, top_n=len(passages))
+        records = self._records
+        await adapter.rerank(self._question, records, top_n=len(records))
 
     def pinned_settings(self, tuning: StageTuning) -> dict[str, int]:
         """Name the two settings rerank calibration searches.

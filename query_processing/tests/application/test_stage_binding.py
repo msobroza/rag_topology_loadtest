@@ -78,7 +78,7 @@ def test_a_key_must_fit_the_type_of_the_attribute_it_fills() -> None:
         "; key 'top_k' is 'ten' (expected int: Input should be a valid integer, "
         "unable to parse string as an integer)"
     )
-    # Its constraints too: a reranker keeps at least one passage.
+    # Its constraints too: a reranker keeps at least one record.
     with pytest.raises(ValueError, match=r"key 'top_k' is 0 \(expected int: .* 1\)"):
         bind_call(BaseReranker, {"top_k": 0}, fields)
     # A number as text, as a QP_* variable gives it, is a number, as in a request.

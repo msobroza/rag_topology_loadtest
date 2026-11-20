@@ -229,7 +229,7 @@ async def test_the_retrieve_stage_reads_the_fields_its_lists_name() -> None:
     )
 
     assert store.calls == [("lexical", "days off in May", 3)]
-    assert [passage.id for passage in update["found"]] == ["a"]
+    assert [record.id for record in update["found"]] == ["a"]
 
 
 async def test_the_retrieve_stage_hands_a_hybrid_search_its_vector_and_words() -> None:

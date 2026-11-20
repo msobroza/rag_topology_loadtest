@@ -48,7 +48,7 @@ VACATION_QUESTION = synthetic_questions(1)[0]
 TIMING_KEYS = ["embed", "retrieve", "rerank", "generate", "total"]
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 WorkflowFor = Callable[..., CompiledWorkflow]
-# A prompt other than the fixture's: the question, then the passages.
+# A prompt other than the fixture's: the question, then the vector-store records.
 # A generate stage before the fixture's: it rewrites the question it searches with.
 REWRITE_STAGE = {
     "type": "generate",
@@ -99,7 +99,7 @@ def scripted_deps(
 # --- the graph ----------------------------------------------------------------
 
 
-async def test_query_mode_answers_from_reranked_passages(
+async def test_query_mode_answers_from_reranked_records(
     fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     result = await workflow_for(fake_deps).run(VACATION_QUESTION)

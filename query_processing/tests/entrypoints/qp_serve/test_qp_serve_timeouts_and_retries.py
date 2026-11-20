@@ -30,7 +30,7 @@ from query_processing.entrypoints.qp_serve import create_app
 from rag_components import FAKE_BACKENDS, shell_settings
 
 SettingsFactory = Callable[..., WorkflowSettings]
-# No passage of the synthetic corpus holds it, so the calls that seed the fake
+# No record of the synthetic corpus holds it, so the calls that seed the fake
 # store are never about the question.
 QUESTION = "Which public holidays are paid at double rate this year?"
 URLS = {
@@ -57,7 +57,7 @@ class FlakyModelEndpoints:
     A call is about the question when its body holds it: the query's embedding,
     the rerank request and the chat request. At each URL the first calls about
     the question are answered 503, as many as ``failures`` says, and every later
-    one in the standard format; the passages that seed the fake store at
+    one in the standard format; the records that seed the fake store at
     start-up are always answered.
 
     Args:

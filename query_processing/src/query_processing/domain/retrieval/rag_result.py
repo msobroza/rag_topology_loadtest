@@ -47,15 +47,15 @@ class RagResult(BaseModel):
 def top_by_score(
     records: Sequence[ScoredVectorStoreRecord], scores: Sequence[float], top_n: int
 ) -> list[ScoredVectorStoreRecord]:
-    """Keep the ``top_n`` passages with the highest score.
+    """Keep the ``top_n`` vector-store records with the highest score.
 
     Args:
         records: The candidates to rank.
-        scores: One score per passage, in the same order.
-        top_n: How many passages to keep.
+        scores: One score per record, in the same order.
+        top_n: How many records to keep.
 
     Returns:
-        Copies of the best passages, highest score first, each with its score
+        Copies of the best records, highest score first, each with its score
         stamped as ``rerank_score``.
 
     Example:

@@ -75,9 +75,9 @@ def test_question_shares_most_words_with_its_own_topic(slug: str) -> None:
 
 
 def test_chunk_word_windows_overlap_and_ids() -> None:
-    passages = chunk(_doc(250), chunk_words=100, overlap_words=20)
-    assert [p.id for p in passages] == ["doc-0007:0", "doc-0007:1", "doc-0007:2"]
-    words = [p.text.split() for p in passages]
+    records = chunk(_doc(250), chunk_words=100, overlap_words=20)
+    assert [r.id for r in records] == ["doc-0007:0", "doc-0007:1", "doc-0007:2"]
+    words = [r.text.split() for r in records]
     assert [len(w) for w in words] == [100, 100, 90]
     assert words[1][:20] == words[0][-20:]
     assert words[0][0] == "w0"
@@ -85,9 +85,9 @@ def test_chunk_word_windows_overlap_and_ids() -> None:
 
 
 def test_chunk_metadata_carries_document_fields() -> None:
-    (passage,) = chunk(_doc(30, topic="remote-work", seq=4))
+    (record,) = chunk(_doc(30, topic="remote-work", seq=4))
     doc_fields = {"doc_id": "doc-0007", "title": "Handbook", "sequence": 0}
-    assert passage.metadata == {
+    assert record.metadata == {
         "topic": "remote-work",
         "seq": 4,
         **doc_fields,
@@ -107,12 +107,12 @@ def test_a_handbook_record_holds_no_chunk_and_doclang_says_so() -> None:
         from_vector_store(records[0])
 
 
-def test_a_documents_own_id_key_does_not_override_its_passages_id() -> None:
-    (passage,) = chunk(_doc(30, id="from-the-corpus-file"))
-    assert passage.id == "doc-0007:0"
+def test_a_documents_own_id_key_does_not_override_its_records_id() -> None:
+    (record,) = chunk(_doc(30, id="from-the-corpus-file"))
+    assert record.id == "doc-0007:0"
 
 
-def test_chunk_empty_text_gives_no_passages() -> None:
+def test_chunk_empty_text_gives_no_records() -> None:
     assert chunk(_doc(0)) == []
     assert chunk(SourceDocument(id="d", title="t", text="  \n ")) == []
 

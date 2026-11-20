@@ -17,14 +17,14 @@ def _scored(
 
 
 def test_top_by_score_orders_desc_truncates_and_stamps_float_rerank_score() -> None:
-    passages = [_scored("a", retrieval_score=0.1), _scored("b"), _scored("c")]
-    kept = top_by_score(passages, scores=[1, 3, 2], top_n=2)  # ints on purpose
+    records = [_scored("a", retrieval_score=0.1), _scored("b"), _scored("c")]
+    kept = top_by_score(records, scores=[1, 3, 2], top_n=2)  # ints on purpose
 
     assert [p.id for p in kept] == ["b", "c"]
     assert [p.rerank_score for p in kept] == [3.0, 2.0]
     assert all(type(p.rerank_score) is float for p in kept)
     assert [p.retrieval_score for p in kept] == [0.5, 0.5]
-    assert passages[0].rerank_score is None  # inputs are copied, not mutated
+    assert records[0].rerank_score is None  # inputs are copied, not mutated
 
 
 def test_rag_dependency_error_message_carries_component_kind_and_target() -> None:

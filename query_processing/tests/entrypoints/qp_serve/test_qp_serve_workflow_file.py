@@ -64,7 +64,7 @@ SettingsFactory = Callable[..., WorkflowSettings]
 # An answer prompt whose second message is no template Jinja2 can read.
 UNREADABLE_PROMPT = [
     {"role": "system", "content": "Answer."},
-    {"role": "user", "content": "{% for passage in reranked %}{{ passage }}"},
+    {"role": "user", "content": "{% for record in reranked %}{{ record }}"},
 ]
 
 
@@ -328,7 +328,7 @@ def test_a_rerank_size_above_the_retrieve_size_is_no_longer_refused(
 def test_lexical_retrieval_is_a_workflow_file_with_no_embed_stage(
     settings_factory: SettingsFactory, no_named_file: Path
 ) -> None:
-    # The fixture's components: ingestion still embeds the passages.
+    # The fixture's components: ingestion still embeds the records.
     lexical_graph = yaml.safe_load(LEXICAL_WORKFLOW)["graph"]
     write_workflow_file(no_named_file / "workflow.yaml", lexical_graph)
     store, embedder = ScriptedStore(["a"], ["z", "y"]), RecordingEmbedder()

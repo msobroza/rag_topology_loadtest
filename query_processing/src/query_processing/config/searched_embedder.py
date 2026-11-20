@@ -53,7 +53,7 @@ def searched_embedder(
 def seeding_embedder(
     graph: GraphDescription, component_types: Mapping[str, str]
 ) -> str | None:
-    """Return the embedder that gives a fake store the vectors of its passages.
+    """Return the embedder that gives a fake store the vectors of its records.
 
     The one its searches use (``searched_embedder``). When no ``retrieve``
     stage reads a vector (a lexical graph), the store is searched by its

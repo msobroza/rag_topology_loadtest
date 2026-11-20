@@ -37,7 +37,7 @@ class StageTuning:
     """
 
     threads: int  # native threads one call of the stage may use (all its streams')
-    batch_size: int  # texts (or passages) per model batch
+    batch_size: int  # texts (or records' texts) per model batch
     # Requests the stage's model runs at once: 1 for an in-process stage, which
     # runs one call at a time; a model server splits its threads among them.
     streams: int = 1
@@ -89,7 +89,7 @@ class CalibrationReport:
 
 @dataclass(frozen=True)
 class CalibrationSample:
-    """The request every candidate serves: one question and its passages."""
+    """The request every candidate serves: one question and its records' texts."""
 
     question: str
     records: tuple[str, ...]
@@ -145,23 +145,23 @@ def fastest(trials: Sequence[TimedTrial]) -> StageTuning:
 def calibration_sample(
     records: int, *, shortest: int = 150, longest: int = 800, seed: int = 1234
 ) -> CalibrationSample:
-    """Build a deterministic question and ``records`` passages of spread lengths.
+    """Build a deterministic question and ``records`` texts of spread lengths.
 
-    The passages are the synthetic corpus's texts, repeated and cut to lengths
+    The texts are the synthetic corpus's, repeated and cut to lengths
     spread evenly from ``shortest`` to ``longest`` characters, then shuffled.
-    Spread, because a batch is padded to its longest passage and that padding is
+    Spread, because a batch is padded to its longest text and that padding is
     what batch size trades against; real candidates vary that much (137 to 816
     characters on the corpus of the GCP sitting of 2026-11-15). Shuffled, because
     retrieval returns them by score, not by length.
 
     Args:
-        records: How many passages: the request's usual size.
-        shortest: Characters of the shortest passage.
-        longest: Characters of the longest passage.
+        records: How many texts: the request's usual size.
+        shortest: Characters of the shortest text.
+        longest: Characters of the longest text.
         seed: Seed of the corpus and of the shuffle.
 
     Returns:
-        The question and the passages.
+        The question and the texts.
 
     Raises:
         ValueError: If ``records`` is below 1.
@@ -183,6 +183,6 @@ def calibration_sample(
 
 
 def _repeated_to(text: str, length: int) -> str:
-    # Repeat a passage until it is long enough, then cut it to exactly ``length``.
+    # Repeat a text until it is long enough, then cut it to exactly ``length``.
     repeats = length // len(text) + 1
     return " ".join([text] * repeats)[:length]

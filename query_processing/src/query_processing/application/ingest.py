@@ -1,4 +1,4 @@
-"""The ingest use case: embed passages in batches and upsert them."""
+"""The ingest use case: embed vector-store records in batches and upsert them."""
 
 from __future__ import annotations
 
@@ -17,16 +17,16 @@ async def ingest(
     *,
     batch_size: int = 64,
 ) -> int:
-    """Embed passages in batches, as documents with no query prefix, and upsert them.
+    """Embed records in batches, as documents with no query prefix, and upsert them.
 
     Args:
-        records: The passages to store.
+        records: The vector-store records to store.
         embedder: Embeds each batch.
         store: Receives each batch with its vectors.
-        batch_size: Passages per embed and upsert call.
+        batch_size: Records per embed and upsert call.
 
     Returns:
-        The number of passages upserted.
+        The number of records upserted.
     """
     for start in range(0, len(records), batch_size):
         batch = records[start : start + batch_size]

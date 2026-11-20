@@ -35,7 +35,7 @@ async def open_vector_store_on_fake(
     """
     store = InMemoryVectorStore()
     documents = synthetic_corpus(component.fake.seed_documents)
-    passages = [passage for document in documents for passage in chunk(document)]
-    await ingest(passages, await shared.open_embedder(), store)
+    records = [record for document in documents for record in chunk(document)]
+    await ingest(records, await shared.open_embedder(), store)
     store.prefilter = tuple(component.prefilter)
     return store

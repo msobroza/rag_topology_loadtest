@@ -36,9 +36,9 @@ def test_tunable_defaults(settings_factory: SettingsFactory) -> None:
     s = settings_factory()
 
     store = s.components["vector_store"]
-    # The index is the file's: where the passages are kept has no default.
+    # The index is the file's: where the records are kept has no default.
     assert (store.elasticsearch.index, store.fake.seed_documents) == (
-        "fixture_passages",
+        "fixture_records",
         200,
     )
     assert s.local_models.workers == 4
@@ -58,7 +58,7 @@ def test_tunables_read_qp_prefixed_env(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env = {
-        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX": "passages_v2",
+        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX": "records_v2",
         "QP_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS": "30",
         "QP_LOCAL_MODELS__WORKERS": "2",
         "QP_HTTP__TIMEOUT_S": "5.5",
@@ -74,7 +74,7 @@ def test_tunables_read_qp_prefixed_env(
 
     s = settings_factory()
     store = s.components["vector_store"]
-    assert (store.elasticsearch.index, store.fake.seed_documents) == ("passages_v2", 30)
+    assert (store.elasticsearch.index, store.fake.seed_documents) == ("records_v2", 30)
     assert s.local_models.workers == 2
     assert (s.http.timeout_s, s.http.retries, s.http.backoff_s) == (5.5, 0, 0.5)
     assert (s.domino.token_url, s.domino.token_ttl_s) == ("http://token.test/t", 60.0)

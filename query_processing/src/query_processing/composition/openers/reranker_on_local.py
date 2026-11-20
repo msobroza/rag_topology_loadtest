@@ -42,7 +42,7 @@ async def open_reranker_on_local(
     """
     local, local_models = component.local, shared.local_models
     budget = await local_models.thread_budget()
-    # A batch is padded to its longest passage, so the request's size bounds
+    # A batch is padded to its longest record, so the request's size bounds
     # the batch sizes worth trying.
     calibrated = await calibrate(
         await _calibrated_stage(component, local_models),
@@ -92,5 +92,5 @@ async def _calibrated_stage(
 ) -> CalibratedRerankStage:
     pool = await local_models.model_pool()
     model = await local_models.local_model(component.source_id, export_reranker)
-    passages = component.local.calibration_records
-    return CalibratedRerankStage(model, pool, records=passages)
+    records = component.local.calibration_records
+    return CalibratedRerankStage(model, pool, records=records)

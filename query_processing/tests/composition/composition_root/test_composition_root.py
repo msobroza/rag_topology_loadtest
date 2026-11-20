@@ -83,7 +83,7 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.by_name["vector_store"], InMemoryVectorStore)
         assert isinstance(deps.by_name["reranker"], FakeReranker)
         assert isinstance(deps.by_name["llm"], FakeLLM)
-        # Every synthetic document fits one chunk, so passages == documents.
+        # Every synthetic document fits one chunk, so records == documents.
         store = deps.by_name["vector_store"]
         assert await store.ready() == (True, "200 records in memory")
 
@@ -200,12 +200,12 @@ async def test_elasticsearch_store_opens_on_its_index_without_the_network(
     settings = settings_factory(
         components__embedder__backend="fake",
         **UNREACHABLE_STORE,
-        components__vector_store__elasticsearch__index="passages_v2",
+        components__vector_store__elasticsearch__index="records_v2",
     )
     async with CompositionRoot(settings) as composition:
         store = (await composition.ingest_ports()).vector_store
         assert isinstance(store, ElasticsearchVectorStore)
-        assert store.index == "passages_v2"
+        assert store.index == "records_v2"
 
 
 async def test_fake_store_is_seeded_with_the_configured_document_count(

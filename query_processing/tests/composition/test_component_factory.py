@@ -188,8 +188,8 @@ class ReversedReranker(BaseReranker):
     async def rerank(self, query, records, top_n):
         kept = list(records)[::-1][:top_n]
         return [
-            passage.model_copy(update={"rerank_score": float(len(kept) - i)})
-            for i, passage in enumerate(kept)
+            record.model_copy(update={"rerank_score": float(len(kept) - i)})
+            for i, record in enumerate(kept)
         ]
 
     async def ready(self):
@@ -224,11 +224,11 @@ settings = WorkflowSettings(
 )
 with TestClient(create_app(CompositionRoot(settings))) as client:
     answer = client.post("/retrieve", json={"question": "vacation days"}).json()
-passages = answer["records"]
+records = answer["records"]
 print(json.dumps({
     "package": query_processing.__file__,
-    "retrieval": [passage["retrieval_score"] for passage in passages],
-    "rerank": [passage["rerank_score"] for passage in passages],
+    "retrieval": [record["retrieval_score"] for record in records],
+    "rerank": [record["rerank_score"] for record in records],
 }))
 """
 

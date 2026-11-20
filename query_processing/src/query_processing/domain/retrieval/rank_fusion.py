@@ -17,7 +17,7 @@ from query_processing_core.retrieval.vector_store_record import ScoredVectorStor
 def reciprocal_rank_fusion(
     rankings: Sequence[Sequence[ScoredVectorStoreRecord]], *, k: int, top_k: int
 ) -> list[ScoredVectorStoreRecord]:
-    """Fuse rankings by summing ``1 / (k + rank)`` per passage.
+    """Fuse rankings by summing ``1 / (k + rank)`` per vector-store record.
 
     Only ranks count, so the rankings' own scores need not be comparable (a
     cosine and a BM25 score are not).
@@ -25,25 +25,25 @@ def reciprocal_rank_fusion(
     Args:
         rankings: The rankings to fuse, each best first.
         k: The rank constant; higher flattens the gap between ranks.
-        top_k: How many passages to keep.
+        top_k: How many vector-store records to keep.
 
     Returns:
-        At most ``top_k`` passages, best first, each with its fused score as
-        ``retrieval_score``. Passages with equal scores keep the order in which
+        At most ``top_k`` records, best first, each with its fused score as
+        ``retrieval_score``. Records with equal scores keep the order in which
         the rankings first named them.
 
     Example:
-        >>> [p.id for p in reciprocal_rank_fusion([[a, b], [b, c]], k=60, top_k=2)]
+        >>> [r.id for r in reciprocal_rank_fusion([[a, b], [b, c]], k=60, top_k=2)]
         ['b', 'a']
     """
     fused: dict[str, float] = {}
     first_seen: dict[str, ScoredVectorStoreRecord] = {}
     for ranking in rankings:
-        for rank, passage in enumerate(ranking, start=1):
-            fused[passage.id] = fused.get(passage.id, 0.0) + 1.0 / (k + rank)
-            first_seen.setdefault(passage.id, passage)
-    best = sorted(fused, key=lambda passage_id: fused[passage_id], reverse=True)
+        for rank, record in enumerate(ranking, start=1):
+            fused[record.id] = fused.get(record.id, 0.0) + 1.0 / (k + rank)
+            first_seen.setdefault(record.id, record)
+    best = sorted(fused, key=lambda record_id: fused[record_id], reverse=True)
     return [
-        first_seen[passage_id].model_copy(update={"retrieval_score": fused[passage_id]})
-        for passage_id in best[:top_k]
+        first_seen[record_id].model_copy(update={"retrieval_score": fused[record_id]})
+        for record_id in best[:top_k]
     ]

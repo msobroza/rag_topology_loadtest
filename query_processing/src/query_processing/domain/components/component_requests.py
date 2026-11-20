@@ -49,7 +49,7 @@ class RerankRequest(_FrozenStrictModel):
 
 
 class RerankAnswer(_FrozenStrictModel):
-    """At most ``top_k`` passages, best first."""
+    """At most ``top_k`` vector-store records, best first."""
 
     records: list[ScoredVectorStoreRecord]
 
@@ -84,7 +84,7 @@ class SearchRequest(_FrozenStrictModel):
 
     ``dense`` needs ``embedding``, ``lexical`` needs ``text``, and ``hybrid``
     needs both and ``rrf_k``, the rank constant of reciprocal rank fusion.
-    ``metadata_filter`` keeps only the passages that meet all its conditions;
+    ``metadata_filter`` keeps only the records that meet all its conditions;
     empty, it filters nothing.
     """
 
@@ -112,6 +112,6 @@ class SearchRequest(_FrozenStrictModel):
 
 
 class SearchAnswer(_FrozenStrictModel):
-    """The passages found, best first, each with its ``retrieval_score``."""
+    """The records found, best first, each with its ``retrieval_score``."""
 
     records: list[ScoredVectorStoreRecord]

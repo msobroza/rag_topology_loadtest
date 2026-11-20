@@ -40,7 +40,7 @@ class CorpusFormatError(ValueError):
 
 
 class _ReferenceLine(BaseModel):
-    # A reference passage; other keys a future release adds are ignored.
+    # A reference text; other keys a future release adds are ignored.
     model_config = ConfigDict(extra="ignore")
     text: str
     url: str | None = None

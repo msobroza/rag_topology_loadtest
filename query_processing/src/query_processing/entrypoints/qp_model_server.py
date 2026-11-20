@@ -247,9 +247,9 @@ async def rerank(body: CohereRerankRequest, request: Request) -> JSONResponse:
     """
     if body.model != request.app.state.alias:
         return _unknown_model()
-    passages = candidates_from_rerank(body)
-    top_n = body.top_n or len(passages)
-    ranked = await request.app.state.reranker.rerank(body.query, passages, top_n)
+    records = candidates_from_rerank(body)
+    top_n = body.top_n or len(records)
+    ranked = await request.app.state.reranker.rerank(body.query, records, top_n)
     return JSONResponse(rerank_response_for(ranked).model_dump())
 
 
@@ -321,8 +321,8 @@ def candidates_from_rerank(
         request: The rerank request the server received.
 
     Returns:
-        One passage per document, whose ``id`` is its index in the request and
-        whose ``retrieval_score`` is 0.0.
+        One vector-store record per document, whose ``id`` is its index in the
+        request and whose ``retrieval_score`` is 0.0.
 
     Example:
         >>> candidates_from_rerank(request)[1].id
@@ -340,14 +340,14 @@ def rerank_response_for(
     """Build the rerank answer.
 
     Args:
-        ranked: Reranked passages made by ``candidates_from_rerank``, best first;
+        ranked: Reranked records made by ``candidates_from_rerank``, best first;
             each must carry a ``rerank_score``.
 
     Returns:
-        One result per passage, in the given order, ``index`` taken from its id.
+        One result per record, in the given order, ``index`` taken from its id.
 
     Raises:
-        ValueError: If a passage has no ``rerank_score``.
+        ValueError: If a record has no ``rerank_score``.
 
     Example:
         >>> rerank_response_for(await reranker.rerank(query, candidates, top_n))
@@ -355,15 +355,13 @@ def rerank_response_for(
     return CohereRerankResponse(results=[_rerank_result(p) for p in ranked])
 
 
-def _rerank_result(passage: ScoredVectorStoreRecord) -> CohereRerankResult:
-    if passage.rerank_score is None:
+def _rerank_result(record: ScoredVectorStoreRecord) -> CohereRerankResult:
+    if record.rerank_score is None:
         raise ValueError(
-            f"passage {passage.id!r} has no rerank_score; expected a reranked "
-            "passage from candidates_from_rerank"
+            f"vector-store record {record.id!r} has no rerank_score; expected a "
+            "reranked record from candidates_from_rerank"
         )
-    return CohereRerankResult(
-        index=int(passage.id), relevance_score=passage.rerank_score
-    )
+    return CohereRerankResult(index=int(record.id), relevance_score=record.rerank_score)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -157,7 +157,7 @@ async def test_api_adapters_work_against_the_fastapi_server(
         )
         reranker = api_reranker(rerank_client, "fixture-reranker")
         embedder = api_embedder(embed_client, "fixture-embedder")
-        passages = [
+        records = [
             ScoredVectorStoreRecord(
                 text="cafeteria lunch", metadata={"id": "x"}, retrieval_score=0.9
             ),
@@ -165,7 +165,7 @@ async def test_api_adapters_work_against_the_fastapi_server(
                 text="vacation days policy", metadata={"id": "y"}, retrieval_score=0.8
             ),
         ]
-        ranked = await reranker.rerank("vacation days", passages, 1)
+        ranked = await reranker.rerank("vacation days", records, 1)
         assert [p.id for p in ranked] == ["y"]
         assert ranked[0].rerank_score is not None
         vectors = await embedder.embed_documents(["a", "b"])
@@ -211,10 +211,10 @@ async def test_api_adapters_with_a_wrong_alias_fail_fast_on_404(
 
 async def _rerank_with_alias(client: httpx.AsyncClient, alias: str) -> None:
     reranker = api_reranker(client, alias)
-    passages = [
+    records = [
         ScoredVectorStoreRecord(text="a", metadata={"id": "x"}, retrieval_score=0.9)
     ]
-    await reranker.rerank("q", passages, 1)
+    await reranker.rerank("q", records, 1)
 
 
 async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
@@ -373,7 +373,7 @@ def test_rerank_round_trip_maps_back_to_the_documents_sent() -> None:
     assert api_format.scores(answer) == {1: 0.8}
 
 
-def test_rerank_response_for_rejects_an_unscored_passage() -> None:
+def test_rerank_response_for_rejects_an_unscored_record() -> None:
     [unscored] = candidates_from_rerank(
         CohereRerankRequest(model="r", query="q", documents=["a"])
     )

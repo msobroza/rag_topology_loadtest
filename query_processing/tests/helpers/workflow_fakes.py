@@ -192,14 +192,14 @@ def opened_of(graph: GraphDescription) -> OpenedGraph:
 
 
 def scored(record_id: str, text: str | None = None) -> ScoredVectorStoreRecord:
-    """A retrieved passage whose text is its id unless one is given."""
+    """A retrieved vector-store record whose text is its id unless one is given."""
     return ScoredVectorStoreRecord(
         text=text or record_id, metadata={"id": record_id}, retrieval_score=1.0
     )
 
 
 class RecordingEmbedder(BaseEmbedder):
-    """Answers a fixed vector and records every query and passage it embedded."""
+    """Answers a fixed vector and records every query and text it embedded."""
 
     model_name = "recording-embedder"
 

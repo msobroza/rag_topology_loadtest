@@ -1,7 +1,7 @@
 """A request's metadata filter, seen from outside the workflow app.
 
 The app runs on the fixture workflow file with every component on its fake
-backend: the in-memory store is seeded with the synthetic corpus, each passage
+backend: the in-memory store is seeded with the synthetic corpus, each record
 of which has a ``topic``, the one field the fixture's vector store declares.
 """
 
@@ -41,7 +41,7 @@ def test_a_body_with_only_a_question_reports_no_condition(
 
 
 @pytest.mark.parametrize("path", ["/query", "/retrieve"])
-def test_a_filter_keeps_only_the_passages_that_meet_it_and_is_reported(
+def test_a_filter_keeps_only_the_records_that_meet_it_and_is_reported(
     client: TestClient, path: str
 ) -> None:
     response = client.post(

@@ -40,7 +40,7 @@ def test_defaults_of_the_new_options(settings_factory: SettingsFactory) -> None:
     assert (chroma.url, chroma.path, chroma.collection) == (
         "",
         "chroma",
-        "fixture_passages",  # the file's: a collection has no default
+        "fixture_records",  # the file's: a collection has no default
     )
 
 

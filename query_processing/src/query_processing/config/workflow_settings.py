@@ -299,7 +299,7 @@ class WorkflowSettings(BaseSettings):
     def check_store_names(self) -> WorkflowSettings:
         """Fail at start-up when a store names no index or collection to keep.
 
-        Where the passages are kept is the use case's choice, so the toolkit
+        Where the records are kept is the use case's choice, so the toolkit
         has no default for it: the block of the store's backend states it.
 
         Returns:
@@ -319,8 +319,8 @@ class WorkflowSettings(BaseSettings):
             variable = self.variable_of("components", name, backend, key)
             raise ValueError(
                 f"{backend_variable}={backend!r} needs {variable}, the {key} the "
-                f"passages are kept in (components.{name}.{backend}.{key} in the "
-                "workflow file); got ''"
+                "vector-store records are kept in "
+                f"(components.{name}.{backend}.{key} in the workflow file); got ''"
             )
         return self
 
@@ -445,7 +445,7 @@ class WorkflowSettings(BaseSettings):
     def ingestion_embedder(self, name: str | None = None) -> str:
         """Return the embedder that fills the store: the one named, else the only one.
 
-        Ingestion embeds passages with one embedder of the workflow file;
+        Ingestion embeds records with one embedder of the workflow file;
         with several, it must be named.
 
         Args:

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 class CorpusDefinition:
     """Where a corpus's files live and which ones make it up.
 
-    Each reference file is JSON lines ``{"text", "url"?}``, one passage per line;
+    Each reference file is JSON lines ``{"text", "url"?}``, one text per line;
     its stem names its documents. The questions file is JSON lines with a
     ``question`` key; any other key (answers, criteria) is evaluation material.
     """
@@ -56,7 +56,7 @@ _QUEBEC_STEMS = (
     "infoassurances",
 )
 
-# Beauchemin et al., NLLP 2024: French passages on Quebec automobile insurance and
+# Beauchemin et al., NLLP 2024: French texts on Quebec automobile insurance and
 # 82 questions on them. The repository states no licence, so nothing of it is
 # committed here and every fetch says so.
 QUEBEC_INSURANCE = CorpusDefinition(

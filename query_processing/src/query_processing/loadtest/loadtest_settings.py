@@ -89,8 +89,9 @@ class LoadTestSettings(BaseSettings):
     retries: int = Field(default=_HTTP_DEFAULTS["retries"].default, ge=0)
     backoff_s: float = Field(default=_HTTP_DEFAULTS["backoff_s"].default, ge=0)
     # --- what qp-compare-answers holds equal -----------------------------------------
-    # The largest difference between two scores of a passage that still counts
-    # as equal; a model run on other CPUs or threads moves the last digits.
+    # The largest difference between two scores of a vector-store record that
+    # still counts as equal; a model run on other CPUs or threads moves the last
+    # digits.
     score_tolerance: float = Field(default=1e-4, ge=0)
     # An LLM can word an answer otherwise at temperature 0, so its text is
     # never compared exactly: with this on, an answer is the baseline's when its

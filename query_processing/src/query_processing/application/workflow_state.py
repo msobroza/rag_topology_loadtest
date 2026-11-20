@@ -67,7 +67,7 @@ REQUEST_FIELD_TYPES: dict[str, Any] = {
 # fill: names fixed in the toolkit, as the wire's are.
 RESPONSE_FIELD_TYPES: dict[str, Any] = {
     "answer": str | None,  # none when the run ends before an answer
-    "reranked": list[ScoredVectorStoreRecord],  # the result's passages
+    "reranked": list[ScoredVectorStoreRecord],  # the result's records
     METADATA_FILTER_FIELD: list[MetadataCondition],
 }
 RESPONSE_FIELDS: frozenset[str] = frozenset(RESPONSE_FIELD_TYPES)

@@ -77,7 +77,7 @@ class BaseCalibratedStage(ABC, Generic[T]):
 
         Args:
             adapter: An adapter ``loaded`` returned.
-            batch_size: Texts (or passages) per model batch.
+            batch_size: Texts (or records' texts) per model batch.
 
         Returns:
             An adapter sharing ``adapter``'s model.

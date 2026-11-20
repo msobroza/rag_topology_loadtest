@@ -80,13 +80,13 @@ def _parser() -> argparse.ArgumentParser:
 
 async def _ingest_through(
     composition: CompositionRoot,
-    passages: Sequence[VectorStoreRecord],
+    records: Sequence[VectorStoreRecord],
     args: argparse.Namespace,
 ) -> dict[str, object]:
     batch_size = args.batch_size
     async with composition:
         embedder, store = await composition.ingest_ports(args.embedder)
-        count = await ingest(passages, embedder, store, batch_size=batch_size)
+        count = await ingest(records, embedder, store, batch_size=batch_size)
         _, stored = await store.ready()
     return {"records": count, "embedder": embedder.model_name, "store": stored}
 
@@ -146,13 +146,13 @@ def main(
         if args.corpus
         else synthetic_corpus(args.synthetic, args.seed)
     )
-    passages = [
-        p
+    records = [
+        r
         for d in docs
-        for p in chunk(
+        for r in chunk(
             d, chunk_words=args.chunk_words, overlap_words=args.overlap_words
         )
     ]
-    summary = asyncio.run(_ingest_through(composition, passages, args))
+    summary = asyncio.run(_ingest_through(composition, records, args))
     print(json.dumps({"event": "ingest_done", "documents": len(docs), **summary}))
     return 0
