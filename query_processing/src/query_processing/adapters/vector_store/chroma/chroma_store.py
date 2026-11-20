@@ -80,19 +80,19 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def upsert(
         self,
-        passages: Sequence[VectorStoreRecord],
+        records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
         """Store passages with their vectors; a known id is replaced whole.
 
         Args:
-            passages: The passages to store; none is a no-op.
+            records: The passages to store; none is a no-op.
             embeddings: One vector per passage, in the same order.
         """
-        if not passages:
+        if not records:
             return
-        ids = [p.id for p in passages]
-        vectors = [list(e) for _, e in zip(passages, embeddings, strict=True)]
+        ids = [p.id for p in records]
+        vectors = [list(e) for _, e in zip(records, embeddings, strict=True)]
 
         def replace() -> None:
             # Chroma's own upsert merges new metadata into the old, so a key a
@@ -101,8 +101,8 @@ class ChromaVectorStore(BaseVectorStore):
             self._collection.add(
                 ids=ids,
                 embeddings=vectors,
-                documents=[p.text for p in passages],
-                metadatas=[_chroma_metadata(p.metadata) for p in passages],
+                documents=[p.text for p in records],
+                metadatas=[_chroma_metadata(p.metadata) for p in records],
             )
 
         await self._call(replace)
@@ -159,7 +159,7 @@ class ChromaVectorStore(BaseVectorStore):
             Whether the collection is non-empty, and how many passages it holds.
         """
         count = await self.count()
-        return count > 0, f"{count} passages in {self._name}"
+        return count > 0, f"{count} records in {self._name}"
 
     async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         return await _off_loop(self._name, fn, *args, **kwargs)
@@ -198,7 +198,7 @@ def _chroma_metadata(
 
 
 def _scored(
-    passage_id: str, text: str | None, metadata: Any, score: float
+    record_id: str, text: str | None, metadata: Any, score: float
 ) -> ScoredVectorStoreRecord:
     # Chroma gives None for a row stored without metadata.
-    return record_as_read(passage_id, text or "", dict(metadata or {}), score)
+    return record_as_read(record_id, text or "", dict(metadata or {}), score)

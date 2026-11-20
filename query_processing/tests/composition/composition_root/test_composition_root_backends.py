@@ -58,7 +58,7 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
         await store.upsert([passage], await embedder.embed_documents([passage.text]))
 
         assert isinstance(store, ChromaVectorStore)
-        assert await store.ready() == (True, "1 passages in passages_under_test")
+        assert await store.ready() == (True, "1 records in passages_under_test")
         [vector] = await embedder.embed_documents([passage.text])
         [hit] = await store.query(vector, 5)
         assert hit.id == "p1"

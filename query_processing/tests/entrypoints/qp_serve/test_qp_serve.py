@@ -49,7 +49,7 @@ class FailingReranker(BaseReranker):
         self.kind = kind
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
         raise RagDependencyError("reranker", "boom", target=RERANK_URL, kind=self.kind)
 
@@ -61,9 +61,9 @@ class ExplodingProbeReranker(BaseReranker):
     """BaseReranker whose readiness probe itself raises."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
-        return list(passages[:top_n])
+        return list(records[:top_n])
 
     async def ready(self) -> tuple[bool, str]:
         raise RuntimeError("reranker probe exploded")
@@ -228,7 +228,7 @@ def test_readyz_all_checks_ok(client: TestClient) -> None:
     checks = _checks_by_name(body)
     assert set(checks) == {"vector_store", "embedder", "reranker"}
     assert all(check["ok"] for check in checks.values())
-    assert checks["vector_store"]["detail"] == "200 passages in memory"
+    assert checks["vector_store"]["detail"] == "200 records in memory"
 
 
 def test_readyz_empty_store_is_not_ready(

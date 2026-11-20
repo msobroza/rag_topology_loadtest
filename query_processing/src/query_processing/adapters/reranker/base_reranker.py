@@ -31,13 +31,13 @@ class BaseReranker(
 
     @abstractmethod
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
         """Re-score retrieval candidates against the query and keep the best.
 
         Args:
             query: The question the passages are scored against.
-            passages: The retrieval candidates.
+            records: The retrieval candidates.
             top_n: How many passages to keep.
 
         Returns:
@@ -55,11 +55,11 @@ class BaseReranker(
 
         Example:
             >>> await reranker.ainvoke(RerankRequest(
-            ...     query="vacation", passages=candidates, top_k=5))
-            RerankAnswer(passages=[...])
+            ...     query="vacation", records=candidates, top_k=5))
+            RerankAnswer(records=[...])
         """
-        kept = await self.rerank(request.query, request.passages, request.top_k)
-        return RerankAnswer(passages=kept)
+        kept = await self.rerank(request.query, request.records, request.top_k)
+        return RerankAnswer(records=kept)
 
     @abstractmethod
     async def ready(self) -> tuple[bool, str]:

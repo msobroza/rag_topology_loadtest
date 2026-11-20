@@ -70,12 +70,12 @@ def test_the_sample_is_deterministic() -> None:
 def test_the_sample_has_the_passages_asked(passages: int) -> None:
     sample = calibration_sample(passages)
 
-    assert len(sample.passages) == passages
+    assert len(sample.records) == passages
     assert sample.question.endswith("?")
 
 
 def test_the_sample_passages_spread_from_short_to_long() -> None:
-    lengths = sorted(len(p) for p in calibration_sample(20).passages)
+    lengths = sorted(len(p) for p in calibration_sample(20).records)
 
     assert 100 <= lengths[0] <= 200
     assert 700 <= lengths[-1] <= 800
@@ -84,13 +84,13 @@ def test_the_sample_passages_spread_from_short_to_long() -> None:
 
 def test_the_sample_passages_are_not_in_length_order() -> None:
     # Retrieval returns candidates in score order, not length order.
-    lengths = [len(p) for p in calibration_sample(20).passages]
+    lengths = [len(p) for p in calibration_sample(20).records]
 
     assert lengths not in (sorted(lengths), sorted(lengths, reverse=True))
 
 
 def test_the_sample_refuses_no_passage() -> None:
-    with pytest.raises(ValueError, match="passages=0"):
+    with pytest.raises(ValueError, match="records=0"):
         calibration_sample(0)
 
 

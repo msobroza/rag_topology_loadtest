@@ -35,7 +35,7 @@ class RecordingScope(NativeThreadScope):
         return super().run(fn, *args)
 
 
-def scored_passages(*ids: str) -> list[ScoredVectorStoreRecord]:
+def scored_records(*ids: str) -> list[ScoredVectorStoreRecord]:
     return [
         ScoredVectorStoreRecord(
             text=f"text of {i}", metadata={"id": i}, retrieval_score=0.5

@@ -14,7 +14,7 @@ runs and what a spent budget keeps; none is searched under a performance hint
 (``QP_OVMS_OPENVINO__PERFORMANCE_HINT``), which sets the streams. Threads: the
 CPUs, then half of them, down to 1. A request is scored in one batch, so the
 tuning's batch size is the request's size: a reranker's
-``local.calibration_passages`` passages, or one question.
+``local.calibration_records`` passages, or one question.
 
 Before an App's serving folder is written, the export is held to the weight
 format the settings ask (``require_asked_weight_format``): the launch script sees

@@ -216,7 +216,7 @@ nine other vector-store records kept):
 
 ```bash
 curl -s localhost:18888/readyz
-# {"status":"ready","checks":[{"name":"router_embedder","ok":true,"detail":"fake-embedder"},{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 passages in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
+# {"status":"ready","checks":[{"name":"router_embedder","ok":true,"detail":"fake-embedder"},{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 records in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
 curl -s -X POST localhost:18888/query -H 'Content-Type: application/json' \
   -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
 # {"request_id":"e1e69f34fa1844e19be2beec8510fcdf","topology":null,"run_label":"embedder=fake+router_embedder=fake+router=fake+reranker=fake+llm=fake+vector_store=fake",...,
@@ -284,7 +284,10 @@ first run reach it on port 8888; `make infra-down` stops the
 containers. `make ingest` embeds with the component `embedder`, which it names
 since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
 --corpus docs.jsonl` loads a real corpus, one `{"id","title","text","metadata"}`
-object per line. The export: [In-process models on OpenVINO](#in-process-models-on-openvino).
+object per line. It ends with one summary line, such as
+`{"event": "ingest_done", "documents": 200, "records": 200, "embedder": "...", "store": "200 records in rag_passages"}`:
+the documents read, the vector-store records upserted, the embedder's model
+name and what the store reports holding. The export: [In-process models on OpenVINO](#in-process-models-on-openvino).
 
 **The split topologies on a laptop.** A component is moved behind a model
 server by its backend, `served`, and its served URL, and by nothing else. With
@@ -1624,8 +1627,8 @@ block, and `qp-ingest` fills the one the file declares.
 | `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
 | `embedder` | `local.normalize` | not written: `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. The RAG's embedder ends its own pipeline with a normalisation step, so its vectors are unit-length whatever this says (measured: length 1.000000 with it off and on). It does not change OVMS: its own export normalises on its side (the exporter's default) |
-| `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | passages per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_passages` |
-| `reranker` | `local.calibration_passages` | not written: `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
+| `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | passages per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_records` |
+| `reranker` | `local.calibration_records` | not written: `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
 | every model | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `qp-serve --domino` and no key elsewhere |
 | `embedder` | `served.batch_size` | not written: `64` | texts per model-server request (>= 1) |
 | `llm` | `served.temperature` | not written: `0` | sampling temperature, 0 to 2 |
@@ -2155,7 +2158,7 @@ the runtime.
 choice. So when an in-process model loads, the process times its stage (embed
 or rerank) under each candidate and keeps the fastest. It does so only for a
 parameter of a component's `local` block left at `0`: a reranker's
-`batch_size` tries its `calibration_passages` (20, the size of the sample
+`batch_size` tries its `calibration_records` (20, the size of the sample
 request), then half of it, down to 1; the `threads` of a reranker or an
 embedder try the budget's share, then half of it, down to 1. The embedder's batch size is not
 searched: a query is one text. Batch sizes are timed first, on the budget's
@@ -2201,7 +2204,7 @@ streams than cores, and 16 streams on 8 cores were the slowest candidate
 measured, so a 2-vCPU App tries one stream alone. A pinned stream count is
 tried as pinned. Under a performance hint (`QP_OVMS_OPENVINO__PERFORMANCE_HINT`)
 OVMS chooses the streams, so only the thread counts are searched. The warm-up and rounds are the in-process ones,
-and so is the sample: a reranker's `local.calibration_passages` passages, all
+and so is the sample: a reranker's `local.calibration_records` passages, all
 kept, or one question an embedder embeds as a query.
 The budget also bounds a trial: one still running when it is spent is
 abandoned, its `ovms` stopped, and the search ends there. The fastest completed
@@ -2353,7 +2356,7 @@ any more by the workflow app:
 | `RAG_HYBRID_RRF_K` | the retrieve stage's `rrf_k` |
 | `RAG_SYSTEM_PROMPT`, `RAG_USER_PROMPT`, `RAG_PROMPTS_FILE` (`config/prompts.yaml`) | the use case's `prompts.yaml` (`QP_PROMPTS_FILE`, else `./prompts.yaml`), which the generate stage names by its `prompt` |
 | the generate stage's `system_prompt` and `user_prompt` in the workflow file (`QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT`, `__USER_PROMPT`), the user template holding `{context}` and `{question}` | a prompt of `prompts.yaml` (the RAG's `answer_from_context`), a list of messages whose contents are Jinja2 templates over the fields the stage reads (the passages by a loop over `reranked`), named by the stage's `prompt`; a variable by its path replaces the whole prompt, as JSON (`QP_PROMPTS__ANSWER_FROM_CONTEXT`) |
-| the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES` passages, all kept |
+| the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS` vector-store records, all kept |
 | `RAG_EMBEDDING_*`, `RAG_RERANK_*`, `RAG_GENERATION_*`, and before them `RAG_EMBEDDER_*`, `RAG_RERANKER_*` | each model component's entry in the workflow file, by its path: `RAG_EMBEDDING_MODEL` is the embedder's `source_id` (`QP_COMPONENTS__EMBEDDER__SOURCE_ID`), `RAG_RERANK_API_MODEL` its alias as a model server serves it (`QP_COMPONENTS__RERANKER__ALIAS`) or the name sent to an endpoint (`api.model`), `RAG_RERANK_THREADS` `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_EMBEDDING_NORMALIZE` `QP_COMPONENTS__EMBEDDER__LOCAL__NORMALIZE`, `RAG_GENERATION_TIMEOUT_S` `QP_COMPONENTS__LLM__HTTP__TIMEOUT_S` |
 | `RAG_OVMS_EMBEDDINGS_URL`, `RAG_OVMS_RERANK_URL` (a base URL with a localhost default) | `QP_COMPONENTS__EMBEDDER__SERVED__URL`, `QP_COMPONENTS__RERANKER__SERVED__URL` (the full route, no default) |
 | `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | the components' aliases (`QP_COMPONENTS__EMBEDDER__ALIAS`, `QP_COMPONENTS__RERANKER__ALIAS`), the model name a `served` component sends |
@@ -2368,13 +2371,14 @@ any more by the workflow app:
 | `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_OPENVINO_WEIGHT_FORMAT`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `QP_LOCAL_MODELS__RUNTIME`, `QP_LOCAL_MODELS__OPENVINO_DIR`, `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`, `QP_LOCAL_MODELS__WORKERS`, `QP_LOCAL_MODELS__CPUS` |
 | `RAG_CALIBRATION_BUDGET_S`, `RAG_CALIBRATION_ROUNDS`, `RAG_CALIBRATION_USERS` | the `calibration` block: `QP_CALIBRATION__BUDGET_S`, `QP_CALIBRATION__ROUNDS`, `QP_CALIBRATION__USERS` |
 | `RAG_OVMS_NUM_STREAMS`, `RAG_OVMS_THREADS`, `RAG_OVMS_START_TIMEOUT_S` | `QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`, `QP_OVMS_START_TIMEOUT_S`: an OVMS model server App's own variables, no value of the workflow file, set in that App's block of `deploy.yaml` (`apps.<component>.settings`) |
-| the calibration request OVMS was sent, sized by `RAG_TOP_K_RETRIEVE` and kept to `RAG_TOP_K_RERANK` | the reranker's `local.calibration_passages` passages, all kept, as for its in-process calibration |
+| the calibration request OVMS was sent, sized by `RAG_TOP_K_RETRIEVE` and kept to `RAG_TOP_K_RERANK` | the reranker's `local.calibration_records` vector-store records, all kept, as for its in-process calibration |
 | `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` | the top-level `http` block: `QP_HTTP__TIMEOUT_S`, `QP_HTTP__RETRIES`, `QP_HTTP__BACKOFF_S` |
 | `RAG_DOMINO_TOKEN_URL`, `RAG_DOMINO_TOKEN_TTL_S`, `RAG_DOMINO_TRACING` | the `domino` block: `QP_DOMINO__TOKEN_URL`, `QP_DOMINO__TOKEN_TTL_S`, `QP_DOMINO__TRACING` |
 | `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `QP_COMPONENTS__LLM__API__MODEL`, `QP_COMPONENTS__LLM__API__TEMPERATURE` |
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `QP_COMPONENTS__LLM__API__URL` (the full route), `QP_COMPONENTS__LLM__API__API_KEY` |
 | backends `ovms`, `openai`, `cohere` | backend `served` for a model server of ours (OVMS among them), `api` for an endpoint in an API format |
 | `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `api` block instead; the BM25 tunables have no replacement |
+| a reranker's `local.calibration_passages` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES`) | `local.calibration_records` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS`); start-up refuses the old name, in the workflow file or as a variable, in one line that gives the new one |
 
 <!-- old-names:end -->
 

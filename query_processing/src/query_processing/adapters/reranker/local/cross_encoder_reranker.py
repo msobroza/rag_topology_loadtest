@@ -88,22 +88,22 @@ class CrossEncoderReranker(BaseReranker):
         )
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
         """Score each (query, passage) pair on the pool and keep the best.
 
         Args:
             query: The question the passages are scored against.
-            passages: The retrieval candidates; none returns ``[]`` without a model
+            records: The retrieval candidates; none returns ``[]`` without a model
                 call.
             top_n: How many passages to keep.
 
         Returns:
             At most ``top_n`` passages, best first, with the cross-encoder score.
         """
-        if not passages:
+        if not records:
             return []
-        pairs = [(query, p.text) for p in passages]
+        pairs = [(query, p.text) for p in records]
         # No progress bar: at the Apps' INFO level one is drawn on stderr per call.
         predict = functools.partial(
             self._model.predict,
@@ -112,7 +112,7 @@ class CrossEncoderReranker(BaseReranker):
             show_progress_bar=False,
         )
         scores = await run_blocking(self._executor, self.scope.run, predict)
-        return top_by_score(passages, [float(s) for s in scores], top_n)
+        return top_by_score(records, [float(s) for s in scores], top_n)
 
     def with_batch_size(self, batch_size: int) -> CrossEncoderReranker:
         """Return this adapter at another batch size, on the same loaded model.

@@ -159,4 +159,4 @@ class RetrieveStage(BaseStage[BaseVectorStore, RetrieveSettings]):
             retrieval_mode=self.settings.retrieval_mode,
             rrf_k=self.settings.rrf_k,
         )
-        return self.write_field((await self.component.ainvoke(request)).passages)
+        return self.write_field((await self.component.ainvoke(request)).records)

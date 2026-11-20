@@ -11,9 +11,9 @@ searches.
 
 Example:
     >>> calibrated = await calibrate(
-    ...     CalibratedRerankStage(model, pool, passages=20),
+    ...     CalibratedRerankStage(model, pool, records=20),
     ...     threads=candidates(local.threads, budget.reranker_threads),
-    ...     batch_sizes=candidates(local.batch_size, local.calibration_passages),
+    ...     batch_sizes=candidates(local.batch_size, local.calibration_records),
     ...     limits=local_models.calibration_limits,
     ... )
     >>> reranker = calibrated.adapter
@@ -144,31 +144,31 @@ async def component_calibration(
 class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
     """The rerank stage on the in-process cross-encoder, as calibration times it.
 
-    Its sample is a question and ``passages`` passages, all kept: the model
+    Its sample is a question and ``records`` passages, all kept: the model
     scores every candidate whatever it keeps, so the number kept does not
     change the time.
 
     Args:
         model: The model's files and runtime.
         pool: The shared inference pool.
-        passages: How many passages the sample request reranks.
+        records: How many passages the sample request reranks.
 
     Example:
-        >>> stage = CalibratedRerankStage(model, pool, passages=20)
+        >>> stage = CalibratedRerankStage(model, pool, records=20)
         >>> reranker = await stage.loaded(threads=2)
     """
 
     stage = "rerank"
 
-    def __init__(self, model: LocalModel, pool: Executor, *, passages: int) -> None:
+    def __init__(self, model: LocalModel, pool: Executor, *, records: int) -> None:
         self._model, self._pool = model, pool
-        sample = calibration_sample(passages)
+        sample = calibration_sample(records)
         self._question = sample.question
         self._passages = [
             ScoredVectorStoreRecord(
                 text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
             )
-            for i, text in enumerate(sample.passages)
+            for i, text in enumerate(sample.records)
         ]
 
     async def loaded(self, threads: int) -> CrossEncoderReranker:

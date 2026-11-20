@@ -60,7 +60,7 @@ def test_the_fixture_file_declares_three_model_components_and_a_store(
     assert reranker.source_id == "fixture-org/fixture-reranker"
     assert reranker.alias == "fixture-reranker"
     assert reranker.local == RerankerLocalSettings(
-        batch_size=0, threads=0, calibration_passages=20
+        batch_size=0, threads=0, calibration_records=20
     )
     assert reranker.api == RerankerEndpointSettings(api_format="cohere")
     assert reranker.http == ComponentHttpSettings()
@@ -103,7 +103,7 @@ def test_every_value_is_reachable_by_its_environment_path(
         "QP_COMPONENTS__RERANKER__ALIAS": "rr",
         "QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": "4",
         "QP_COMPONENTS__RERANKER__LOCAL__THREADS": "2",
-        "QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES": "12",
+        "QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS": "12",
         "QP_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.5",
         "QP_COMPONENTS__LLM__API__MODEL": "gpt-x",
         "QP_COMPONENTS__LLM__API__API_KEY": "sk-key",
@@ -128,7 +128,7 @@ def test_every_value_is_reachable_by_its_environment_path(
     assert reranker.alias == "rr"
     assert reranker.source_id == "fixture-org/fixture-reranker"
     assert reranker.local == RerankerLocalSettings(
-        batch_size=4, threads=2, calibration_passages=12
+        batch_size=4, threads=2, calibration_records=12
     )
     assert reranker.http == ComponentHttpSettings(backoff_s=0.5)
     assert (llm.api.model, llm.api.api_key, llm.api.temperature) == (
@@ -271,7 +271,32 @@ def test_the_calibration_request_reads_no_stages_setting(
     settings = settings_factory(graph=rag_graph(retrieve_top_k=7, rerank_top_k=3))
 
     local = settings.components["reranker"].local
-    assert local.calibration_passages == 20  # the reranker's own default
+    assert local.calibration_records == 20  # the reranker's own default
+
+
+@pytest.mark.parametrize("stated_as", ["the workflow file", "a variable"])
+def test_the_calibration_settings_old_name_is_refused_giving_the_new_one(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stated_as: str,
+) -> None:
+    components = fixture_components()
+    if stated_as == "the workflow file":
+        components["reranker"]["local"] = {"calibration_passages": 12}
+    else:
+        monkeypatch.setenv("QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES", "12")
+    workflow = write_workflow_file(tmp_path / "w.yaml", fixture_graph(), components)
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+
+    with pytest.raises(ValidationError) as caught:
+        settings_factory()
+
+    assert (
+        "the setting 'calibration_passages' is now 'calibration_records' "
+        "(QP_COMPONENTS__<NAME>__LOCAL__CALIBRATION_RECORDS as a variable); "
+        "rename it"
+    ) in str(caught.value)
 
 
 def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None:

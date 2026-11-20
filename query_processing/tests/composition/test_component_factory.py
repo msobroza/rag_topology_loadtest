@@ -185,8 +185,8 @@ from .component_openers import RERANKER_OPENERS
 
 
 class ReversedReranker(BaseReranker):
-    async def rerank(self, query, passages, top_n):
-        kept = list(passages)[::-1][:top_n]
+    async def rerank(self, query, records, top_n):
+        kept = list(records)[::-1][:top_n]
         return [
             passage.model_copy(update={"rerank_score": float(len(kept) - i)})
             for i, passage in enumerate(kept)

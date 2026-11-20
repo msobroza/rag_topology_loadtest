@@ -17,7 +17,7 @@ Example:
     ...                     StageFields(("standalone_query", "candidates"),
     ...                                 ("reranked",)))
     >>> binding.from_reads
-    {'query': 'standalone_query', 'passages': 'candidates'}
+    {'query': 'standalone_query', 'records': 'candidates'}
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class CallBinding(NamedTuple):
     Example:
         >>> bind_call(BaseReranker, {"top_k": 10}, StageFields(
         ...     ("standalone_query", "candidates"), ("reranked",))).to_writes
-        {'reranked': 'passages'}
+        {'reranked': 'records'}
     """
 
     from_keys: dict[str, object]

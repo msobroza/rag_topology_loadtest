@@ -88,7 +88,7 @@ async def _ingest_through(
         embedder, store = await composition.ingest_ports(args.embedder)
         count = await ingest(passages, embedder, store, batch_size=batch_size)
         _, stored = await store.ready()
-    return {"passages": count, "embedder": embedder.model_name, "store": stored}
+    return {"records": count, "embedder": embedder.model_name, "store": stored}
 
 
 def _configured_composition(
@@ -119,8 +119,9 @@ def main(
 ) -> int:
     """Run ``qp-ingest``: chunk, embed and upsert a corpus, then print one JSON line.
 
-    The summary line is the ``ingest_done`` event: the document count, the passage
-    count, the embedder's model name and what the store reports holding.
+    The summary line is the ``ingest_done`` event: the document count, the count
+    of vector-store records (``records``), the embedder's model name and what the
+    store reports holding.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.

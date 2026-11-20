@@ -40,7 +40,7 @@ def value_at(settings: WorkflowSettings, path: str) -> Any:
         ("components__embedder__served__batch_size", 0),
         ("components__reranker__local__batch_size", -1),
         ("components__reranker__local__threads", -1),
-        ("components__reranker__local__calibration_passages", 0),
+        ("components__reranker__local__calibration_records", 0),
         ("calibration__budget_s", 0),
         ("calibration__rounds", 0),
         ("local_models__workers", 0),

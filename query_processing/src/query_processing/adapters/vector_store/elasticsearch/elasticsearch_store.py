@@ -104,24 +104,24 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
 
     async def upsert(
         self,
-        passages: Sequence[VectorStoreRecord],
+        records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
         """Store passages with their vectors, keyed by passage id.
 
         Args:
-            passages: The passages to store; none is a no-op.
+            records: The passages to store; none is a no-op.
             embeddings: One vector per passage, in the same order.
         """
-        if not passages:
+        if not records:
             return
         await self._ensure_index(len(embeddings[0]))
-        pairs = [(p.text, list(e)) for p, e in zip(passages, embeddings, strict=True)]
+        pairs = [(p.text, list(e)) for p, e in zip(records, embeddings, strict=True)]
         await self._call(
             self._store.aadd_embeddings,
             pairs,
-            metadatas=[dict(p.metadata) for p in passages],
-            ids=[p.id for p in passages],
+            metadatas=[dict(p.metadata) for p in records],
+            ids=[p.id for p in records],
         )
 
     async def query(
@@ -217,7 +217,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             its text analyzer differs from the configured one, also that.
         """
         count = await self.count()
-        status = f"{count} passages in {self.index}"
+        status = f"{count} records in {self.index}"
         if count and self._text_analyzer:
             status += await self._analyzer_mismatch()
         return count > 0, status

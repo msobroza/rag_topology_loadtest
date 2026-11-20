@@ -92,7 +92,7 @@ class CalibrationSample:
     """The request every candidate serves: one question and its passages."""
 
     question: str
-    passages: tuple[str, ...]
+    records: tuple[str, ...]
 
 
 def halvings(top: int) -> tuple[int, ...]:
@@ -143,9 +143,9 @@ def fastest(trials: Sequence[TimedTrial]) -> StageTuning:
 
 
 def calibration_sample(
-    passages: int, *, shortest: int = 150, longest: int = 800, seed: int = 1234
+    records: int, *, shortest: int = 150, longest: int = 800, seed: int = 1234
 ) -> CalibrationSample:
-    """Build a deterministic question and ``passages`` passages of spread lengths.
+    """Build a deterministic question and ``records`` passages of spread lengths.
 
     The passages are the synthetic corpus's texts, repeated and cut to lengths
     spread evenly from ``shortest`` to ``longest`` characters, then shuffled.
@@ -155,7 +155,7 @@ def calibration_sample(
     retrieval returns them by score, not by length.
 
     Args:
-        passages: How many passages: the request's usual size.
+        records: How many passages: the request's usual size.
         shortest: Characters of the shortest passage.
         longest: Characters of the longest passage.
         seed: Seed of the corpus and of the shuffle.
@@ -164,18 +164,18 @@ def calibration_sample(
         The question and the passages.
 
     Raises:
-        ValueError: If ``passages`` is below 1.
+        ValueError: If ``records`` is below 1.
 
     Example:
         >>> sample = calibration_sample(20)
-        >>> len(sample.passages)
+        >>> len(sample.records)
         20
     """
-    if passages < 1:
-        raise ValueError(f"a calibration sample needs passages >= 1, got {passages=}")
-    texts = [doc.text for doc in synthetic_corpus(passages, seed=seed)]
-    steps = max(passages - 1, 1)
-    lengths = [shortest + (longest - shortest) * i // steps for i in range(passages)]
+    if records < 1:
+        raise ValueError(f"a calibration sample needs records >= 1, got {records=}")
+    texts = [doc.text for doc in synthetic_corpus(records, seed=seed)]
+    steps = max(records - 1, 1)
+    lengths = [shortest + (longest - shortest) * i // steps for i in range(records)]
     pairs = zip(texts, lengths, strict=True)
     cut = [_repeated_to(text, length) for text, length in pairs]
     random.Random(seed).shuffle(cut)

@@ -191,10 +191,10 @@ def opened_of(graph: GraphDescription) -> OpenedGraph:
     )
 
 
-def scored(passage_id: str, text: str | None = None) -> ScoredVectorStoreRecord:
+def scored(record_id: str, text: str | None = None) -> ScoredVectorStoreRecord:
     """A retrieved passage whose text is its id unless one is given."""
     return ScoredVectorStoreRecord(
-        text=text or passage_id, metadata={"id": passage_id}, retrieval_score=1.0
+        text=text or record_id, metadata={"id": record_id}, retrieval_score=1.0
     )
 
 
@@ -205,10 +205,10 @@ class RecordingEmbedder(BaseEmbedder):
 
     def __init__(self) -> None:
         self.queries: list[str] = []
-        self.passages: list[str] = []
+        self.records: list[str] = []
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        self.passages.extend(texts)
+        self.records.extend(texts)
         return [[1.0, 0.0] for _ in texts]
 
     async def embed_query(self, text: str) -> list[float]:
@@ -226,10 +226,10 @@ class RecordingReranker(BaseReranker):
         self.calls: list[tuple[str, int, int]] = []
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
-        self.calls.append((query, len(passages), top_n))
-        return list(passages[:top_n])
+        self.calls.append((query, len(records), top_n))
+        return list(records[:top_n])
 
     async def ready(self) -> tuple[bool, str]:
         return True, "recording"
@@ -261,7 +261,7 @@ class DenseOnlyStore(BaseVectorStore):
 
     async def upsert(
         self,
-        passages: Sequence[VectorStoreRecord],
+        records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
         raise AssertionError("the workflow never writes to the store")
@@ -292,7 +292,7 @@ class ScriptedStore(BaseVectorStore, BaseLexicalSearch):
 
     async def upsert(
         self,
-        passages: Sequence[VectorStoreRecord],
+        records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
         raise AssertionError("the workflow never writes to the store")

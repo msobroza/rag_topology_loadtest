@@ -156,7 +156,7 @@ def test_the_vector_store_is_built_from_its_entry_in_the_workflow_file(
 
     assert response.status_code == 200, response.text
     [check] = [c for c in ready["checks"] if c["name"] == "vector_store"]
-    assert check["detail"] == f"{passages_of(3)} passages in memory"
+    assert check["detail"] == f"{passages_of(3)} records in memory"
 
 
 def test_a_store_of_any_name_is_called_by_that_name_and_read_by_its_path(
@@ -172,7 +172,7 @@ def test_a_store_of_any_name_is_called_by_that_name_and_read_by_its_path(
 
     assert response.status_code == 200, response.text
     [check] = [c for c in ready["checks"] if c["name"] == "passages"]
-    assert check["detail"] == f"{passages_of(5)} passages in memory"
+    assert check["detail"] == f"{passages_of(5)} records in memory"
 
 
 def api_keys_in(node: object) -> list[str]:

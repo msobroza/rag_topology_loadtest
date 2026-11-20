@@ -88,7 +88,7 @@ class CompiledWorkflow:
             question=question,
             mode=mode,
             answer=final.get("answer") if mode == "query" else None,
-            passages=final.get("reranked", []),
+            records=final.get("reranked", []),
             metadata_filter=final.get(METADATA_FILTER_FIELD, []),
             timings_ms=stage_timings(self.stage_names, final[TIMINGS_FIELD], total_ms),
             tokens=stage_tokens(self.stage_names, final[TOKENS_FIELD]),

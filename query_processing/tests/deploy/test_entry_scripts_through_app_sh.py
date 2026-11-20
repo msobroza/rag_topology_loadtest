@@ -317,7 +317,7 @@ def test_every_app_reads_each_override_back_to_its_value_over_the_file(
     assert settings.graph.edges == SITE_OVERRIDES["graph"]["edges"]  # type: ignore[index]
     # A plain call's keys fill its component's request, which reads the text back.
     rerank = settings.graph.stages["rerank"].stage_settings
-    request = RerankRequest.model_validate({"query": "q", "passages": [], **rerank})
+    request = RerankRequest.model_validate({"query": "q", "records": [], **rerank})
     assert request.top_k == 5
     assert settings.run_label == "site-a"
 

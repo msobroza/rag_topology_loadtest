@@ -22,8 +22,8 @@ def test_keys_fill_named_attributes_and_reads_fill_the_rest_in_order() -> None:
     )
 
     assert binding.from_keys == {"top_k": 10}
-    assert binding.from_reads == {"query": "standalone_query", "passages": "candidates"}
-    assert binding.to_writes == {"reranked": "passages"}
+    assert binding.from_reads == {"query": "standalone_query", "records": "candidates"}
+    assert binding.to_writes == {"reranked": "records"}
     assert binding.field_types.reads == {
         "standalone_query": str,
         "candidates": list[ScoredVectorStoreRecord],

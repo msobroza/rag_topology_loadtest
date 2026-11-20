@@ -9,7 +9,7 @@ Example:
     >>> answer = await store.ainvoke(SearchRequest(
     ...     embedding=vector, text="vacation", top_k=20, retrieval_mode="hybrid",
     ...     rrf_k=60))
-    >>> [p.id for p in answer.passages]
+    >>> [p.id for p in answer.records]
     ['p3', 'p1', ...]
 """
 
@@ -44,14 +44,14 @@ class RerankRequest(_FrozenStrictModel):
     """Retrieval candidates to re-score against a query, and how many to keep."""
 
     query: str
-    passages: list[ScoredVectorStoreRecord]
+    records: list[ScoredVectorStoreRecord]
     top_k: int = Field(ge=1)
 
 
 class RerankAnswer(_FrozenStrictModel):
     """At most ``top_k`` passages, best first."""
 
-    passages: list[ScoredVectorStoreRecord]
+    records: list[ScoredVectorStoreRecord]
 
 
 class GenerateRequest(_FrozenStrictModel):
@@ -114,4 +114,4 @@ class SearchRequest(_FrozenStrictModel):
 class SearchAnswer(_FrozenStrictModel):
     """The passages found, best first, each with its ``retrieval_score``."""
 
-    passages: list[ScoredVectorStoreRecord]
+    records: list[ScoredVectorStoreRecord]

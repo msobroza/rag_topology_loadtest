@@ -64,7 +64,7 @@ def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
         """Implements ``rerank`` but forgets ``ready``."""
 
         async def rerank(
-            self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+            self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
         ) -> list[ScoredVectorStoreRecord]:
             return []
 
@@ -97,8 +97,8 @@ async def test_each_port_answers_ainvoke_from_its_own_method() -> None:
     assert (await embedder.ainvoke(EmbedRequest(text="q"))).embedding == [1.0, 0.0]
     assert embedder.queries == ["q"]
     passages = [scored("a"), scored("b")]
-    kept = await reranker.ainvoke(RerankRequest(query="q", passages=passages, top_k=1))
-    assert [p.id for p in kept.passages] == ["a"]
+    kept = await reranker.ainvoke(RerankRequest(query="q", records=passages, top_k=1))
+    assert [p.id for p in kept.records] == ["a"]
     assert reranker.calls == [("q", 2, 1)]
     request = GenerateRequest(messages=[{"role": "user", "content": "hi"}])
     assert (await FakeLLM().ainvoke(request)).text == "[fake-llm] hi"
@@ -163,7 +163,7 @@ async def test_the_vector_store_searches_by_its_retrieval_mode(
         )
     )
 
-    assert [p.id for p in answer.passages] == expected
+    assert [p.id for p in answer.records] == expected
     assert store.calls == calls
 
 

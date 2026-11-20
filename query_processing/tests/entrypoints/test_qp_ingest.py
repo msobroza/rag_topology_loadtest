@@ -74,9 +74,9 @@ def test_main_ingests_the_synthetic_corpus_and_prints_one_summary_line(
     assert json.loads(lines[0]) == {
         "event": "ingest_done",
         "documents": 3,
-        "passages": 3,
+        "records": 3,
         "embedder": "fake-embedder",
-        "store": "3 passages in memory",
+        "store": "3 records in memory",
     }
 
 
@@ -92,8 +92,8 @@ def test_main_chunks_a_corpus_file(
 
     summary = json.loads(capsys.readouterr().out)
     assert (summary["event"], summary["documents"]) == ("ingest_done", 2)
-    assert summary["passages"] == 3  # 30 words at 20/5 -> 2 chunks, plus 1
-    assert summary["store"] == "3 passages in memory"
+    assert summary["records"] == 3  # 30 words at 20/5 -> 2 chunks, plus 1
+    assert summary["store"] == "3 records in memory"
 
 
 def test_main_refuses_the_fake_store(monkeypatch: pytest.MonkeyPatch) -> None:

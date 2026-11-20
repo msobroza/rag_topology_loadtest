@@ -121,12 +121,12 @@ def test_distinct_words_lower_cases_and_drops_repeats_and_punctuation() -> None:
 
 async def test_in_memory_store_is_ready_once_it_holds_a_passage() -> None:
     store = InMemoryVectorStore()
-    assert await store.ready() == (False, "0 passages in memory")
+    assert await store.ready() == (False, "0 records in memory")
 
     await store.upsert(
         [VectorStoreRecord(text="one", metadata={"id": "p1"})], [[1.0, 0.0]]
     )
-    assert await store.ready() == (True, "1 passages in memory")
+    assert await store.ready() == (True, "1 records in memory")
 
 
 async def test_in_memory_store_rejects_mismatched_lengths() -> None:
@@ -176,7 +176,7 @@ async def test_a_search_returns_only_the_passages_that_meet_every_condition(
         )
     )
 
-    assert sorted(p.id for p in answer.passages) == ["pay-1", "pay-2"]
+    assert sorted(p.id for p in answer.records) == ["pay-1", "pay-2"]
 
 
 async def test_the_filter_applies_before_top_k() -> None:
@@ -196,7 +196,7 @@ async def test_a_search_without_conditions_filters_nothing() -> None:
         SearchRequest(embedding=[1.0, 0.0], top_k=5, retrieval_mode="dense")
     )
 
-    assert len(answer.passages) == len(TOPICS)
+    assert len(answer.records) == len(TOPICS)
 
 
 def cond(attribute: str, comparator: str, value: object) -> MetadataCondition:
@@ -240,7 +240,7 @@ async def test_the_prefilter_and_the_requests_conditions_must_all_hold(
         )
     )
 
-    assert [p.id for p in answer.passages] == ["amf-on"]
+    assert [p.id for p in answer.records] == ["amf-on"]
 
 
 async def test_the_prefilter_applies_to_a_search_without_conditions() -> None:
@@ -251,7 +251,7 @@ async def test_the_prefilter_applies_to_a_search_without_conditions() -> None:
         SearchRequest(embedding=[1.0, 0.0], top_k=5, retrieval_mode="dense")
     )
 
-    assert sorted(p.id for p in answer.passages) == ["amf-on", "gaa-on"]
+    assert sorted(p.id for p in answer.records) == ["amf-on", "gaa-on"]
 
 
 def test_a_store_states_no_prefilter_by_default() -> None:

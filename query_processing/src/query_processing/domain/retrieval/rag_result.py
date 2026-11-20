@@ -29,7 +29,7 @@ class RagResult(BaseModel):
     mistakes a missing count for 0.
 
     Example:
-        >>> RagResult(question="q", mode="retrieve", answer=None, passages=[],
+        >>> RagResult(question="q", mode="retrieve", answer=None, records=[],
         ...           timings_ms={}).tokens
         {}
     """
@@ -37,7 +37,7 @@ class RagResult(BaseModel):
     question: str
     mode: RagMode
     answer: str | None
-    passages: list[ScoredVectorStoreRecord]
+    records: list[ScoredVectorStoreRecord]
     timings_ms: dict[str, float]
     tokens: dict[str, dict[str, int]] = Field(default_factory=dict)
     # The conditions applied: the client's, then those the stages added.
@@ -45,12 +45,12 @@ class RagResult(BaseModel):
 
 
 def top_by_score(
-    passages: Sequence[ScoredVectorStoreRecord], scores: Sequence[float], top_n: int
+    records: Sequence[ScoredVectorStoreRecord], scores: Sequence[float], top_n: int
 ) -> list[ScoredVectorStoreRecord]:
     """Keep the ``top_n`` passages with the highest score.
 
     Args:
-        passages: The candidates to rank.
+        records: The candidates to rank.
         scores: One score per passage, in the same order.
         top_n: How many passages to keep.
 
@@ -62,8 +62,8 @@ def top_by_score(
         >>> top_by_score([a, b, c], [0.1, 0.9, 0.5], 2)
         [b(0.9), c(0.5)]
     """
-    ranked = sorted(range(len(passages)), key=lambda i: scores[i], reverse=True)
+    ranked = sorted(range(len(records)), key=lambda i: scores[i], reverse=True)
     return [
-        passages[i].model_copy(update={"rerank_score": float(scores[i])})
+        records[i].model_copy(update={"rerank_score": float(scores[i])})
         for i in ranked[:top_n]
     ]

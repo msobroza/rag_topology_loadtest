@@ -252,8 +252,8 @@ async def test_es_count_is_zero_without_index(exists: bool, expected: int) -> No
 @pytest.mark.parametrize(
     ("exists", "expected"),
     [
-        (False, (False, f"0 passages in {INDEX}")),
-        (True, (True, f"17 passages in {INDEX}")),
+        (False, (False, f"0 records in {INDEX}")),
+        (True, (True, f"17 records in {INDEX}")),
     ],
 )
 async def test_es_ready_reports_the_passage_count_and_index(
@@ -372,10 +372,10 @@ async def test_es_a_failed_index_creation_is_a_vector_store_error() -> None:
 @pytest.mark.parametrize(
     ("index_analyzer", "expected"),
     [
-        ("french", f"17 passages in {INDEX}"),
+        ("french", f"17 records in {INDEX}"),
         (
             None,
-            f"17 passages in {INDEX}; its text analyzer is 'standard', not the "
+            f"17 records in {INDEX}; its text analyzer is 'standard', not the "
             "configured 'french': an index keeps the analyzer it was created with",
         ),
     ],

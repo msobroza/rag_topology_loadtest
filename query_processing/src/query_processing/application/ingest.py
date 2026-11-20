@@ -11,7 +11,7 @@ from ..adapters.vector_store.base_vector_store import BaseVectorStore
 
 
 async def ingest(
-    passages: Sequence[VectorStoreRecord],
+    records: Sequence[VectorStoreRecord],
     embedder: BaseEmbedder,
     store: BaseVectorStore,
     *,
@@ -20,7 +20,7 @@ async def ingest(
     """Embed passages in batches, as documents with no query prefix, and upsert them.
 
     Args:
-        passages: The passages to store.
+        records: The passages to store.
         embedder: Embeds each batch.
         store: Receives each batch with its vectors.
         batch_size: Passages per embed and upsert call.
@@ -28,8 +28,8 @@ async def ingest(
     Returns:
         The number of passages upserted.
     """
-    for start in range(0, len(passages), batch_size):
-        batch = passages[start : start + batch_size]
+    for start in range(0, len(records), batch_size):
+        batch = records[start : start + batch_size]
         vectors = await embedder.embed_documents([p.text for p in batch])
         await store.upsert(batch, vectors)
-    return len(passages)
+    return len(records)

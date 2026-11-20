@@ -58,16 +58,16 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
 
     async def upsert(
         self,
-        passages: Sequence[VectorStoreRecord],
+        records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
         """Store passages whole with their vectors; a known id is overwritten.
 
         Args:
-            passages: The passages to store.
+            records: The passages to store.
             embeddings: One vector per passage, in the same order.
         """
-        for passage, embedding in zip(passages, embeddings, strict=True):
+        for passage, embedding in zip(records, embeddings, strict=True):
             self._rows[passage.id] = (passage, list(embedding))
 
     async def query(
@@ -147,4 +147,4 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         Returns:
             Whether the store is non-empty, and how many passages it holds.
         """
-        return bool(self._rows), f"{len(self._rows)} passages in memory"
+        return bool(self._rows), f"{len(self._rows)} records in memory"

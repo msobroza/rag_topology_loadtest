@@ -47,7 +47,7 @@ async def open_reranker_on_local(
     calibrated = await calibrate(
         await _calibrated_stage(component, local_models),
         threads=candidates(local.threads, budget.reranker_threads),
-        batch_sizes=candidates(local.batch_size, local.calibration_passages),
+        batch_sizes=candidates(local.batch_size, local.calibration_records),
         limits=local_models.calibration_limits,
     )
     return calibrated.adapter
@@ -81,7 +81,7 @@ async def calibrate_reranker_on_local(
         name,
         await _calibrated_stage(component, local_models),
         threads=halvings(machine.budget.reranker_threads),
-        batch_sizes=halvings(component.local.calibration_passages),
+        batch_sizes=halvings(component.local.calibration_records),
         local_models=local_models,
         cpus=machine.cpus,
     )
@@ -92,5 +92,5 @@ async def _calibrated_stage(
 ) -> CalibratedRerankStage:
     pool = await local_models.model_pool()
     model = await local_models.local_model(component.source_id, export_reranker)
-    passages = component.local.calibration_passages
-    return CalibratedRerankStage(model, pool, passages=passages)
+    passages = component.local.calibration_records
+    return CalibratedRerankStage(model, pool, records=passages)

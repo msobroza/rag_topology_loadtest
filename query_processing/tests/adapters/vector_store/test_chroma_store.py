@@ -193,15 +193,15 @@ async def test_chroma_a_search_keeps_only_what_the_prefilter_and_request_keep(
         search.model_copy(update={"metadata_filter": [cond("sequence", "gte", 2)]})
     )
 
-    assert [p.id for p in unfiltered.passages] == ["amf", "gaa"]
-    assert [p.id for p in filtered.passages] == ["gaa"]
+    assert [p.id for p in unfiltered.records] == ["amf", "gaa"]
+    assert [p.id for p in filtered.records] == ["gaa"]
 
 
 async def test_chroma_ready_reports_count_and_collection(tmp_path: Path) -> None:
     store = await open_store(tmp_path)
-    assert await store.ready() == (False, f"0 passages in {COLLECTION}")
+    assert await store.ready() == (False, f"0 records in {COLLECTION}")
     await store.upsert(PASSAGES, VECTORS)
-    assert await store.ready() == (True, f"3 passages in {COLLECTION}")
+    assert await store.ready() == (True, f"3 records in {COLLECTION}")
 
 
 async def test_chroma_failures_surface_as_vector_store_errors(

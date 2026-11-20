@@ -84,7 +84,7 @@ def test_tunables_read_qp_prefixed_env(
 @pytest.mark.parametrize(
     "field",
     [
-        "components__reranker__local__calibration_passages",
+        "components__reranker__local__calibration_records",
         "components__vector_store__fake__seed_documents",
         "local_models__workers",
     ],

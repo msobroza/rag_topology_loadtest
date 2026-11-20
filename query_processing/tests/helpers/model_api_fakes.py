@@ -119,7 +119,7 @@ def standard_answer(body: dict[str, Any]) -> dict[str, Any]:
     return {"choices": [{"message": {"content": "Twenty-five days."}}]}
 
 
-def passages(count: int) -> list[ScoredVectorStoreRecord]:
+def records(count: int) -> list[ScoredVectorStoreRecord]:
     return [
         ScoredVectorStoreRecord(
             text=f"text {i}", metadata={"id": f"p{i}"}, retrieval_score=1.0 - i / 10

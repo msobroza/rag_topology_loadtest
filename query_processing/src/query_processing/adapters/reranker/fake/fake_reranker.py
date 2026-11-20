@@ -19,21 +19,21 @@ class FakeReranker(BaseReranker):
     """Scores by Jaccard overlap between query and passage tokens (0..1)."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
         """Score each passage by token overlap with the query and keep the best.
 
         Args:
             query: The question the passages are scored against.
-            passages: The retrieval candidates.
+            records: The retrieval candidates.
             top_n: How many passages to keep.
 
         Returns:
             At most ``top_n`` passages, best first, with their Jaccard score.
         """
         query_tokens = set(tokenize(query))
-        scores = [_jaccard(query_tokens, set(tokenize(p.text))) for p in passages]
-        return top_by_score(passages, scores, top_n)
+        scores = [_jaccard(query_tokens, set(tokenize(p.text))) for p in records]
+        return top_by_score(records, scores, top_n)
 
     async def ready(self) -> tuple[bool, str]:
         """Report ready; the fake has nothing to load.

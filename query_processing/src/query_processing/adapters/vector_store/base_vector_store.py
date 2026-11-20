@@ -76,22 +76,22 @@ class BaseVectorStore(
         Example:
             >>> await store.ainvoke(SearchRequest(
             ...     embedding=vector, top_k=20, retrieval_mode="dense"))
-            SearchAnswer(passages=[...])
+            SearchAnswer(records=[...])
         """
         conditions = [*self.prefilter, *request.metadata_filter]
         if request.retrieval_mode == "dense":
-            return SearchAnswer(passages=await self._dense(request, conditions))
+            return SearchAnswer(records=await self._dense(request, conditions))
         search = required_lexical_search(self, request.retrieval_mode)
         lexical = search.lexical_query(request.text or "", request.top_k, conditions)
         if request.retrieval_mode == "lexical":
-            return SearchAnswer(passages=await lexical)
+            return SearchAnswer(records=await lexical)
         # Both legs at once, each asked for top_k, fused back to top_k. A hybrid
         # request always carries rrf_k: SearchRequest refuses one without it.
         rankings = await asyncio.gather(self._dense(request, conditions), lexical)
         fused = reciprocal_rank_fusion(
             rankings, k=request.rrf_k or 0, top_k=request.top_k
         )
-        return SearchAnswer(passages=fused)
+        return SearchAnswer(records=fused)
 
     async def _dense(
         self, request: SearchRequest, conditions: Sequence[MetadataCondition]
@@ -101,7 +101,7 @@ class BaseVectorStore(
     @abstractmethod
     async def upsert(
         self,
-        passages: Sequence[VectorStoreRecord],
+        records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
         """Store passages with their vectors, each under its record's id.
@@ -109,7 +109,7 @@ class BaseVectorStore(
         The metadata is stored as it is, the id with it.
 
         Args:
-            passages: The passages to store, each with an ``id`` in its metadata.
+            records: The passages to store, each with an ``id`` in its metadata.
             embeddings: One vector per passage, in the same order.
         """
 

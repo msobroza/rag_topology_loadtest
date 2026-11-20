@@ -24,7 +24,7 @@ JSON line logs that report.
 
 Example:
     >>> calibrated = await calibrate(
-    ...     CalibratedRerankStage(model, pool, passages=20, top_n=10),
+    ...     CalibratedRerankStage(model, pool, records=20, top_n=10),
     ...     threads=(2, 1),
     ...     batch_sizes=(20, 10, 5, 2, 1),
     ...     limits=CalibrationLimits(budget_s=90.0, rounds=1),

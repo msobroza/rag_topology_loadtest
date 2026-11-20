@@ -20,20 +20,20 @@ class NoReranker(BaseReranker):
     """BaseReranker that keeps retrieval order (the ``none`` backend)."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
         """Keep the first passages, in retrieval order.
 
         Args:
             query: Unused: retrieval order does not depend on it.
-            passages: The candidates, best retrieval score first.
+            records: The candidates, best retrieval score first.
             top_n: How many to keep.
 
         Returns:
             The first ``top_n`` passages, as given.
         """
         del query  # the port's signature; retrieval order needs no query
-        return list(passages[:top_n])
+        return list(records[:top_n])
 
     async def ready(self) -> tuple[bool, str]:
         """Report ready; there is no model.

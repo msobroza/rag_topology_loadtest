@@ -85,7 +85,7 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.by_name["llm"], FakeLLM)
         # Every synthetic document fits one chunk, so passages == documents.
         store = deps.by_name["vector_store"]
-        assert await store.ready() == (True, "200 passages in memory")
+        assert await store.ready() == (True, "200 records in memory")
 
 
 async def test_ports_open_once_and_are_reused(fake_settings: WorkflowSettings) -> None:

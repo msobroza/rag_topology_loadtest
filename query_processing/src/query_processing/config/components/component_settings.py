@@ -151,14 +151,44 @@ class RerankerLocalSettings(SettingsBlock):
     """The reranker's ``local`` block, with the size of its calibration request.
 
     A batch size or thread count of 0 is calibrated when the component opens.
-    The calibration request reranks ``calibration_passages`` passages and keeps
+    The calibration request reranks ``calibration_records`` passages and keeps
     them all; their number also bounds the batch sizes tried.
     """
 
     batch_size: int = Field(default=0, ge=0)  # passages per predict batch
     threads: int = Field(default=0, ge=0)
     # The reranker's own: calibration reads no stage's setting.
-    calibration_passages: int = Field(default=20, ge=1)
+    calibration_records: int = Field(default=20, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def refuse_the_old_calibration_name(cls, data: Any) -> Any:
+        """Refuse ``calibration_passages``, the setting's name before records.
+
+        A block's own refusal of an unknown key would not say what it became,
+        so a file or a variable written before the rename is told its new name.
+
+        Args:
+            data: The ``local`` block, as read from the file and the variables.
+
+        Returns:
+            ``data``, unchanged.
+
+        Raises:
+            ValueError: If the block states ``calibration_passages``.
+
+        Example:
+            >>> RerankerLocalSettings.model_validate({"calibration_passages": 8})
+            ValidationError: ... is now 'calibration_records' ...
+        """
+        if isinstance(data, Mapping) and "calibration_passages" in data:
+            raise ValueError(
+                "the setting 'calibration_passages' is now 'calibration_records' "
+                "(QP_COMPONENTS__<NAME>__LOCAL__CALIBRATION_RECORDS as a "
+                f"variable); rename it, got calibration_passages="
+                f"{data['calibration_passages']!r}"
+            )
+        return data
 
 
 class ModelComponentSettings(ComponentSettings):

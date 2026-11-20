@@ -313,8 +313,8 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
         request_id=request.state.request_id,
         topology=settings.topology_alias,
         run_label=settings.run_label,
-        records=result.passages,
-        **result.model_dump(exclude={"passages"}),
+        records=result.records,
+        **result.model_dump(exclude={"records"}),
     )
 
 
