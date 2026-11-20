@@ -118,4 +118,4 @@ does.
 
 A green `/verify` is not a green suite. For a changed file under `src/` it selects
 the tests that name the file's path, not the tests that import it: a change to
-`domain/retrieval/passages.py` alone ran one test file. `make check` is the gate.
+one module of `domain/retrieval/` alone ran one test file. `make check` is the gate.
