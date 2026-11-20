@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from query_processing.domain.query_request import QueryRequest
+from query_processing_core.query_request import QueryRequest
 
 
 def test_a_question_alone_is_a_body_with_no_history_and_no_filter() -> None:

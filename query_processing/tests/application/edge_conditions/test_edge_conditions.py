@@ -6,6 +6,7 @@ import collections.abc
 from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
+from query_processing_core.conversation import HistoryMessage
 
 from query_processing.application.edge_conditions.edge_condition import (
     EDGE_CONDITIONS,
@@ -15,7 +16,6 @@ from query_processing.application.edge_conditions.edge_condition import (
 from query_processing.application.edge_conditions.has_history import has_history
 from query_processing.application.edge_conditions.is_query_mode import is_query_mode
 from query_processing.application.edge_conditions.label import label
-from query_processing.domain.conversation import HistoryMessage
 
 if TYPE_CHECKING:  # never imported at run time: an annotation of it cannot be read
     from collections.abc import Sequence

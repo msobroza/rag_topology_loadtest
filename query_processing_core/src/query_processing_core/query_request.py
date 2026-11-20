@@ -12,6 +12,7 @@ Example:
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from .conversation import HistoryMessage

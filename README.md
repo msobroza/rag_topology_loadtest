@@ -594,7 +594,8 @@ The repository holds the product's three distributions (ADR 0005, ADR 0014),
 each a directory of its own at its root:
 
 - **The core**, in `query_processing_core/`: what one toolkit writes and
-  another reads, today the metadata filter. Data only: no port, no settings,
+  another reads, today the metadata filter, the conversational history and the
+  body of a request. Data only: no port, no settings,
   no I/O; it imports the standard library and Pydantic alone, and no toolkit
   and no use case (its own `tests/test_core_imports.py` checks it). The
   toolkit depends on it, so every install names its directory first. Its
@@ -826,9 +827,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     domain/           no I/O, no framework; imports no other package
       errors.py       RagDependencyError, describe_error
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
-      conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
-      query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
       opened_graph.py  OpenedGraph, OpenedConditionalEdge: what an orchestrator is built from, the description with each stage opened and timed, each conditional edge with what it asks, the state's field types and reducers; merged, how the state takes a stage's update
       run_label.py    the run label: its default (each component with its backend), what a valid one is
@@ -1109,9 +1108,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
 query_processing_core/   the core, one distribution (query-processing-core) that the toolkit installs: what toolkits exchange (ADR 0014)
   pyproject.toml      the distribution: Pydantic alone; its package under src/
   src/query_processing_core/   its package; it imports the standard library and Pydantic alone, no toolkit and no use case
+    conversation.py   HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
+    query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
     retrieval/        what a search is asked
       metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
-  tests/              its own tests, mirroring src/: the metadata filter's, and its imports (test_core_imports.py), read from its files with no toolkit started
+  tests/              its own tests, mirroring src/: the metadata filter's, the conversational history's, the request body's, and its imports (test_core_imports.py), read from its files with no toolkit started
 query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: its settings, and its kNN router (ADR 0006)
   pyproject.toml      the distribution (query-processing-rag-usecase): the toolkit, scikit-learn pinned exactly and joblib; its package under src/; qp-rag-train-router
   workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)

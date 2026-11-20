@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
+from query_processing_core.query_request import QueryRequest
 
 from ..domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
@@ -35,7 +36,6 @@ from ..domain.endpoints.standard_formats import (
     CohereRerankRequest,
     OpenAIEmbeddingsRequest,
 )
-from ..domain.query_request import QueryRequest
 from ..domain.retrieval.corpus import chunk, synthetic_corpus, synthetic_questions
 
 QUESTIONS_FILE_VAR = "QP_LOADTEST_QUESTIONS_FILE"  # named in the reader's errors

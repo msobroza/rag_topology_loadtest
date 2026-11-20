@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from query_processing_core.conversation import HistoryMessage
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.application.workflow_state import (
@@ -9,7 +10,6 @@ from query_processing.application.workflow_state import (
     sum_timings_by_stage,
     sum_tokens_by_stage,
 )
-from query_processing.domain.conversation import HistoryMessage
 
 ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")
 

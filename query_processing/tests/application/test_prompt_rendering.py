@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from query_processing_core.conversation import HistoryMessage
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.application.prompt_rendering import (
@@ -12,7 +13,6 @@ from query_processing.application.prompt_rendering import (
     render_prompt,
 )
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.prompts import Prompt, PromptMessage, PromptPlaceholder
 from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import scored

@@ -30,6 +30,8 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from query_processing_core.conversation import check_history_conditions
+from query_processing_core.query_request import QueryRequest
 from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
@@ -48,9 +50,7 @@ from ..composition.registered_names import check_registered_names
 from ..config.apps.process_environment_settings import ProcessEnvironmentSettings
 from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
-from ..domain.query_request import QueryRequest
 from ..domain.retrieval.passages import RagMode, ScoredPassage
 from ..infrastructure.http.startup_refusal_in_one_line import (
     StartupRefusalInOneLine,

@@ -6,6 +6,7 @@ import collections.abc
 from typing import Any, Literal, Optional
 
 import pytest
+from query_processing_core.conversation import HistoryMessage
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.application.stages.base_stage import FieldTypes
@@ -19,7 +20,6 @@ from query_processing.application.workflow_state import (
     REQUEST_FIELD_TYPES,
     add_conditions,
 )
-from query_processing.domain.conversation import HistoryMessage
 
 
 def test_the_fields_are_the_requests_and_those_the_stages_write() -> None:
