@@ -53,6 +53,14 @@ UNKNOWN_NAMES = {
         "QP_COMPONENTS__LLM__API__KEY__SOURCE: unknown key source 'vault' "
         "(expected one of: 'domino', 'env')",
     ),
+    "the vector store's key source": (
+        {
+            "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE": "vault",
+            "QP_COMPONENTS__VECTOR_STORE__BACKEND": "fake",
+        },
+        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE: unknown key source "
+        "'vault' (expected one of: 'domino', 'env')",
+    ),
     "an orchestrator": (
         {"QP_ORCHESTRATOR": "pydantic"},
         "QP_ORCHESTRATOR: unknown orchestrator 'pydantic' "

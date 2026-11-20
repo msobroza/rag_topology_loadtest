@@ -7,7 +7,8 @@ model endpoints (``endpoint/api_endpoint_client.py``) post through it; they
 differ only in their headers and extra retryable statuses. The headers a
 caller supplies carry its key alone, so the body a failure quotes has every
 credential they sent masked: an endpoint that echoes the key it was sent does
-not put it in our error.
+not put it in our error. ``keys_masked`` does the same for any other error
+that quotes what was sent, such as the Elasticsearch client's.
 
 Example:
     >>> rate_limited = frozenset({HTTPStatus.TOO_MANY_REQUESTS})
@@ -19,7 +20,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from http import HTTPStatus
 from typing import NamedTuple
 
@@ -49,13 +50,29 @@ def _no_note(status: int) -> str:
     return ""
 
 
+def keys_masked(text: str, keys: Iterable[str]) -> str:
+    """Return ``text`` with every one of ``keys`` in it replaced by ``***``.
+
+    Args:
+        text: What an error quotes, such as a body or a client's exception.
+        keys: The keys a call sent; an empty one masks nothing.
+
+    Returns:
+        The text, holding none of the keys.
+
+    Example:
+        >>> keys_masked("key sk-1 refused", ["sk-1"])
+        'key *** refused'
+    """
+    for key in keys:
+        if key:
+            text = text.replace(key, _MASK)
+    return text
+
+
 def _masked(text: str, sent: Mapping[str, str]) -> str:
     # Each header sent is a credential, "Bearer <key>": its last word is the key.
-    for value in sent.values():
-        credential = value.rsplit(" ", 1)[-1]
-        if credential:
-            text = text.replace(credential, _MASK)
-    return text
+    return keys_masked(text, (value.rsplit(" ", 1)[-1] for value in sent.values()))
 
 
 class _RetryableFailure(NamedTuple):

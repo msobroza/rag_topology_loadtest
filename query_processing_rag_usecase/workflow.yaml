@@ -10,8 +10,9 @@
 # an endpoint's api block names where its key comes from in a key block, such
 # as {source: env, variable: OPENAI_API_KEY} (the variable that holds it, in
 # the environment or in .env) or {source: domino} (the Domino run token); with
-# no key block, no key is sent. The vector store's key is set by its path,
-# QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
+# no key block, no key is sent. The vector store's elasticsearch block takes
+# the same key block, for an Elasticsearch API key; with none, it sends no key
+# (basic auth in its URL, or no security).
 
 # The packages of this use case whose classes register before the components
 # are read (ADR 0006): its kNN router, the router's local backend.

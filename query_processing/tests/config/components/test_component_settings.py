@@ -345,7 +345,8 @@ def test_each_block_of_the_vector_store_is_read_by_its_path(
         "BACKEND": "chroma",
         "ELASTICSEARCH__URL": "http://es:9200",
         "ELASTICSEARCH__INDEX": "passages_v2",
-        "ELASTICSEARCH__API_KEY": "es-key",
+        "ELASTICSEARCH__KEY__SOURCE": "env",
+        "ELASTICSEARCH__KEY__VARIABLE": "ES_API_KEY",
         "ELASTICSEARCH__TEXT_ANALYZER": "french",
         "CHROMA__URL": "http://chroma:8000",
         "CHROMA__PATH": "here",
@@ -360,7 +361,7 @@ def test_each_block_of_the_vector_store_is_read_by_its_path(
     assert store.elasticsearch == ElasticsearchSettings(
         url="http://es:9200",
         index="passages_v2",
-        api_key="es-key",
+        key=KeySettings(source="env", variable="ES_API_KEY"),
         text_analyzer="french",
     )
     assert store.chroma == ChromaSettings(

@@ -187,14 +187,15 @@ class HttpResources:
         return await self._domino_source() if self._on_domino else None
 
     async def key_source_of(self, block: KeySettings | None) -> BaseKeySource | None:
-        """Return the key source an ``api`` endpoint's ``key`` block names.
+        """Return the key source a ``key`` block names, an endpoint's or the store's.
 
         Args:
-            block: Its ``key`` block; None sends no key.
+            block: The ``key`` block of an ``api`` endpoint or of the vector
+                store's ``elasticsearch`` block; None sends no key.
 
         Returns:
             None, the process's one ``domino`` source, or the source of the
-            block, opened once and shared by every endpoint naming that block.
+            block, opened once and shared by everything naming that block.
 
         Raises:
             MissingKeyError: If the source finds no key, such as an ``env``

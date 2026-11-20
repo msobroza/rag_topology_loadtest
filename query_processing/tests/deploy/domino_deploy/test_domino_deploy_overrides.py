@@ -272,14 +272,16 @@ def test_an_empty_value_is_refused() -> None:
     )
 
 
-def test_a_secret_is_refused_as_in_a_free_list() -> None:
+def test_the_stores_old_api_key_is_an_unknown_key() -> None:
+    # The store names its key source in a key block: api_key is no setting.
     overrides = {"components": {"vector_store": {"elasticsearch": {"api_key": "es-1"}}}}
-    assert refusal(make_settings(overrides=overrides)) == (
-        "overrides.components.vector_store.elasticsearch.api_key is set in "
-        "deploy.yaml, whose values are written into the Apps' launch scripts: set "
-        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY as a Domino project or "
-        "user environment variable instead"
+    said = refusal(make_settings(overrides=overrides))
+    assert said.startswith(
+        "overrides.components.vector_store.elasticsearch in deploy.yaml has no key "
+        "'api_key'"
     )
+    assert "'key'" in said
+    assert "es-1" not in said
 
 
 @pytest.mark.parametrize("value", ["", "domino", "sk-1"])

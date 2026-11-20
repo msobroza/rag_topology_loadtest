@@ -1,8 +1,8 @@
-"""What ``qp-serve`` refuses of an endpoint's key, as a usage error, before it serves.
+"""What ``qp-serve`` refuses of an API key's settings, a usage error, before it serves.
 
-The old ``api_key`` of an endpoint, set in the environment, in ``.env`` or in a
-workflow file, is refused in one line that names the component and the ``key``
-block to write, and never its value. A ``key`` block whose source reads none of
+The old ``api_key`` of an endpoint or of the Elasticsearch store, set in the
+environment, in ``.env`` or in a workflow file, is refused in one line that
+names the component and the ``key`` block to write, and never its value. A ``key`` block whose source reads none of
 a key it holds, or lacks one it reads, is refused naming its variable. An
 unknown source is refused with the other unknown names
 (``test_unknown_names_at_start_up.py``).
@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -23,7 +24,29 @@ from rag_components import FAKE_BACKEND_VARIABLES, shell_settings
 from rag_graphs import FIXTURE_WORKFLOW
 
 SECRET = "sk-never-printed-4711"
-OLD_VARIABLE = "QP_COMPONENTS__LLM__API__API_KEY"
+
+
+class KeyedBlock(NamedTuple):
+    """A block that holds a ``key`` block: its component and its path under it."""
+
+    component: str
+    block: str
+
+    @property
+    def path(self) -> str:
+        return f"components.{self.component}.{self.block}"
+
+    @property
+    def variable(self) -> str:
+        return f"QP_COMPONENTS__{self.component}__{self.block}".upper()
+
+
+# Each block that held an api_key before key sources, and holds a key block now.
+KEYED_BLOCKS = pytest.mark.parametrize(
+    "keyed",
+    [KeyedBlock("llm", "api"), KeyedBlock("vector_store", "elasticsearch")],
+    ids=["llm-api", "vector-store-elasticsearch"],
+)
 
 
 @pytest.fixture(autouse=True)
@@ -54,24 +77,34 @@ def refusal_of_qp_serve(capsys: pytest.CaptureFixture[str], naming: str) -> str:
     return line
 
 
-def old_key_in_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv(OLD_VARIABLE, SECRET)
+SetOldKey = Callable[[pytest.MonkeyPatch, Path, KeyedBlock], None]
 
 
-def old_key_in_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    (tmp_path / ".env").write_text(f"{OLD_VARIABLE}={SECRET}\n", encoding="utf-8")
+def old_key_in_the_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, keyed: KeyedBlock
+) -> None:
+    monkeypatch.setenv(f"{keyed.variable}__API_KEY", SECRET)
+
+
+def old_key_in_dotenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, keyed: KeyedBlock
+) -> None:
+    line = f"{keyed.variable}__API_KEY={SECRET}\n"
+    (tmp_path / ".env").write_text(line, encoding="utf-8")
 
 
 def old_key_in_the_workflow_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, keyed: KeyedBlock
 ) -> None:
     workflow = yaml.safe_load(FIXTURE_WORKFLOW.read_text(encoding="utf-8"))
-    workflow["components"]["llm"]["api"]["api_key"] = SECRET
+    component = workflow["components"][keyed.component]
+    component.setdefault(keyed.block, {})["api_key"] = SECRET
     path = tmp_path / "old.yaml"
     path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
     monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(path))
 
 
+@KEYED_BLOCKS
 @pytest.mark.parametrize(
     "set_old_key",
     [old_key_in_the_environment, old_key_in_dotenv, old_key_in_the_workflow_file],
@@ -81,35 +114,35 @@ def test_the_old_api_key_is_refused_naming_the_component_and_the_key_block(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    set_old_key: Callable[[pytest.MonkeyPatch, Path], None],
+    set_old_key: SetOldKey,
+    keyed: KeyedBlock,
 ) -> None:
-    set_old_key(monkeypatch, tmp_path)
+    set_old_key(monkeypatch, tmp_path, keyed)
 
-    line = refusal_of_qp_serve(capsys, OLD_VARIABLE)
+    line = refusal_of_qp_serve(capsys, f"{keyed.variable}__API_KEY")
 
-    assert "components.llm.api.api_key" in line
-    assert "the llm component" in line
-    assert "components.llm.api.key" in line
+    assert f"{keyed.path}.api_key" in line
+    assert f"the {keyed.component} component" in line
+    assert f"{keyed.path}.key" in line
     assert SECRET not in line
 
 
+@KEYED_BLOCKS
 @pytest.mark.parametrize(
     ("block", "said"),
     [
         (
             {"SOURCE": "domino", "VARIABLE": "OPENAI_API_KEY"},
-            "QP_COMPONENTS__LLM__API__KEY: the 'domino' key source reads no key "
-            "beside 'source'; got 'variable'",
+            "the 'domino' key source reads no key beside 'source'; got 'variable'",
         ),
         (
             {"SOURCE": "env"},
-            "QP_COMPONENTS__LLM__API__KEY: the 'env' key source reads 'variable' "
-            "beside 'source'; got none",
+            "the 'env' key source reads 'variable' beside 'source'; got none",
         ),
         (
             {"SOURCE": "env", "VARIABLE": "OPENAI_API_KEY", "VALUE": "x"},
-            "QP_COMPONENTS__LLM__API__KEY: the 'env' key source reads 'variable' "
-            "beside 'source'; got 'value', 'variable'",
+            "the 'env' key source reads 'variable' beside 'source'; got 'value', "
+            "'variable'",
         ),
     ],
     ids=["variable-beside-domino", "env-without-variable", "a-key-env-does-not-read"],
@@ -119,11 +152,12 @@ def test_a_key_block_holding_what_its_source_does_not_read_is_refused(
     capsys: pytest.CaptureFixture[str],
     block: dict[str, str],
     said: str,
+    keyed: KeyedBlock,
 ) -> None:
-    # The LLM is on its fake backend: every key block is checked all the same.
+    # Every component is on its fake backend: each key block is checked all the same.
     for key, value in block.items():
-        monkeypatch.setenv(f"QP_COMPONENTS__LLM__API__KEY__{key}", value)
+        monkeypatch.setenv(f"{keyed.variable}__KEY__{key}", value)
 
-    line = refusal_of_qp_serve(capsys, "QP_COMPONENTS__LLM__API__KEY")
+    line = refusal_of_qp_serve(capsys, f"{keyed.variable}__KEY")
 
-    assert said in line
+    assert f"{keyed.variable}__KEY: {said}" in line

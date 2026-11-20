@@ -39,7 +39,7 @@ def test_settings_defaults(settings_factory: Callable[..., WorkflowSettings]) ->
     )
     keys = [component.api.key for component in s.model_components().values()]
     assert keys == [None, None, None]  # no key block: no key sent
-    assert store.elasticsearch.api_key == ""  # never in the file
+    assert store.elasticsearch.key is None  # no key block: no key sent
 
 
 def test_settings_read_qp_prefixed_env(

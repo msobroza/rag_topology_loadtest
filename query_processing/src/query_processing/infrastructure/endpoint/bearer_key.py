@@ -3,7 +3,8 @@
 The key source is a port among the adapters, which this layer may not import:
 ``KeySupplier`` states the three methods it is called through. A key the source
 already holds is taken on the event loop; a source that must ask is called off
-it, in a thread, since its methods block. The key a refused call carried is
+it, in a thread, since its methods block (``key_of``, which the Elasticsearch
+store takes its key with too). The key a refused call carried is
 read back from that call's own headers, so a refusal names the key it was for
 even with calls in flight that carry another.
 
@@ -58,6 +59,31 @@ class KeySupplier(Protocol):
         ...
 
 
+async def key_of(source: KeySupplier) -> str | None:
+    """Take the key a source holds on the event loop, and ask for one off it.
+
+    The one place code that awaits takes a key from a source, the endpoint
+    client's ``BearerKey`` and the Elasticsearch store alike.
+
+    Args:
+        source: Where the key comes from.
+
+    Returns:
+        The key; "" or None when the source gives none.
+
+    Raises:
+        RagDependencyError: If the source could not get its key.
+
+    Example:
+        >>> await key_of(source)
+        'run-token'
+    """
+    key = source.key(may_ask=False)
+    if key is None:
+        key = await asyncio.to_thread(source.key, may_ask=True)
+    return key
+
+
 class BearerKey:
     """Builds every call's ``Authorization`` header from one key source.
 
@@ -82,9 +108,7 @@ class BearerKey:
         Raises:
             RagDependencyError: If the source could not get its key.
         """
-        key = self._source.key(may_ask=False)
-        if key is None:
-            key = await asyncio.to_thread(self._source.key, may_ask=True)
+        key = await key_of(self._source)
         return {"Authorization": f"{_BEARER}{key}"} if key else {}
 
     def refused_in(self, sent: Mapping[str, str]) -> None:

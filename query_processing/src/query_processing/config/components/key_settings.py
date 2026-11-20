@@ -1,4 +1,4 @@
-"""The ``key`` block of an endpoint: where its API key comes from, never the key.
+"""The ``key`` block: where an endpoint's or the store's API key comes from.
 
 The block names a key source and holds the keys that source reads, flat:
 ``{source: env, variable: OPENAI_API_KEY}`` or ``{source: domino}``. With no
@@ -8,7 +8,9 @@ and the start-up check of registered names refuses an unknown source and a key
 its source does not read (``composition/registered_names.py``). The old
 ``api_key`` of an ``api`` block is refused here, from whichever of the workflow
 file, the environment or ``.env`` it comes, in one line that names the block to
-write and never the value, by the source that reads the workflow file.
+write and never the value, by the source that reads the workflow file. So is
+the old ``api_key`` of the vector store's ``elasticsearch`` block, which takes
+a ``key`` block too.
 
 Example:
     >>> KeySettings(source="env", variable="OPENAI_API_KEY").read_keys()
@@ -26,8 +28,11 @@ from pydantic_settings import PydanticBaseSettingsSource
 
 from .settings_blocks import SettingsBlock
 
-# The key of an api block that held the key itself before key sources.
+# The key of a block that held the key itself before key sources.
 _OLD_KEY = "api_key"
+# The blocks that held it then, each holding a key block now: a closed list,
+# what the settings were before key sources, which no registry gives.
+_BLOCKS_WITH_AN_OLD_KEY = ("api", "elasticsearch")
 
 
 class KeySettings(SettingsBlock):
@@ -58,7 +63,7 @@ class KeySettings(SettingsBlock):
 
 
 class OldApiKeysRefused(PydanticBaseSettingsSource):
-    """The workflow file's source, refusing the old ``api_key`` of an ``api`` block.
+    """The workflow file's source, refusing the old ``api_key`` of a block.
 
     It is read after the constructor's values, the environment and ``.env``,
     so it holds what they gave and checks it with the file's own values. The
@@ -111,9 +116,10 @@ class OldApiKeysRefused(PydanticBaseSettingsSource):
             The file's values.
 
         Raises:
-            ValueError: The first component whose ``api`` block holds
-                ``api_key``, naming its variable, its key in a workflow file,
-                the component and the ``key`` block to write; never the value.
+            ValueError: The first component whose ``api`` or ``elasticsearch``
+                block holds ``api_key``, naming its variable, its key in a
+                workflow file, the component and the ``key`` block to write;
+                never the value.
         """
         values = self._workflow()
         for read in (self.current_state, values):
@@ -125,18 +131,29 @@ def _refuse_old_api_keys(components: object, variable_of: Callable[..., str]) ->
     if not isinstance(components, Mapping):
         return
     for name, entry in components.items():
-        api = entry.get("api") if isinstance(entry, Mapping) else None
-        if isinstance(api, Mapping) and _OLD_KEY in api:
-            raise ValueError(_old_api_key_message(str(name), variable_of))
+        held = _blocks_with_an_old_key(entry)
+        if held:
+            raise ValueError(_old_api_key_message(str(name), held[0], variable_of))
 
 
-def _old_api_key_message(name: str, variable_of: Callable[..., str]) -> str:
-    old = variable_of("components", name, "api", _OLD_KEY)
-    source = variable_of("components", name, "api", "key", "source")
+def _blocks_with_an_old_key(entry: object) -> list[str]:
+    # The names of a component's blocks that still hold the old api_key.
+    if not isinstance(entry, Mapping):
+        return []
+    held = [(name, entry.get(name)) for name in _BLOCKS_WITH_AN_OLD_KEY]
+    return [
+        name for name, block in held if isinstance(block, Mapping) and _OLD_KEY in block
+    ]
+
+
+def _old_api_key_message(name: str, block: str, variable_of: Callable[..., str]) -> str:
+    old = variable_of("components", name, block, _OLD_KEY)
+    source = variable_of("components", name, block, "key", "source")
+    path = f"components.{name}.{block}"
     return (
-        f"{old} (components.{name}.api.{_OLD_KEY} in a workflow file) is no longer "
-        f"read: the {name} component names where its API key comes from in a key "
-        f"block, components.{name}.api.key, such as {{source: env, variable: <the "
-        "variable that holds the key>}} or {source: domino} (by variables, "
+        f"{old} ({path}.{_OLD_KEY} in a workflow file) is no longer read: the "
+        f"{name} component names where its API key comes from in a key block, "
+        f"{path}.key, such as {{source: env, variable: <the variable that holds "
+        "the key>} or {source: domino} (by variables, "
         f"{source} and the like); with no key block, no key is sent"
     )

@@ -26,7 +26,11 @@ from ..adapters.llm.api.base_generation_api_format import GENERATION_API_FORMATS
 from ..adapters.llm.api.base_structured_output_method import STRUCTURED_OUTPUT_METHODS
 from ..adapters.orchestrator.base_orchestrator import ORCHESTRATORS
 from ..adapters.reranker.api.base_rerank_api_format import RERANK_API_FORMATS
-from ..config.components.component_settings import ComponentSettings, LlmSettings
+from ..config.components.component_settings import (
+    ComponentSettings,
+    LlmSettings,
+    VectorStoreSettings,
+)
 from ..config.components.key_settings import KeySettings
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
@@ -48,7 +52,8 @@ def check_registered_names(settings: WorkflowSettings) -> None:
     """Refuse an unknown backend, API format, output method, key source or orchestrator.
 
     Every component is checked, whether the command opens it or not, the
-    vector store included, every model's ``api`` block with its ``key`` block,
+    vector store included with the ``key`` block of its ``elasticsearch``
+    block, every model's ``api`` block with its ``key`` block,
     and an LLM's ``structured_output`` in its ``api`` and ``served`` blocks,
     whatever the component's backend; then the orchestrator, whether the
     command runs the graph or not. A ``key`` block must hold the keys its
@@ -71,11 +76,12 @@ def check_registered_names(settings: WorkflowSettings) -> None:
     for name, component in settings.components.items():
         backend = variable_of("components", name, "backend")
         _check(_known_backends(component), component.backend, backend)
+        if isinstance(component, VectorStoreSettings):
+            _check_key_block(name, "elasticsearch", component.elasticsearch.key)
     for name, model in settings.model_components().items():
         api_format = variable_of("components", name, "api", "api_format")
         _check(_API_FORMATS_BY_TYPE[model.type].get, model.api.api_format, api_format)
-        if model.api.key is not None:
-            _check_key_block(name, model.api.key)
+        _check_key_block(name, "api", model.api.key)
         if isinstance(model, LlmSettings):
             _check_structured_output(name, model)
     orchestrator = variable_of("orchestrator")
@@ -91,9 +97,11 @@ def _check_structured_output(name: str, llm: LlmSettings) -> None:
         _check(STRUCTURED_OUTPUT_METHODS.get, block.structured_output, variable)
 
 
-def _check_key_block(name: str, block: KeySettings) -> None:
+def _check_key_block(name: str, holder: str, block: KeySettings | None) -> None:
     # The keys beside source are the ones its source reads, each and no other.
-    variable = WorkflowSettings.variable_of("components", name, "api", "key")
+    if block is None:
+        return
+    variable = WorkflowSettings.variable_of("components", name, holder, "key")
     _check(KEY_SOURCES.get, block.source, f"{variable}__SOURCE")
     reads, given = KEY_SOURCES.get(block.source).reads, sorted(block.read_keys())
     if given != sorted(reads):

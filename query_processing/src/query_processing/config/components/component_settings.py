@@ -244,9 +244,9 @@ class ElasticsearchSettings(SettingsBlock):
     url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     # The use case's own: "" = unset, refused on this backend (WorkflowSettings).
     index: str = ""
-    # "" = none (basic auth in the URL, or no security). Read from the
-    # environment: a key is never written in the file.
-    api_key: str = ""
+    # The key source of its Elasticsearch API key (key_settings.py); None sends
+    # none: basic auth in the URL, or no security.
+    key: KeySettings | None = None
     # Analyzer of the passages' text, applied when the index is created and to
     # every lexical query: "standard", or a language's (e.g. "french"). An
     # index keeps the analyzer it was created with.

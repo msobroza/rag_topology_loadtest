@@ -884,7 +884,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
         component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
-        key_settings.py  KeySettings: an api block's key block, a key source's name and the keys it reads; OldApiKeysRefused: the workflow file's source, refusing the old api_key from any source in one line
+        key_settings.py  KeySettings: the key block of an api block or of the store's elasticsearch block, a key source's name and the keys it reads; OldApiKeysRefused: the workflow file's source, refusing the old api_key of either from any source in one line
         registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
         router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
         endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
@@ -937,6 +937,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_metadata_filter_translator.py  BaseMetadataFilterTranslator, the port that turns a metadata filter into a store's own
         elasticsearch/  backend: elasticsearch
           elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+          elasticsearch_client_key.py  ElasticsearchClientKey: the client built with its key source's key, and built again when Elasticsearch refuses it
           elasticsearch_filter_translator.py  ElasticsearchFilterTranslator: a metadata filter as filter clauses
         chroma/       backend: chroma
           chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
@@ -959,7 +960,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
-        bearer_key.py  BearerKey: the Authorization header of every call from a key source, which is called off the event loop only when it must ask; KeySupplier, the source's three methods as this layer calls them
+        bearer_key.py  BearerKey: the Authorization header of every call from a key source; key_of, which calls a source off the event loop only when it must ask, for the Elasticsearch store too; KeySupplier, the source's three methods as this layer calls them
         open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with the key source it is given or none
         served_call.py  ServedCallMixin: a registered component answered by a model server of ours, on its call route
       local_models/   what the local implementations share
@@ -973,7 +974,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       process_environment.py  restart_with: start the process again as it was started (sys.orig_argv: -m and the interpreter's flags kept), in the environment its settings want
       http/           what every adapter that calls out shares
         http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
-        json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
+        json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share; keys_masked, which masks the keys sent in a quoted error
         uvicorn_run.py  run_uvicorn: one worker serves the app object, several an import string of a factory, each worker told what main was told
         startup_refusal_in_one_line.py  StartupRefusalInOneLine: a server's start-up refused in one line naming the command, for the exception type it is given
       corpora/        an outside source: the public corpora qp-fetch-corpus downloads
@@ -1608,7 +1609,7 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `http.backoff_s` | not written: the top-level `http.backoff_s` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
 | `vector_store` | `elasticsearch.url` | `http://localhost:9200` | the cluster; `http://user:password@host:9200` for basic auth |
 | `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages; required on `elasticsearch`: no default, start-up refuses an empty one |
-| `vector_store` | `elasticsearch.api_key` | never written | from the environment only (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`): an Elasticsearch API key, the alternative to basic auth; empty = none |
+| `vector_store` | `elasticsearch.key` | not written: none | where its Elasticsearch API key comes from, the alternative to basic auth, never the key: the same block as a model's `api.key` (`{source: env, variable: <name>}` or `{source: domino}`), refused at start-up the same way, and so is the old `elasticsearch.api_key`; no block sends no key. A call Elasticsearch refuses for its key (a 401) opens a new client with the key its source then gives and is made once more |
 | `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
 | `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the passages; the collection is required on `chroma`: no default |
@@ -1734,6 +1735,8 @@ OPENAI_API_KEY}` (read from the environment or `.env`) or `key: {source:
 domino}`, so the workflow file, which is versioned, never holds one. The block
 is set by the variables its path names too, such as
 `QP_COMPONENTS__LLM__API__KEY__SOURCE` and `QP_COMPONENTS__LLM__API__KEY__VARIABLE`.
+The vector store's `elasticsearch` block takes the same `key` block for its
+Elasticsearch API key (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE`, ...).
 
 Sources win in this order: constructor arguments, environment variables, `.env`,
 the workflow file and the prompts file, then the defaults of the code. A top-level key of the file
@@ -2336,7 +2339,7 @@ any more by the workflow app:
 | the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each the top-level `http` block's when not written; the LLM's `120` is written in the RAG's workflow file, and a workflow file that gives its LLM none calls it with `QP_HTTP__TIMEOUT_S` |
 | `RAG_LLM_BACKEND` (`openai` \| `fake`) | `QP_COMPONENTS__LLM__BACKEND` (`api` \| `fake`) |
 | `RAG_VECTOR_STORE_BACKEND` | the vector store component's `backend` (`QP_COMPONENTS__VECTOR_STORE__BACKEND`) |
-| `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
+| `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, its `key` block in place of the key itself (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE` and, for `env`, `__KEY__VARIABLE`, the variable that holds the key), `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
 | `RAG_CHROMA_URL`, `RAG_CHROMA_PATH`, `RAG_CHROMA_COLLECTION` | its `chroma` block: `QP_COMPONENTS__VECTOR_STORE__CHROMA__URL`, `__PATH`, `__COLLECTION` |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | its `fake` block: `QP_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS` |
 | `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_OPENVINO_WEIGHT_FORMAT`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `QP_LOCAL_MODELS__RUNTIME`, `QP_LOCAL_MODELS__OPENVINO_DIR`, `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`, `QP_LOCAL_MODELS__WORKERS`, `QP_LOCAL_MODELS__CPUS` |
@@ -2573,8 +2576,13 @@ showing the text. The fake LLM answers a valid instance.
   hold `text`, `metadata` and the vector, and the `_id` is the passage id
   (`<doc id>:<chunk>`), so re-ingesting overwrites in place.
 * Auth: basic credentials inside the `elasticsearch.url` of the vector store
-  (`https://user:password@host:9200`) or its `elasticsearch.api_key`, from the
-  environment only (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`). Any Elasticsearch 8 or 9 cluster works; the compose file
+  (`https://user:password@host:9200`), or an Elasticsearch API key from the key
+  source its `elasticsearch.key` block names, such as `{source: env, variable:
+  ES_API_KEY}`; with no block, no key is sent. When Elasticsearch refuses the
+  key (a 401), the store tells its source, opens a new client with the key the
+  source then gives, closes the old one and makes the call once more; a second
+  refusal is the store's error, which says where the key comes from and holds
+  no key. Any Elasticsearch 8 or 9 cluster works; the compose file
   runs a single 9.0.0 node with security disabled, for development only.
 * Failures surface as `503 vector_store_unavailable`; `/readyz` reports
   `not_ready` while the index is missing or empty.
@@ -2915,7 +2923,7 @@ The table shows the three aliases of `deploy.example.yaml`.
 
 | Topology | App | `QP_ROLE` (kind: OVMS / FastAPI / vLLM) | Environment variables | Image: OVMS / FastAPI / vLLM |
 | --- | --- | --- | --- | --- |
-| `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `OPENAI_API_KEY` (the LLM's key block names it), `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
+| `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `OPENAI_API_KEY` (the LLM's key block names it), `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one) | `rag` |
 | `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
 | | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank` (`/v1/rerank` on vLLM), `OPENAI_API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 | `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | as above | `ovms` / `rag` / as above |
@@ -2953,7 +2961,7 @@ set `QP_OVMS_MODELS_DIR` there) and fill it from a Workspace, in the use case's
 directory, with `../query_processing/ovms/export_models.sh /mnt/data/ovms-models`,
 or upload the contents of a local `ovms/models/` (the use case's). Apps inherit the project's Dataset mounts.
 
-**Elasticsearch and corpus.** Put `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (and `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) of a cluster the
+**Elasticsearch and corpus.** Put `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (and the variable the store's `key` block names, if it has one) of a cluster the
 apps can reach in Project → Settings → Environment variables, then run `make ingest` once from a Workspace.
 
 **Publishing.** For each app (Apps → Publish): entry point
@@ -3275,11 +3283,9 @@ settings and the overrides, which come first in the launch script), and
 Domino's project or user environment variables, because `settings` and
 `overrides` are written into the Apps' launch scripts. `qp-deploy` refuses, in
 any block, a setting whose name ends in `_API_KEY` (such as
-`OPENAI_API_KEY` or
-`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`), and the vector
-store's `api_key` under `overrides`, unless its value is empty or `domino`. An
-endpoint's `key` block holds no key, and an endpoint's old `api_key` under
-`overrides` is refused as a key the workflow file does not have. A misspelt key is refused with its name.
+`OPENAI_API_KEY`), unless its value is empty or `domino`. An endpoint's and
+the vector store's `key` block hold no key, and an old `api_key` of either
+under `overrides` is refused as a key the workflow file does not have. A misspelt key is refused with its name.
 
 **Topology aliases.** Where each component runs is a deployment matter, so the
 topologies live in `deploy.yaml` (ADR 0003): `topology` chooses one by its alias,
@@ -3760,7 +3766,7 @@ instance. Replace the placeholders once; the code itself does not change.
 | --- | --- |
 | `<domino-host>` | your Domino URL, e.g. `https://domino.example.com` |
 | `<registry>` | a registry Domino can pull environments from (only for step 1a) |
-| `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY` | project environment variables, every project |
+| `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, and the variable the store's `key` block names, if it has one | project environment variables, every project |
 | `OPENAI_API_KEY`, the variable the LLM's key block names (and `QP_COMPONENTS__LLM__API__URL` for a gateway), or `QP_COMPONENTS__LLM__BACKEND=fake` | project environment variables of the monolith and workflow projects |
 | `QP_ROLE`, and a model server's `QP_MODEL_SERVER_COMPONENT` and `QP_MODEL_SERVER_KIND` | project environment variables, one set per project (see step 2) |
 | `QP_USE_CASE_DIR` | project environment variables, every project: the use case's directory as the Apps see the repository, e.g. `/mnt/code/query_processing_rag_usecase`, where `domino/app.sh` runs the role's command (`qp-deploy` sets it itself) |
@@ -3793,14 +3799,14 @@ set, in Project → Settings → Environment variables:
 
 | Project | `QP_ROLE` | Environment | Other variables |
 | --- | --- | --- | --- |
-| `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `OPENAI_API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
+| `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one), `OPENAI_API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
 | `rag-ovms-reranker` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
 | `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=fastapi` |
-| `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `OPENAI_API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
+| `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one), `OPENAI_API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `QP_DOMINO__TRACING` identical across projects
 (unset, or `true` everywhere). With a `rag-ovms-llm` or `rag-vllm-llm` project made by hand, the

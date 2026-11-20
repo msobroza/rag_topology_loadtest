@@ -1,5 +1,6 @@
 """``CompositionRoot``: each backend of each model component opens the right adapter, and
-the ``api`` backends call their endpoint with its URL, key, model and policy."""
+the ``api`` backends call their endpoint with its URL, key, model and policy, and the
+Elasticsearch store opens its client with the key its ``key`` block names."""
 
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
 )
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.errors import MissingKeyError, RagDependencyError
 from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_components import FAKE_BACKENDS
 
@@ -270,3 +271,50 @@ async def test_an_llm_that_sets_no_retries_keeps_the_default(
             await llm.generate([{"role": "user", "content": "q"}])
 
     assert len(attempts) == 2  # the first attempt and http__retries=1
+
+
+# --- the Elasticsearch store's key -------------------------------------------------
+
+ES_KEY_VARIABLE = "ES_KEY_UNDER_TEST"
+# The discard port: any connection would be refused, and none is made.
+UNREACHABLE_STORE = {
+    "components__embedder__backend": "fake",
+    "components__vector_store__elasticsearch__url": "http://127.0.0.1:9",
+}
+
+
+@pytest.mark.parametrize("way", ["workflow-file", "variables"])
+async def test_the_elasticsearch_store_opens_with_the_key_its_block_names(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, way: str
+) -> None:
+    monkeypatch.setenv(ES_KEY_VARIABLE, "es-key-4711")
+    block = {"source": "env", "variable": ES_KEY_VARIABLE}
+    in_the_file = {"components__vector_store__elasticsearch__key": block}
+    if way == "variables":
+        prefix, in_the_file = "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__", {}
+        for key, value in block.items():
+            monkeypatch.setenv(prefix + key.upper(), value)
+    settings = settings_factory(**UNREACHABLE_STORE, **in_the_file)
+
+    async with CompositionRoot(settings) as composition:
+        store = (await composition.ingest_ports()).vector_store
+        # The installed client's own header: an Elasticsearch API key, no request.
+        assert store._store.client._headers["authorization"] == "ApiKey es-key-4711"
+
+
+async def test_the_elasticsearch_store_refuses_an_env_variable_that_is_unset(
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(ES_KEY_VARIABLE, raising=False)
+    block = {"source": "env", "variable": ES_KEY_VARIABLE}
+    settings = settings_factory(
+        **UNREACHABLE_STORE, components__vector_store__elasticsearch__key=block
+    )
+
+    with pytest.raises(MissingKeyError) as refused:
+        async with CompositionRoot(settings) as composition:
+            await composition.ingest_ports()
+
+    [line] = str(refused.value).splitlines()
+    assert ES_KEY_VARIABLE in line
+    assert "'vector_store'" in line
