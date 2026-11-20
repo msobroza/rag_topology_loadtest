@@ -264,7 +264,7 @@ def read_back(
 PREFILTER = [
     {"attribute": "ingestion_pipeline_version", "comparator": "eq", "value": "1"},
     {"attribute": "active", "comparator": "eq", "value": True},
-    {"attribute": "chunk", "comparator": "in", "value": [0, 1]},
+    {"attribute": "sequence", "comparator": "in", "value": [0, 1]},
 ]
 # A site's values in the workflow file's shape, one of each kind: whole and
 # decimal numbers, a boolean, a text with spaces and shell symbols, a list, a
