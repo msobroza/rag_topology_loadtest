@@ -2,7 +2,7 @@
 
 Triage: `ready-for-agent`.
 
-Spec written on 20 November 2026 from the design session of that day with the owner, which [ADR 0012](../adr/0012-an-api-key-comes-from-a-key-source.md) records. It was built on 20 November 2026, by the commits `8236b33..RANGE_END`; "What was built", at the end, says what differs from what follows, which is left as it was written. It is the first of five pieces of work (key sources, sub-workflows, log files, traces, App directories); the others have their own specs. It uses the words of `CONTEXT.md`: API key, key source, run token, endpoint, component, backend, App, Workspace, project environment variable.
+Spec written on 20 November 2026 from the design session of that day with the owner, which [ADR 0012](../adr/0012-an-api-key-comes-from-a-key-source.md) records. It was built on 20 November 2026, by the commits `8236b33..7bcc1cc`; "What was built", at the end, says what differs from what follows, which is left as it was written. It is the first of five pieces of work (key sources, sub-workflows, log files, traces, App directories); the others have their own specs. It uses the words of `CONTEXT.md`: API key, key source, run token, endpoint, component, backend, App, Workspace, project environment variable.
 
 ## Problem Statement
 
