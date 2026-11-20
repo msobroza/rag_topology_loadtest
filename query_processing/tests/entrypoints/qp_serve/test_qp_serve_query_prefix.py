@@ -147,5 +147,5 @@ def test_the_fake_embedder_has_no_prefix(settings_factory: SettingsFactory) -> N
         with TestClient(create_app(CompositionRoot(settings))) as client:
             answers.append(client.post("/retrieve", json={"question": QUESTION}))
 
-    with_prefix, without = (answer.json()["passages"] for answer in answers)
+    with_prefix, without = (answer.json()["records"] for answer in answers)
     assert with_prefix == without  # retrieval scores included: the same vector

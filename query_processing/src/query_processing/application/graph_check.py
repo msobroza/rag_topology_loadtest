@@ -36,6 +36,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ValidationError
+from query_processing_core.query_response import TOTAL_TIMING_KEY
 
 from ..domain.components.base_component import COMPONENT_TYPES, BaseComponent
 from ..domain.graph_description import (
@@ -45,7 +46,6 @@ from ..domain.graph_description import (
     StageDescription,
 )
 from ..domain.registry import Registry
-from ..domain.retrieval.rag_result import TOTAL_TIMING_KEY
 from .edge_check import (
     check_edges,
     edge_name,

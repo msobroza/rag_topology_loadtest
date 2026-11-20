@@ -35,7 +35,7 @@ RESPONSE_FIELDS = {
     "question",
     "mode",
     "answer",
-    "passages",
+    "records",
     "timings_ms",
     "tokens",
     "metadata_filter",
@@ -117,8 +117,8 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
     assert body["question"] == QUESTION
     assert body["mode"] == "query"
     assert body["answer"].startswith("[fake-llm]")
-    assert body["passages"]
-    assert all(p["rerank_score"] is not None for p in body["passages"])
+    assert body["records"]
+    assert all(p["rerank_score"] is not None for p in body["records"])
     assert body["timings_ms"]["total"] > 0
     assert response.headers["X-RAG-Topology"] == TOPOLOGY_ALIAS
     assert response.headers["X-RAG-Run-Label"] == RUN_LABEL
@@ -184,7 +184,7 @@ def test_retrieve_skips_generation(client: TestClient) -> None:
     assert body["mode"] == "retrieve"
     assert body["answer"] is None
     assert body["timings_ms"]["generate"] == 0.0
-    assert body["passages"]
+    assert body["records"]
     assert body["tokens"] == {}
 
 

@@ -49,7 +49,7 @@ def test_a_body_with_a_history_is_answered(client: TestClient, path: str) -> Non
     response = _ask(client, path, HISTORY)
 
     assert response.status_code == 200, response.text
-    assert response.json()["passages"]
+    assert response.json()["records"]
 
 
 @pytest.mark.parametrize("path", ["/query", "/retrieve"])
@@ -59,7 +59,7 @@ def test_a_history_messages_conditions_are_never_applied_to_retrieval(
     body = _ask(client, path, HISTORY).json()
 
     # Unfiltered, the vacation policy wins its own question (the fake ranking).
-    assert body["passages"][0]["metadata"]["topic"] == "vacation-policy"
+    assert body["records"][0]["metadata"]["topic"] == "vacation-policy"
     assert body["metadata_filter"] == []
 
 

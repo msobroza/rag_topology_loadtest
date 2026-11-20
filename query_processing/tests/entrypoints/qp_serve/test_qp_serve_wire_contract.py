@@ -1,14 +1,17 @@
-"""The wire contract of ``/query`` and ``/retrieve`` outlives the toolkit's renames.
+"""The wire contract of ``/query`` and ``/retrieve``, written out here in full.
 
 The package, the commands and the environment prefix took new names, but a load
-test compares runs from before and after: the request, the response headers and
-the response bodies keep theirs, written out here in full.
+test compares runs from before and after: the request and the response headers
+keep theirs. The response body returns the scored vector-store records as they
+are, under ``records`` (ADR 0014): a text, the flat metadata with the id and,
+when there is one, the chunk, and the two scores.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +34,8 @@ BODY_FIELDS = {
     "question",
     "mode",
     "answer",
-    "passages",
+    # The scored vector-store records, as they are (ADR 0014).
+    "records",
     "timings_ms",
     # Added with the token counts: each stage whose LLM reported both, {} for
     # a body with only a question on /retrieve.
@@ -40,17 +44,25 @@ BODY_FIELDS = {
     # with only a question.
     "metadata_filter",
 }
-PASSAGE_FIELDS = {"id", "text", "metadata", "retrieval_score", "rerank_score"}
+RECORD_FIELDS = ["text", "metadata", "retrieval_score", "rerank_score"]
 # A vector-store record with its id in its metadata, and no chunk.
 LEAVE = VectorStoreRecord(
     text="Leave is booked a week ahead.", metadata={"topic": "hr", "id": "leave-1"}
+)
+# A record made from a chunk holds it under "chunk", as one JSON text: the
+# toolkit never reads it, so any text stands for it here (the core's tests
+# show that doclang's own chunk comes back from such a text).
+CHUNK_PAYLOAD = '{"id": "doc-leave@v1#chunk-0", "sequence": 0}'
+LEAVE_FROM_A_CHUNK = VectorStoreRecord(
+    text="Leave is booked a week ahead.",
+    metadata={"id": "doc-leave@v1#chunk-0", "chunk": CHUNK_PAYLOAD, "sequence": 0},
 )
 
 
 @pytest.mark.parametrize(
     ("path", "mode"), [("/query", "query"), ("/retrieve", "retrieve")]
 )
-def test_a_route_answers_with_the_headers_and_body_it_always_had(
+def test_a_route_answers_with_its_headers_and_the_records_as_they_are(
     settings_factory: Callable[..., WorkflowSettings], path: str, mode: str
 ) -> None:
     settings = settings_factory(
@@ -81,8 +93,14 @@ def test_a_route_answers_with_the_headers_and_body_it_always_had(
     )
     assert (body["question"], body["mode"]) == (QUESTION, mode)
     assert body["metadata_filter"] == []
-    assert body["passages"]
-    assert all(set(passage) == PASSAGE_FIELDS for passage in body["passages"])
+    assert body["records"]
+    assert all(list(record) == RECORD_FIELDS for record in body["records"])
+    # The fake store's records are the handbook's: the id and the window's
+    # index in the metadata, and no chunk.
+    for record in body["records"]:
+        assert isinstance(record["metadata"]["id"], str)
+        assert isinstance(record["metadata"]["sequence"], int)
+        assert "chunk" not in record["metadata"]
 
 
 @pytest.mark.parametrize("path", ["/query", "/retrieve"])
@@ -104,25 +122,41 @@ def _store_holding(record: VectorStoreRecord) -> InMemoryVectorStore:
     return store
 
 
-@pytest.mark.parametrize("path", ["/query", "/retrieve"])
-def test_an_entry_gives_the_records_id_beside_its_metadata_as_it_always_did(
-    settings_factory: Callable[..., WorkflowSettings], path: str
-) -> None:
+def _records_answered(
+    settings_factory: Callable[..., WorkflowSettings],
+    path: str,
+    record: VectorStoreRecord,
+) -> dict[str, Any]:
     composition = CompositionRoot(
         settings_factory(**FAKE_BACKENDS),
-        vector_store=_store_holding(LEAVE),
+        vector_store=_store_holding(record),
         embedder=FakeEmbedder(dim=4),
     )
-
     with TestClient(create_app(composition)) as client:
-        body = client.post(path, json={"question": QUESTION}).json()
+        body: dict[str, Any] = client.post(path, json={"question": QUESTION}).json()
+    return body
 
-    [entry] = body["passages"]
-    assert list(entry) == ["id", "text", "metadata", "retrieval_score", "rerank_score"]
-    assert (entry["id"], entry["text"], entry["metadata"]) == (
-        "leave-1",
-        "Leave is booked a week ahead.",
-        {"topic": "hr"},  # the id is beside the metadata, not in it
-    )
-    assert entry["rerank_score"] is not None  # reranked, though it has no chunk
+
+@pytest.mark.parametrize("path", ["/query", "/retrieve"])
+def test_a_record_with_no_chunk_comes_back_as_it_is_its_id_in_its_metadata(
+    settings_factory: Callable[..., WorkflowSettings], path: str
+) -> None:
+    body = _records_answered(settings_factory, path, LEAVE)
+
+    [record] = body["records"]
+    assert list(record) == RECORD_FIELDS
+    assert (record["text"], record["metadata"]) == (LEAVE.text, LEAVE.metadata)
+    assert record["rerank_score"] is not None  # reranked, though it has no chunk
     assert (body["answer"] is not None) == (path == "/query")
+
+
+@pytest.mark.parametrize("path", ["/query", "/retrieve"])
+def test_a_record_that_holds_a_chunk_comes_back_with_it_unchanged(
+    settings_factory: Callable[..., WorkflowSettings], path: str
+) -> None:
+    body = _records_answered(settings_factory, path, LEAVE_FROM_A_CHUNK)
+
+    [record] = body["records"]
+    assert record["metadata"] == LEAVE_FROM_A_CHUNK.metadata
+    assert record["metadata"]["chunk"] == CHUNK_PAYLOAD
+    assert record["text"] == LEAVE_FROM_A_CHUNK.text

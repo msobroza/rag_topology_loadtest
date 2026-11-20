@@ -20,6 +20,7 @@ from query_processing_core.retrieval.metadata_filter import MetadataValue
 from query_processing_core.retrieval.vector_store_record import (
     ScoredVectorStoreRecord,
     VectorStoreRecord,
+    from_vector_store,
 )
 
 SENTENCE = "Leave is booked a week ahead."
@@ -52,6 +53,7 @@ def scored(record: VectorStoreRecord, **scores: float) -> ScoredVectorStoreRecor
 
 def test_the_core_hands_on_doclangs_own_record() -> None:
     assert VectorStoreRecord is doclang.VectorStoreRecord
+    assert from_vector_store is doclang.from_vector_store
     assert issubclass(ScoredVectorStoreRecord, doclang.VectorStoreRecord)
 
 

@@ -208,7 +208,8 @@ qp-serve --host 127.0.0.1 --port 18888    # leave it running
 ```
 
 From a second shell, in the same directory (the second answer is cut where `...`
-stands: the question, the mode, the fake answer and the ten passages kept):
+stands: the question, the mode, the fake answer, the first record's text and the
+nine other vector-store records kept):
 
 ```bash
 curl -s localhost:18888/readyz
@@ -216,6 +217,7 @@ curl -s localhost:18888/readyz
 curl -s -X POST localhost:18888/query -H 'Content-Type: application/json' \
   -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
 # {"request_id":"e1e69f34fa1844e19be2beec8510fcdf","topology":null,"run_label":"embedder=fake+router_embedder=fake+router=fake+reranker=fake+llm=fake+vector_store=fake",...,
+#  "records":[{"text":"Full-time employees at Northwind Analytics accrue 15 paid vacation days each year; ...","metadata":{"topic":"vacation-policy","seq":90,"doc_id":"doc-0090","title":"Northwind Analytics Vacation Policy (revision 24)","sequence":0,"id":"doc-0090:0"},"retrieval_score":0.7078702665436842,"rerank_score":0.23809523809523808},...],
 #  "timings_ms":{"embed_for_route":0.0,"route":0.0,"rewrite":0.0,"embed":0.2180000301450491,"retrieve":0.8875830098986626,"rerank":0.3361250273883343,"generate":0.3732079640030861,"total":9.341874858364463},"tokens":{"generate":{"prompt":605,"completion":32}},"metadata_filter":[]}
 make loadtest RUN_NAME=first-run HOST=http://localhost:18888 USERS=2 SPAWN_RATE=2 RUN_TIME=5s
 make compare
@@ -854,7 +856,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
         standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       retrieval/      what is searched and what comes back
-        rag_result.py  RagResult, RagMode, TOTAL_TIMING_KEY, top_by_score (the records are the core's)
+        rag_result.py  RagResult, top_by_score (the records, RagMode and TOTAL_TIMING_KEY are the core's)
         retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
         rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
         corpus.py     synthetic handbook corpus, its questions, chunking
@@ -1122,10 +1124,11 @@ query_processing_core/   the core, one distribution (query-processing-core) that
   src/query_processing_core/   its package; it imports the standard library, Pydantic and doclang's core, no toolkit and no use case
     conversation.py   HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
     query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
+    query_response.py  QueryResponse: the body the app answers /query and /retrieve with, the scored vector-store records as they are under records; RagMode and TOTAL_TIMING_KEY, which the workflow's result and the load-test client name too
     retrieval/        what a search is asked and the records it gives back
       metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
-      vector_store_record.py  VectorStoreRecord, doclang's, handed on, and ScoredVectorStoreRecord, the record with its retrieval and rerank scores: the one module of the repository that imports doclang
-  tests/              its own tests, mirroring src/: the metadata filter's, the scored record's (a chunk built by hand), the conversational history's, the request body's, and its imports (test_core_imports.py), read from its files with no toolkit started
+      vector_store_record.py  VectorStoreRecord and from_vector_store, doclang's, handed on, and ScoredVectorStoreRecord, the record with its retrieval and rerank scores: the one module of the repository that imports doclang
+  tests/              its own tests, mirroring src/: the metadata filter's, the scored record's (a chunk built by hand), the conversational history's, the request body's, the response body's, and its imports (test_core_imports.py), read from its files with no toolkit started
 query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: its settings, and its kNN router (ADR 0006)
   pyproject.toml      the distribution (query-processing-rag-usecase): the toolkit, scikit-learn pinned exactly and joblib; its package under src/; qp-rag-train-router
   workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)
@@ -1334,9 +1337,10 @@ responses reported, as the target record does. It keeps none of `timings_ms`,
 change from run to run, or a hash says as much.
 
 The record is of that form whichever shape the target answered in. The
-workflow app answered in an old shape, and answer records were written in an
-old form: the vector-store records under `passages`, each with its `id` beside
-its `metadata`, the handbook's window index under the metadata key `chunk`.
+workflow app answered in an old shape until ADR 0014, and answer records were
+written in an old form: the vector-store records under `passages`, each with
+its `id` beside its `metadata`, the handbook's window index under the metadata
+key `chunk`.
 One mapping of the load-test client reads the old into the new, for a
 response's body and for a record's file alike: `passages` is read as
 `records`, the `id` into the metadata, and a whole number under `chunk` as
@@ -1346,7 +1350,10 @@ whole number). So `qp-compare-answers` reads a record of either form, finds
 an old one and a new one alike when the answers are the same, and names a
 difference in the new form's words (`records[0].rerank_score`). The old form
 is read with no end date: the registry's records in `experiments/` are of
-it and are never rewritten, and so, today, are the pinned records below.
+it and are never rewritten. The pinned records below were made again in the
+new form when the response took its shape, once the mapping had shown the
+new answers equal to the old ones: the same ids, text hashes, metadata,
+scores and answers, on every registered orchestrator.
 
 `qp-compare-answers <prefix> <prefix>... [--out <file>]` compares each run's
 record with the first, the baseline, and names a run by the last component of
@@ -1535,7 +1542,7 @@ qp-compare results/rerank-ovms results/rerank-vllm --out results/rerank.md
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}`; a stage that ran more than once in the request, in a loop or where two branches join at different depths, reports in both the sum of its runs |
+| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, records[{text, metadata{id, ...}, retrieval_score, rerank_score}], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; `records` holds the scored vector-store records as their store holds them (ADR 0014), each with its id in its `metadata` and, for a record made from a chunk, the chunk under the metadata key `chunk`, which doclang's `from_vector_store` rebuilds (a record of the synthetic handbook holds none, and its window's index under `sequence`), then its `retrieval_score` and its `rerank_score` (`null` when no rerank stage ran); the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}`; a stage that ran more than once in the request, in a loop or where two branches join at different depths, reports in both the sum of its runs |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`, no `generate` key in `tokens`: `{}` unless `rewrite` ran) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `router_embedder`, `reranker`); `503` when a check fails |

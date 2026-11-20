@@ -142,13 +142,13 @@ def cond(
 
 TAGGED = [
     VectorStoreRecord(
-        text="t", metadata={"id": "amf", "source": "AMF", "chunk": 1, "on": True}
+        text="t", metadata={"id": "amf", "source": "AMF", "sequence": 1, "on": True}
     ),
     VectorStoreRecord(
-        text="t", metadata={"id": "gaa", "source": "GAA", "chunk": 2, "on": False}
+        text="t", metadata={"id": "gaa", "source": "GAA", "sequence": 2, "on": False}
     ),
     VectorStoreRecord(
-        text="t", metadata={"id": "chad", "source": "CHAD", "chunk": 3.5}
+        text="t", metadata={"id": "chad", "source": "CHAD", "sequence": 3.5}
     ),
 ]
 TAGGED_VECTORS = [[1.0, 0.0], [0.8, 0.6], [0.6, 0.8]]  # amf nearest, chad last
@@ -161,13 +161,13 @@ TAGGED_VECTORS = [[1.0, 0.0], [0.8, 0.6], [0.6, 0.8]]  # amf nearest, chad last
         ([cond("source", "eq", "GAA")], ["gaa"]),
         ([cond("on", "eq", True)], ["amf"]),
         ([cond("source", "ne", "AMF")], ["gaa", "chad"]),
-        ([cond("chunk", "gt", 1)], ["gaa", "chad"]),
-        ([cond("chunk", "gte", 2)], ["gaa", "chad"]),
-        ([cond("chunk", "lt", 2)], ["amf"]),
-        ([cond("chunk", "lte", 2)], ["amf", "gaa"]),
+        ([cond("sequence", "gt", 1)], ["gaa", "chad"]),
+        ([cond("sequence", "gte", 2)], ["gaa", "chad"]),
+        ([cond("sequence", "lt", 2)], ["amf"]),
+        ([cond("sequence", "lte", 2)], ["amf", "gaa"]),
         ([cond("source", "in", ["AMF", "CHAD"])], ["amf", "chad"]),
         ([cond("source", "nin", ["AMF", "CHAD"])], ["gaa"]),
-        ([cond("source", "ne", "AMF"), cond("chunk", "lt", 3)], ["gaa"]),
+        ([cond("source", "ne", "AMF"), cond("sequence", "lt", 3)], ["gaa"]),
         ([cond("topic", "eq", "hr")], []),  # no passage has the field
     ],
 )
@@ -190,7 +190,7 @@ async def test_chroma_a_search_keeps_only_what_the_prefilter_and_request_keep(
 
     unfiltered = await store.ainvoke(search)
     filtered = await store.ainvoke(
-        search.model_copy(update={"metadata_filter": [cond("chunk", "gte", 2)]})
+        search.model_copy(update={"metadata_filter": [cond("sequence", "gte", 2)]})
     )
 
     assert [p.id for p in unfiltered.passages] == ["amf", "gaa"]

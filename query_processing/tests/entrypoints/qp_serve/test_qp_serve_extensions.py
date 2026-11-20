@@ -53,7 +53,7 @@ def test_a_stage_that_calls_a_use_cases_component_answers_through_the_app(
     body = ask(settings_factory(**FAKE_BACKENDS))
 
     assert body["answer"] == QUESTION.upper() + "!"
-    assert len(body["passages"]) == 2
+    assert len(body["records"]) == 2
     assert body["timings_ms"]["shout"] > 0
 
 

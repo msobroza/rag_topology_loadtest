@@ -2,10 +2,9 @@
 
 Each test records the workflow app in process, on the fixture workflow file
 with every component on ``fake``, and compares the records. A record of the
-old form, its vector-store records under ``passages`` as the pinned records
-and the registry's are, is read through the same mapping as a response of the
-old shape, and compares alike with a record of the new form of the same
-answers.
+old form, its vector-store records under ``passages`` as the registry's are,
+is read through the same mapping as a response of the old shape, and compares
+alike with a record of the new form of the same answers.
 """
 
 from __future__ import annotations

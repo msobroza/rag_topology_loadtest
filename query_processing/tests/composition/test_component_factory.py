@@ -224,7 +224,7 @@ settings = WorkflowSettings(
 )
 with TestClient(create_app(CompositionRoot(settings))) as client:
     answer = client.post("/retrieve", json={"question": "vacation days"}).json()
-passages = answer["passages"]
+passages = answer["records"]
 print(json.dumps({
     "package": query_processing.__file__,
     "retrieval": [passage["retrieval_score"] for passage in passages],

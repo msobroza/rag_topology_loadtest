@@ -13,7 +13,7 @@ each with its ``id`` beside its metadata and the handbook's window index under
 the metadata key ``chunk``; it answers with them under ``records``, the id in
 the metadata and the index under ``sequence``. ``OLD_BODY`` and ``NEW_BODY``
 are one answer in each shape, and ``old_form_of`` writes an answer record of
-the new form in the old one, as the pinned records and the registry's are.
+the new form in the old one, as the registry's are.
 """
 
 from __future__ import annotations

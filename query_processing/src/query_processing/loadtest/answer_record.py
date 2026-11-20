@@ -15,8 +15,8 @@ refused (``MalformedAnswerError``). ``qp-compare-answers`` reads the record
 back through the same class, so a file of another shape fails with a message
 naming the file, the field and the shape expected.
 
-The workflow app answered in an old shape, and the pinned answer records and
-the registry's are of the old form: the vector-store records under
+The workflow app answered in an old shape until ADR 0014, and the registry's
+answer records are of the old form: the vector-store records under
 ``passages``, each with its ``id`` beside its metadata, the handbook's window
 index under the metadata key ``chunk``. ``answer_in_the_new_shape`` is where
 the two meet: a response's body and a record's file are read through it, so

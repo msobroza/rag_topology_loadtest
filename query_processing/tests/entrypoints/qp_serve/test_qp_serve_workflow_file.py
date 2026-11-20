@@ -107,7 +107,7 @@ def test_the_app_runs_the_graph_of_the_file_it_is_given(
     assert set(body["timings_ms"]) == TIMING_KEYS
     assert embedder.queries == [QUESTION]  # embed, then a dense retrieval
     assert reranker.calls == [(QUESTION, 20, 10)]
-    assert len(body["passages"]) == 10
+    assert len(body["records"]) == 10
     # FakeLLM echoes the user message: the file's user prompt, filled.
     assert body["answer"].startswith("[fake-llm] Context:\n[1] ")
 
@@ -123,7 +123,7 @@ def test_a_workflow_file_in_the_working_directory_is_used_in_its_place(
     body = ask(settings_factory(**FAKE_BACKENDS), reranker=reranker)
 
     assert reranker.calls == [(QUESTION, 20, 3)]
-    assert len(body["passages"]) == 3
+    assert len(body["records"]) == 3
 
 
 def test_the_file_a_variable_names_is_used_before_the_working_directorys(
@@ -172,7 +172,7 @@ def test_a_stage_named_otherwise_is_an_instance_of_the_type_it_names(
     body = ask(settings_factory(**FAKE_BACKENDS), reranker=reranker)
 
     assert reranker.calls == [(QUESTION, 4, 10)]
-    assert len(body["passages"]) == 4
+    assert len(body["records"]) == 4
 
 
 def test_stages_of_no_stage_type_that_state_their_lists_answer_as_plain_calls(
@@ -202,7 +202,7 @@ def test_stages_of_no_stage_type_that_state_their_lists_answer_as_plain_calls(
 
     assert embedder.queries == [QUESTION]
     assert reranker.calls == [(QUESTION, 20, 4)]
-    assert len(body["passages"]) == 4
+    assert len(body["records"]) == 4
     assert body["answer"].startswith("[fake-llm] Context:\n[1] ")
 
 
@@ -234,7 +234,7 @@ def test_a_variable_named_by_a_values_path_overrides_the_file(
     body = ask(settings_factory(**FAKE_BACKENDS), reranker=reranker)
 
     assert reranker.calls == [(QUESTION, 20, 3)]  # the file's other values stay
-    assert len(body["passages"]) == 3
+    assert len(body["records"]) == 3
 
 
 def test_a_variable_replaces_the_prompt_of_the_generate_stage_as_json(
@@ -319,7 +319,7 @@ def test_a_rerank_size_above_the_retrieve_size_is_no_longer_refused(
     body = ask(settings_factory(**FAKE_BACKENDS), reranker=reranker)
 
     assert reranker.calls == [(QUESTION, 20, 30)]
-    assert len(body["passages"]) == 20
+    assert len(body["records"]) == 20
 
 
 # --- retrieval mode and prompts are the stages' ------------------------------------
@@ -339,7 +339,7 @@ def test_lexical_retrieval_is_a_workflow_file_with_no_embed_stage(
     assert store.calls == [("lexical", QUESTION, 20)]
     assert embedder.queries == []
     assert "embed" not in body["timings_ms"]  # the timings follow the graph
-    assert [passage["id"] for passage in body["passages"]] == ["z", "y"]
+    assert [record["metadata"]["id"] for record in body["records"]] == ["z", "y"]
 
 
 def test_a_lexical_retrieve_stage_after_an_embed_stage_runs_it_for_nothing(

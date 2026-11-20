@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, TypeGuard
 
-from ..domain.retrieval.rag_result import TOTAL_TIMING_KEY
+from query_processing_core.query_response import TOTAL_TIMING_KEY
 
 # The request type of STAGE rows, used both when firing them and by qp-compare.
 STAGE_REQUEST_TYPE = "STAGE"

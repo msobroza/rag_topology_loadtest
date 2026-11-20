@@ -197,10 +197,11 @@ def chunk(
             and below ``chunk_words``.
 
     Returns:
-        The passages, ids ``<doc id>:<chunk index>``, carrying the document's
-        metadata plus ``doc_id``, ``title``, ``chunk`` and the passage's ``id``,
-        which a key of the document's metadata cannot override; empty for an
-        empty text.
+        The passages, ids ``<doc id>:<window index>``, carrying the document's
+        metadata plus ``doc_id``, ``title``, ``sequence`` (the window's index,
+        under doclang's key: doclang keeps ``chunk`` for the chunk itself) and
+        the passage's ``id``, which a key of the document's metadata cannot
+        override; empty for an empty text.
 
     Raises:
         ValueError: If ``overlap_words`` is negative or not below ``chunk_words``.
@@ -223,7 +224,7 @@ def chunk(
                 **doc.metadata,
                 "doc_id": doc.id,
                 "title": doc.title,
-                "chunk": i,
+                "sequence": i,
                 "id": f"{doc.id}:{i}",
             },
         )

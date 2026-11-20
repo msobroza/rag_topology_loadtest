@@ -51,8 +51,9 @@ class ElasticsearchFilterTranslator(BaseMetadataFilterTranslator[list[EsClause]]
 
         Example:
             >>> ElasticsearchFilterTranslator().translate(
-            ...     [MetadataCondition(attribute="chunk", comparator="gte", value=2)])
-            [{'range': {'metadata.chunk': {'gte': 2}}}]
+            ...     [MetadataCondition(attribute="sequence", comparator="gte", value=2)]
+            ... )
+            [{'range': {'metadata.sequence': {'gte': 2}}}]
         """
         return [_clause(condition) for condition in conditions]
 

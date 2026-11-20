@@ -105,7 +105,7 @@ def test_the_workflow_file_builds_a_graph_that_answers(
     answered = response.json()
     # One timing per stage of the file, in its order, then the total.
     assert list(answered["timings_ms"]) == [*STAGES, "total"]
-    assert len(answered["passages"]) == 10  # what the rerank stage keeps
+    assert len(answered["records"]) == 10  # what the rerank stage keeps
     assert response.headers["X-RAG-Run-Label"] == FAKE_RUN_LABEL
     if path == "/query":  # the fake LLM echoes the file's user prompt, filled
         assert answered["answer"].startswith("[fake-llm] Context:\n[1] ")

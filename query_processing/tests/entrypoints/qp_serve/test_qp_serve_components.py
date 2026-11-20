@@ -99,7 +99,7 @@ def test_two_stages_call_two_components_of_one_type(
         "rerank_coarse",
         "total",
     ]
-    assert len(response.json()["passages"]) == 10  # the rerank stage's top_k
+    assert len(response.json()["records"]) == 10  # the rerank stage's top_k
 
 
 def test_the_fixture_file_builds_a_graph_from_its_three_model_components(

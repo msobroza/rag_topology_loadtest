@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import from_vector_store
 
 from query_processing.domain.retrieval.corpus import (
     TOPICS,
@@ -85,13 +86,25 @@ def test_chunk_word_windows_overlap_and_ids() -> None:
 
 def test_chunk_metadata_carries_document_fields() -> None:
     (passage,) = chunk(_doc(30, topic="remote-work", seq=4))
-    doc_fields = {"doc_id": "doc-0007", "title": "Handbook", "chunk": 0}
+    doc_fields = {"doc_id": "doc-0007", "title": "Handbook", "sequence": 0}
     assert passage.metadata == {
         "topic": "remote-work",
         "seq": 4,
         **doc_fields,
         "id": "doc-0007:0",
     }
+
+
+def test_a_handbook_record_holds_no_chunk_and_doclang_says_so() -> None:
+    # doclang keeps "chunk" for the chunk itself: the window's index is its
+    # "sequence", and asking a handbook record for its chunk gets doclang's
+    # own refusal, not a validation error about the digit 0.
+    records = chunk(_doc(250), chunk_words=100, overlap_words=20)
+
+    assert [record.metadata["sequence"] for record in records] == [0, 1, 2]
+    assert not any("chunk" in record.metadata for record in records)
+    with pytest.raises(ValueError, match="the record has no 'chunk' payload"):
+        from_vector_store(records[0])
 
 
 def test_a_documents_own_id_key_does_not_override_its_passages_id() -> None:

@@ -1,6 +1,7 @@
-"""The outcome of a RAG run, its mode, and the keeping of the best-scored records.
+"""The outcome of a RAG run, and the keeping of the best-scored records.
 
-The records themselves are the core's vector-store records (ADR 0014).
+The records themselves are the core's vector-store records, and the mode and
+the name of the total timing are the core's response body's (ADR 0014).
 
 Nothing heavy is imported here, so the OVMS-only and fake topologies never pay
 for torch or elasticsearch.
@@ -9,19 +10,13 @@ for torch or elasticsearch.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal
 
 from pydantic import BaseModel, Field
+from query_processing_core.query_response import RagMode
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 from query_processing_core.retrieval.vector_store_record import (
     ScoredVectorStoreRecord,
 )
-
-RagMode = Literal["query", "retrieve"]
-# The key of ``RagResult.timings_ms`` that holds the whole run's wall time. Every
-# other key is a stage of the graph that ran, so no list of stages is kept here:
-# the workflow and the load-test client share only this name of the wire.
-TOTAL_TIMING_KEY = "total"
 
 
 class RagResult(BaseModel):

@@ -2,9 +2,10 @@
 
 A vector store keeps doclang's ``VectorStoreRecord``: a text and one flat map of
 metadata, whose ``id`` it reads, and, for a record made from a chunk, the whole
-chunk, which doclang's ``from_vector_store`` rebuilds. This is the one module of
-the repository that imports doclang (ADR 0014): the toolkit imports both records
-from here.
+chunk, which doclang's ``from_vector_store`` rebuilds, and refuses for a record
+that holds none. This is the one module of the repository that imports doclang
+(ADR 0014): the toolkit and a use case import both records, and
+``from_vector_store`` to ask a record for its chunk, from here.
 
 Example:
     >>> record = ScoredVectorStoreRecord(
@@ -20,9 +21,10 @@ from __future__ import annotations
 
 from doclang_domain.core.adapters.implementations.vector_store import (
     VectorStoreRecord,
+    from_vector_store,
 )
 
-__all__ = ["ScoredVectorStoreRecord", "VectorStoreRecord"]
+__all__ = ["ScoredVectorStoreRecord", "VectorStoreRecord", "from_vector_store"]
 
 
 class ScoredVectorStoreRecord(VectorStoreRecord):

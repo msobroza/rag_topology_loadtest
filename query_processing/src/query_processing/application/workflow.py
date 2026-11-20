@@ -18,10 +18,11 @@ import time
 from collections.abc import Mapping, Sequence
 
 from query_processing_core.conversation import HistoryMessage
+from query_processing_core.query_response import TOTAL_TIMING_KEY, RagMode
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from ..adapters.orchestrator.base_orchestrator import BaseOrchestrator
-from ..domain.retrieval.rag_result import TOTAL_TIMING_KEY, RagMode, RagResult
+from ..domain.retrieval.rag_result import RagResult
 from .workflow_state import (
     METADATA_FILTER_FIELD,
     TIMINGS_FIELD,

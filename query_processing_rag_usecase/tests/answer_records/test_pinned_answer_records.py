@@ -103,7 +103,21 @@ def test_the_two_records_part_at_the_follow_ups_alone() -> None:
     assert alone[:2] == rewritten[:2]
     assert alone[6:] == rewritten[6:]
     follow_ups = zip(alone[2:6], rewritten[2:6], strict=True)
-    assert all(a["passages"] != r["passages"] for a, r in follow_ups)
+    assert all(a["records"] != r["records"] for a, r in follow_ups)
+
+
+@pytest.mark.parametrize("name", sorted(ROUTES))
+def test_a_committed_record_is_of_the_new_form(name: str) -> None:
+    answers = json.loads(pinned_record(name).path.read_text(encoding="utf-8"))[
+        "answers"
+    ]
+
+    # Made again when the response took its new shape (ADR 0014): each
+    # answer's vector-store records under "records", each id in its metadata.
+    assert all("records" in answer and "passages" not in answer for answer in answers)
+    records = [record for answer in answers for record in answer["records"]]
+    assert records
+    assert all("id" not in record and "id" in record["metadata"] for record in records)
 
 
 @pytest.mark.parametrize("name", sorted(ROUTES))

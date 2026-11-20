@@ -21,10 +21,9 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
 from query_processing_core.conversation import HistoryMessage
+from query_processing_core.query_response import RagMode
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
-
-from ..domain.retrieval.rag_result import RagMode
 
 # What one request carries from stage to stage, by field name: a stage reads
 # the values its reads name and returns the fields it writes, the update

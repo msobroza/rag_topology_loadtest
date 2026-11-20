@@ -237,7 +237,7 @@ def test_a_rewrites_conditions_join_the_metadata_filter_and_its_query_is_searche
     assert app.embedder.queries == [STANDALONE]
     assert answered["metadata_filter"] == [ON_AMF]
     # No passage of the fake store's synthetic corpus carries a source.
-    assert answered["passages"] == []
+    assert answered["records"] == []
     # The answer is still asked about the message as the user sent it.
     answer_prompt, _ = app.llm.asked[-1]
     assert answer_prompt[-1]["content"].endswith(f"Question: {FOLLOW_UP}")
@@ -272,4 +272,4 @@ def test_the_fake_router_of_the_settings_decides_whether_a_follow_up_is_rewritte
     assert response.status_code == 200, response.text
     # /retrieve asks the LLM for no answer: its only call is the rewrite.
     assert llm.calls == rewrites
-    assert len(response.json()["passages"]) == 10
+    assert len(response.json()["records"]) == 10

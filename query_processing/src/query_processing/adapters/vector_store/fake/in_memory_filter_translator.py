@@ -6,8 +6,8 @@ cannot be ordered against the condition's is dropped too.
 
 Example:
     >>> keep = InMemoryFilterTranslator().translate(
-    ...     [MetadataCondition(attribute="chunk", comparator="lt", value=3)])
-    >>> keep(VectorStoreRecord(text="t", metadata={"id": "p", "chunk": 2}))
+    ...     [MetadataCondition(attribute="sequence", comparator="lt", value=3)])
+    >>> keep(VectorStoreRecord(text="t", metadata={"id": "p", "sequence": 2}))
     True
 """
 

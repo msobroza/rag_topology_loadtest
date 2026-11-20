@@ -37,7 +37,7 @@ def test_a_body_with_only_a_question_reports_no_condition(
 
     assert body["metadata_filter"] == []
     # Unfiltered, the vacation policy wins its own question (the fake ranking).
-    assert body["passages"][0]["metadata"]["topic"] == "vacation-policy"
+    assert body["records"][0]["metadata"]["topic"] == "vacation-policy"
 
 
 @pytest.mark.parametrize("path", ["/query", "/retrieve"])
@@ -51,8 +51,8 @@ def test_a_filter_keeps_only_the_passages_that_meet_it_and_is_reported(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["metadata_filter"] == ON_REMOTE_WORK
-    assert body["passages"]
-    assert {p["metadata"]["topic"] for p in body["passages"]} == {"remote-work"}
+    assert body["records"]
+    assert {p["metadata"]["topic"] for p in body["records"]} == {"remote-work"}
 
 
 def test_every_condition_must_hold(client: TestClient) -> None:
@@ -69,8 +69,8 @@ def test_every_condition_must_hold(client: TestClient) -> None:
         "/retrieve", json={"question": QUESTION, "metadata_filter": conditions}
     ).json()
 
-    assert body["passages"]
-    assert {p["metadata"]["topic"] for p in body["passages"]} == {"remote-work"}
+    assert body["records"]
+    assert {p["metadata"]["topic"] for p in body["records"]} == {"remote-work"}
 
 
 @pytest.mark.parametrize(
@@ -126,8 +126,8 @@ def test_a_filter_restricts_each_retrieval_mode(
             "/retrieve", json={"question": QUESTION, "metadata_filter": ON_REMOTE_WORK}
         ).json()
 
-    assert body["passages"]
-    assert {p["metadata"]["topic"] for p in body["passages"]} == {"remote-work"}
+    assert body["records"]
+    assert {p["metadata"]["topic"] for p in body["records"]} == {"remote-work"}
 
 
 def test_the_fields_declared_are_those_of_the_stores_retrieve_stages_call(
@@ -217,10 +217,10 @@ def test_the_prefilter_applies_with_the_requests_conditions_and_is_not_reported(
     answer = prefiltered_client.post(path, json=body).json()
 
     # Without the prefilter an earlier document is retrieved: the test can fail.
-    assert min(p["metadata"]["seq"] for p in unfiltered["passages"]) < 100
-    assert answer["passages"]
-    assert {p["metadata"]["topic"] for p in answer["passages"]} == {"remote-work"}
-    assert min(p["metadata"]["seq"] for p in answer["passages"]) >= 100
+    assert min(p["metadata"]["seq"] for p in unfiltered["records"]) < 100
+    assert answer["records"]
+    assert {p["metadata"]["topic"] for p in answer["records"]} == {"remote-work"}
+    assert min(p["metadata"]["seq"] for p in answer["records"]) >= 100
     assert answer["metadata_filter"] == ON_REMOTE_WORK
 
 
