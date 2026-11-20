@@ -101,13 +101,14 @@ def key_source_variables(settings: WorkflowSettings) -> dict[str, str]:
         settings: The settings an App will read, their ``key`` blocks checked.
 
     Returns:
-        Each variable, such as ``OPENAI_API_KEY`` for ``{source: env,
-        variable: OPENAI_API_KEY}``, and the place of the block that names it
+        Each variable, such as ``EXAMPLE_LLM_KEY`` for ``{source: env,
+        variable: EXAMPLE_LLM_KEY}``, and the place of the block that names it
         in the workflow file, such as ``components.llm.api.key``.
 
     Example:
-        >>> key_source_variables(WorkflowSettings())
-        {'OPENAI_API_KEY': 'components.llm.api.key'}
+        >>> # The llm's api.key block is {source: env, variable: EXAMPLE_LLM_KEY}.
+        >>> key_source_variables(settings)
+        {'EXAMPLE_LLM_KEY': 'components.llm.api.key'}
     """
     return {
         variable: ".".join(place)

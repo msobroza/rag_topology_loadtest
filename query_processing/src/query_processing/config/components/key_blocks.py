@@ -105,7 +105,7 @@ def is_a_name(text: str) -> bool:
         True when it is not empty and does not start with a digit.
 
     Example:
-        >>> is_a_name("OPENAI_API_KEY"), is_a_name("sk-1")
+        >>> is_a_name("EXAMPLE_LLM_KEY"), is_a_name("sk-1")
         (True, False)
     """
     return text.isascii() and text.isidentifier()

@@ -67,26 +67,30 @@ MAY_IMPORT: dict[str, set[str]] = {
     },
 }
 # A port: adapters/<component>/base_<component>.py, which imports only the domain.
-# The application, target_client and the deploy's status import ports and nothing
-# else of the adapters.
+# The application imports ports and nothing else of the adapters.
 PORT_MODULE = re.compile(r"query_processing\.adapters\.(\w+)\.base_\1")
-MAY_IMPORT_PORTS = {
-    "application",
-    "query_processing.loadtest.target_client",
-    "query_processing.deploy.status",
-}
-# The named exceptions: one module each, allowed more than its package.
+MAY_IMPORT_PORTS = {"application"}
+# The named exceptions: one module each, and what it may import beyond its
+# package's table: a package, or a module, each with what lies under it.
+KEY_SOURCE_PORT = "query_processing.adapters.key_source.base_key_source"
+STANDALONE_KEY_SOURCE = "query_processing.composition.standalone_key_source"
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # The defaults of a load test's QP_* values and retries; its key and domino blocks.
-    "query_processing.loadtest.loadtest_settings": {"config"},
-    "query_processing.loadtest.target_client": {"composition"},  # its key source
+    "query_processing.loadtest.loadtest_settings": {"query_processing.config"},
+    # The key source of the load test's key block, which composition opens, and
+    # the port, to name its type.
+    "query_processing.loadtest.target_client": {STANDALONE_KEY_SOURCE, KEY_SOURCE_PORT},
     # The deploy tool reads the workflow settings (ADR 0003), checks the overrides,
     # asks the composition's two start-up checks what an App would refuse, and
     # its key_source_variables what the key sources read; the rest of deploy
     # reads them through it.
-    "query_processing.deploy.workflow_components": {"config", "composition"},
+    "query_processing.deploy.workflow_components": {
+        "query_processing.config",
+        "query_processing.composition.composition_root",
+        "query_processing.composition.registered_names",
+    },
     # qp-deploy status sends the run token, which only a key source asks for.
-    "query_processing.deploy.status": {"composition"},
+    "query_processing.deploy.status": {STANDALONE_KEY_SOURCE, KEY_SOURCE_PORT},
 }
 # The named exceptions that load modules by name, as an extension is loaded,
 # from a package their own may not import: one module each, and the modules
@@ -192,15 +196,32 @@ def forbidden_imports(module: str, source: str) -> list[str]:
                           "from ..adapters import embedder")
         # ["query_processing.domain.registry:1 imports query_processing.adapters"]
     """
-    package = module.split(".")[1]
-    allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
-    may_import_ports = bool({package, module} & MAY_IMPORT_PORTS)
+    may_import_ports = module.split(".")[1] in MAY_IMPORT_PORTS
     return [
         f"{module}:{line} imports {imported}"
         for line, imported in imported_product_modules(module, source)
-        if imported.split(".")[1] not in allowed
+        if not table_allows(module, imported)
         and not (may_import_ports and PORT_MODULE.fullmatch(imported))
     ]
+
+
+def table_allows(module: str, imported: str) -> bool:
+    """Whether the table lets ``module`` import, or load, the module ``imported``.
+
+    Its package's row, or what ``ALSO_MAY_IMPORT`` names for it alone, a module
+    named there with what lies under it.
+
+    Example::
+
+        table_allows("query_processing.deploy.status",
+                     "query_processing.composition.composition_root")   # False
+    """
+    if imported.split(".")[1] in MAY_IMPORT[module.split(".")[1]]:
+        return True
+    return any(
+        imported == named or imported.startswith(f"{named}.")
+        for named in ALSO_MAY_IMPORT.get(module, set())
+    )
 
 
 def test_the_import_reader_on_literal_sources() -> None:
@@ -295,8 +316,6 @@ def forbidden_names(module: str, source: str) -> list[str]:
                         "X = 'query_processing.adapters.router'")
         # ["query_processing.domain.registry:1 names query_processing.adapters.router"]
     """
-    package = module.split(".")[1]
-    allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
     named = LOADED_BY_NAME.get(module, set())
     return [
         f"{module}:{node.lineno} names {node.value}"
@@ -304,7 +323,7 @@ def forbidden_names(module: str, source: str) -> list[str]:
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
         and DOTTED_MODULE_NAME.fullmatch(node.value)
-        and node.value.split(".")[1] not in allowed
+        and not table_allows(module, node.value)
         and node.value not in named
     ]
 

@@ -2,7 +2,7 @@
 
 Triage: `ready-for-agent`.
 
-Spec written on 20 November 2026 from the design session of that day with the owner, which [ADR 0012](../adr/0012-an-api-key-comes-from-a-key-source.md) records. Nothing of it is built. It is the first of five pieces of work (key sources, sub-workflows, log files, traces, App directories); the others have their own specs. It uses the words of `CONTEXT.md`: API key, key source, run token, endpoint, component, backend, App, Workspace, project environment variable.
+Spec written on 20 November 2026 from the design session of that day with the owner, which [ADR 0012](../adr/0012-an-api-key-comes-from-a-key-source.md) records. It was built on 20 November 2026, by the commits `8236b33..RANGE_END`; "What was built", at the end, says what differs from what follows, which is left as it was written. It is the first of five pieces of work (key sources, sub-workflows, log files, traces, App directories); the others have their own specs. It uses the words of `CONTEXT.md`: API key, key source, run token, endpoint, component, backend, App, Workspace, project environment variable.
 
 ## Problem Statement
 
@@ -228,3 +228,45 @@ The toolkit ships no test class for key sources, since a use case cannot add one
   8. Elasticsearch gets one further attempt.
 - **Not checked.** How long Domino's run token lives is not in the 6.3 documents; the 4.x ones said five minutes, and `token_ttl_s` keeps its 240 seconds.
 - **The break.** Every `.env` file, every Domino project environment variable and the emulation's secret that names an old variable must be changed when this is deployed. Start-up says so in one line, in place of sending no key.
+
+## What was built
+
+What differs from the spec:
+
+1. A key of the block that its source does not read is refused at start-up, by the check of registered names, not when the settings are read: the settings take any keys beside `source`, since they may not import the registry of sources.
+2. A `key` block given above the workflow file (the environment, `.env`, a deploy override) that names `source` replaces the file's block whole; one that sets another key alone changes that key. The spec did not say how the places combine; merged key by key, a site could not change a source.
+3. Every `key` block, the load-test client's included, is checked before the settings library validates it, and a `variable` or a `source` that is not shaped like a name (letters, digits and underscores, not starting with a digit) is refused without being quoted, so a key typed in the wrong place is never printed.
+4. The Elasticsearch store keeps the clients a refused key replaced until the store closes, so a call in flight on one gets its answer; and it builds a new client only if its source then gives another key. With a source that keeps its key, such as `env`, a refused call fails at once with the source's words.
+5. The key sources of the components a command calls open before any component, so a missing key is refused before a local model loads.
+6. The `env` source of the workflow app reads the `.env` file the settings were built with, not always the directory's.
+7. `QP_LOADTEST_BEARER_TOKEN` beside a `key` block is ignored; alone, it is refused.
+8. The load-test client asks its source under its own timeout, retries and backoff (`QP_LOADTEST_REQUEST_TIMEOUT_S`, `_RETRIES`, `_BACKOFF_S`), since it reads no `http` block.
+9. `qp-deploy status` asks through a second function of `composition`, `run_token_source`, with the `http` block's default backoff and the `domino` block's default time; its line for a token that could not be had now quotes the token URL's answer.
+10. The port gained three things the spec did not name: how a source is opened from its block (`from_block`), what a source reads of its block (`reads`), and the variables a block names (`variables`), for the deploy tool's rule.
+11. One module of `loadtest` (`target_client.py`) and one of `deploy` (`status.py`) may import, of `composition`, the module that opens a key source for a command (`standalone_key_source.py`), and of the adapters the key source port, and nothing wider; the layering test writes each exception by module.
+12. The log line of a request that failed on a dependency carries the error's detail, with the key masked.
+13. The Locust file's tests moved to a folder of their own, `tests/loadtest/locustfile/`: seam 3 names `test_locustfile`, now there.
+14. In a Locust run, a request whose source cannot give its key is not sent and is recorded as a failed request under its own name, so the statistics `qp-compare` reads count it.
+15. A setting the load test refuses, its `key` block's included, ends Locust in one line, `locustfile.py: <the refusal>`, with no traceback, and `qp-record-answers` in one line with the status of a usage error.
+
+Kept as the spec says, though a reviewer questioned it: a refused `env` key is tried again within its retries, so the error comes once they run out.
+
+Not built: the `vault` source, which waits for a spec of its own. Not run: the three checks of ticket 06 on a deployed app, which wait for the owner's machines.
+
+The points decided without the owner's words, under "Further Notes": each was built as written, and the owner has still to keep or strike it.
+
+1. `QP_LOADTEST_BEARER_TOKEN` goes: built as written; refused alone, ignored beside a `key` block (7).
+2. A use case cannot add a key source: built as written; the port is not in `extension_api`.
+3. Start-up refuses an `env` variable that is unset: built as written, and empty too.
+4. The `env` source also reads the `.env` file: built as written, the one the settings were built with (6).
+5. A source's methods do not await: built as written.
+6. A source forgets a refused key only if it still holds it: built as written.
+7. Asking a source over the network is retried: built as written, under the `http` block, or the command's own settings where there is none (8, 9).
+8. Elasticsearch gets one further attempt: built as written, made only when the source gives another key (4).
+
+Four more, decided in the build, for the owner too:
+
+9. The rule of places: a `key` block given above the workflow file with a `source` replaces the file's whole (2).
+10. The shape of a `variable` and of a `source`: letters, digits and underscores, not starting with a digit (3).
+11. The import table's two exceptions, `loadtest/target_client.py` and `deploy/status.py` (11).
+12. The detail of the error in the log line of a failed request, with the key masked (12).

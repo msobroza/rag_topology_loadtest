@@ -1,6 +1,6 @@
 """The ``env`` key source: an API key an environment variable holds.
 
-The block names the variable (``{source: env, variable: OPENAI_API_KEY}``). It is
+The block names the variable (``{source: env, variable: EXAMPLE_LLM_KEY}``). It is
 read where the settings are read: the process's environment first, then the
 ``.env`` file the settings read, so a laptop run needs no ``export``. It is read
 once, when the source opens, and held for the life of the process: a process
@@ -8,7 +8,7 @@ does not see its environment change, so a refusal changes nothing, and the
 error of a refused call says to restart the App after changing the variable.
 
 Example:
-    >>> source = EnvKeySource("OPENAI_API_KEY", env_file=Path(".env"))
+    >>> source = EnvKeySource("EXAMPLE_LLM_KEY", env_file=Path(".env"))
     >>> source.key(may_ask=False)
     'sk-...'
 """
@@ -38,8 +38,8 @@ class EnvKeySource(BaseKeySource):
         MissingKeyError: If the variable is unset or empty in both, naming it.
 
     Example:
-        >>> EnvKeySource("OPENAI_API_KEY", env_file=None).described()
-        'its key is read from the environment variable OPENAI_API_KEY ...'
+        >>> EnvKeySource("EXAMPLE_LLM_KEY", env_file=None).described()
+        'its key is read from the environment variable EXAMPLE_LLM_KEY ...'
     """
 
     reads: ClassVar[tuple[str, ...]] = ("variable",)
@@ -86,8 +86,8 @@ class EnvKeySource(BaseKeySource):
             That variable alone.
 
         Example:
-            >>> EnvKeySource.variables({"variable": "OPENAI_API_KEY"})
-            ('OPENAI_API_KEY',)
+            >>> EnvKeySource.variables({"variable": "EXAMPLE_LLM_KEY"})
+            ('EXAMPLE_LLM_KEY',)
         """
         return (keys["variable"],)
 
@@ -125,8 +125,8 @@ class EnvKeySource(BaseKeySource):
             The clause an error of a refused call quotes.
 
         Example:
-            >>> EnvKeySource("OPENAI_API_KEY", env_file=None).described()
-            'its key is read from the environment variable OPENAI_API_KEY ...'
+            >>> EnvKeySource("EXAMPLE_LLM_KEY", env_file=None).described()
+            'its key is read from the environment variable EXAMPLE_LLM_KEY ...'
         """
         return (
             f"its key is read from the environment variable {self._variable} when "

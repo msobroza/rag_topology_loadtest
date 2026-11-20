@@ -10,6 +10,11 @@ tasks) are in ``ignore_decorators`` instead.
 EmbeddingsUser
 RerankUser
 
+# pydantic-settings: LoadTestSettings.old_bearer_token is a field only so that
+# QP_LOADTEST_BEARER_TOKEN is read, and refused by KeySettingsChecked from the
+# values as read, before validation (loadtest/loadtest_settings.py).
+old_bearer_token
+
 # pytest: calls this conftest hook by name (tests/conftest.py adds --pin-answers).
 pytest_addoption
 

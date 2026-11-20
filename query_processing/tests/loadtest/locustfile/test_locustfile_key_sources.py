@@ -13,11 +13,12 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+from locust.stats import RequestStats
 from test_locustfile import (
     LOCUSTFILE,
     FakeCaughtResponse,
@@ -26,6 +27,7 @@ from test_locustfile import (
 )
 
 from loadtest_settings_helpers import clear_loadtest_variables, settings_from
+from query_processing.loadtest.qp_compare import load_stats
 from query_processing.loadtest.request_plans import RequestPlan
 from query_processing.loadtest.target_client import TargetKey, opened_target_key
 
@@ -229,10 +231,91 @@ def test_the_key_source_opened_at_import_is_closed_as_locust_quits(
         module.KEY.headers()
 
 
-def test_a_key_block_start_up_would_refuse_fails_the_import(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("QP_LOADTEST_KEY__SOURCE", "vault")
+REFUSED_AT_IMPORT = [
+    ({"QP_LOADTEST_KEY__SOURCE": "vault"}, "QP_LOADTEST_KEY__SOURCE: unknown key"),
+    (
+        {"QP_LOADTEST_BEARER_TOKEN": "tok-SECRET"},
+        "QP_LOADTEST_BEARER_TOKEN is no longer read",
+    ),
+    ({"QP_LOADTEST_KEY__SOURCE": "sk-SECRET"}, "QP_LOADTEST_KEY__SOURCE (key"),
+]
+REFUSED_IDS = ["unknown-source", "bearer-token-alone", "a-key-as-the-source"]
 
-    with pytest.raises(ValueError, match="QP_LOADTEST_KEY__SOURCE: unknown key"):
-        _import_locustfile("locustfile_unknown_source")
+
+@pytest.mark.parametrize(("variables", "start"), REFUSED_AT_IMPORT, ids=REFUSED_IDS)
+def test_a_setting_the_load_test_refuses_ends_the_import_in_one_line(
+    monkeypatch: pytest.MonkeyPatch, variables: dict[str, str], start: str
+) -> None:
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(SystemExit) as caught:
+        _import_locustfile("locustfile_refused_setting")
+
+    [line] = str(caught.value.code).splitlines()
+    assert line.startswith(f"locustfile.py: {start}")
+    assert "SECRET" not in line
+
+
+def test_locust_ends_on_that_line_with_no_traceback(tmp_path: Path) -> None:
+    # Locust prints a traceback for an error at import; one line means the
+    # Locust file ended the process itself. Nothing is asked of any host.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QP_")}
+    env["QP_LOADTEST_BEARER_TOKEN"] = "tok-SECRET"
+    command = [sys.executable, "-m", "locust", "-f", str(LOCUSTFILE), "--headless"]
+
+    run = subprocess.run(
+        command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=600
+    )
+
+    lines = [line for line in run.stderr.splitlines() if line.strip()]
+    assert run.returncode != 0
+    assert lines[-1].startswith("locustfile.py: QP_LOADTEST_BEARER_TOKEN is no")
+    assert "Traceback" not in run.stderr
+    assert "tok-SECRET" not in run.stdout + run.stderr
+
+
+class FakeLocustStats(FakeLocustTarget):
+    """A user whose request events reach statistics as Locust's runner sends them.
+
+    Locust's runner logs each request event, and an error for one that carries
+    an exception (``on_request`` in ``locust/runners.py``, Locust 2.47).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stats = RequestStats()
+        self.environment.events.request.fire = self._on_request
+
+    def _on_request(self, **event: Any) -> None:
+        kind, name = event["request_type"], event["name"]
+        self.stats.log_request(
+            kind, name, event["response_time"], event["response_length"]
+        )
+        if event["exception"]:
+            self.stats.log_error(kind, name, event["exception"])
+
+
+def test_a_request_whose_key_cannot_be_had_is_a_failed_request_in_the_statistics(
+    locustfile: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    down = httpx.MockTransport(lambda _: httpx.Response(503, text="down"))
+    variables = {
+        "QP_LOADTEST_KEY__SOURCE": "domino",
+        "QP_DOMINO__TOKEN_URL": TOKEN_URL,
+        "QP_LOADTEST_RETRIES": "0",
+    }
+    user = FakeLocustStats()
+    with opened_target_key(settings_from(monkeypatch, variables), down) as key:
+        locustfile.send(user, RETRIEVE, key)
+
+    prefix = tmp_path / "run"
+    options = SimpleNamespace(csv_prefix=str(prefix))
+    environment = SimpleNamespace(parsed_options=options, stats=user.stats)
+    locustfile.write_final_stats_on_stop(environment)
+
+    row = load_stats(prefix)["POST /retrieve"]  # what qp-compare reads
+    assert (row.requests, row.failures) == (1, 1)
+    assert user.posted == []  # never sent without its key
+    [error] = user.stats.errors.values()
+    assert TOKEN_URL in str(error.error)

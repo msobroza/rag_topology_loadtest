@@ -330,12 +330,46 @@ def test_a_setting_the_load_test_refuses_is_a_usage_error_naming_the_command(
         argv, client=httpx.Client(transport=never), key_transport=never
     )
 
-    error = capsys.readouterr().err
+    [error] = capsys.readouterr().err.splitlines()
     assert status == 2
-    assert error.startswith("qp-record-answers: ")
-    assert "QP_LOADTEST_BEARER_TOKEN is no longer read" in error
+    assert error.startswith(
+        "qp-record-answers: QP_LOADTEST_BEARER_TOKEN is no longer read"
+    )
     assert "secret-run-token" not in error
     assert not list(tmp_path.glob("*_answers.json"))
+
+
+MARKER = "sk-MARKER-0123456789"
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {"QP_LOADTEST_KEY": MARKER},
+        {"QP_LOADTEST_KEY__SOURCE": MARKER},
+        {"QP_LOADTEST_KEY__SOURCE": "env", "QP_LOADTEST_KEY__VARIABLE": MARKER},
+    ],
+    ids=["as-the-block", "as-its-source", "as-its-variable"],
+)
+def test_a_key_typed_in_the_key_block_is_a_usage_error_that_prints_it_not(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    variables: dict[str, str],
+) -> None:
+    use_loadtest_variables(monkeypatch, tmp_path, variables)
+    never = httpx.MockTransport(pytest.fail)
+
+    argv = ["--host", HOST, "--out", "run"]
+    status = record_answers_main(
+        argv, client=httpx.Client(transport=never), key_transport=never
+    )
+
+    printed = capsys.readouterr()
+    [error] = printed.err.splitlines()
+    assert status == 2
+    assert error.startswith("qp-record-answers: QP_LOADTEST_KEY")
+    assert MARKER not in printed.out + printed.err
 
 
 def test_a_token_url_that_never_answers_is_asked_within_the_load_tests_retries(

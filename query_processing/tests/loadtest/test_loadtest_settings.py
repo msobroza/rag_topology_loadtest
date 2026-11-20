@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from loadtest_settings_helpers import settings_from
 from query_processing.config.shared_settings import DefaultHttpSettings
@@ -196,9 +197,84 @@ def test_a_bearer_token_without_a_key_block_is_refused_naming_the_block(
     with pytest.raises(ValueError, match=BEARER) as caught:
         settings_from(monkeypatch, {BEARER: "secret-run-token"})
 
-    [line] = [ln for ln in str(caught.value).splitlines() if BEARER in ln]
+    [line] = str(caught.value).splitlines()  # one line, the settings library's none
+    assert line.startswith(f"{BEARER} is no longer read")
     assert "QP_LOADTEST_KEY__SOURCE=domino" in line
-    assert "secret-run-token" not in str(caught.value)
+    assert "secret-run-token" not in line
+
+
+MARKER = "sk-MARKER-0123456789"
+
+
+@pytest.mark.parametrize(
+    ("variables", "named"),
+    [
+        ({"QP_LOADTEST_KEY": MARKER}, "QP_LOADTEST_KEY (key) is not a key block"),
+        (
+            {"QP_LOADTEST_KEY__SOURCE": MARKER},
+            "QP_LOADTEST_KEY__SOURCE (key.source) is not a name",
+        ),
+        (
+            {"QP_LOADTEST_KEY__SOURCE": "env", "QP_LOADTEST_KEY__VARIABLE": MARKER},
+            "QP_LOADTEST_KEY__VARIABLE (key.variable) is not a name",
+        ),
+    ],
+    ids=["as-the-block", "as-its-source", "as-its-variable"],
+)
+def test_a_key_typed_in_the_key_block_is_refused_in_one_line_that_quotes_it_not(
+    monkeypatch: pytest.MonkeyPatch, variables: dict[str, str], named: str
+) -> None:
+    with pytest.raises(ValueError, match="key") as caught:
+        settings_from(monkeypatch, variables)
+
+    [line] = str(caught.value).splitlines()
+    assert line.startswith(named)
+    assert MARKER not in line
+
+
+@pytest.mark.parametrize(
+    "refused",
+    [
+        {"QP_LOADTEST_WAIT_MIN_S": "2", "QP_LOADTEST_WAIT_MAX_S": "1"},
+        {"QP_TOP_K_RETRIEVE": "3", "QP_TOP_K_RERANK": "5"},
+        {"QP_LOADTEST_TARGET": "rerank"},
+        {"QP_LOADTEST_RETRIES": "many"},
+    ],
+    ids=["waits", "rerank-sizes", "rerank-without-sizes", "retries"],
+)
+def test_a_refusal_of_another_setting_quotes_no_key_nor_token(
+    monkeypatch: pytest.MonkeyPatch, refused: dict[str, str]
+) -> None:
+    keys = {
+        "QP_LOADTEST_KEY__SOURCE": "env",
+        "QP_LOADTEST_KEY__VARIABLE": "LT_KEY",
+        "QP_LOADTEST_KEY__VALUE": MARKER,  # a key typed beside the block's keys
+        API_KEY: MARKER,
+        BEARER: MARKER,
+    }
+    with pytest.raises(ValidationError) as caught:
+        settings_from(monkeypatch, {**keys, **refused})
+
+    assert MARKER not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "field"),
+    [
+        ("QP_LOADTEST_RETRIES", "many", "retries"),
+        ("QP_LOADTEST_WAIT_MIN_S", "soon", "wait_min_s"),
+        ("QP_LOADTEST_BACKOFF_S", "-0.5", "backoff_s"),
+        ("QP_LOADTEST_ANSWER_ROUGE_L", "perhaps", "answer_rouge_l"),
+        ("QP_DOMINO__TOKEN_TTL_S", "a-while", "token_ttl_s"),
+    ],
+)
+def test_a_refused_setting_that_is_no_key_shows_its_name_and_the_value_given(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str, field: str
+) -> None:
+    with pytest.raises(ValidationError, match=field) as caught:
+        settings_from(monkeypatch, {variable: value})
+
+    assert f"input_value='{value}'" in str(caught.value)
 
 
 def test_a_bearer_token_beside_a_key_block_is_not_read(

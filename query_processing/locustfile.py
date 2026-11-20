@@ -18,7 +18,9 @@ answer at most ``QP_LOADTEST_REQUEST_TIMEOUT_S``;
 ``QP_LOADTEST_STEP_SECONDS`` each. Each request carries the API key the
 ``key`` block's key source gives at that moment (``QP_LOADTEST_KEY__SOURCE``),
 else ``DOMINO_API_KEY``: a 401 is recorded as the failure it is and is not
-sent again, and the source is told, so the next request carries a new key. As
+sent again, and the source is told, so the next request carries a new key; a
+request whose source gives no key is not sent and is a failed request under its
+own name. A setting the load test refuses ends the process in one line. As
 a run stops, its target record is written, with the tokens of each stage of its
 responses, and its statistics file is rewritten with the final numbers.
 """
@@ -49,7 +51,11 @@ from query_processing.loadtest.response_checks import (
     ResponseVerdict,
     judge_response,
 )
-from query_processing.loadtest.target_client import TargetKey, opened_target_key
+from query_processing.loadtest.target_client import (
+    RagDependencyError,
+    TargetKey,
+    opened_target_key,
+)
 from query_processing.loadtest.target_record import (
     StageTokenTotals,
     TargetPair,
@@ -58,11 +64,34 @@ from query_processing.loadtest.target_record import (
     write_target_record,
 )
 
-SETTINGS = LoadTestSettings()
+
+def opened_run_key(opened: ExitStack) -> tuple[LoadTestSettings, TargetKey]:
+    """Read the settings and open the run's key, or end the process in one line.
+
+    Locust prints a traceback for an error raised as it imports this file; a
+    setting the load test refuses, a key block start-up would refuse included,
+    ends the process here instead, on its line alone.
+
+    Args:
+        opened: Closes the key source as Locust quits.
+
+    Returns:
+        The run's settings and the API key each request carries.
+
+    Raises:
+        SystemExit: With ``locustfile.py: <the refusal>``, for a setting refused.
+    """
+    try:
+        settings = LoadTestSettings()
+        return settings, opened.enter_context(opened_target_key(settings))
+    except ValueError as exc:  # a MissingKeyError too
+        raise SystemExit(f"locustfile.py: {exc}") from None
+
+
 # The key source is opened once, as the settings are read, and closed as
-# Locust quits; a key block start-up would refuse fails the import.
+# Locust quits.
 OPENED = ExitStack()
-KEY = OPENED.enter_context(opened_target_key(SETTINGS))
+SETTINGS, KEY = opened_run_key(OPENED)
 POOL = build_request_pool(
     SETTINGS.question_count,
     *SETTINGS.rerank_sizes,
@@ -91,7 +120,11 @@ def send(user: FastHttpUser, plan: RequestPlan, key: TargetKey = KEY) -> None:
         plan: The path, JSON body and stats name of the request.
         key: The API key the request carries; the run's, unless a test gives one.
     """
-    headers = key.headers()
+    try:
+        headers = key.headers()
+    except RagDependencyError as exc:
+        record_unsent(user, plan, exc)
+        return
     with user.client.post(
         plan.path,
         json=plan.payload,
@@ -110,6 +143,27 @@ def send(user: FastHttpUser, plan: RequestPlan, key: TargetKey = KEY) -> None:
             return
         resp.success()
         record_success(user, verdict)
+
+
+def record_unsent(user: FastHttpUser, plan: RequestPlan, error: Exception) -> None:
+    """Record a request its key source gave no key for as a failed request.
+
+    Under the request's own name, so the statistics files ``qp-compare``
+    reads count it, where an error raised in the task would be a task error.
+
+    Args:
+        user: The Locust user whose environment fires the request event.
+        plan: The request that was not sent.
+        error: Why its key could not be had; it holds no key.
+    """
+    user.environment.events.request.fire(
+        request_type="POST",
+        name=plan.stats_name,
+        response_time=0,
+        response_length=0,
+        exception=error,
+        context={},
+    )
 
 
 def record_success(user: FastHttpUser, verdict: ResponseVerdict) -> None:

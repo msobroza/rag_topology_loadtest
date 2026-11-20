@@ -1,7 +1,7 @@
 """The ``key`` block: where an endpoint's or the store's API key comes from.
 
 The block names a key source and holds the keys that source reads, flat:
-``{source: env, variable: OPENAI_API_KEY}`` or ``{source: domino}``. With no
+``{source: env, variable: EXAMPLE_LLM_KEY}`` or ``{source: domino}``. With no
 block, no key is sent. The sources are registered in a package the settings
 may not import, so the settings take any name and any keys beside ``source``,
 and the start-up check of registered names refuses an unknown source and a key
@@ -10,8 +10,8 @@ settings library reads a block, ``key_blocks.py`` refuses one that is not
 shaped as a block, and the old ``api_key``, in lines that never quote a value.
 
 Example:
-    >>> KeySettings(source="env", variable="OPENAI_API_KEY").read_keys()
-    {'variable': 'OPENAI_API_KEY'}
+    >>> KeySettings(source="env", variable="EXAMPLE_LLM_KEY").read_keys()
+    {'variable': 'EXAMPLE_LLM_KEY'}
 """
 
 from __future__ import annotations

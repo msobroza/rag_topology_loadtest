@@ -4,8 +4,8 @@ A secret in a ``settings`` block, which would land in a launch script, and a
 value the deploy uses that still holds a placeholder of the example file.
 
 Example:
-    >>> refuse_secrets(DeploySettings())
-    DominoDeployError: OPENAI_API_KEY is set in deploy.yaml under defaults.settings ...
+    >>> refuse_secrets(DeploySettings(defaults={"settings": {"X_API_KEY": ""}}))
+    DominoDeployError: X_API_KEY is set in deploy.yaml under defaults.settings ...
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ def refuse_secrets(settings: DeploySettings) -> None:
 
     Raises:
         DominoDeployError: If a setting's name ends with ``_API_KEY``
-            (``OPENAI_API_KEY``, ``COHERE_API_KEY``, ...), whatever its value.
+            (``X_API_KEY`` and the like), whatever its value.
 
     Example:
-        >>> refuse_secrets(DeploySettings())
-        DominoDeployError: OPENAI_API_KEY is set in deploy.yaml under ...
+        >>> refuse_secrets(DeploySettings(defaults={"settings": {"X_API_KEY": ""}}))
+        DominoDeployError: X_API_KEY is set in deploy.yaml under ...
     """
     blocks = {f"apps.{part}": block for part, block in settings.apps.items()}
     for block_name, block in {"defaults": settings.defaults, **blocks}.items():

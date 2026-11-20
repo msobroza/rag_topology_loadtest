@@ -425,8 +425,9 @@ def key_variables_of(overrides: Mapping[str, object], path: Path) -> dict[str, s
         the place of its ``key`` block (``key_source_variables``).
 
     Example:
+        >>> # workflow.yaml's llm: api.key {source: env, variable: EXAMPLE_LLM_KEY}.
         >>> key_variables_of({}, Path("workflow.yaml"))
-        {'OPENAI_API_KEY': 'components.llm.api.key'}
+        {'EXAMPLE_LLM_KEY': 'components.llm.api.key'}
     """
     return key_source_variables(_settings_with_overrides(overrides, path))
 

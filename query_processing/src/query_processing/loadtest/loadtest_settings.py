@@ -36,17 +36,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import (
-    AliasChoices,
-    Field,
-    ValidationInfo,
-    field_validator,
-    model_validator,
+from pydantic import AliasChoices, Field, ValidationInfo, field_validator
+from pydantic_settings import (
+    BaseSettings,
+    NoDecode,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
 )
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ..config.components.key_blocks import KeyBlocksChecked, check_key_block
 from ..config.components.key_settings import KeySettings
 from ..config.files.workflow_file import declared_alias
 from ..config.shared_settings import DefaultHttpSettings, DominoSettings
@@ -58,6 +58,8 @@ ENV_PREFIX = "QP_LOADTEST_"
 _HTTP_DEFAULTS = DefaultHttpSettings.model_fields
 # Read before key sources; now refused unless a key block is set beside it.
 _OLD_BEARER_TOKEN = "QP_LOADTEST_BEARER_TOKEN"
+# The target that sends each alias a model server serves its model under.
+_TARGET_OF = {"reranker": "rerank", "embedder": "embeddings"}
 
 
 def _variable(name: str, field: str) -> AliasChoices:
@@ -81,8 +83,6 @@ class LoadTestSettings(BaseSettings):
         env_file=".env",
         env_nested_delimiter="__",
         extra="ignore",
-        # An error quotes no value it was given: one may be a key or a token.
-        hide_input_in_errors=True,
     )
 
     # --- what to drive, and how hard ------------------------------------------------
@@ -259,26 +259,95 @@ class LoadTestSettings(BaseSettings):
     def _unset_when_empty(cls, value: object) -> object:
         return value or None
 
-    @model_validator(mode="after")
-    def _consistent(self) -> LoadTestSettings:
-        if self.wait_max_s < self.wait_min_s:
+    # The checks of two fields together are a field's, the later one's, never
+    # the model's: a model's error quotes every value given, keys among them.
+    @field_validator("wait_max_s")
+    @classmethod
+    def _no_shorter_than_the_least(cls, value: float, info: ValidationInfo) -> float:
+        least = info.data.get("wait_min_s")
+        if least is not None and value < least:
             raise ValueError(
-                f"QP_LOADTEST_WAIT_MAX_S={self.wait_max_s} is below "
-                f"QP_LOADTEST_WAIT_MIN_S={self.wait_min_s}; expected max >= min"
+                f"QP_LOADTEST_WAIT_MAX_S={value} is below "
+                f"QP_LOADTEST_WAIT_MIN_S={least}; expected max >= min"
             )
-        _check_rerank_sizes(self.target, self.top_k_retrieve, self.top_k_rerank)
-        _refuse_a_bearer_token_alone(self.old_bearer_token, self.key)
-        return self
+        return value
 
-    @model_validator(mode="after")
-    def _aliases_from_the_workflow_file(self) -> LoadTestSettings:
+    @field_validator("top_k_rerank")
+    @classmethod
+    def _rerank_sizes_that_run(
+        cls, value: int | None, info: ValidationInfo
+    ) -> int | None:
+        target = info.data.get("target")
+        if target is not None and "top_k_retrieve" in info.data:
+            _check_rerank_sizes(target, info.data["top_k_retrieve"], value)
+        return value
+
+    @field_validator("reranker_alias", "embedder_alias")
+    @classmethod
+    def _alias_from_the_workflow_file(cls, value: str, info: ValidationInfo) -> str:
         # Only a model-server target sends an alias, so only it reads the
         # workflow file: the workflow app's target needs none.
-        if self.target == "rerank" and not self.reranker_alias:
-            self.reranker_alias = declared_alias("reranker")
-        if self.target == "embeddings" and not self.embedder_alias:
-            self.embedder_alias = declared_alias("embedder")
-        return self
+        component = str(info.field_name).removesuffix("_alias")
+        sends_it = info.data.get("target") == _TARGET_OF[component]
+        return declared_alias(component) if sends_it and not value else value
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Read as pydantic-settings reads, then check the key settings as read.
+
+        Args:
+            settings_cls: The settings class being built.
+            init_settings: Constructor arguments.
+            env_settings: The environment.
+            dotenv_settings: The ``.env`` file.
+            file_secret_settings: The secrets directory, none configured.
+
+        Returns:
+            The sources, highest priority first, ``KeySettingsChecked`` last.
+        """
+        read = (init_settings, env_settings, dotenv_settings, file_secret_settings)
+        return (*read, KeySettingsChecked(settings_cls, cls.variable_of))
+
+
+class KeySettingsChecked(KeyBlocksChecked):
+    """The last settings source: refuses key mistakes in what the others gave.
+
+    The workflow settings' check (``KeyBlocksChecked``) on the load test's own
+    key settings. The settings library quotes the value of whatever it
+    refuses, and a key typed in the wrong place would be printed. So the
+    ``key`` block is checked as read (``check_key_block``), and
+    ``QP_LOADTEST_BEARER_TOKEN`` without a block is refused, before any value
+    is validated: each refusal is one line that quotes no value.
+
+    Example:
+        >>> LoadTestSettings(key="sk-1")
+        ValueError: QP_LOADTEST_KEY (key) is not a key block: ...
+    """
+
+    def __call__(self) -> dict[str, Any]:
+        """Check the key settings the sources before it gave; give nothing.
+
+        Returns:
+            An empty mapping.
+
+        Raises:
+            ValueError: A ``key`` block not shaped as one, or a bearer token
+                without a block, in one line that quotes no value.
+        """
+        given = self.current_state
+        block = given.get("key")
+        check_key_block(block, variable=self._variable_of("key"), place="key")
+        # The environment and .env give it by its variable, a caller by its field.
+        token = given.get(_OLD_BEARER_TOKEN) or given.get("old_bearer_token")
+        _refuse_a_bearer_token_alone(bool(token), block)
+        return {}
 
 
 def _check_rerank_sizes(
@@ -301,7 +370,7 @@ def _check_rerank_sizes(
         )
 
 
-def _refuse_a_bearer_token_alone(token: str, block: KeySettings | None) -> None:
+def _refuse_a_bearer_token_alone(token: bool, block: object) -> None:
     # One line naming the block that replaces it, and never the token.
     if token and block is None:
         raise ValueError(

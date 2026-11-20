@@ -14,7 +14,7 @@ module imports the domain only.
 
 Example:
     >>> source = KEY_SOURCES.get("env").from_block(
-    ...     {"variable": "OPENAI_API_KEY"}, env_file=Path(".env"))
+    ...     {"variable": "EXAMPLE_LLM_KEY"}, env_file=Path(".env"))
     >>> source.key(may_ask=True)
     'sk-...'
 """
@@ -81,7 +81,7 @@ class BaseKeySource(abc.ABC):
             keys: The block's keys beside ``source``, as ``reads`` names them.
 
         Returns:
-            The variables, such as ``("OPENAI_API_KEY",)`` for ``env``.
+            The variables, such as ``("EXAMPLE_LLM_KEY",)`` for ``env``.
 
         Example:
             >>> KEY_SOURCES.get("domino").variables({})
@@ -133,7 +133,7 @@ class BaseKeySource(abc.ABC):
 
         Example:
             >>> source.described()
-            'its key is read from the environment variable OPENAI_API_KEY ...'
+            'its key is read from the environment variable EXAMPLE_LLM_KEY ...'
         """
 
 

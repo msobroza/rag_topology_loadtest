@@ -638,8 +638,8 @@ and no package imports it either, `extension_api` included.
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse, and `key_source_variables`, the variables their key sources read keys from, which a `settings` list may not set; they open nothing; `status.py` alone may also import `composition`, whose `run_token_source` opens the `domino` key source that asks for the run token `qp-deploy status` sends (only `composition` builds an adapter), and of `adapters` the key source's port, `base_key_source.py`, to name its type |
-   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends and for its `key` and `domino` blocks; `target_client.py` alone may also import `composition`, whose `opened_standalone_key_source` opens the key source of the load test's `key` block (only `composition` builds an adapter from settings), and of `adapters` the key source's port, `base_key_source.py`, to name its type |
+   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` two modules and nothing else: `composition_root.py` and `registered_names.py`, for start-up's two checks (`check_workflow_graph`, `check_registered_names`), to ask of the settings an App will read what its start-up would refuse, and for `key_source_variables`, the variables their key sources read keys from, which a `settings` list may not set; they open nothing; `status.py` alone may also import, of `composition`, `standalone_key_source.py` alone, whose `run_token_source` opens the `domino` key source that asks for the run token `qp-deploy status` sends (only `composition` builds an adapter), and of `adapters` the key source's port alone, `key_source/base_key_source.py`, to name its type |
+   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends and for its `key` and `domino` blocks; `target_client.py` alone may also import, of `composition`, `standalone_key_source.py` alone, whose `opened_standalone_key_source` opens the key source of the load test's `key` block (only `composition` builds an adapter from settings), and of `adapters` the key source's port alone, `key_source/base_key_source.py`, to name its type |
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
 2. **Commands.** A command lives in its own application, in a module named
@@ -778,9 +778,11 @@ and no package imports it either, `extension_api` included.
    tests call on the use case.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, that
-`locustfile.py` imports only the `loadtest` package, that no package imports
-`extension_api` or `testing`, and the toolkit's side of rule 8; the use case's
-`tests/test_layering.py` checks its side;
+`locustfile.py` imports only the `loadtest` package, and that no package imports
+`extension_api` or `testing`; `tests/structure/test_layering_exceptions.py`
+shows that a module the table names alone may import what the table names for
+it and nothing wider; `tests/structure/test_one_way_to_use_cases.py` checks the
+toolkit's side of rule 8, and the use case's `tests/test_layering.py` its side;
 `tests/structure/test_placement.py` checks rule 2, the file names of rule 3
 and rule 7; `tests/structure/test_adapters_placement.py` checks rule 4 (only
 component packages, the orchestrator's and the key source's in `adapters/`,
@@ -1072,7 +1074,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         opening_list.py  OpeningItem, OpeningList, run_opening_list: the list that opens in a terminal, drawn by Textual (the extra terminal), the only module importing it; an item's lines asked when first opened, / matching its name
         listing_commands.py  show_tiers, show_environments: ask Domino, then show the look, the list without Textual the table and how to install it; tier_items, environment_items, list_is_installed; the internal route asked only for an environment named or opened
     loadtest/         the load-test client, with locustfile.py
-      loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), the key block with the domino block's token URL and lifetime, DOMINO_API_KEY
+      loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), the key block with the domino block's token URL and lifetime, DOMINO_API_KEY; KeySettingsChecked: the key block, and QP_LOADTEST_BEARER_TOKEN without one, refused as read, in a line that quotes no value
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
@@ -1099,7 +1101,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     stand_ins.py      hardware tiers (the list, one by its id), environments (the list, one with its three revisions), fake_tier, fake_environment, and the stand-ins: every revision of an environment, /access-token and an App instance's /readyz
     server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, qp-fake-domino
     emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
-  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a use case's Makefile runs it (locust -f) from the use case's directory
+  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a refused setting ends it in one line, a request with no key from its source is a failed request; a use case's Makefile runs it (locust -f) from the use case's directory
   docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002), a use case's directory its project directory
   ovms/               versions.env (single OVMS version pin), export_models.sh (into ovms/models of the working directory, a use case's)
   domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh, vllm.sh), Dockerfile (targets `rag` and `ovms`; neither is for a vLLM App)
@@ -1195,8 +1197,14 @@ recorded as the failure it is and not sent again, so no retry bends the
 timings; the source is told, and the next request carries a new key. Asking the
 token URL takes `QP_LOADTEST_REQUEST_TIMEOUT_S`, `QP_LOADTEST_RETRIES` and
 `QP_LOADTEST_BACKOFF_S`, the load test's own, since it reads no `http` block.
-`QP_LOADTEST_BEARER_TOKEN`, the pasted token of before, is refused without a
-`key` block, in one line that names the block.
+A request whose key source cannot give its key, such as a token URL that does
+not answer, is not sent and counts as a failed request under its own name, in
+`_stats.csv` and `_failures.csv`. `QP_LOADTEST_BEARER_TOKEN`, the pasted token
+of before, is ignored beside a `key` block and refused without one, in one line
+that names the block. A setting the load test refuses as Locust reads its file
+ends the run in one line, `locustfile.py: <the refusal>`, with no traceback; a
+`key` block is checked as it is read, so its refusal never shows a key typed in
+it, and the refusal of any other setting names it and quotes the value given.
 
 A request counts as a success only when the response is HTTP 200 with a JSON
 object body. Any other status fails as `HTTP <status>: <first 200 characters of
@@ -1667,7 +1675,7 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 | `calibration` | `rounds` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `calibration` | `users` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
 | `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the RAG's LLM sets `120`); also the timeout of the hardware-tier lookup |
-| `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
+| `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries a key from a key source, whichever source (the source is told first, and asked again); also the hardware-tier lookup's retries, on transport errors |
 | `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
 | `http` | `max_connections`, `max_keepalive_connections`, `keepalive_expiry_s` | `100`, `20`, `5.0` | the shared client's pool, httpx's own values: connections at once (>= 1), connections kept alive (>= 0), and the seconds an idle one is kept (>= 0). 32 users hold at most 32 calls in flight, and a handshake costs milliseconds against calls of 0.3 to 20 s. The top-level block's only |
 | `http` | `http2` | `false` | HTTP/2 on the shared client; `true` needs the `h2` package (`httpx[http2]`), and is refused without it, and a server that speaks HTTP/2 (Uvicorn's is experimental, OVMS has none). The top-level block's only |
@@ -3648,8 +3656,10 @@ qp-deploy: error: environment_id in defaults of deploy.yaml still holds the exam
 
 The `overrides` are checked against the workflow settings, in a dry run as in a
 deploy: each key must be a place of the workflow file (under `components` and
-`graph.stages`, a name the file declares), an API key is refused unless it is
-empty or `domino`, and each
+`graph.stages`, a name the file declares), an old `api_key` is refused with
+the line start-up prints of it, and any other place whose variable ends in
+`_API_KEY` whatever its value, while a `key` block, which names where a key comes from and holds none,
+may be overridden, and each
 value must have the type and range the settings take, with the checks of the
 whole. Then the workflow file with the overrides, read with the prompts and
 routes files found here as the App finds them, is asked what an App's start-up

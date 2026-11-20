@@ -5,9 +5,10 @@ A request carries the API key of the key source the ``key`` block names
 run token that expires is asked for again; without a block it carries
 ``DOMINO_API_KEY`` in ``X-Domino-Api-Key``, and without either nothing. A 401
 tells the source which key was refused, so the next request carries a new one.
-This is the one module of the load-test client that imports the composition
-root, which opens the source (``opened_target_key``), and the key source's
-port, to name it; Locust's file and ``qp-record-answers`` take a ``TargetKey``.
+This is the one module of the load-test client that imports, of the
+composition, the module that opens the source (``opened_target_key``), and the
+key source's port, to name it; Locust's file and ``qp-record-answers`` take a
+``TargetKey``, and the Locust file the error a source that gives no key raises.
 
 ``qp-record-answers`` posts with ``TargetClient``: a request the target never
 answered (no connection, no answer within the timeout) is sent again,
@@ -41,6 +42,10 @@ from ..composition.standalone_key_source import (
     StandaloneKeyNeeds,
     opened_standalone_key_source,
 )
+
+# What ``TargetKey.headers`` raises when its source gives no key, named here for
+# the Locust file, which imports the load-test client alone.
+from ..domain.errors import RagDependencyError as RagDependencyError
 from .loadtest_settings import LoadTestSettings
 
 _BEARER = "Bearer "

@@ -132,6 +132,6 @@ class BearerKey:
 
         Example:
             >>> bearer.described()
-            'its key is read from the environment variable OPENAI_API_KEY ...'
+            'its key is read from the environment variable EXAMPLE_LLM_KEY ...'
         """
         return self._source.described()
