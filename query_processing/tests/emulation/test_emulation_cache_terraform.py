@@ -14,9 +14,11 @@ import re
 
 import yaml
 from emulation_terraform import (
+    DATASET_PATH,
     SCRIPTS,
     TF_DIR,
     USE_CASE_ROOT,
+    common_constant,
     heredoc,
     locals_,
     render,
@@ -27,16 +29,8 @@ from emulation_terraform import (
 
 from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
-# What render() puts in place of ${dataset_path}.
-DATASET_PATH = "dummy-dataset_path"
 SPOT_MACHINES = ("pool", "elasticsearch")
 SERVICE_ACCOUNTS = ("workspace", "pool", "elasticsearch")
-
-
-def common_constant(name: str) -> str:
-    """A ``NAME=value`` constant of ``scripts/common.sh``."""
-    common = (SCRIPTS / "common.sh").read_text(encoding="utf-8")
-    return re.search(rf"^{name}=(\S+)$", common, re.M)[1]
 
 
 def install_project_commands() -> list[str]:
@@ -150,13 +144,15 @@ def test_the_pool_warms_what_app_sh_installs_at_every_app_start() -> None:
     # app.sh: its venv on the repository's Python, then what it is asked for.
     assert commands == [
         'uv venv "$venv" --python "$(cat "$PYTHON_VERSION_FILE")"',
-        'uv pip install --python "$venv/bin/python" "$@"',
+        'uv pip install --python "$venv/bin/python" '
+        '--find-links "$QP_BOOTSTRAP_WHEELS" "$@"',
     ]
     # The pool, at the clone's paths: the core, an Agent's toolkit, then the use
-    # case of QP_USE_CASE_DIR, the directory qp-deploy runs from.
+    # case of QP_USE_CASE_DIR, the directory qp-deploy runs from, doclang's core
+    # found among the wheels the machine copied at boot ($2).
     venv = 'uv venv "$HOME/qp-venv" --python "$(cat "$1/.python-version")"'
     install = (
-        'uv pip install --python "$HOME/qp-venv/bin/python" '
+        'uv pip install --python "$HOME/qp-venv/bin/python" --find-links "$2" '
         f'"$1/{CORE_ROOT.name}" "$1/{TOOLKIT_ROOT.name}[domino]" "$1/{USE_CASE_ROOT.name}"'
     )
     for warmed in (venv, install):

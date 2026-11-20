@@ -22,6 +22,7 @@ from domino_deploy_helpers import (
     LAUNCH,
     PREFIX_YAML,
     TOPOLOGY_ALIASES,
+    WHEELS_YAML,
     RunMain,
     add_app,
     launched,
@@ -172,7 +173,7 @@ def test_a_workflow_whose_llm_is_not_deployed_names_the_make_target(
 
 # A deploy file serving the LLM by OVMS: its App's settings, and the model OVMS
 # serves and its served name, under overrides.components.llm.
-LLM_DEPLOY_YAML = PREFIX_YAML + """\
+LLM_DEPLOY_YAML = PREFIX_YAML + WHEELS_YAML + """\
 topology_alias:
   split-llm: {embedder: local, reranker: local, llm: served}
 topology: split-llm

@@ -167,7 +167,10 @@ and on no index: the machine needs a clone of `document_doclang`, beside the
 repository's main checkout (a worktree finds it beside the checkout it was made
 from), or anywhere `DOCLANG_CLONE` names. The install takes its working tree as
 it stands; with no clone there, it stops in one line that names the directory
-it looked in.
+it looked in. An App that installs at its start, a Workspace and the image have
+no clone: they take doclang's core from its wheel, which `make doclang-wheel`
+builds from the clone ([Deploy on Domino in a few
+commands](#deploy-on-domino-in-a-few-commands)).
 
 At the repository's root, create its one `.venv` on the Python of
 `.python-version`, 3.11 (`uv venv`, or `python3.11 -m venv .venv`), then
@@ -1164,7 +1167,9 @@ experiments/        the registry of every measurement: one folder per sitting (R
 experiments-explained/  the measurements told to a newcomer: README.md, and figures/ and data/ drawn by experiment_charts/
 docs/adr/           the decisions
 docs/plans/         dated records: a plan as it was approved, and what became of it
-Makefile            installs the core, the toolkit and the use case in one command, and the charts package with them for development; runs check (with the core's tests) and lint, typecheck, complexity and deps over the core first, hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; the one .venv here
+Makefile            installs the core, the toolkit and the use case in one command, and the charts package with them for development; runs check (with the core's tests) and lint, typecheck, complexity and deps over the core first, hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; doclang-wheel; the one .venv here
+doclang.mk          where doclang's core is (its clone, DOCLANG_CLONE), read by this Makefile and query_processing/'s
+wheels/             the wheel of doclang's core that make doclang-wheel builds, for an App's install and the image (git-ignored)
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
@@ -2899,7 +2904,8 @@ image (it pre-downloads the source ids) and refill the models Dataset.
 ## Deploying on Domino 6.2
 
 Every app is published with the same entry point, the toolkit's `domino/app.sh`,
-which installs the toolkit and the use case (`QP_BOOTSTRAP=1`), then runs its
+which installs doclang's core from its wheel, the core, the toolkit and the use
+case (`QP_BOOTSTRAP=1`, `QP_BOOTSTRAP_WHEELS`), then runs its
 role's command in the use case's directory (`QP_USE_CASE_DIR`, the directory
 `qp-deploy` ran from), where that command finds the use case's workflow file,
 reads its role from `QP_ROLE` and listens on `0.0.0.0:8888` (a Domino
@@ -2948,7 +2954,8 @@ root, the build context (commands in its header): `rag` starts from
 `quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard`,
 installs this package with the `[loadtest,domino]` extras into a virtualenv of
 its own on Python 3.11 (the image's Python is 3.10 and its packages clash with
-ours), pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
+ours), doclang's core from the wheel in the build context's `wheels/` (run
+`make doclang-wheel` first: the build stops without it), pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
 pinned binary tarball under `/opt/ovms`. Push both images and create two Domino
 Environments from them (custom base image), or paste one stage's instructions
 into the Dockerfile Instructions field. Workspaces that ingest or run Locust use
@@ -3200,10 +3207,41 @@ and every App runs that script by its absolute path and its role's command in
 that directory (`QP_USE_CASE_DIR`, one of `qp-deploy`'s own exports), the Apps
 mounting the repository at the same path as the Workspace.
 
+**doclang's core.** The core depends on doclang's core (`doclang-domain-core`),
+which is private and on no package index, and an App has no clone of
+`document_doclang` and holds no credential to fetch one. So each App finds it
+among the wheels of a directory, everything else on the index: build the wheel
+where the clone is, at the repository's root, then copy it to a Dataset the
+Apps mount, as the models are copied, and name that directory with the deploy
+setting `bootstrap_wheels`:
+
+```bash
+make doclang-wheel    # at the root: wheels/doclang_domain_core-<version>-py3-none-any.whl, from the clone as it stands (git-ignored)
+# copy that .whl into the directory on the Dataset, e.g. /domino/datasets/local/<dataset>/wheels
+```
+
+`qp-deploy` hands the directory to every App as `QP_BOOTSTRAP_WHEELS`, beside
+`QP_BOOTSTRAP=1`, and `domino/app.sh` adds it to its one `uv pip install` as
+the place to find wheels (`--find-links`), for the workflow app and every
+model-server kind that installs the toolkit. A deploy file without
+`bootstrap_wheels` is refused before anything is published:
+
+```
+qp-deploy: error: bootstrap_wheels is not set in deploy.yaml: set it (or QP_DEPLOY_BOOTSTRAP_WHEELS) to the directory on the Dataset holding the wheel of doclang's core, which make doclang-wheel builds; every App installs doclang's core from there, as no package index has it
+```
+
+and an App asked to install whose directory holds no wheel of doclang's core
+stops before it installs, in one line that names `QP_BOOTSTRAP_WHEELS`, the
+setting and the directory. Nothing is pinned: an App installs the wheel as last
+built and copied, so build and copy it again after a change to doclang's core.
+An App on a prebuilt image (`QP_BOOTSTRAP` unset, as in the step-by-step run
+below) installs nothing and needs no wheel: the image took it from its build
+context (**Environments**, above).
+
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
 `topology_alias`, `project_id`, `app_name_prefix`, `ovms_bundle`,
-`domino_host`) and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
+`bootstrap_wheels`, `domino_host`) and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
 `no_instance_grace_s`, `http_timeout_s`, `http_retries`, `run_token_url`); a
 `QP_DEPLOY_<KEY>` variable overrides one, e.g.
 `QP_DEPLOY_TOPOLOGY=monolith make deploy`, and
@@ -3276,7 +3314,7 @@ topology alias names and `QP_COMPONENTS__<COMPONENT>__SERVED__URL` of each serve
 one (the model server App's URL plus the route its kind declares for its type,
 `/v3/rerank`, `/v3/embeddings` or, for an LLM, `/v3/chat/completions`, and on
 vLLM `/v1/rerank`, `/v1/embeddings` or `/v1/chat/completions`), and
-`QP_BOOTSTRAP` itself (they win over the
+`QP_BOOTSTRAP` itself with `QP_BOOTSTRAP_WHEELS` (they win over the
 settings and the overrides, which come first in the launch script), and
 `QP_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
 Domino's project or user environment variables, because `settings` and
@@ -3588,10 +3626,14 @@ deploy-reranker` or `make deploy-llm` alone, `qp-deploy` reminds you that the wo
 deploy-workflow`. Every model server call in a split topology goes through
 Domino's proxy: it is part of what the split topologies measure on Domino.
 
-One-time prerequisites that stay manual: install the core, the toolkit and the
-use case in the Workspace (`make install-dev` at the root, or `uv pip install -e
-./query_processing_core -e "./query_processing[loadtest]" -e
-./query_processing_rag_usecase`, all in one command), `make ingest`, and for `ovms` the exported models.
+One-time prerequisites that stay manual: the wheel of doclang's core on the
+Dataset (above); install the core, the toolkit and the use case in the
+Workspace, which has no clone of `document_doclang` either, so it takes
+doclang's core from the same directory as an App does, all in one command, at
+the repository's root (`uv pip install --find-links
+/domino/datasets/local/<dataset>/wheels -e ./query_processing_core -e
+"./query_processing[loadtest]" -e ./query_processing_rag_usecase`); `make
+ingest`; and for `ovms` the exported models.
 
 #### Try the deploy without Domino
 
@@ -3616,7 +3658,8 @@ checked as in a deploy. `QP_DEPLOY_TOPOLOGY=<alias> make deploy-dry-run` shows
 another alias. One of the checks: no value may still hold an `<angle-bracket>`
 placeholder from the example (in the `settings` of the Apps being deployed,
 their `environment_id`, `environment_revision_id`, `hardware_tier` and
-`hardware_tier_id`, `ovms_bundle`, and the `overrides`, which every App gets).
+`hardware_tier_id`, `ovms_bundle`, the `overrides`, which every App gets, and
+`bootstrap_wheels`).
 The example copied unchanged stops on the first one:
 
 ```
@@ -3777,6 +3820,7 @@ instance. Replace the placeholders once; the code itself does not change.
 repository's root, then create two Environments from them as custom base images:
 
 ```bash
+make doclang-wheel   # the wheel of doclang's core into wheels/, which the rag stage copies
 docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/query-processing-rag  .
 docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/query-processing-ovms .
 docker push <registry>/query-processing-rag && docker push <registry>/query-processing-ovms

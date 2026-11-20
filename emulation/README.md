@@ -104,9 +104,30 @@ cp emulation/terraform/terraform.tfvars.example emulation/terraform/terraform.tf
 # project_env_secret = "rag-emu-project-env" if you created it
 make -C emulation init BUCKET=<bucket name>
 make -C emulation plan
-make -C emulation apply
+make -C emulation apply wheel-save   # the machines, then the wheel of doclang's core into the cache bucket
 make -C emulation ready         # repeat until every machine says done (about 2 min)
 ```
+
+The machines install the toolkit, whose core depends on doclang's core
+(`doclang-domain-core`): it is private, on no index, and no machine has a clone
+of `document_doclang`. So each machine copies, at boot, every wheel under
+`wheels/` in the cache bucket to its dataset folder (`<dataset_path>/wheels`),
+installs with it, and the Workspace's `deploy.yaml` names that folder for the
+Apps (`bootstrap_wheels`), as on Domino the Dataset holds it. Build the wheel
+where the clone is, at the repository's root, then store it from there (with
+`gcloud` signed in to the project, as in Cloud Shell):
+
+```bash
+make doclang-wheel                  # at the repository's root: wheels/doclang_domain_core-<version>-py3-none-any.whl
+make -C emulation wheel-save        # gcloud storage cp of that wheel to gs://<cache bucket>/wheels/
+```
+
+The bucket comes with the first `apply`, so `wheel-save` follows it. A machine
+that reached that step of its boot before the wheel was there says `failed`, its
+log ending in one line that names `wheel-save`: start it again (`gcloud compute
+instances reset <machine> --zone europe-west1-b`). The bucket outlives the
+machines' 8-hour self-deletion, so later sittings find the wheel there; run
+`wheel-save` again after a change to doclang's core.
 
 `ready` reads each machine's guest attribute `rag-emulation/startup`
 (`running`, `done` or `failed`). On `failed`, read the machine's log:
@@ -315,6 +336,9 @@ of exporting the models and embedding the corpus again. It holds:
   only valid for the embedder and the analyzer it was built with, so a change of
   either misses the cache and `corpus-restore` says to build and save it.
 - `results/<UTC time>.tar.gz`: the archives `results-save` uploads.
+- `wheels/`: the wheel of doclang's core, which `wheel-save` uploads. At boot every
+  machine copies each wheel there to `<dataset_path>/wheels`, replacing what the
+  folder held, and stops in one line when none is doclang's core.
 
 Models are keyed by folder name, not by how they were exported. `models-save` keeps
 an object the bucket already has. After a change to the export recipe of the same

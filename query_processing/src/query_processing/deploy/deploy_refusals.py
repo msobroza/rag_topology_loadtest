@@ -1,7 +1,8 @@
 """What qp-deploy refuses in the deploy settings before anything is published.
 
-A secret in a ``settings`` block, which would land in a launch script, and a
-value the deploy uses that still holds a placeholder of the example file.
+A secret in a ``settings`` block, which would land in a launch script, a
+value the deploy uses that still holds a placeholder of the example file, and
+no directory of wheels for the Apps' install.
 
 Example:
     >>> refuse_secrets(DeploySettings())
@@ -42,6 +43,33 @@ def refuse_secrets(settings: DeploySettings) -> None:
                 "whose values are written into the Apps' launch scripts: set it as "
                 "a Domino project or user environment variable instead"
             )
+
+
+def refuse_no_wheels(settings: DeploySettings) -> None:
+    """Refuse settings that name no directory of wheels for the Apps' install.
+
+    Every App installs at its start, and doclang's core, which the core depends
+    on, is on no index: without the directory holding its wheel, each App would
+    stop at its start, after the deploy had published it.
+
+    Args:
+        settings: The deploy settings.
+
+    Raises:
+        DominoDeployError: If ``bootstrap_wheels`` is empty.
+
+    Example:
+        >>> refuse_no_wheels(DeploySettings(bootstrap_wheels=""))
+        DominoDeployError: bootstrap_wheels is not set in deploy.yaml ...
+    """
+    if settings.bootstrap_wheels:
+        return
+    raise DominoDeployError(
+        f"bootstrap_wheels is not set in {deploy_file()}: set it (or "
+        "QP_DEPLOY_BOOTSTRAP_WHEELS) to the directory on the Dataset holding the "
+        "wheel of doclang's core, which make doclang-wheel builds; every App "
+        "installs doclang's core from there, as no package index has it"
+    )
 
 
 # "<dataset>", "<environment id>": the example file's placeholders. No spaces at the
@@ -88,6 +116,8 @@ def _values_used(
     # Every App gets the overrides, so any deploy uses each of them.
     for override in override_values(settings.overrides):
         yield override.place, "overrides", override.text
+    # Last, so that the example copied as it is still stops on its environment.
+    yield "bootstrap_wheels", "the top level", settings.bootstrap_wheels
 
 
 def _secrets_in(values: dict[str, str]) -> list[str]:

@@ -31,6 +31,7 @@ from launch_script_stand_ins import (
     started_env,
     started_in,
     vllm_argv,
+    wheels_env,
     write_fake,
     write_vllm_stand_in,
 )
@@ -321,13 +322,16 @@ def test_a_vllm_app_installs_the_project_when_qp_vllm_config_is_missing(
     shutil.copy(make_stand_ins(tmp_path) / "uv", bare / "uv")
     write_vllm_stand_in(bare / "vllm", tmp_path)
 
-    result = run_app(tmp_path, bare, PATH=str(bare))
+    wheels = wheels_env(tmp_path)
+
+    result = run_app(tmp_path, bare, PATH=str(bare), **wheels)
 
     assert result.returncode == 0, result.stderr
-    venv = tmp_path / "home" / "qp-venv"
+    venv, found = tmp_path / "home" / "qp-venv", wheels["QP_BOOTSTRAP_WHEELS"]
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",
-        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python --find-links {found} "
+        f"{CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     assert log(tmp_path, "qp-vllm-config").splitlines() == [
         "--environment embedder",

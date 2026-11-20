@@ -52,7 +52,12 @@ From the repository's root:
   tools, the use case and the charts package, in one command (no package index
   has the core or the toolkit). It needs a clone of `document_doclang`, whose
   core it installs first (private, on no index): beside the main checkout, or
-  where `DOCLANG_CLONE` names.
+  where `DOCLANG_CLONE` names (`doclang.mk`, read by this Makefile and the
+  toolkit's).
+- `make doclang-wheel`: build the wheel of doclang's core from that clone into
+  `wheels/` (git-ignored). An App, a Workspace and the image have no clone:
+  they install doclang's core from that wheel, which the owner copies to a
+  Dataset directory named by the deploy setting `bootstrap_wheels`.
 - `make check`: the gate, lint, typecheck, complexity and deps over the core
   with the toolkit's configuration and its tests, then every target of the
   Health Stack below in that order over the toolkit, then lint, typecheck, complexity

@@ -2,7 +2,8 @@
 
 No docker here: the test reads the ``COPY`` lines of the toolkit's Dockerfile
 for the ``rag`` stage, with ``USE_CASE`` set to this directory's name, copies
-those files and nothing else into a folder laid out as the image's ``/opt/qp``,
+those files and nothing else into a folder laid out as the image's ``/opt/qp``
+(but the wheels' directory, which git ignores and no setting reads),
 and reads the settings there, the first thing the image's export step does.
 The three packages, the core's, the toolkit's and this one's, are found on
 ``PYTHONPATH`` in their copied folders, as the image installs them from there.
@@ -23,6 +24,7 @@ USE_CASE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = USE_CASE_DIR.parent
 DOCKERFILE = REPO_ROOT / "query_processing" / "domino" / "Dockerfile"
 IMAGE_ROOT = "/opt/qp/"  # where the rag stage lays out the repository's files
+WHEELS = "wheels"  # the build context's directory holding doclang's core's wheel
 # Read the settings, and say where the use case's package was imported from.
 READ_SETTINGS = (
     "import query_processing_rag_usecase as package\n"
@@ -95,6 +97,12 @@ def test_the_files_the_image_copies_are_enough_to_read_the_settings(
 ) -> None:
     use_case = USE_CASE_DIR.name
     copies = rag_stage_copies(DOCKERFILE.read_text("utf-8"), use_case)
+    # The wheel of doclang's core, which the image installs, is built outside
+    # what git tracks (make doclang-wheel), and no setting reads it.
+    assert (WHEELS, f"{IMAGE_ROOT}{WHEELS}/") in copies
+    copies = [
+        (source, destination) for source, destination in copies if source != WHEELS
+    ]
     copy_as_the_image(copies, tmp_path)
     copied = tmp_path / use_case
 

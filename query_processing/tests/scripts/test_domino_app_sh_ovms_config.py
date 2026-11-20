@@ -21,6 +21,7 @@ from launch_script_stand_ins import (
     model_server_env,
     models_dir,
     served_config,
+    wheels_env,
     write_fake,
     write_ovms_config_stand_in,
 )
@@ -85,14 +86,16 @@ def test_with_uv_the_project_is_installed_and_its_config_served(
     tmp_path: Path, bin_dir: Path
 ) -> None:
     with_uv(tmp_path, bin_dir)
+    wheels = wheels_env(tmp_path)
 
-    result = run_app(tmp_path, bin_dir)
+    result = run_app(tmp_path, bin_dir, **wheels)
 
     assert result.returncode == 0, result.stderr
-    venv = tmp_path / "home" / "qp-venv"
+    venv, found = tmp_path / "home" / "qp-venv", wheels["QP_BOOTSTRAP_WHEELS"]
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",
-        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python --find-links {found} "
+        f"{CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     config = served_config(tmp_path, "venv-qp-ovms-config")
     assert config.startswith(str(tmp_path / "tmp"))  # a fresh temporary folder

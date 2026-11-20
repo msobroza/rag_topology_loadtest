@@ -296,6 +296,8 @@ def test_every_app_runs_the_toolkits_launch_script_in_this_directory(
     tail = (
         f"    export QP_USE_CASE_DIR={shlex.quote(str(use_case_dir))}\n"
         "    export QP_BOOTSTRAP=1\n"
+        # The example's made-up directory on the Dataset, its placeholder filled.
+        "    export QP_BOOTSTRAP_WHEELS=/domino/datasets/local/real/wheels\n"
         f"    exec bash {shlex.quote(str(launch_script))}\n"
     )
     assert out.count(tail) == len(TOPOLOGY_APPS["split-all"])  # the example's

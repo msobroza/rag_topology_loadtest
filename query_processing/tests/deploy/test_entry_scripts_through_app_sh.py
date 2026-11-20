@@ -2,8 +2,8 @@
 
 The deploy tool and the launch script agree on variable names (``QP_ROLE``,
 ``QP_MODEL_SERVER_COMPONENT``, ``QP_MODEL_SERVER_KIND``, ``QP_TOPOLOGY_ALIAS``,
-``QP_OVMS_BUNDLE``, ``QP_BOOTSTRAP``, ``QP_USE_CASE_DIR``, each component's
-backend and served URL) without sharing code. For each combination the deploy
+``QP_OVMS_BUNDLE``, ``QP_BOOTSTRAP``, ``QP_BOOTSTRAP_WHEELS``, ``QP_USE_CASE_DIR``,
+each component's backend and served URL) without sharing code. For each combination the deploy
 tool can produce (a topology alias, one of its Apps, the model-server kinds of
 the Apps) the script it writes is run by bash with the launch script's stand-in
 binaries, and the test asserts what app.sh starts, and where: in the use case's
@@ -33,6 +33,7 @@ import pytest
 from domino_deploy_helpers import TOPOLOGY_ALIASES, make_settings
 from launch_script_stand_ins import (
     APP_SH,
+    WHEELS_VARIABLE,
     log,
     make_stand_ins,
     models_dir,
@@ -42,6 +43,7 @@ from launch_script_stand_ins import (
     stand_in_env,
     started_env,
     started_in,
+    wheels_env,
 )
 from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.shared_settings import DefaultHttpSettings
@@ -154,8 +156,11 @@ def run_script_of(
     """Run the entry script qp-deploy writes for ``part`` under ``settings``.
 
     ``run_entry_script`` builds the settings from a combination of the table;
-    this runs any settings, with ``extra_env`` beside the stand-ins' own.
+    this runs any settings, with ``extra_env`` beside the stand-ins' own. Their
+    wheels' directory is one made here, holding doclang's core as the Dataset's.
     """
+    wheels = wheels_env(tmp_path)[WHEELS_VARIABLE]
+    settings = settings.model_copy(update={"bootstrap_wheels": wheels})
     topology = resolve_topology(settings)
     servers = topology.served if part == "workflow" else []
     urls = {server: APP_URLS[server] for server in servers}

@@ -22,13 +22,18 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-# No package index has the core the toolkit depends on: its directory, beside
-# this one, is named first in the same command.
-install: ## Install the core and the toolkit (runtime deps only); the root's make install adds the use case
-	$(PYTHON) -m pip install -e ../query_processing_core -e .
+# Where doclang's core is: its clone (DOCLANG_CLONE), as the root's Makefile
+# reads it too.
+include ../doclang.mk
 
-install-dev: ## Install the core and the toolkit with locust + test tooling
-	$(PYTHON) -m pip install -e ../query_processing_core -e ".[dev]"
+# No package index has doclang's core, which the core depends on, nor the core
+# the toolkit depends on: doclang's core from its clone, then the core's
+# directory, beside this one, are named first in the same command.
+install: ## Install doclang's core from its clone, the core and the toolkit (runtime deps only); the root's make install adds the use case
+	$(PYTHON) -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ../query_processing_core -e .
+
+install-dev: ## Install doclang's core from its clone, the core and the toolkit with locust + test tooling
+	$(PYTHON) -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ../query_processing_core -e ".[dev]"
 
 check: lint typecheck complexity deadcode deps test ## Run every quality gate, stopping at the first failure
 

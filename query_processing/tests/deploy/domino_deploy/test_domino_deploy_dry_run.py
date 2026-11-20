@@ -15,14 +15,23 @@ from domino_deploy_helpers import (
     CACHE_FILE,
     ENV_1,
     INSTANCES_URL,
+    LAUNCH,
     NO_ENVIRONMENT,
     PREFIX_YAML,
     TOPOLOGY_ALIAS_YAML,
+    WHEELS,
+    WHEELS_YAML,
     RunMain,
     deployed_lines,
     launched,
+    make_client,
+    make_settings,
     model_server_exports,
+    no_sleep,
 )
+from fake_domino.state import FakeDominoApps
+from query_processing.deploy.apps_client import DominoDeployError
+from query_processing.deploy.publish import deploy
 
 pytest_plugins = ["domino_deploy_fixtures"]
 
@@ -224,3 +233,34 @@ def test_dry_run_status_lists_nothing_deployed(
         "rag-reranker   not deployed\n"
         "rag-workflow   not deployed\n",
     )
+
+
+def test_dry_run_hands_every_app_the_wheels_directory_beside_the_bootstrap(
+    run_main: RunMain,
+) -> None:
+    # Where an App that installs finds doclang's core: a directory on the Dataset.
+    Path("deploy.yaml").write_text(ENV_1)
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert (code, err) == (0, "")
+    beside = f"    export QP_BOOTSTRAP=1\n    export QP_BOOTSTRAP_WHEELS={WHEELS}\n"
+    assert out.count(beside) == 3  # the two model servers and the workflow App
+
+
+def test_a_deploy_file_without_the_wheels_directory_is_refused_in_one_line(
+    run_main: RunMain,
+) -> None:
+    Path("deploy.yaml").write_text(ENV_1.replace(WHEELS_YAML, ""))
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    assert (code, out) == (2, "")
+    line = err.splitlines()[-1]  # after argparse's usage
+    assert line.startswith(
+        "qp-deploy: error: bootstrap_wheels is not set in deploy.yaml"
+    )
+
+
+def test_a_deploy_without_the_wheels_directory_publishes_nothing() -> None:
+    apps = FakeDominoApps(["Running"])
+    settings = make_settings(bootstrap_wheels="")
+    with pytest.raises(DominoDeployError, match="bootstrap_wheels is not set"):
+        deploy(make_client(apps), settings, "all", launch=LAUNCH, sleep=no_sleep)
+    assert apps.received == []  # not even a lookup reached Domino

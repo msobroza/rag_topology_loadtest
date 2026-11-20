@@ -44,6 +44,8 @@ TEMPLATE_CALL = re.compile(
     re.S,
 )
 PLACEHOLDER = re.compile(r"(?<!\$)\$\{([^}]*)\}")
+# What render() puts in place of ${dataset_path}.
+DATASET_PATH = "dummy-dataset_path"
 # The contract's example, rendered into the Workspace script in place of the real one.
 PLACEMENT_SAMPLE = {
     "ssh": {"user": "ubuntu", "key": "/home/ubuntu/.ssh/id_emulation"},
@@ -127,6 +129,12 @@ def render(template: str, values: dict[str, str] | None = None) -> str:
     rendered = PLACEHOLDER.sub(lambda m: given.get(m[1], f"dummy-{m[1]}"), text)
     rendered = rendered.replace("$${", "${").replace("%%{", "%{")
     return (SCRIPTS / "common.sh").read_text(encoding="utf-8") + "\n" + rendered
+
+
+def common_constant(name: str) -> str:
+    """A ``NAME=value`` constant of ``scripts/common.sh``."""
+    common = (SCRIPTS / "common.sh").read_text(encoding="utf-8")
+    return re.search(rf"^{name}=(\S+)$", common, re.M)[1]
 
 
 def heredoc(script: str, marker: str) -> str:

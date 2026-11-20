@@ -1,6 +1,8 @@
-"""The repository's Makefile and the toolkit's: the root installs doclang's core
-from its clone, the core, the toolkit and the use case together, or stops in one
-line with no clone, runs the gates over the core and its tests,
+"""The repository's Makefile and the toolkit's: each installs doclang's core
+from its clone, found from the one file both read, then the core and the
+toolkit, the root the use case too, or stops in one line with no clone; the root
+builds the wheel of doclang's core from the clone, runs the gates over the core
+and its tests,
 hands them to the toolkit's, then runs them over the use case and over the
 charts package, each followed by its own tests.
 
@@ -143,11 +145,20 @@ def test_the_root_installs_doclang_the_core_the_toolkit_and_the_use_case_in_one_
     )
 
 
+# Each Makefile that installs, from its own directory: the root's and the toolkit's.
+INSTALLING = (REPO_ROOT, TOOLKIT_ROOT)
+# The one file both read for where the clone is.
+DOCLANG_MK = REPO_ROOT / "doclang.mk"
+
+
+@pytest.mark.parametrize("directory", INSTALLING, ids=["root", "toolkit"])
 @pytest.mark.parametrize("target", INSTALLS)
-def test_the_clone_is_found_beside_the_main_checkout(target: str) -> None:
+def test_the_clone_is_found_beside_the_main_checkout(
+    target: str, directory: Path
+) -> None:
     # From git, so that a worktree, wherever it sits, finds the clone beside
     # the checkout it was made from; CI clones it beside its checkout too.
-    lines = dry_run(REPO_ROOT, target, f"BIN={TOOLS}")
+    lines = dry_run(directory, target, f"BIN={TOOLS}")
 
     clone = main_checkout().parent / "document_doclang"
     assert lines[0].startswith(
@@ -155,13 +166,42 @@ def test_the_clone_is_found_beside_the_main_checkout(target: str) -> None:
     )
 
 
-@pytest.mark.parametrize("target", INSTALLS)
+def test_both_makefiles_read_where_the_clone_is_from_one_file() -> None:
+    # Said twice, the two would drift: the toolkit's install once named the
+    # core's directory and not doclang's core.
+    defined = [
+        path.name
+        for path in (REPO_ROOT / "Makefile", TOOLKIT_ROOT / "Makefile", DOCLANG_MK)
+        if "DOCLANG_CLONE ?=" in path.read_text(encoding="utf-8")
+    ]
+    assert defined == [DOCLANG_MK.name]
+    for makefile, include in [
+        (REPO_ROOT / "Makefile", "include doclang.mk"),
+        (TOOLKIT_ROOT / "Makefile", "include ../doclang.mk"),
+    ]:
+        assert include in makefile.read_text(encoding="utf-8").splitlines()
+
+
+# What needs the clone, from where: the wheel is built from the root alone.
+NEEDING_THE_CLONE = [
+    *[(REPO_ROOT, target) for target in (*INSTALLS, "doclang-wheel")],
+    *[(TOOLKIT_ROOT, target) for target in INSTALLS],
+]
+
+
+@pytest.mark.parametrize(
+    ("directory", "target"),
+    NEEDING_THE_CLONE,
+    ids=[
+        f"{'root' if d == REPO_ROOT else 'toolkit'}-{t}" for d, t in NEEDING_THE_CLONE
+    ],
+)
 def test_with_no_clone_the_install_stops_in_one_line(
-    target: str, tmp_path: Path
+    target: str, directory: Path, tmp_path: Path
 ) -> None:
     nowhere = tmp_path / "no_clone_here"
 
-    run = make_n(REPO_ROOT, target, f"BIN={TOOLS}", f"DOCLANG_CLONE={nowhere}")
+    run = make_n(directory, target, f"BIN={TOOLS}", f"DOCLANG_CLONE={nowhere}")
 
     assert run.returncode != 0
     assert run.stdout == ""  # nothing installed
@@ -170,10 +210,48 @@ def test_with_no_clone_the_install_stops_in_one_line(
     assert f"no clone of document_doclang in {nowhere}" in line
 
 
-def test_the_toolkit_alone_installs_from_its_directory() -> None:
-    lines = dry_run(TOOLKIT_ROOT, "install-dev", f"BIN={TOOLS}")
+@pytest.mark.parametrize(
+    ("target", "toolkit"), [("install", "."), ("install-dev", '".[dev]"')]
+)
+def test_the_toolkit_alone_installs_doclang_and_the_core_from_its_directory(
+    target: str, toolkit: str, tmp_path: Path
+) -> None:
+    clone = a_clone(tmp_path / "elsewhere")
 
-    assert lines == [f'{TOOLS}python -m pip install -e ../{CORE} -e ".[dev]"']
+    lines = dry_run(TOOLKIT_ROOT, target, f"BIN={TOOLS}", f"DOCLANG_CLONE={clone}")
+
+    doclang = f"-e {clone}/{DOCLANG_CORE}"
+    assert lines == [
+        f"{TOOLS}python -m pip install {doclang} -e ../{CORE} -e {toolkit}"
+    ]
+
+
+def test_the_wheel_of_doclangs_core_is_built_from_the_clone_into_an_ignored_folder(
+    tmp_path: Path,
+) -> None:
+    # For an App and the image, which have no clone: the clone as it stands,
+    # without its dependencies, which the index has.
+    clone = a_clone(tmp_path / "elsewhere")
+
+    lines = dry_run(
+        REPO_ROOT, "doclang-wheel", f"BIN={TOOLS}", f"DOCLANG_CLONE={clone}"
+    )
+
+    assert lines == [
+        f"{TOOLS}python -m pip wheel --no-deps --wheel-dir wheels {clone}/{DOCLANG_CORE}"
+    ]
+    ignored = subprocess.run(
+        [
+            "git",
+            "check-ignore",
+            "-q",
+            "wheels/doclang_domain_core-0.1.0-py3-none-any.whl",
+        ],
+        cwd=REPO_ROOT,
+        timeout=60,
+        check=False,
+    )
+    assert ignored.returncode == 0, "wheels/ is not ignored by git"
 
 
 def gates_beside_the_toolkit(directory: str) -> list[str]:

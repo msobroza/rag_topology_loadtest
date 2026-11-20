@@ -1,11 +1,11 @@
 # The emulation's tasks, apart from the project's own: run `make -C emulation <target>`
 # from the repository root, or `make <target>` in this folder. See README.md here.
-#   In Cloud Shell: setup, init, plan, apply, ready, ssh, tunnel-domino, tunnel-locust, destroy
+#   In Cloud Shell: setup, init, plan, apply, wheel-save, ready, ssh, tunnel-domino, tunnel-locust, destroy
 #   On the Workspace machine: ingest, corpus-files, corpus, deploy, status, loadtest,
 #     app-machines, loadtest-direct, and the cache bucket's corpus-save, corpus-restore,
 #     models-save, results-save, cache-status
 .DEFAULT_GOAL := help
-.PHONY: help setup init plan apply ready ssh tunnel-domino tunnel-locust destroy ingest corpus-files corpus corpus-save corpus-restore deploy status loadtest app-machines loadtest-direct models-save results-save cache-status
+.PHONY: help setup init plan apply wheel-save ready ssh tunnel-domino tunnel-locust destroy ingest corpus-files corpus corpus-save corpus-restore deploy status loadtest app-machines loadtest-direct models-save results-save cache-status
 
 TF ?= terraform -chdir=terraform
 BUCKET ?=
@@ -48,6 +48,18 @@ plan: ## terraform plan (terraform/terraform.tfvars holds project_id and git_ref
 
 apply: ## Apply the saved plan
 	$(TF) apply emulation.tfplan
+
+# The wheel of doclang's core, which the machines install and cannot build (they have
+# no clone of document_doclang): `make doclang-wheel` writes it into the repository's
+# wheels/, and the machines copy every wheel under this prefix of the cache bucket at
+# boot (common.sh's CACHE_WHEELS_PREFIX).
+WHEELS = ../wheels
+CACHE_WHEELS_PREFIX = wheels/
+
+wheel-save: ## Where the wheel was built (make doclang-wheel at the root): copy it to the cache bucket, right after the first apply
+	@ls $(WHEELS)/doclang_domain_core-*.whl >/dev/null 2>&1 \
+		|| { echo "no wheel of doclang's core in $(abspath $(WHEELS)): run make doclang-wheel at the repository's root" >&2; exit 1; }
+	gcloud storage cp $(WHEELS)/doclang_domain_core-*.whl "gs://$$($(TF) output -raw cache_bucket)/$(CACHE_WHEELS_PREFIX)"
 
 ready: ## Each machine's startup state: running, done or failed
 	@eval "$$($(TF) output -raw readiness)"

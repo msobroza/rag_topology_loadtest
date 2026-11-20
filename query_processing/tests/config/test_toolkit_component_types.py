@@ -34,6 +34,7 @@ ROUTER_PORT = "query_processing.adapters.router.base_router"
 # A deploy file whose override makes qp-deploy read the whole settings.
 DEPLOY_FILE = {
     "app_name_prefix": "rag",
+    "bootstrap_wheels": "/domino/datasets/local/qp/wheels",
     "topology": "t",
     "topology_alias": {"t": {"embedder": "local", "reranker": "local"}},
     "defaults": {"environment_id": "env-1"},

@@ -35,10 +35,16 @@ LAUNCH = LaunchPaths(
     "/repos/rag topology/query_processing/domino/app.sh",
     "/repos/rag topology/my_use_case",
 )
-# How every entry script ends: the use case's directory, the bootstrap, the script.
+# Where the Apps that install find doclang's core: a directory on the Dataset,
+# which every deploy file the tests write names.
+WHEELS = "/domino/datasets/local/qp/wheels"
+WHEELS_YAML = f"bootstrap_wheels: {WHEELS}\n"
+# How every entry script ends: the use case's directory, the bootstrap and its
+# wheels, the script.
 BOOTSTRAP_AND_EXEC = (
     "export QP_USE_CASE_DIR='/repos/rag topology/my_use_case'\n"
     "export QP_BOOTSTRAP=1\n"
+    f"export QP_BOOTSTRAP_WHEELS={WHEELS}\n"
     "exec bash '/repos/rag topology/query_processing/domino/app.sh'"
 )
 # What an Agent (the workflow App by default) exports before QP_BOOTSTRAP.
@@ -133,6 +139,7 @@ def make_settings(**given: object) -> DeploySettings:
         "topology_alias": TOPOLOGY_ALIASES,
         "project_id": "proj-1",
         "ovms_bundle": "",
+        "bootstrap_wheels": WHEELS,
         "domino_host": "",
         "defaults": {"environment_id": "env-1"},
         "apps": {},
@@ -161,7 +168,8 @@ topology_alias:
 # The owner's example, with a split-reranker topology so it deploys two Apps. The
 # free lists hold variables that are no value of the workflow file; the model
 # paths are overrides, for every App.
-DEPLOY_YAML = "topology: split-reranker\n" + PREFIX_YAML + TOPOLOGY_ALIAS_YAML + """\
+DEPLOY_YAML = "topology: split-reranker\n" + PREFIX_YAML + WHEELS_YAML
+DEPLOY_YAML += TOPOLOGY_ALIAS_YAML + """\
 project_id: ""
 
 defaults:
@@ -201,10 +209,11 @@ DEPLOY_YAML_OVERRIDES = (
 # --- qp-deploy end to end: main over the fake Domino (fixtures and helpers) ---
 
 PROXY = "http://proxy.test:8899"
-# The CLI tests' deploy.yaml: the prefix, the three topology aliases and every App
-# on env-1, nothing else set. It ends inside defaults, so a test can add a default
-# to it.
-ENV_1 = PREFIX_YAML + TOPOLOGY_ALIAS_YAML + "defaults:\n  environment_id: env-1\n"
+# The CLI tests' deploy.yaml: the prefix, the wheels' directory, the three topology
+# aliases and every App on env-1, nothing else set. It ends inside defaults, so a
+# test can add a default to it.
+ENV_1 = PREFIX_YAML + WHEELS_YAML + TOPOLOGY_ALIAS_YAML
+ENV_1 += "defaults:\n  environment_id: env-1\n"
 CACHE_FILE = ".qp-deploy-cache.json"  # in the working directory
 NO_ENVIRONMENT = (
     "qp-deploy: error: No environment_id for App rag-embedder: set "
@@ -217,14 +226,15 @@ def launched() -> str:
     """The tail of every entry script when qp-deploy runs from this directory.
 
     This directory is the use case's, beside the toolkit's in the repository,
-    as ``domino_env`` lays them out: its path, the bootstrap, then the
-    toolkit's launch script.
+    as ``domino_env`` lays them out: its path, the bootstrap and its wheels,
+    then the toolkit's launch script.
     """
     use_case = Path.cwd()
     script = use_case.parent / "query_processing" / "domino" / "app.sh"
     return (
         f"export QP_USE_CASE_DIR={shlex.quote(str(use_case))}\n"
         "export QP_BOOTSTRAP=1\n"
+        f"export QP_BOOTSTRAP_WHEELS={WHEELS}\n"
         f"exec bash {shlex.quote(str(script))}"
     )
 

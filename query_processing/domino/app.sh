@@ -25,6 +25,12 @@
 # model server runs its kind's bootstrap. Unset, nothing is installed: the
 # prebuilt `rag` / `ovms` images already have it all.
 #
+# QP_BOOTSTRAP_WHEELS (set by qp-deploy, from its setting bootstrap_wheels: a
+# directory on the Dataset) is where every install of the project finds
+# doclang's core (doclang-domain-core), which the core depends on and no package
+# index has; everything else comes from the index. An install without a wheel of
+# it there stops before it starts, in one line (ADR 0014).
+#
 # The workflow app reads everything else from its own variables: each component's
 # backend and served URL, and QP_TOPOLOGY_ALIAS, only a label (qp-deploy sets
 # them all; passed through untouched), and, on Domino, calls each served
@@ -53,16 +59,30 @@ die() {
 }
 
 # install_project <venv> <requirement>...: uv-install the requirements in one
-# command, then put the venv on PATH.
+# command, doclang's core found in QP_BOOTSTRAP_WHEELS, then put the venv on PATH.
 install_project() {
   local venv=$1
   shift
+  require_doclang_wheel
   # Its own virtualenv, on the project's Python (.python-version), which uv
   # fetches when the environment lacks it: the environment's own packages
   # (an old urllib3 in Domino's standard image) break ours.
   uv venv "$venv" --python "$(cat "$PYTHON_VERSION_FILE")"
-  uv pip install --python "$venv/bin/python" "$@"
+  uv pip install --python "$venv/bin/python" --find-links "$QP_BOOTSTRAP_WHEELS" "$@"
   export PATH="$venv/bin:$PATH"
+}
+
+# require_doclang_wheel: QP_BOOTSTRAP_WHEELS names a directory holding a wheel
+# of doclang's core, or the App stops: uv would otherwise fail on the index,
+# which reads as a network failure.
+require_doclang_wheel() {
+  local wheels=${QP_BOOTSTRAP_WHEELS:-} wheel
+  if [ -n "$wheels" ]; then
+    for wheel in "$wheels"/doclang_domain_core-*.whl; do
+      if [ -f "$wheel" ]; then return 0; fi
+    done
+  fi
+  die "QP_BOOTSTRAP_WHEELS='$wheels' names no directory holding a wheel of doclang's core (doclang_domain_core-*.whl); set the deploy setting bootstrap_wheels to the directory on the Dataset holding that wheel, which make doclang-wheel builds"
 }
 
 # install_this_project: the core, then the toolkit, with the extras an Agent

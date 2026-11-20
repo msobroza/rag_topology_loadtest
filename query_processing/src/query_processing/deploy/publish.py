@@ -34,7 +34,7 @@ from .apps_client import (
     DominoDeployError,
     wait_until_running,
 )
-from .deploy_refusals import refuse_placeholders, refuse_secrets
+from .deploy_refusals import refuse_no_wheels, refuse_placeholders, refuse_secrets
 from .deploy_settings import (
     SERVED,
     AppKind,
@@ -157,14 +157,15 @@ def entry_script(
         computed = _model_server_exports(app.part, settings, topology)
     if app.kind == "agent":
         computed |= {k: v for k, v in AGENT_EXPORTS.items() if k not in given}
-    # The generic environment has nothing installed: app.sh installs it first,
-    # the toolkit and the use case, then runs the role's command in the latter.
+    # The generic environment has nothing installed: app.sh installs doclang's core
+    # (its wheel), the toolkit and the use case, then runs the role's command there.
     exports = [
         *app.settings.items(),
         *overrides.items(),
         *computed.items(),
         (USE_CASE_DIR_VARIABLE, launch.use_case_dir),
         ("QP_BOOTSTRAP", "1"),
+        ("QP_BOOTSTRAP_WHEELS", settings.bootstrap_wheels),
     ]
     lines = [f"export {name}={shlex.quote(value)}" for name, value in exports]
     return "\n".join([*lines, f"exec bash {shlex.quote(launch.script)}"])
@@ -335,11 +336,11 @@ def deploy(
 
     Settings holding secrets, a value of the workflow file in a free list,
     overrides the workflow settings refuse, or settings with them an App's
-    start-up refuses (``check_overrides``), a topology
-    alias that does not resolve against the workflow file
-    (``resolve_topology``), placeholders, no environment id, a default
-    environment revision without the default environment, or settings a
-    model-server kind of the Apps cannot start with (a missing OVMS bundle) are
+    start-up refuses (``check_overrides``), a topology alias that does not
+    resolve against the workflow file (``resolve_topology``), placeholders, no
+    environment id, a default environment revision without the default
+    environment, settings a model-server kind of the Apps cannot start with (a
+    missing OVMS bundle), or no wheels' directory (``bootstrap_wheels``) are
     refused first, with ``DominoDeployError``. Then the id of every tier name and
     revision number of those Apps is found and printed. Redeploying a model server
     prints a note that the workflow App still calls its old instance.
@@ -369,6 +370,7 @@ def deploy(
     parts = needed if target == "all" else [target]
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, topology, parts)
+    refuse_no_wheels(settings)
     ids = ids if ids is not None else DominoIdsAsked(client.http)
     find_every_id(ids, map(settings.for_app, parts))
     for part in parts:

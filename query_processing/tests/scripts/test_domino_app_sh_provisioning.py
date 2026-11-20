@@ -18,6 +18,7 @@ import pytest
 from launch_script_stand_ins import (
     model_server_env,
     served_config,
+    wheels_env,
     write_ovms_config_stand_in,
 )
 from repo_paths import CORE_ROOT, TOOLKIT_ROOT
@@ -94,7 +95,11 @@ def bin_dir(tmp_path: Path) -> Path:
 def run_app(
     tmp_path: Path, tree: Path, bin_dir: Path, component: str, **env: str
 ) -> subprocess.CompletedProcess[str]:
-    """Run the copied app.sh as an OVMS model server of ``component``."""
+    """Run the copied app.sh as an OVMS model server of ``component``.
+
+    Its wheels' directory holds doclang's core, as a deployed App's does, so an
+    install it makes to export finds it.
+    """
     home, temporary = tmp_path / "home", tmp_path / "tmp"
     home.mkdir(exist_ok=True)
     temporary.mkdir(exist_ok=True)
@@ -103,6 +108,7 @@ def run_app(
         "HOME": str(home),
         "TMPDIR": str(temporary),
         **model_server_env("ovms", component),
+        **wheels_env(tmp_path),
         **env,
     }
     return subprocess.run(
@@ -159,11 +165,12 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
     )
 
     assert result.returncode == 0, result.stderr
-    home = tmp_path / "home"
+    home, found = tmp_path / "home", tmp_path / "wheels"
     project, exporter = home / "qp-venv", home / EXPORTER_VENV
     assert log(tmp_path, "uv") == [
         f"venv {project} --python 3.11",  # the project, for qp-served-models
-        f"pip install --python {project}/bin/python {tree.parent / CORE_ROOT.name} {tree}",
+        f"pip install --python {project}/bin/python --find-links {found} "
+        f"{tree.parent / CORE_ROOT.name} {tree}",
         f"venv {exporter} --seed --python 3.11",  # the exporter's own pins go here
     ]
     assert log(tmp_path, "export") == [
@@ -194,9 +201,10 @@ def test_the_export_runs_in_the_use_cases_directory_after_installing_both(
     )
 
     assert result.returncode == 0, result.stderr
-    project = tmp_path / "home" / "qp-venv"
+    project, found = tmp_path / "home" / "qp-venv", tmp_path / "wheels"
     assert log(tmp_path, "uv")[1] == (
-        f"pip install --python {project}/bin/python {tree.parent / CORE_ROOT.name} {tree} {use_case}"
+        f"pip install --python {project}/bin/python --find-links {found} "
+        f"{tree.parent / CORE_ROOT.name} {tree} {use_case}"
     )
     assert (tmp_path / "export.cwd").read_text().splitlines() == [str(use_case)]
 
