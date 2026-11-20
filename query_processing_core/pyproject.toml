@@ -16,6 +16,10 @@ requires-python = ">=3.11"  # the version in .python-version, at the repository'
 license = { text = "Apache-2.0" }
 dependencies = [
     "pydantic>=2.12",  # the toolkit's floor, so both install the same
+    # doclang's core, for the vector-store record: private, on no index, so named
+    # here by name and version alone. Each install hands it over, from the clone
+    # of document_doclang (the root Makefile, the CI).
+    "doclang-domain-core>=0.1,<0.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -23,6 +27,11 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "query_processing_core" = ["py.typed"]
+
+[tool.deptry]
+# deptry guesses a module's name from its distribution's, which is wrong for
+# doclang's core: its module is the namespace doclang_domain.
+package_module_name_map = { "doclang-domain-core" = "doclang_domain" }
 
 [tool.pytest.ini_options]
 minversion = "8.0"

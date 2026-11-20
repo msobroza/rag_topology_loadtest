@@ -1,1 +1,1 @@
-"""Retrieval: what a search is asked, which every toolkit that searches reads."""
+"""Retrieval: what a search is asked and the records it gives back."""

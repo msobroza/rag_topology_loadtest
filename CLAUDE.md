@@ -5,11 +5,12 @@ for the vocabulary, the README's "Where a file goes" for the layout and its
 rules, and `docs/adr/0003` to `0010` and `0014` for the design.
 
 - `query_processing_core/`: the core, a distribution of its own (package
-  `query_processing_core`, Pydantic alone) holding what one toolkit writes and
-  another reads, today the metadata filter, the conversational history and the
-  body of a request. No port, no settings, no I/O; it
+  `query_processing_core`, Pydantic and doclang's core) holding what one
+  toolkit writes and another reads, today the metadata filter, the
+  conversational history, the body of a request and the vector-store record
+  with its scores. No port, no settings, no I/O; it
   imports no toolkit and no use case (its `tests/test_core_imports.py`). The
-  toolkit depends on it, so every install names its directory first.
+  toolkit depends on it, so every install names its directory before the toolkit's.
 - `query_processing/`: the toolkit, one distribution holding what any use case
   can assemble (package `query_processing`, commands `qp-*`, variables `QP_*`):
   the component types with their requests and answers, the stage types, the
@@ -49,7 +50,9 @@ From the repository's root:
 
 - `make install-dev`: install the core, the toolkit with its test and gate
   tools, the use case and the charts package, in one command (no package index
-  has the core or the toolkit).
+  has the core or the toolkit). It needs a clone of `document_doclang`, whose
+  core it installs first (private, on no index): beside the main checkout, or
+  where `DOCLANG_CLONE` names.
 - `make check`: the gate, lint, typecheck, complexity and deps over the core
   with the toolkit's configuration and its tests, then every target of the
   Health Stack below in that order over the toolkit, then lint, typecheck, complexity

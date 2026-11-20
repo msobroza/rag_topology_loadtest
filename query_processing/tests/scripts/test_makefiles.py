@@ -1,5 +1,6 @@
-"""The repository's Makefile and the toolkit's: the root installs the core, the
-toolkit and the use case together, runs the gates over the core and its tests,
+"""The repository's Makefile and the toolkit's: the root installs doclang's core
+from its clone, the core, the toolkit and the use case together, or stops in one
+line with no clone, runs the gates over the core and its tests,
 hands them to the toolkit's, then runs them over the use case and over the
 charts package, each followed by its own tests.
 
@@ -34,27 +35,62 @@ USE_CASE = "query_processing_rag_usecase"
 # The charts package's directory, beside them: not the product, installed for
 # development only, its gates and tests run last. Named only, as the use case is.
 CHARTS = "experiment_charts"
+# doclang's core, in a clone of document_doclang: private and on no index, so the
+# root installs it from the clone, before the core that depends on it.
+DOCLANG_CORE = "packages/core"
 
 
-def dry_run(directory: Path, *args: str) -> list[str]:
-    """The commands ``make -n <args>`` prints in ``directory``, one per line."""
-    # A make running this suite would hand its own flags and variables down.
-    env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS")}
-    run = subprocess.run(
+def make_n(
+    directory: Path, *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """``make -n <args>`` run in ``directory``, with ``env`` added to this one's."""
+    # A make running this suite would hand its own flags and variables down, and
+    # DOCLANG_CLONE is given by the test that needs it, never by the caller's shell.
+    inherited = ("MAKEFLAGS", "MFLAGS", "DOCLANG_CLONE")
+    base = {k: v for k, v in os.environ.items() if k not in inherited}
+    return subprocess.run(
         ["make", "-n", *args],
         cwd=directory,
-        env={**env, "MAKELEVEL": "0"},
+        env={**base, "MAKELEVEL": "0", **(env or {})},
         capture_output=True,
         text=True,
         timeout=60,
-        check=True,
+        check=False,
     )
+
+
+def dry_run(
+    directory: Path, *args: str, env: dict[str, str] | None = None
+) -> list[str]:
+    """The commands ``make -n <args>`` prints in ``directory``, one per line."""
+    run = make_n(directory, *args, env=env)
+    assert run.returncode == 0, f"make -n {' '.join(args)} failed: {run.stderr}"
     # GNU make 4 says where a recursive make enters and leaves; 3.81 does not.
     return [
         line.strip()
         for line in run.stdout.splitlines()
         if not re.match(r"\S*make(\[\d+\])?: (Entering|Leaving) directory", line)
     ]
+
+
+def a_clone(where: Path) -> Path:
+    """A stand-in clone of document_doclang at ``where``: its core's manifest alone."""
+    (where / DOCLANG_CORE).mkdir(parents=True)
+    (where / DOCLANG_CORE / "pyproject.toml").write_text("", encoding="utf-8")
+    return where
+
+
+def main_checkout() -> Path:
+    """The repository's main checkout, which a worktree shares its git directory with."""
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return Path(common.stdout.strip()).parent
 
 
 @pytest.mark.parametrize("target", ["check", "format", *GATES])
@@ -70,6 +106,9 @@ def test_the_root_hands_each_gate_to_the_toolkit_with_the_tools_place(
     assert toolkit_line.endswith(f' -C {TOOLKIT_ROOT.name} {target} BIN="{TOOLS}"')
 
 
+INSTALLS = ("install", "install-dev")
+
+
 @pytest.mark.parametrize(
     ("target", "toolkit", "for_development"),
     [
@@ -77,20 +116,58 @@ def test_the_root_hands_each_gate_to_the_toolkit_with_the_tools_place(
         ("install-dev", '"./query_processing[dev]"', f" -e ./{CHARTS}"),
     ],
 )
-def test_the_root_installs_the_toolkit_and_the_use_case_in_one_command(
-    target: str, toolkit: str, for_development: str
+@pytest.mark.parametrize("given", ["on-the-command-line", "in-the-environment"])
+def test_the_root_installs_doclang_the_core_the_toolkit_and_the_use_case_in_one_command(
+    target: str, toolkit: str, for_development: str, given: str, tmp_path: Path
 ) -> None:
-    # No package index has the core or the toolkit: the toolkit's dependency on
-    # the core, and the use case's on the toolkit, are met only when the
-    # directories are named, the core first, then the toolkit. The charts
-    # package is no part of what runs: only install-dev adds it.
-    lines = dry_run(REPO_ROOT, target, f"BIN={TOOLS}")
+    # No package index has doclang's core, the core or the toolkit: the core's
+    # dependency on doclang's, the toolkit's on the core and the use case's on
+    # the toolkit are met only when the directories are named, in that order.
+    # The charts package is no part of what runs: only install-dev adds it.
+    clone = a_clone(tmp_path / "elsewhere")
+    naming = f"DOCLANG_CLONE={clone}"
+    on_the_command_line = given == "on-the-command-line"
+    lines = dry_run(
+        REPO_ROOT,
+        target,
+        f"BIN={TOOLS}",
+        *([naming] if on_the_command_line else []),
+        env=None if on_the_command_line else {"DOCLANG_CLONE": str(clone)},
+    )
 
+    doclang = f"-e {clone}/{DOCLANG_CORE}"
     installed = f"-e ./{CORE} -e {toolkit} -e ./{USE_CASE}{for_development}"
-    assert lines == [f"{TOOLS}python -m pip install {installed}"]
+    assert lines == [f"{TOOLS}python -m pip install {doclang} {installed}"]
     assert (REPO_ROOT / toolkit.strip('"').removesuffix("[dev]")).resolve() == (
         TOOLKIT_ROOT
     )
+
+
+@pytest.mark.parametrize("target", INSTALLS)
+def test_the_clone_is_found_beside_the_main_checkout(target: str) -> None:
+    # From git, so that a worktree, wherever it sits, finds the clone beside
+    # the checkout it was made from; CI clones it beside its checkout too.
+    lines = dry_run(REPO_ROOT, target, f"BIN={TOOLS}")
+
+    clone = main_checkout().parent / "document_doclang"
+    assert lines[0].startswith(
+        f"{TOOLS}python -m pip install -e {clone}/{DOCLANG_CORE} "
+    )
+
+
+@pytest.mark.parametrize("target", INSTALLS)
+def test_with_no_clone_the_install_stops_in_one_line(
+    target: str, tmp_path: Path
+) -> None:
+    nowhere = tmp_path / "no_clone_here"
+
+    run = make_n(REPO_ROOT, target, f"BIN={TOOLS}", f"DOCLANG_CLONE={nowhere}")
+
+    assert run.returncode != 0
+    assert run.stdout == ""  # nothing installed
+    [line] = run.stderr.splitlines()
+    assert "DOCLANG_CLONE" in line
+    assert f"no clone of document_doclang in {nowhere}" in line
 
 
 def test_the_toolkit_alone_installs_from_its_directory() -> None:

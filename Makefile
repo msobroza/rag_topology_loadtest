@@ -46,14 +46,26 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 	@echo "  The run targets are the use case's: make -C $(USE_CASE) help"
 
-# No package index has the core or the toolkit: the toolkit's dependency on the
-# core, and the use case's on the toolkit, are met only when the directories are
-# named in one command, the core first, then the toolkit.
-install: ## Install the core, the toolkit and the RAG use case (runtime deps only)
-	$(BIN)python -m pip install -e ./$(CORE) -e ./$(TOOLKIT) -e ./$(USE_CASE)
+# doclang's core (doclang-domain-core), which the core depends on, is private and
+# on no index: it is installed from a clone of document_doclang, as its working
+# tree stands. The clone sits beside the repository's main checkout, found from
+# git's common directory, which is the main checkout's .git from a worktree too;
+# DOCLANG_CLONE names another place. Expanded when an install runs, so no other
+# target needs the clone.
+DOCLANG_CLONE ?= $(abspath $(dir $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))..)/document_doclang
+DOCLANG_CORE = $(DOCLANG_CLONE)/packages/core
+# Its directory, or the install stops in one line, under make -n too.
+DOCLANG_CORE_OR_STOP = $(if $(wildcard $(DOCLANG_CORE)/pyproject.toml),$(DOCLANG_CORE),$(error no clone of document_doclang in $(DOCLANG_CLONE): clone it there, or name its directory with DOCLANG_CLONE))
 
-install-dev: ## Install the core, the toolkit with locust + test tooling, the RAG use case and the charts package
-	$(BIN)python -m pip install -e ./$(CORE) -e "./$(TOOLKIT)[dev]" -e ./$(USE_CASE) -e ./$(CHARTS)
+# No package index has doclang's core, the core or the toolkit: the core's
+# dependency on doclang's, the toolkit's on the core, and the use case's on the
+# toolkit are met only when the directories are named in one command, in that
+# order.
+install: ## Install doclang's core from its clone, the core, the toolkit and the RAG use case (runtime deps only)
+	$(BIN)python -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ./$(CORE) -e ./$(TOOLKIT) -e ./$(USE_CASE)
+
+install-dev: ## Install doclang's core from its clone, the core, the toolkit with locust + test tooling, the RAG use case and the charts package
+	$(BIN)python -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ./$(CORE) -e "./$(TOOLKIT)[dev]" -e ./$(USE_CASE) -e ./$(CHARTS)
 
 # The gates over a distribution beside the toolkit, $(1) its directory, each run
 # before the toolkit's own for the core and after it for the others, and its

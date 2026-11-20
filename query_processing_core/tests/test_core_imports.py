@@ -15,9 +15,11 @@ from pathlib import Path
 
 CORE_ROOT = Path(__file__).resolve().parents[1]
 CORE_SOURCE = CORE_ROOT / "src" / "query_processing_core"
-# The third-party packages the core may import, by top-level module name: the
-# one list a later ticket extends (doclang's core joins it with the record).
-ALLOWED_THIRD_PARTY = frozenset({"pydantic"})
+# The third-party packages the core may import, by top-level module name:
+# Pydantic, and doclang's core (doclang-domain-core, whose namespace is
+# doclang_domain) for the vector-store record. One module of the core names
+# doclang (the toolkit's tests/structure/test_doclang_imports.py).
+ALLOWED_THIRD_PARTY = frozenset({"pydantic", "doclang_domain"})
 
 
 def imported_top_levels(source: str) -> list[tuple[int, str]]:

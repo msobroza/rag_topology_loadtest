@@ -162,13 +162,21 @@ one per stage whose LLM reported its counts, `rewrite` and `generate`
 
 ### Install
 
+The core depends on doclang's core (`doclang-domain-core`), which is private
+and on no index: the machine needs a clone of `document_doclang`, beside the
+repository's main checkout (a worktree finds it beside the checkout it was made
+from), or anywhere `DOCLANG_CLONE` names. The install takes its working tree as
+it stands; with no clone there, it stops in one line that names the directory
+it looked in.
+
 At the repository's root, create its one `.venv` on the Python of
 `.python-version`, 3.11 (`uv venv`, or `python3.11 -m venv .venv`), then
-install the three distributions in one command, the core first, then the
-toolkit, since no package index has either:
+install the three distributions in one command, after doclang's core, the core
+first, then the toolkit, since no package index has any of them:
 
 ```bash
-make install-dev    # the core, the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
+make install-dev    # doclang's core from its clone, the core, the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
+make install-dev DOCLANG_CLONE=$HOME/src/document_doclang   # the clone elsewhere
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
@@ -323,7 +331,8 @@ Start from a copy of the RAG's:
 | `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. An implementation of its own is tested by a subclass of a test class the toolkit ships, and its imports by a structure test of its own (the RAG's `tests/test_layering.py`). |
 
 The root `Makefile` and the CI install and test the RAG use case only: install
-another with the core and the toolkit in one command (`python -m pip install -e
+another with doclang's core, the core and the toolkit in one command (`python -m
+pip install -e <the clone of document_doclang>/packages/core -e
 ./query_processing_core -e ./query_processing -e
 ./query_processing_<name>_usecase`) and run its tests in
 its directory. The `rag` image of `domino/Dockerfile` takes
@@ -594,11 +603,13 @@ The repository holds the product's three distributions (ADR 0005, ADR 0014),
 each a directory of its own at its root:
 
 - **The core**, in `query_processing_core/`: what one toolkit writes and
-  another reads, today the metadata filter, the conversational history and the
-  body of a request. Data only: no port, no settings,
-  no I/O; it imports the standard library and Pydantic alone, and no toolkit
+  another reads, today the metadata filter, the conversational history, the
+  body of a request and the vector-store record with its scores. Data only:
+  no port, no settings, no I/O; it imports the standard library, Pydantic and,
+  in one module, doclang's core (see [Install](#install)), and no toolkit
   and no use case (its own `tests/test_core_imports.py` checks it). The
-  toolkit depends on it, so every install names its directory first. Its
+  toolkit depends on it, so every install names its directory before the
+  toolkit's. Its
   modules are laid out by the glossary's areas (`retrieval/`), and rules 3 and
   9 below apply to it.
 - **The toolkit**, in `query_processing/`: what any use case can assemble.
@@ -1106,13 +1117,14 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
     helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the three roots (REPO_ROOT, TOOLKIT_ROOT, CORE_ROOT) shared by several test files (on pytest's path)
 query_processing_core/   the core, one distribution (query-processing-core) that the toolkit installs: what toolkits exchange (ADR 0014)
-  pyproject.toml      the distribution: Pydantic alone; its package under src/
-  src/query_processing_core/   its package; it imports the standard library and Pydantic alone, no toolkit and no use case
+  pyproject.toml      the distribution: Pydantic and doclang's core (doclang-domain-core, by name and version alone, installed from its clone); its package under src/
+  src/query_processing_core/   its package; it imports the standard library, Pydantic and doclang's core, no toolkit and no use case
     conversation.py   HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
     query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
-    retrieval/        what a search is asked
+    retrieval/        what a search is asked and the records it gives back
       metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
-  tests/              its own tests, mirroring src/: the metadata filter's, the conversational history's, the request body's, and its imports (test_core_imports.py), read from its files with no toolkit started
+      vector_store_record.py  VectorStoreRecord, doclang's, handed on, and ScoredVectorStoreRecord, the record with its retrieval and rerank scores: the one module of the repository that imports doclang
+  tests/              its own tests, mirroring src/: the metadata filter's, the scored record's (a chunk built by hand), the conversational history's, the request body's, and its imports (test_core_imports.py), read from its files with no toolkit started
 query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: its settings, and its kNN router (ADR 0006)
   pyproject.toml      the distribution (query-processing-rag-usecase): the toolkit, scikit-learn pinned exactly and joblib; its package under src/; qp-rag-train-router
   workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)
