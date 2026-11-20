@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from query_processing.domain.errors import RagDependencyError, describe_error
-from query_processing.domain.retrieval.passages import ScoredPassage, top_by_score
+from query_processing.domain.retrieval.rag_result import top_by_score
 
 
-def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:
-    return ScoredPassage(id=pid, text=text or pid, retrieval_score=retrieval_score)
+def _scored(
+    pid: str, text: str = "", retrieval_score: float = 0.5
+) -> ScoredVectorStoreRecord:
+    return ScoredVectorStoreRecord(
+        text=text or pid, metadata={"id": pid}, retrieval_score=retrieval_score
+    )
 
 
 def test_top_by_score_orders_desc_truncates_and_stamps_float_rerank_score() -> None:

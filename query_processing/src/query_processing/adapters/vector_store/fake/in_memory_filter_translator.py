@@ -7,7 +7,7 @@ cannot be ordered against the condition's is dropped too.
 Example:
     >>> keep = InMemoryFilterTranslator().translate(
     ...     [MetadataCondition(attribute="chunk", comparator="lt", value=3)])
-    >>> keep(Passage(id="p", text="t", metadata={"chunk": 2}))
+    >>> keep(VectorStoreRecord(text="t", metadata={"id": "p", "chunk": 2}))
     True
 """
 
@@ -21,11 +21,11 @@ from query_processing_core.retrieval.metadata_filter import (
     Comparator,
     MetadataCondition,
 )
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
-from ....domain.retrieval.passages import Passage
 from ..base_metadata_filter_translator import BaseMetadataFilterTranslator
 
-PassagePredicate = Callable[[Passage], bool]
+VectorStoreRecordPredicate = Callable[[VectorStoreRecord], bool]
 
 # Each comparator as a test of (the passage's value, the condition's value).
 _COMPARE: dict[Comparator, Callable[[Any, Any], bool]] = {
@@ -40,10 +40,14 @@ _COMPARE: dict[Comparator, Callable[[Any, Any], bool]] = {
 }
 
 
-class InMemoryFilterTranslator(BaseMetadataFilterTranslator[PassagePredicate]):
+class InMemoryFilterTranslator(
+    BaseMetadataFilterTranslator[VectorStoreRecordPredicate]
+):
     """Turns a metadata filter into a predicate the in-memory store applies."""
 
-    def translate(self, conditions: Sequence[MetadataCondition]) -> PassagePredicate:
+    def translate(
+        self, conditions: Sequence[MetadataCondition]
+    ) -> VectorStoreRecordPredicate:
         """Return a predicate true of a passage that meets every condition.
 
         Args:
@@ -60,7 +64,7 @@ class InMemoryFilterTranslator(BaseMetadataFilterTranslator[PassagePredicate]):
         return lambda passage: all(_meets(passage, c) for c in kept)
 
 
-def _meets(passage: Passage, condition: MetadataCondition) -> bool:
+def _meets(passage: VectorStoreRecord, condition: MetadataCondition) -> bool:
     if condition.attribute not in passage.metadata:
         return False
     found = passage.metadata[condition.attribute]

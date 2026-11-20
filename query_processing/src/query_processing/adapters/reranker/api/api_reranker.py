@@ -11,10 +11,11 @@ from collections.abc import Awaitable, Callable, Sequence
 
 import httpx
 from pydantic import ValidationError
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ....domain.endpoints.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError, describe_error
-from ....domain.retrieval.passages import ScoredPassage, top_by_score
+from ....domain.retrieval.rag_result import top_by_score
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
 from ....infrastructure.endpoint.open_endpoint_client import (
     RunTokenSource,
@@ -27,7 +28,11 @@ from .base_rerank_api_format import RERANK_API_FORMATS, BaseRerankApiFormat
 _Send = Callable[[dict[str, object]], Awaitable[object]]
 # What the readiness request scores: one query and one document.
 _READY_QUERY = "ready"
-_READY_PASSAGES = (ScoredPassage(id="ready", text="ready", retrieval_score=0.0),)
+_READY_PASSAGES = (
+    ScoredVectorStoreRecord(
+        text="ready", metadata={"id": "ready"}, retrieval_score=0.0
+    ),
+)
 
 
 class ApiReranker(BaseReranker):
@@ -50,8 +55,8 @@ class ApiReranker(BaseReranker):
         self._endpoint_client, self._api_format = endpoint_client, api_format
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         """Re-score the candidates on the endpoint and keep the best.
 
         Args:
@@ -88,8 +93,12 @@ class ApiReranker(BaseReranker):
         return True, self._endpoint_client.described()
 
     async def _rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int, send: _Send
-    ) -> list[ScoredPassage]:
+        self,
+        query: str,
+        passages: Sequence[ScoredVectorStoreRecord],
+        top_n: int,
+        send: _Send,
+    ) -> list[ScoredVectorStoreRecord]:
         # One request; the answer's indexes name the passages sent, in order.
         model = self._endpoint_client.endpoint.model
         documents = [passage.text for passage in passages]
@@ -104,7 +113,9 @@ class ApiReranker(BaseReranker):
         return top_by_score(chosen, list(scores.values()), top_n)
 
 
-def _passage_at(passages: Sequence[ScoredPassage], index: int) -> ScoredPassage:
+def _passage_at(
+    passages: Sequence[ScoredVectorStoreRecord], index: int
+) -> ScoredVectorStoreRecord:
     # Negative indexes would silently wrap around in Python: reject them too.
     if not 0 <= index < len(passages):
         raise IndexError(

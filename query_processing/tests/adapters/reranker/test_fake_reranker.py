@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from query_processing.adapters.reranker.fake.fake_reranker import FakeReranker
-from query_processing.domain.retrieval.passages import ScoredPassage
 
 
-def _scored(pid: str, text: str = "", retrieval_score: float = 0.5) -> ScoredPassage:
-    return ScoredPassage(id=pid, text=text or pid, retrieval_score=retrieval_score)
+def _scored(
+    pid: str, text: str = "", retrieval_score: float = 0.5
+) -> ScoredVectorStoreRecord:
+    return ScoredVectorStoreRecord(
+        text=text or pid, metadata={"id": pid}, retrieval_score=retrieval_score
+    )
 
 
 async def test_fake_reranker_scores_by_overlap_and_truncates() -> None:

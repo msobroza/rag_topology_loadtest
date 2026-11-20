@@ -12,6 +12,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from model_api_fakes import endpoint_client
 from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
@@ -29,7 +30,6 @@ from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.domain.endpoints.standard_formats import CohereRerankRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints.qp_model_server import (
     UNKNOWN_MODEL_ERROR,
     candidates_from_rerank,
@@ -158,8 +158,12 @@ async def test_api_adapters_work_against_the_fastapi_server(
         reranker = api_reranker(rerank_client, "fixture-reranker")
         embedder = api_embedder(embed_client, "fixture-embedder")
         passages = [
-            ScoredPassage(id="x", text="cafeteria lunch", retrieval_score=0.9),
-            ScoredPassage(id="y", text="vacation days policy", retrieval_score=0.8),
+            ScoredVectorStoreRecord(
+                text="cafeteria lunch", metadata={"id": "x"}, retrieval_score=0.9
+            ),
+            ScoredVectorStoreRecord(
+                text="vacation days policy", metadata={"id": "y"}, retrieval_score=0.8
+            ),
         ]
         ranked = await reranker.rerank("vacation days", passages, 1)
         assert [p.id for p in ranked] == ["y"]
@@ -207,7 +211,9 @@ async def test_api_adapters_with_a_wrong_alias_fail_fast_on_404(
 
 async def _rerank_with_alias(client: httpx.AsyncClient, alias: str) -> None:
     reranker = api_reranker(client, alias)
-    passages = [ScoredPassage(id="x", text="a", retrieval_score=0.9)]
+    passages = [
+        ScoredVectorStoreRecord(text="a", metadata={"id": "x"}, retrieval_score=0.9)
+    ]
     await reranker.rerank("q", passages, 1)
 
 

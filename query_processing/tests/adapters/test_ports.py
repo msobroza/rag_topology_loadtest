@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -31,7 +32,6 @@ from query_processing.domain.components.component_requests import (
     RerankRequest,
     SearchRequest,
 )
-from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import (
     CapRecordingLLM,
     DenseOnlyStore,
@@ -64,8 +64,8 @@ def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
         """Implements ``rerank`` but forgets ``ready``."""
 
         async def rerank(
-            self, query: str, passages: Sequence[ScoredPassage], top_n: int
-        ) -> list[ScoredPassage]:
+            self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+        ) -> list[ScoredVectorStoreRecord]:
             return []
 
     with pytest.raises(TypeError, match=r"HalfReranker.*ready"):

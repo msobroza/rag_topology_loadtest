@@ -41,6 +41,7 @@ from http import HTTPStatus
 import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
@@ -66,7 +67,6 @@ from ..domain.endpoints.standard_formats import (
     OpenAIEmbeddingsRequest,
     OpenAIEmbeddingsResponse,
 )
-from ..domain.retrieval.passages import ScoredPassage
 from ..domain.roles import MODEL_SERVER_COMPONENT_VARIABLE
 from ..infrastructure.http.uvicorn_run import run_uvicorn
 from ..infrastructure.process_environment import restart_with
@@ -312,7 +312,9 @@ def embeddings_response_for(
     return OpenAIEmbeddingsResponse(model=alias, data=rows)
 
 
-def candidates_from_rerank(request: CohereRerankRequest) -> list[ScoredPassage]:
+def candidates_from_rerank(
+    request: CohereRerankRequest,
+) -> list[ScoredVectorStoreRecord]:
     """Turn the request's documents into rerank candidates.
 
     Args:
@@ -327,12 +329,14 @@ def candidates_from_rerank(request: CohereRerankRequest) -> list[ScoredPassage]:
         '1'
     """
     return [
-        ScoredPassage(id=str(i), text=text, retrieval_score=0.0)
+        ScoredVectorStoreRecord(text=text, metadata={"id": str(i)}, retrieval_score=0.0)
         for i, text in enumerate(request.documents)
     ]
 
 
-def rerank_response_for(ranked: Sequence[ScoredPassage]) -> CohereRerankResponse:
+def rerank_response_for(
+    ranked: Sequence[ScoredVectorStoreRecord],
+) -> CohereRerankResponse:
     """Build the rerank answer.
 
     Args:
@@ -351,7 +355,7 @@ def rerank_response_for(ranked: Sequence[ScoredPassage]) -> CohereRerankResponse
     return CohereRerankResponse(results=[_rerank_result(p) for p in ranked])
 
 
-def _rerank_result(passage: ScoredPassage) -> CohereRerankResult:
+def _rerank_result(passage: ScoredVectorStoreRecord) -> CohereRerankResult:
     if passage.rerank_score is None:
         raise ValueError(
             f"passage {passage.id!r} has no rerank_score; expected a reranked "

@@ -180,7 +180,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ...adapters.reranker.base_reranker import BaseReranker
-from ...domain.retrieval.passages import ScoredPassage
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 from .component_openers import RERANKER_OPENERS
 
 

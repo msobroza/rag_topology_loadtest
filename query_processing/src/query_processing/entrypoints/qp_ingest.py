@@ -18,9 +18,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
+
 from ..application.ingest import ingest
 from ..domain.retrieval.corpus import SourceDocument, chunk, synthetic_corpus
-from ..domain.retrieval.passages import Passage
 
 if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_composition
     from ..composition.composition_root import CompositionRoot
@@ -78,7 +79,9 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _ingest_through(
-    composition: CompositionRoot, passages: Sequence[Passage], args: argparse.Namespace
+    composition: CompositionRoot,
+    passages: Sequence[VectorStoreRecord],
+    args: argparse.Namespace,
 ) -> dict[str, object]:
     batch_size = args.batch_size
     async with composition:

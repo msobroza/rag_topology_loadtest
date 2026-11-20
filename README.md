@@ -854,7 +854,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
         standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       retrieval/      what is searched and what comes back
-        passages.py   Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
+        rag_result.py  RagResult, RagMode, TOTAL_TIMING_KEY, top_by_score (the records are the core's)
         retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
         rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
         corpus.py     synthetic handbook corpus, its questions, chunking

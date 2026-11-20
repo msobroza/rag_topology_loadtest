@@ -13,6 +13,13 @@ mode: ``dense`` asks it by vector, ``lexical`` by words, ranked by the store, an
 hybrid search behaves the same on every store. Lexical and hybrid need a store
 that ranks text: one that is also a ``BaseLexicalSearch``.
 
+The contract of every store on a record's id (ADR 0014), which a record keeps in
+its metadata, under ``id``: on a write, the record's id is the store's id for it,
+and its metadata is stored as it is, the id with it; a record read has the id
+the store holds it under, whatever its stored metadata holds, so an index
+ingested before, whose stored metadata holds no id, still answers.
+``record_as_read`` builds a record read that way.
+
 Example:
     >>> isinstance(store, BaseLexicalSearch)  # only a store that ranks text
     True
@@ -22,13 +29,19 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
-from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataValue,
+)
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
 from ...domain.components.base_component import BaseComponent
 from ...domain.components.component_requests import SearchAnswer, SearchRequest
-from ...domain.retrieval.passages import Passage, ScoredPassage
 from ...domain.retrieval.rank_fusion import reciprocal_rank_fusion
 
 
@@ -82,17 +95,21 @@ class BaseVectorStore(
 
     async def _dense(
         self, request: SearchRequest, conditions: Sequence[MetadataCondition]
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         return await self.query(request.embedding or [], request.top_k, conditions)
 
     @abstractmethod
     async def upsert(
-        self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
+        self,
+        passages: Sequence[VectorStoreRecord],
+        embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages with their vectors.
+        """Store passages with their vectors, each under its record's id.
+
+        The metadata is stored as it is, the id with it.
 
         Args:
-            passages: The passages to store.
+            passages: The passages to store, each with an ``id`` in its metadata.
             embeddings: One vector per passage, in the same order.
         """
 
@@ -102,7 +119,7 @@ class BaseVectorStore(
         embedding: Sequence[float],
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages nearest to a vector among those the filter keeps.
 
         Args:
@@ -112,7 +129,8 @@ class BaseVectorStore(
                 nothing.
 
         Returns:
-            The nearest passages, nearest first, with their ``retrieval_score``.
+            The nearest passages, nearest first, with their ``retrieval_score``,
+            each with the id the store holds it under (``record_as_read``).
         """
 
     @abstractmethod
@@ -146,7 +164,7 @@ class BaseLexicalSearch(ABC):
         text: str,
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages whose words best match a text, among those kept.
 
         Args:
@@ -158,8 +176,41 @@ class BaseLexicalSearch(ABC):
         Returns:
             The best-matching passages, best first, ranked by the store's own
             text ranking, with its score as ``retrieval_score``; a passage
-            sharing no word with ``text`` is left out.
+            sharing no word with ``text`` is left out. Each has the id the
+            store holds it under (``record_as_read``).
         """
+
+
+def record_as_read(
+    store_id: str,
+    text: str,
+    metadata: Mapping[str, MetadataValue],
+    retrieval_score: float,
+) -> ScoredVectorStoreRecord:
+    """Build a record found by a search, with the id its store holds it under.
+
+    The store's id overrides any ``id`` the stored metadata holds, and stands in
+    for one it lacks, as in an index ingested before records kept their id in
+    their metadata.
+
+    Args:
+        store_id: The id the store holds the record under.
+        text: The record's stored text.
+        metadata: Its stored metadata, with or without an ``id``.
+        retrieval_score: The score the search gave it.
+
+    Returns:
+        The scored record, its ``id`` the store's.
+
+    Example:
+        >>> record_as_read("p1", "t", {"topic": "hr"}, 0.5).metadata
+        {'topic': 'hr', 'id': 'p1'}
+    """
+    return ScoredVectorStoreRecord(
+        text=text,
+        metadata={**metadata, "id": store_id},
+        retrieval_score=float(retrieval_score),
+    )
 
 
 def required_lexical_search(store: BaseVectorStore, mode: str) -> BaseLexicalSearch:

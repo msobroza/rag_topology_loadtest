@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
@@ -17,7 +18,6 @@ from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.apps.uvicorn_settings import UvicornSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints import qp_serve as api
 from query_processing.entrypoints.qp_serve import create_app, main, traced
 from rag_components import FAKE_BACKENDS
@@ -49,8 +49,8 @@ class FailingReranker(BaseReranker):
         self.kind = kind
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         raise RagDependencyError("reranker", "boom", target=RERANK_URL, kind=self.kind)
 
     async def ready(self) -> tuple[bool, str]:
@@ -61,8 +61,8 @@ class ExplodingProbeReranker(BaseReranker):
     """BaseReranker whose readiness probe itself raises."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         return list(passages[:top_n])
 
     async def ready(self) -> tuple[bool, str]:

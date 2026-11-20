@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from cpu_fakes import FakeCpuCounter
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -28,7 +29,6 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_components import FAKE_BACKENDS
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
@@ -45,6 +45,7 @@ PINNED_THREADS = {  # no calibration
 FIRST_CANDIDATES = {"calibration__budget_s": 1e-9}
 EMBED_URL = "http://embedder/v3/embeddings"
 RERANK_URL = "http://reranker/v3/rerank"
+CANDIDATE = ScoredVectorStoreRecord(text="t", metadata={"id": "a"}, retrieval_score=0.1)
 
 
 @pytest.fixture
@@ -137,8 +138,7 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
     async with composition:
         deps = await composition.workflow_dependencies()
         assert await deps.by_name["embedder"].embed_documents(["q"]) == [[1.0, 0.0]]
-        candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
-        [ranked] = await deps.by_name["reranker"].rerank("q", [candidate], 1)
+        [ranked] = await deps.by_name["reranker"].rerank("q", [CANDIDATE], 1)
         assert ranked.rerank_score == 0.9
 
     # One BearerToken per endpoint: each has its own key, so its own cache.
@@ -187,10 +187,9 @@ async def test_local_models_use_the_configured_batch_sizes(
         "components__reranker__local__batch_size": 8,
     }
     settings = settings_factory(**batch_sizes, **PINNED_THREADS)
-    candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
     async with CompositionRoot(settings) as composition:
         await (await composition.local_embedder("embedder")).embed_documents(["hello"])
-        await (await composition.local_reranker("reranker")).rerank("q", [candidate], 1)
+        await (await composition.local_reranker("reranker")).rerank("q", [CANDIDATE], 1)
 
     assert fake_weights.batch_sizes == [("encode", 16), ("predict", 8)]
 

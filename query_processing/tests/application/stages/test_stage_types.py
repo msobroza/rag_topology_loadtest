@@ -10,6 +10,7 @@ from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
 )
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
@@ -36,7 +37,6 @@ from query_processing.application.state_fields import field_types_of, state_fiel
 from query_processing.application.workflow_builder import open_stage
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.prompts import PromptMessage
-from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored
 
@@ -128,7 +128,7 @@ def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
     )
 
     assert field_types.reads == dict(zip(reads, types, strict=True))
-    assert field_types.writes == {"found": list[ScoredPassage]}
+    assert field_types.writes == {"found": list[ScoredVectorStoreRecord]}
 
 
 @pytest.mark.parametrize(
@@ -146,7 +146,7 @@ def test_the_retrieve_stage_reads_what_its_retrieval_mode_needs(
             StageFields(("standalone_query", "metadata_filter"), ()),
             "the retrieve stage in retrieval_mode 'lexical' writes 1 field, for "
             "candidates: "
-            "list[ScoredPassage] (got writes [])",
+            "list[ScoredVectorStoreRecord] (got writes [])",
         ),
     ],
 )

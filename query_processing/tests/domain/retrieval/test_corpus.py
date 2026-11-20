@@ -86,7 +86,17 @@ def test_chunk_word_windows_overlap_and_ids() -> None:
 def test_chunk_metadata_carries_document_fields() -> None:
     (passage,) = chunk(_doc(30, topic="remote-work", seq=4))
     doc_fields = {"doc_id": "doc-0007", "title": "Handbook", "chunk": 0}
-    assert passage.metadata == {"topic": "remote-work", "seq": 4, **doc_fields}
+    assert passage.metadata == {
+        "topic": "remote-work",
+        "seq": 4,
+        **doc_fields,
+        "id": "doc-0007:0",
+    }
+
+
+def test_a_documents_own_id_key_does_not_override_its_passages_id() -> None:
+    (passage,) = chunk(_doc(30, id="from-the-corpus-file"))
+    assert passage.id == "doc-0007:0"
 
 
 def test_chunk_empty_text_gives_no_passages() -> None:

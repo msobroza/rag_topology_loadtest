@@ -16,7 +16,9 @@ from collections.abc import Sequence
 from concurrent.futures import Executor
 from typing import Any
 
-from ....domain.retrieval.passages import ScoredPassage, top_by_score
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
+from ....domain.retrieval.rag_result import top_by_score
 from ....infrastructure.local_models.local_model import LocalModel
 from ....infrastructure.local_models.model_pool import run_blocking
 from ....infrastructure.local_models.native_threads import NativeThreadScope
@@ -86,8 +88,8 @@ class CrossEncoderReranker(BaseReranker):
         )
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         """Score each (query, passage) pair on the pool and keep the best.
 
         Args:

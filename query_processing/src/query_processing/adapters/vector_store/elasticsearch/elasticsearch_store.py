@@ -22,10 +22,13 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
 from ....domain.errors import RagDependencyError
-from ....domain.retrieval.passages import Passage, ScoredPassage
-from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
+from ..base_vector_store import BaseLexicalSearch, BaseVectorStore, record_as_read
 from .elasticsearch_filter_translator import ElasticsearchFilterTranslator
 
 
@@ -100,7 +103,9 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         return cls(store, index, text_analyzer, index_strategy=strategy)
 
     async def upsert(
-        self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
+        self,
+        passages: Sequence[VectorStoreRecord],
+        embeddings: Sequence[Sequence[float]],
     ) -> None:
         """Store passages with their vectors, keyed by passage id.
 
@@ -124,7 +129,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         embedding: Sequence[float],
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages nearest to a vector among those the filter keeps.
 
         Args:
@@ -146,12 +151,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             doc_builder=_document_with_id,
         )
         return [
-            ScoredPassage(
-                id=doc.id or "",
-                text=doc.page_content,
-                metadata=doc.metadata,
-                retrieval_score=float(score),
-            )
+            record_as_read(doc.id or "", doc.page_content, doc.metadata, score)
             for doc, score in hits
         ]
 
@@ -160,7 +160,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         text: str,
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages whose words best match a text (Elasticsearch BM25).
 
         Args:
@@ -181,11 +181,11 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             size=top_k,
         )
         return [
-            ScoredPassage(
-                id=hit["_id"],
-                text=hit["_source"].get("text", ""),
-                metadata=hit["_source"].get("metadata", {}),
-                retrieval_score=float(hit["_score"]),
+            record_as_read(
+                hit["_id"],
+                hit["_source"].get("text", ""),
+                hit["_source"].get("metadata", {}),
+                hit["_score"],
             )
             for hit in found["hits"]["hits"]
         ]

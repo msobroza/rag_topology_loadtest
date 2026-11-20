@@ -45,7 +45,7 @@ from ..domain.graph_description import (
     StageDescription,
 )
 from ..domain.registry import Registry
-from ..domain.retrieval.passages import TOTAL_TIMING_KEY
+from ..domain.retrieval.rag_result import TOTAL_TIMING_KEY
 from .edge_check import (
     check_edges,
     edge_name,

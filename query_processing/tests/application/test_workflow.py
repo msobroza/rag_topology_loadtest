@@ -30,7 +30,7 @@ from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.prompts import Prompt, PromptMessage
 from query_processing.domain.retrieval.corpus import synthetic_questions
-from query_processing.domain.retrieval.passages import RagMode
+from query_processing.domain.retrieval.rag_result import RagMode
 from rag_graphs import fixture_graph, rag_graph
 from workflow_fakes import (
     ON_LANGGRAPH_ALONE,

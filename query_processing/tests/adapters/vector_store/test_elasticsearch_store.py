@@ -13,15 +13,20 @@ from elastic_transport import JsonSerializer
 from elasticsearch.helpers.vectorstore import AsyncDenseVectorStrategy, DistanceMetric
 from langchain_elasticsearch import AsyncElasticsearchStore
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
 from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import Passage
 
 INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
+
+
+def record(record_id: str, text: str = "t") -> VectorStoreRecord:
+    """A record to write, its id in its metadata."""
+    return VectorStoreRecord(text=text, metadata={"id": record_id})
 
 
 # --- ElasticsearchVectorStore ----------------------------------------------
@@ -143,24 +148,6 @@ def plain_store(fake: FakeLangChainStore) -> ElasticsearchVectorStore:
     return ElasticsearchVectorStore(fake, INDEX, index_strategy=dense_strategy())
 
 
-async def test_es_upsert_passes_text_vector_pairs_metadatas_and_ids() -> None:
-    fake = FakeLangChainStore()
-    passages = [
-        Passage(id="p1", text="alpha", metadata={"topic": "hr"}),
-        Passage(id="p2", text="beta"),
-    ]
-    store = plain_store(fake)
-    await store.upsert(passages, [(0.1, 0.2), [0.3, 0.4]])
-    await store.upsert([], [])  # nothing to write: no call at all
-    assert fake.add_calls == [
-        {
-            "pairs": [("alpha", [0.1, 0.2]), ("beta", [0.3, 0.4])],
-            "metadatas": [{"topic": "hr"}, {}],
-            "ids": ["p1", "p2"],
-        }
-    ]
-
-
 async def test_es_query_builds_scored_passages_from_hits() -> None:
     fake = FakeLangChainStore(
         [
@@ -170,8 +157,8 @@ async def test_es_query_builds_scored_passages_from_hits() -> None:
     )
     hits = await plain_store(fake).query((0.5, 0.5), top_k=2)
     assert [(h.id, h.text, h.metadata) for h in hits] == [
-        ("p9", "nine", {"topic": "it"}),
-        ("p4", "four", {}),
+        ("p9", "nine", {"topic": "it", "id": "p9"}),
+        ("p4", "four", {"id": "p4"}),
     ]
     scores = [h.retrieval_score for h in hits]
     assert scores == [0.75, 0.25]
@@ -193,8 +180,8 @@ async def test_es_lexical_query_is_a_match_query_on_the_text_field() -> None:
         {"index": INDEX, "query": {"match": {"text": "vacation"}}, "size": 2}
     ]
     assert [(h.id, h.text, h.metadata, h.retrieval_score) for h in hits] == [
-        ("p7", "vacation days", {"topic": "hr"}, 3.5),
-        ("p2", "vacation", {}, 1.25),
+        ("p7", "vacation days", {"topic": "hr", "id": "p7"}, 3.5),
+        ("p2", "vacation", {"id": "p2"}, 1.25),
     ]
     assert all(type(h.retrieval_score) is float for h in hits)
     assert all(h.rerank_score is None for h in hits)
@@ -288,7 +275,7 @@ StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
 @pytest.mark.parametrize(
     "operation",
     [
-        lambda store: store.upsert([Passage(id="p1", text="alpha")], [[0.1]]),
+        lambda store: store.upsert([record("p1", "alpha")], [[0.1]]),
         lambda store: store.query([0.1], top_k=1),
         lambda store: store.lexical_query("alpha", top_k=1),
         lambda store: store.count(),
@@ -324,8 +311,11 @@ async def test_es_a_new_index_is_created_with_langchains_mapping_and_the_analyze
 ):
     fake = FakeLangChainStore(exists=False)
     store = french_store(fake)
-    await store.upsert([Passage(id="p1", text="la prime")], [[0.1, 0.2, 0.3]])
-    await store.upsert([Passage(id="p2", text="le sinistre")], [[0.3, 0.2, 0.1]])
+    await store.upsert([record("p1", "la prime")], [[0.1, 0.2, 0.3]])
+    await store.upsert(
+        [record("p2", "le sinistre")],
+        [[0.3, 0.2, 0.1]],
+    )
     assert fake.created == [
         {
             "index": INDEX,
@@ -349,7 +339,7 @@ async def test_es_a_new_index_is_created_with_langchains_mapping_and_the_analyze
 
 async def test_es_an_existing_index_is_left_alone() -> None:
     fake = FakeLangChainStore(exists=True)
-    await french_store(fake).upsert([Passage(id="p1", text="t")], [[0.1]])
+    await french_store(fake).upsert([record("p1")], [[0.1]])
     assert fake.created == []
     assert len(fake.add_calls) == 1
 
@@ -362,7 +352,7 @@ async def test_es_the_standard_analyzer_leaves_the_text_field_to_dynamic_mapping
     store = ElasticsearchVectorStore(
         fake, INDEX, analyzer, index_strategy=dense_strategy()
     )
-    await store.upsert([Passage(id="p1", text="t")], [[0.1, 0.2]])
+    await store.upsert([record("p1")], [[0.1, 0.2]])
     vector = {"type": "dense_vector", "dims": 2, "index": True, "similarity": "cosine"}
     assert fake.created == [
         {"index": INDEX, "mappings": {"properties": {"vector": vector}}, "settings": {}}
@@ -374,7 +364,7 @@ async def test_es_a_failed_index_creation_is_a_vector_store_error() -> None:
     boom = ConnectionError("es refused")
     fake = FakeLangChainStore(exists=False, failure=boom)
     with pytest.raises(RagDependencyError) as info:
-        await french_store(fake).upsert([Passage(id="p1", text="t")], [[0.1]])
+        await french_store(fake).upsert([record("p1")], [[0.1]])
     assert (info.value.component, info.value.target) == ("vector_store", INDEX)
     assert info.value.__cause__ is boom
 
@@ -484,7 +474,7 @@ async def test_es_first_upsert_into_a_missing_index_works_with_the_default_analy
     # embedding_service or num_dimensions need to be specified".
     client = FakeAsyncElasticsearch()
     store = langchain_store_over(client)
-    await store.upsert([Passage(id="p1", text="la prime")], [[0.1, 0.2, 0.3]])
+    await store.upsert([record("p1", "la prime")], [[0.1, 0.2, 0.3]])
     assert client.indexed_ids == ["p1"]
     vector = client.created[0]["mappings"]["properties"]["vector"]
     assert (vector["type"], vector["dims"]) == ("dense_vector", 3)

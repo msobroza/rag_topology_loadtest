@@ -16,10 +16,13 @@ import re
 from collections.abc import Sequence
 
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
-from ....domain.retrieval.passages import Passage, ScoredPassage
 from ....infrastructure.fake_text import cosine
-from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
+from ..base_vector_store import BaseLexicalSearch, BaseVectorStore, record_as_read
 from .in_memory_filter_translator import InMemoryFilterTranslator
 
 _WORD = re.compile(r"\w+")
@@ -50,13 +53,15 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
     """
 
     def __init__(self) -> None:
-        self._rows: dict[str, tuple[Passage, list[float]]] = {}
+        self._rows: dict[str, tuple[VectorStoreRecord, list[float]]] = {}
         self._filter_translator = InMemoryFilterTranslator()
 
     async def upsert(
-        self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
+        self,
+        passages: Sequence[VectorStoreRecord],
+        embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages with their vectors; a known id is overwritten.
+        """Store passages whole with their vectors; a known id is overwritten.
 
         Args:
             passages: The passages to store.
@@ -70,7 +75,7 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         embedding: Sequence[float],
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages nearest to a vector by cosine, among those kept.
 
         Args:
@@ -88,7 +93,7 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
             reverse=True,
         )
         return [
-            ScoredPassage(**p.model_dump(), retrieval_score=score)
+            record_as_read(p.id, p.text, p.metadata, score)
             for score, p in scored[:top_k]
         ]
 
@@ -97,7 +102,7 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         text: str,
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages sharing the most distinct words with a text, of those kept.
 
         Args:
@@ -118,13 +123,13 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         # sorted() is stable, so equal scores keep the dict's insertion order.
         ranked = sorted((s for s in scored if s[0] > 0), key=lambda s: -s[0])
         return [
-            ScoredPassage(**p.model_dump(), retrieval_score=float(score))
+            record_as_read(p.id, p.text, p.metadata, score)
             for score, p in ranked[:top_k]
         ]
 
     def _kept(
         self, metadata_filter: Sequence[MetadataCondition]
-    ) -> list[tuple[Passage, list[float]]]:
+    ) -> list[tuple[VectorStoreRecord, list[float]]]:
         keep = self._filter_translator.translate(metadata_filter)
         return [row for row in self._rows.values() if keep(row[0])]
 

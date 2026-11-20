@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Generic, Protocol, TypeVar
 
 import httpx
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ..adapters.embedder.api.api_embedder import ApiEmbedder, open_api_embedder
 from ..adapters.reranker.api.api_reranker import ApiReranker, open_api_reranker
@@ -39,7 +40,6 @@ from ..domain.endpoints.api_endpoint import (
     ApiEndpoint,
 )
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
-from ..domain.retrieval.passages import ScoredPassage
 from ..domain.runtime.calibration import StageTuning, calibration_sample
 from ..infrastructure.calibration.served_stage_calibration import BaseServedStage
 from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
@@ -297,10 +297,12 @@ class OvmsRerankStage(BaseOvmsStage[RerankerSettings, ApiReranker]):
         )
 
     @cached_property
-    def _sample(self) -> tuple[str, list[ScoredPassage]]:
+    def _sample(self) -> tuple[str, list[ScoredVectorStoreRecord]]:
         sample = calibration_sample(self.request_size)
         passages = [
-            ScoredPassage(id=f"calibration-{i}", text=text, retrieval_score=0.0)
+            ScoredVectorStoreRecord(
+                text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
+            )
             for i, text in enumerate(sample.passages)
         ]
         return sample.question, passages

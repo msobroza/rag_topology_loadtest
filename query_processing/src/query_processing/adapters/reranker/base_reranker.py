@@ -18,9 +18,10 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Sequence
 
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from ...domain.components.base_component import BaseComponent
 from ...domain.components.component_requests import RerankAnswer, RerankRequest
-from ...domain.retrieval.passages import ScoredPassage
 
 
 class BaseReranker(
@@ -30,8 +31,8 @@ class BaseReranker(
 
     @abstractmethod
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         """Re-score retrieval candidates against the query and keep the best.
 
         Args:

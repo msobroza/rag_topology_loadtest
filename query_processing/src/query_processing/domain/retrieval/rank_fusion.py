@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .passages import ScoredPassage
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 
 def reciprocal_rank_fusion(
-    rankings: Sequence[Sequence[ScoredPassage]], *, k: int, top_k: int
-) -> list[ScoredPassage]:
+    rankings: Sequence[Sequence[ScoredVectorStoreRecord]], *, k: int, top_k: int
+) -> list[ScoredVectorStoreRecord]:
     """Fuse rankings by summing ``1 / (k + rank)`` per passage.
 
     Only ranks count, so the rankings' own scores need not be comparable (a
@@ -37,7 +37,7 @@ def reciprocal_rank_fusion(
         ['b', 'a']
     """
     fused: dict[str, float] = {}
-    first_seen: dict[str, ScoredPassage] = {}
+    first_seen: dict[str, ScoredVectorStoreRecord] = {}
     for ranking in rankings:
         for rank, passage in enumerate(ranking, start=1):
             fused[passage.id] = fused.get(passage.id, 0.0) + 1.0 / (k + rank)

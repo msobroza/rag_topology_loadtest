@@ -17,11 +17,17 @@ from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
-from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataValue,
+)
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
 from ....domain.errors import RagDependencyError
-from ....domain.retrieval.passages import MetadataValue, Passage, ScoredPassage
-from ..base_vector_store import BaseVectorStore
+from ..base_vector_store import BaseVectorStore, record_as_read
 from .chroma_filter_translator import ChromaFilterTranslator
 
 # Cosine distance, so ``1 - distance`` is the cosine similarity ``query`` reports.
@@ -73,7 +79,9 @@ class ChromaVectorStore(BaseVectorStore):
         return cls(await _off_loop(collection, connect))
 
     async def upsert(
-        self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
+        self,
+        passages: Sequence[VectorStoreRecord],
+        embeddings: Sequence[Sequence[float]],
     ) -> None:
         """Store passages with their vectors; a known id is replaced whole.
 
@@ -104,7 +112,7 @@ class ChromaVectorStore(BaseVectorStore):
         embedding: Sequence[float],
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
+    ) -> list[ScoredVectorStoreRecord]:
         """Find the passages nearest to a vector among those the filter keeps.
 
         Args:
@@ -191,10 +199,6 @@ def _chroma_metadata(
 
 def _scored(
     passage_id: str, text: str | None, metadata: Any, score: float
-) -> ScoredPassage:
-    return ScoredPassage(
-        id=passage_id,
-        text=text or "",
-        metadata=dict(metadata or {}),
-        retrieval_score=float(score),
-    )
+) -> ScoredVectorStoreRecord:
+    # Chroma gives None for a row stored without metadata.
+    return record_as_read(passage_id, text or "", dict(metadata or {}), score)

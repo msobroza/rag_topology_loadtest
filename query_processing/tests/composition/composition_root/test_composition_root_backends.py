@@ -10,6 +10,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
 from cpu_fakes import FakeCpuCounter
 from local_model_fakes import FakeOneRequestModule
@@ -21,7 +25,6 @@ from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVec
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import Passage, ScoredPassage
 from query_processing.infrastructure.local_models.local_model import (
     exported_model_dir,
     local_model,
@@ -49,7 +52,9 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
 
     async with CompositionRoot(settings) as composition:
         embedder, store = await composition.ingest_ports()
-        passage = Passage(id="p1", text="Employees accrue vacation days")
+        passage = VectorStoreRecord(
+            text="Employees accrue vacation days", metadata={"id": "p1"}
+        )
         await store.upsert([passage], await embedder.embed_documents([passage.text]))
 
         assert isinstance(store, ChromaVectorStore)
@@ -460,7 +465,11 @@ async def test_concurrent_openvino_reranks_never_overlap_on_one_model(
 ) -> None:
     settings = exported_settings(settings_factory, tmp_path)
     container = FakeCpuCounter(8, "container")
-    passages = [ScoredPassage(id="p1", text="vacation", retrieval_score=0.5)]
+    passages = [
+        ScoredVectorStoreRecord(
+            text="vacation", metadata={"id": "p1"}, retrieval_score=0.5
+        )
+    ]
     async with CompositionRoot(settings, container_cpus=container) as composition:
         reranker = await composition.local_reranker("reranker")
         ranked = await asyncio.gather(

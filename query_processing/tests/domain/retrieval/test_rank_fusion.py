@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.domain.retrieval.rank_fusion import reciprocal_rank_fusion
 
 
-def hit(passage_id: str, score: float = 0.5) -> ScoredPassage:
-    return ScoredPassage(id=passage_id, text=passage_id, retrieval_score=score)
+def hit(passage_id: str, score: float = 0.5) -> ScoredVectorStoreRecord:
+    return ScoredVectorStoreRecord(
+        text=passage_id, metadata={"id": passage_id}, retrieval_score=score
+    )
 
 
-def ids(passages: list[ScoredPassage]) -> list[str]:
+def ids(passages: list[ScoredVectorStoreRecord]) -> list[str]:
     return [passage.id for passage in passages]
 
 
@@ -51,15 +53,15 @@ def test_fusion_truncates_to_top_k() -> None:
 
 
 def test_fusion_keeps_text_and_metadata_and_drops_nothing_else() -> None:
-    passage = ScoredPassage(
-        id="a", text="vacation", metadata={"doc": "handbook"}, retrieval_score=0.9
+    passage = ScoredVectorStoreRecord(
+        text="vacation", metadata={"id": "a", "doc": "handbook"}, retrieval_score=0.9
     )
 
     [fused] = reciprocal_rank_fusion([[passage]], k=60, top_k=1)
 
     assert (fused.text, fused.metadata, fused.rerank_score) == (
         "vacation",
-        {"doc": "handbook"},
+        {"id": "a", "doc": "handbook"},
         None,
     )
     assert passage.retrieval_score == 0.9  # the input is not modified

@@ -7,11 +7,17 @@ the response bodies keep theirs, written out here in full.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 import pytest
 from fastapi.testclient import TestClient
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
+from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
+from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
+    InMemoryVectorStore,
+)
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.entrypoints.qp_serve import create_app
@@ -35,6 +41,10 @@ BODY_FIELDS = {
     "metadata_filter",
 }
 PASSAGE_FIELDS = {"id", "text", "metadata", "retrieval_score", "rerank_score"}
+# A vector-store record with its id in its metadata, and no chunk.
+LEAVE = VectorStoreRecord(
+    text="Leave is booked a week ahead.", metadata={"topic": "hr", "id": "leave-1"}
+)
 
 
 @pytest.mark.parametrize(
@@ -86,3 +96,33 @@ def test_a_route_still_takes_its_question_under_the_same_key(
         renamed = client.post(path, json={"query": QUESTION})
 
     assert (asked.status_code, renamed.status_code) == (200, 422)
+
+
+def _store_holding(record: VectorStoreRecord) -> InMemoryVectorStore:
+    store = InMemoryVectorStore()
+    asyncio.run(store.upsert([record], [[1.0, 0.0, 0.0, 0.0]]))
+    return store
+
+
+@pytest.mark.parametrize("path", ["/query", "/retrieve"])
+def test_an_entry_gives_the_records_id_beside_its_metadata_as_it_always_did(
+    settings_factory: Callable[..., WorkflowSettings], path: str
+) -> None:
+    composition = CompositionRoot(
+        settings_factory(**FAKE_BACKENDS),
+        vector_store=_store_holding(LEAVE),
+        embedder=FakeEmbedder(dim=4),
+    )
+
+    with TestClient(create_app(composition)) as client:
+        body = client.post(path, json={"question": QUESTION}).json()
+
+    [entry] = body["passages"]
+    assert list(entry) == ["id", "text", "metadata", "retrieval_score", "rerank_score"]
+    assert (entry["id"], entry["text"], entry["metadata"]) == (
+        "leave-1",
+        "Leave is booked a week ahead.",
+        {"topic": "hr"},  # the id is beside the metadata, not in it
+    )
+    assert entry["rerank_score"] is not None  # reranked, though it has no chunk
+    assert (body["answer"] is not None) == (path == "/query")

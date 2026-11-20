@@ -26,12 +26,13 @@ from concurrent.futures import Executor
 from dataclasses import dataclass
 from typing import TypeVar
 
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from ..adapters.embedder.local.sentence_transformer_embedder import (
     SentenceTransformerEmbedder,
 )
 from ..adapters.reranker.local.cross_encoder_reranker import CrossEncoderReranker
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.retrieval.passages import ScoredPassage
 from ..domain.runtime.calibration import (
     CalibrationReport,
     StageTuning,
@@ -164,7 +165,9 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
         sample = calibration_sample(passages)
         self._question = sample.question
         self._passages = [
-            ScoredPassage(id=f"calibration-{i}", text=text, retrieval_score=0.0)
+            ScoredVectorStoreRecord(
+                text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
+            )
             for i, text in enumerate(sample.passages)
         ]
 

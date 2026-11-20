@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from query_processing.adapters.reranker.none.no_reranker import NoReranker
-from query_processing.domain.retrieval.passages import ScoredPassage
 
 
-def scored_passages(*ids: str) -> list[ScoredPassage]:
-    return [ScoredPassage(id=i, text=f"text of {i}", retrieval_score=0.5) for i in ids]
+def scored_passages(*ids: str) -> list[ScoredVectorStoreRecord]:
+    return [
+        ScoredVectorStoreRecord(
+            text=f"text of {i}", metadata={"id": i}, retrieval_score=0.5
+        )
+        for i in ids
+    ]
 
 
 async def test_no_reranker_keeps_order_and_truncates() -> None:

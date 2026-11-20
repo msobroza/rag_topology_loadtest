@@ -4,36 +4,45 @@ from __future__ import annotations
 
 import pytest
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
     distinct_words,
 )
 from query_processing.domain.components.component_requests import SearchRequest
-from query_processing.domain.retrieval.passages import Passage
 from query_processing.domain.retrieval.retrieval_mode import RetrievalMode
 
 
 async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> None:
     store = InMemoryVectorStore()
-    doc = Passage(id="p1", text="one", metadata={"page": 3, "src": "a.pdf"})
+    doc = VectorStoreRecord(
+        text="one", metadata={"id": "p1", "page": 3, "src": "a.pdf"}
+    )
     await store.upsert([doc], [[1.0, 0.0]])
     await store.upsert([doc], [[1.0, 0.0]])  # same id twice -> one row
     await store.upsert(
-        [Passage(id="p2", text="two"), Passage(id="p3", text="three")],
+        [
+            VectorStoreRecord(text="two", metadata={"id": "p2"}),
+            VectorStoreRecord(text="three", metadata={"id": "p3"}),
+        ],
         [[0.0, 1.0], [0.6, 0.8]],
     )
 
     assert await store.count() == 3
     hits = await store.query([1.0, 0.0], top_k=2)
     assert [(h.id, h.retrieval_score) for h in hits] == [("p1", 1.0), ("p3", 0.6)]
-    assert hits[0].metadata == {"page": 3, "src": "a.pdf"}
+    # Stored whole and read whole: the id, the store's key, is in the metadata.
+    assert hits[0].metadata == {"id": "p1", "page": 3, "src": "a.pdf"}
 
 
 async def test_in_memory_store_ranks_by_direction_not_length() -> None:
     store = InMemoryVectorStore()
     await store.upsert(
-        [Passage(id="long-off", text="a"), Passage(id="short-on", text="b")],
+        [
+            VectorStoreRecord(text="a", metadata={"id": "long-off"}),
+            VectorStoreRecord(text="b", metadata={"id": "short-on"}),
+        ],
         [[10.0, 10.0], [0.3, 0.0]],
     )
 
@@ -47,8 +56,12 @@ async def test_in_memory_store_ranks_by_direction_not_length() -> None:
 async def test_in_memory_store_finds_passages_by_their_words() -> None:
     store = InMemoryVectorStore()
     passages = [
-        Passage(id="vacation", text="Employees accrue vacation days monthly"),
-        Passage(id="expenses", text="Expense receipts are required"),
+        VectorStoreRecord(
+            text="Employees accrue vacation days monthly", metadata={"id": "vacation"}
+        ),
+        VectorStoreRecord(
+            text="Expense receipts are required", metadata={"id": "expenses"}
+        ),
     ]
     await store.upsert(passages, [[1.0, 0.0], [0.0, 1.0]])
 
@@ -68,7 +81,10 @@ async def test_in_memory_store_ranks_by_shared_words_ties_in_insertion_order() -
         "three": "VACATION days policy",
         "two-second": "days of vacation",
     }
-    passages = [Passage(id=pid, text=text) for pid, text in texts.items()]
+    passages = [
+        VectorStoreRecord(text=text, metadata={"id": pid})
+        for pid, text in texts.items()
+    ]
     await store.upsert(passages, [[1.0, 0.0]] * len(passages))
 
     hits = await store.lexical_query("vacation vacation days policy", top_k=10)
@@ -87,8 +103,12 @@ async def test_in_memory_store_ranks_by_shared_words_ties_in_insertion_order() -
 
 async def test_in_memory_store_reindexes_the_words_of_an_overwritten_passage() -> None:
     store = InMemoryVectorStore()
-    await store.upsert([Passage(id="p", text="vacation days")], [[1.0, 0.0]])
-    await store.upsert([Passage(id="p", text="expense receipts")], [[1.0, 0.0]])
+    await store.upsert(
+        [VectorStoreRecord(text="vacation days", metadata={"id": "p"})], [[1.0, 0.0]]
+    )
+    await store.upsert(
+        [VectorStoreRecord(text="expense receipts", metadata={"id": "p"})], [[1.0, 0.0]]
+    )
 
     assert await store.lexical_query("vacation", top_k=5) == []
     assert [hit.id for hit in await store.lexical_query("expense", top_k=5)] == ["p"]
@@ -103,14 +123,20 @@ async def test_in_memory_store_is_ready_once_it_holds_a_passage() -> None:
     store = InMemoryVectorStore()
     assert await store.ready() == (False, "0 passages in memory")
 
-    await store.upsert([Passage(id="p1", text="one")], [[1.0, 0.0]])
+    await store.upsert(
+        [VectorStoreRecord(text="one", metadata={"id": "p1"})], [[1.0, 0.0]]
+    )
     assert await store.ready() == (True, "1 passages in memory")
 
 
 async def test_in_memory_store_rejects_mismatched_lengths() -> None:
     with pytest.raises(ValueError, match="shorter"):  # zip(strict=True)
         await InMemoryVectorStore().upsert(
-            [Passage(id="a", text="a"), Passage(id="b", text="b")], [[1.0]]
+            [
+                VectorStoreRecord(text="a", metadata={"id": "a"}),
+                VectorStoreRecord(text="b", metadata={"id": "b"}),
+            ],
+            [[1.0]],
         )
 
 
@@ -121,7 +147,10 @@ async def store_with_topics() -> InMemoryVectorStore:
     """A store of four passages on vacation pay, three of them with a topic."""
     store = InMemoryVectorStore()
     passages = [
-        Passage(id=pid, text="vacation pay", metadata={"topic": topic} if topic else {})
+        VectorStoreRecord(
+            text="vacation pay",
+            metadata={"id": pid, **({"topic": topic} if topic else {})},
+        )
         for pid, topic in TOPICS.items()
     ]
     await store.upsert(passages, [[1.0, 0.0]] * len(passages))
@@ -184,7 +213,9 @@ async def store_of_sources() -> InMemoryVectorStore:
     """A store of three passages, by source and by whether they are active."""
     store = InMemoryVectorStore()
     passages = [
-        Passage(id=pid, text="vacation", metadata={"source": src, "active": on})
+        VectorStoreRecord(
+            text="vacation", metadata={"id": pid, "source": src, "active": on}
+        )
         for pid, (src, on) in SOURCES.items()
     ]
     await store.upsert(passages, [[1.0, 0.0]] * len(passages))

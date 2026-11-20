@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
+
 from ..adapters.embedder.base_embedder import BaseEmbedder
 from ..adapters.vector_store.base_vector_store import BaseVectorStore
-from ..domain.retrieval.passages import Passage
 
 
 async def ingest(
-    passages: Sequence[Passage],
+    passages: Sequence[VectorStoreRecord],
     embedder: BaseEmbedder,
     store: BaseVectorStore,
     *,

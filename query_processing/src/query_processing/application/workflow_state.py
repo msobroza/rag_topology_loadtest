@@ -22,8 +22,9 @@ from typing import Any, TypeVar
 
 from query_processing_core.conversation import HistoryMessage
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
-from ..domain.retrieval.passages import RagMode, ScoredPassage
+from ..domain.retrieval.rag_result import RagMode
 
 # What one request carries from stage to stage, by field name: a stage reads
 # the values its reads name and returns the fields it writes, the update
@@ -67,7 +68,7 @@ REQUEST_FIELD_TYPES: dict[str, Any] = {
 # fill: names fixed in the toolkit, as the wire's are.
 RESPONSE_FIELD_TYPES: dict[str, Any] = {
     "answer": str | None,  # none when the run ends before an answer
-    "reranked": list[ScoredPassage],  # the result's passages
+    "reranked": list[ScoredVectorStoreRecord],  # the result's passages
     METADATA_FILTER_FIELD: list[MetadataCondition],
 }
 RESPONSE_FIELDS: frozenset[str] = frozenset(RESPONSE_FIELD_TYPES)

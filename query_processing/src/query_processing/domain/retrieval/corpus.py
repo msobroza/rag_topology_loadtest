@@ -11,8 +11,8 @@ import random
 from typing import NamedTuple
 
 from pydantic import BaseModel, Field
-
-from .passages import MetadataValue, Passage
+from query_processing_core.retrieval.metadata_filter import MetadataValue
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
 
 class SourceDocument(BaseModel):
@@ -187,7 +187,7 @@ def synthetic_questions(n: int = 50, seed: int = 1234) -> list[str]:
 
 def chunk(
     doc: SourceDocument, *, chunk_words: int = 120, overlap_words: int = 20
-) -> list[Passage]:
+) -> list[VectorStoreRecord]:
     """Split a document into sliding word windows.
 
     Args:
@@ -198,7 +198,9 @@ def chunk(
 
     Returns:
         The passages, ids ``<doc id>:<chunk index>``, carrying the document's
-        metadata plus ``doc_id``, ``title`` and ``chunk``; empty for an empty text.
+        metadata plus ``doc_id``, ``title``, ``chunk`` and the passage's ``id``,
+        which a key of the document's metadata cannot override; empty for an
+        empty text.
 
     Raises:
         ValueError: If ``overlap_words`` is negative or not below ``chunk_words``.
@@ -215,10 +217,15 @@ def chunk(
     step = chunk_words - overlap_words
     starts = range(0, max(len(words) - overlap_words, 1), step) if words else []
     return [
-        Passage(
-            id=f"{doc.id}:{i}",
+        VectorStoreRecord(
             text=" ".join(words[start : start + chunk_words]),
-            metadata={**doc.metadata, "doc_id": doc.id, "title": doc.title, "chunk": i},
+            metadata={
+                **doc.metadata,
+                "doc_id": doc.id,
+                "title": doc.title,
+                "chunk": i,
+                "id": f"{doc.id}:{i}",
+            },
         )
         for i, start in enumerate(starts)
     ]

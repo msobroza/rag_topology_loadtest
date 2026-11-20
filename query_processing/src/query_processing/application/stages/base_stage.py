@@ -261,11 +261,11 @@ def type_name(annotation: object) -> str:
         annotation: A class or a generic alias.
 
     Returns:
-        Its name, such as ``str`` or ``list[ScoredPassage]``.
+        Its name, such as ``str`` or ``list[ScoredVectorStoreRecord]``.
 
     Example:
-        >>> type_name(list[ScoredPassage])
-        'list[ScoredPassage]'
+        >>> type_name(list[ScoredVectorStoreRecord])
+        'list[ScoredVectorStoreRecord]'
     """
     if isinstance(annotation, type) and not getattr(annotation, "__args__", None):
         return annotation.__name__

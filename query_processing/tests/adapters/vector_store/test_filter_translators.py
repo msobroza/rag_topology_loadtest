@@ -8,7 +8,9 @@ import pytest
 from query_processing_core.retrieval.metadata_filter import (
     Comparator,
     MetadataCondition,
+    MetadataValue,
 )
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
 from query_processing.adapters.vector_store.chroma.chroma_filter_translator import (
     ChromaFilterTranslator,
@@ -19,7 +21,6 @@ from query_processing.adapters.vector_store.elasticsearch import (
 from query_processing.adapters.vector_store.fake.in_memory_filter_translator import (
     InMemoryFilterTranslator,
 )
-from query_processing.domain.retrieval.passages import MetadataValue, Passage
 
 ElasticsearchFilterTranslator = (
     elasticsearch_filter_translator.ElasticsearchFilterTranslator
@@ -33,8 +34,8 @@ def cond(
     return MetadataCondition(attribute=attribute, comparator=comparator, value=value)
 
 
-PASSAGE = Passage(
-    id="p", text="t", metadata={"source": "AMF", "chunk": 2, "active": True}
+PASSAGE = VectorStoreRecord(
+    text="t", metadata={"id": "p", "source": "AMF", "chunk": 2, "active": True}
 )
 
 

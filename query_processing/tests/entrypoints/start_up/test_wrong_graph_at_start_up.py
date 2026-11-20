@@ -354,8 +354,9 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
         plain_call_reading_too_little,
         [
             "stage 'keep_best': reranker takes (query: str, passages: "
-            "list[ScoredPassage], top_k: int) and gives (passages: "
-            "list[ScoredPassage]); reads lists 1 field after its keys fill top_k"
+            "list[ScoredVectorStoreRecord], top_k: int) and gives (passages: "
+            "list[ScoredVectorStoreRecord]); reads lists 1 field after its keys "
+            "fill top_k"
         ],
     ),
     "a prompt the prompts file does not define": (

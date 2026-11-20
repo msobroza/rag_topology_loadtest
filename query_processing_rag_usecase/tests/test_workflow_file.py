@@ -21,7 +21,6 @@ from fastapi.testclient import TestClient
 from query_processing.application.prompt_rendering import render_prompt
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints.qp_serve import create_app
 from query_processing.testing import registered_orchestrators
 from query_processing_core.conversation import HistoryMessage
@@ -29,6 +28,7 @@ from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
 )
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing_rag_usecase.config.knn_router_settings import KnnRouterSettings
 from workflow_on_fakes import (
@@ -289,7 +289,9 @@ def test_the_file_pins_the_rags_edges_and_its_three_conditional_edges(
     ]
 
 
-def old_messages(question: str, passages: list[ScoredPassage]) -> list[dict[str, str]]:
+def old_messages(
+    question: str, passages: list[ScoredVectorStoreRecord]
+) -> list[dict[str, str]]:
     """What the generate stage's two settings gave before prompts.yaml."""
     context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
     user = USER_PROMPT.format(context=context, question=question)
@@ -305,7 +307,9 @@ def test_the_answer_prompt_renders_what_the_two_old_settings_gave(
 ) -> None:
     prompt = settings_here().prompts["answer_from_context"]
     passages = [
-        ScoredPassage(id=str(i), text=f"Passage {{x}} {i}.", retrieval_score=1.0)
+        ScoredVectorStoreRecord(
+            text=f"Passage {{x}} {i}.", metadata={"id": str(i)}, retrieval_score=1.0
+        )
         for i in range(count)
     ]
 

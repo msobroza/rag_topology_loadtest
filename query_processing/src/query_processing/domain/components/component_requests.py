@@ -19,8 +19,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
-from ..retrieval.passages import ScoredPassage
 from ..retrieval.retrieval_mode import RetrievalMode
 
 
@@ -44,14 +44,14 @@ class RerankRequest(_FrozenStrictModel):
     """Retrieval candidates to re-score against a query, and how many to keep."""
 
     query: str
-    passages: list[ScoredPassage]
+    passages: list[ScoredVectorStoreRecord]
     top_k: int = Field(ge=1)
 
 
 class RerankAnswer(_FrozenStrictModel):
     """At most ``top_k`` passages, best first."""
 
-    passages: list[ScoredPassage]
+    passages: list[ScoredVectorStoreRecord]
 
 
 class GenerateRequest(_FrozenStrictModel):
@@ -114,4 +114,4 @@ class SearchRequest(_FrozenStrictModel):
 class SearchAnswer(_FrozenStrictModel):
     """The passages found, best first, each with its ``retrieval_score``."""
 
-    passages: list[ScoredPassage]
+    passages: list[ScoredVectorStoreRecord]

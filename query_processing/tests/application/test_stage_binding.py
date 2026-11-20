@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from echo_components import BaseEcho
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.application.stage_binding import bind_call, stage_type_of
 from query_processing.application.stages.base_stage import STAGE_TYPES, StageFields
 from query_processing.domain.graph_description import StageDescription
-from query_processing.domain.retrieval.passages import ScoredPassage
 
 
 def test_keys_fill_named_attributes_and_reads_fill_the_rest_in_order() -> None:
@@ -26,9 +26,9 @@ def test_keys_fill_named_attributes_and_reads_fill_the_rest_in_order() -> None:
     assert binding.to_writes == {"reranked": "passages"}
     assert binding.field_types.reads == {
         "standalone_query": str,
-        "candidates": list[ScoredPassage],
+        "candidates": list[ScoredVectorStoreRecord],
     }
-    assert binding.field_types.writes == {"reranked": list[ScoredPassage]}
+    assert binding.field_types.writes == {"reranked": list[ScoredVectorStoreRecord]}
 
 
 def test_writes_can_stop_early() -> None:

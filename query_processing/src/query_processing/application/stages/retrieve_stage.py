@@ -26,13 +26,13 @@ from typing import Any
 
 from pydantic import Field
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ...adapters.vector_store.base_vector_store import (
     BaseVectorStore,
     required_lexical_search,
 )
 from ...domain.components.component_requests import SearchRequest
-from ...domain.retrieval.passages import ScoredPassage
 from ...domain.retrieval.retrieval_mode import RetrievalMode
 from ..workflow_state import WorkflowState
 from .base_stage import (
@@ -55,7 +55,7 @@ READS_BY_RETRIEVAL_MODE: dict[RetrievalMode, dict[str, Any]] = {
     "hybrid": {"embedding": list[float], "text": str, **_FILTER_READ},
 }
 # What it writes: the passages found.
-RETRIEVE_WRITE_TYPES = {"candidates": list[ScoredPassage]}
+RETRIEVE_WRITE_TYPES = {"candidates": list[ScoredVectorStoreRecord]}
 
 
 class RetrieveSettings(StageSettings):

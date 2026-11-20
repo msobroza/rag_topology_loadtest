@@ -35,8 +35,10 @@ from query_processing_core.query_request import QueryRequest
 from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
+    MetadataValue,
     check_conditions,
 )
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ..application.graph_check import WorkflowGraphError
 from ..application.rag_dependencies import RagDependencies
@@ -51,7 +53,7 @@ from ..config.apps.process_environment_settings import ProcessEnvironmentSetting
 from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.errors import RagDependencyError
-from ..domain.retrieval.passages import RagMode, ScoredPassage
+from ..domain.retrieval.rag_result import RagMode
 from ..infrastructure.http.startup_refusal_in_one_line import (
     StartupRefusalInOneLine,
 )
@@ -62,6 +64,43 @@ from ..infrastructure.process_environment import restart_with
 logger = logging.getLogger("query_processing")
 # --domino, "1" or "0", for a worker of several, which never sees the arguments.
 DOMINO_VARIABLE = "QP_SERVE_DOMINO"
+
+
+class ResponsePassage(BaseModel):
+    """One entry of a response's ``passages``, in the shape the wire always had.
+
+    Leaves with ticket 07, when the response returns the records as they are.
+    """
+
+    id: str
+    text: str
+    metadata: dict[str, MetadataValue]
+    retrieval_score: float
+    rerank_score: float | None
+
+
+def response_passage(record: ScoredVectorStoreRecord) -> ResponsePassage:
+    """Give a scored record today's entry: its id beside its metadata.
+
+    Leaves with ticket 07, with ``ResponsePassage``.
+
+    Args:
+        record: A record the workflow returned, its id in its metadata.
+
+    Returns:
+        The entry, whose ``metadata`` is the record's without its ``id``.
+
+    Example:
+        >>> response_passage(ScoredVectorStoreRecord(
+        ...     text="t", metadata={"id": "a", "topic": "hr"}, retrieval_score=0.5
+        ... )).metadata
+        {'topic': 'hr'}
+    """
+    return ResponsePassage(
+        **record.model_dump(exclude={"metadata"}),
+        id=record.id,
+        metadata={key: value for key, value in record.metadata.items() if key != "id"},
+    )
 
 
 class QueryResponse(BaseModel):
@@ -79,7 +118,7 @@ class QueryResponse(BaseModel):
     question: str
     mode: RagMode
     answer: str | None
-    passages: list[ScoredPassage]
+    passages: list[ResponsePassage]
     timings_ms: dict[str, float]
     tokens: dict[str, dict[str, int]]
     # The conditions applied: the client's, then those the stages added.
@@ -336,7 +375,8 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
         request_id=request.state.request_id,
         topology=settings.topology_alias,
         run_label=settings.run_label,
-        **result.model_dump(),
+        passages=[response_passage(record) for record in result.passages],
+        **result.model_dump(exclude={"passages"}),
     )
 
 

@@ -7,6 +7,7 @@ from collections.abc import Callable
 import pytest
 from query_processing_core.conversation import HistoryMessage
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.application.prompt_rendering import (
     prompt_variables,
@@ -14,7 +15,6 @@ from query_processing.application.prompt_rendering import (
 )
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.prompts import Prompt, PromptMessage, PromptPlaceholder
-from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import scored
 
 ANSWER: Prompt = [
@@ -35,7 +35,9 @@ OLD_SYSTEM_PROMPT = "Answer from the numbered fixture passages only."
 OLD_USER_PROMPT = "Context:\n{context}\n\nQuestion: {question}"
 
 
-def old_messages(question: str, passages: list[ScoredPassage]) -> list[dict[str, str]]:
+def old_messages(
+    question: str, passages: list[ScoredVectorStoreRecord]
+) -> list[dict[str, str]]:
     """What the two removed settings gave for ``question`` and ``passages``."""
     context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
     user = OLD_USER_PROMPT.format(context=context, question=question)

@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ....domain.retrieval.passages import ScoredPassage
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from ..base_reranker import BaseReranker
 
 
@@ -19,8 +20,8 @@ class NoReranker(BaseReranker):
     """BaseReranker that keeps retrieval order (the ``none`` backend)."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         """Keep the first passages, in retrieval order.
 
         Args:

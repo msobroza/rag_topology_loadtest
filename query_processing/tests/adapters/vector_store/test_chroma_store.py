@@ -10,12 +10,13 @@ import pytest
 from query_processing_core.retrieval.metadata_filter import (
     Comparator,
     MetadataCondition,
+    MetadataValue,
 )
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
 from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import MetadataValue, Passage
 
 COLLECTION = "passages_under_test"  # any name: the adapter must use the one given
 
@@ -25,9 +26,13 @@ async def open_store(path: Path) -> Any:
 
 
 PASSAGES = [
-    Passage(id="p1", text="vacation days accrue monthly", metadata={"topic": "hr"}),
-    Passage(id="p2", text="laptops are replaced every three years"),
-    Passage(id="p3", text="vacation vacation policy", metadata={"n": 3}),
+    VectorStoreRecord(
+        text="vacation days accrue monthly", metadata={"id": "p1", "topic": "hr"}
+    ),
+    VectorStoreRecord(
+        text="laptops are replaced every three years", metadata={"id": "p2"}
+    ),
+    VectorStoreRecord(text="vacation vacation policy", metadata={"id": "p3", "n": 3}),
 ]
 VECTORS = [[1.0, 0.0], [0.0, 1.0], [0.6, 0.8]]
 
@@ -39,11 +44,14 @@ async def test_chroma_upsert_stores_and_overwrites_by_id(tmp_path: Path) -> None
     store = await open_store(tmp_path)
     await store.upsert([], [])  # nothing to write: no error
     await store.upsert(PASSAGES, VECTORS)
-    await store.upsert([Passage(id="p2", text="laptops last four years")], [[0, 1]])
+    await store.upsert(
+        [VectorStoreRecord(text="laptops last four years", metadata={"id": "p2"})],
+        [[0, 1]],
+    )
     assert await store.count() == 3
     hits = await store.query([0.0, 1.0], top_k=1)
     assert [(h.id, h.text, h.metadata) for h in hits] == [
-        ("p2", "laptops last four years", {})
+        ("p2", "laptops last four years", {"id": "p2"})
     ]
 
 
@@ -52,9 +60,11 @@ async def test_chroma_upsert_replaces_metadata_rather_than_merging(
 ) -> None:
     store = await open_store(tmp_path)
     await store.upsert(PASSAGES, VECTORS)
-    await store.upsert([Passage(id="p1", text="vacation days", metadata={})], [[1, 0]])
+    await store.upsert(
+        [VectorStoreRecord(text="vacation days", metadata={"id": "p1"})], [[1, 0]]
+    )
     [hit] = await store.query([1.0, 0.0], top_k=1)
-    assert (hit.id, hit.text, hit.metadata) == ("p1", "vacation days", {})
+    assert (hit.id, hit.text, hit.metadata) == ("p1", "vacation days", {"id": "p1"})
 
 
 async def test_chroma_query_is_nearest_first_with_cosine_similarity(
@@ -66,9 +76,61 @@ async def test_chroma_query_is_nearest_first_with_cosine_similarity(
     assert [h.id for h in hits] == ["p1", "p3", "p2"]
     scores = [h.retrieval_score for h in hits]
     assert scores == pytest.approx([1.0, 0.6, 0.0], abs=1e-5)
-    assert hits[0].metadata == {"topic": "hr"}
-    assert hits[1].metadata == {"n": 3}
+    assert hits[0].metadata == {"id": "p1", "topic": "hr"}
+    assert hits[1].metadata == {"id": "p3", "n": 3}
     assert all(h.rerank_score is None for h in hits)
+
+
+def write_rows_as_before(path: Path, metadatas: list[dict[str, Any] | None]) -> None:
+    """Write rows ``old-0``, ``old-1``... with chromadb itself, as an older ingestion."""
+    import chromadb
+
+    client = chromadb.PersistentClient(
+        path=str(path), settings=chromadb.Settings(anonymized_telemetry=False)
+    )
+    collection = client.get_or_create_collection(
+        COLLECTION, configuration={"hnsw": {"space": "cosine"}}, embedding_function=None
+    )
+    ids = [f"old-{i}" for i in range(len(metadatas))]
+    collection.add(
+        ids=ids,
+        embeddings=[[1.0, float(i)] for i in range(len(ids))],
+        documents=[f"text of {i}" for i in ids],
+        metadatas=metadatas,
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored", "read"),
+    [
+        ({"topic": "hr"}, {"topic": "hr", "id": "old-0"}),  # ingested before
+        (None, {"id": "old-0"}),  # a row stored with no metadata at all
+        ({"id": "stale", "topic": "hr"}, {"id": "old-0", "topic": "hr"}),
+    ],
+)
+async def test_chroma_a_record_read_has_the_id_its_row_is_held_under(
+    tmp_path: Path, stored: dict[str, Any] | None, read: dict[str, Any]
+) -> None:
+    write_rows_as_before(tmp_path, [stored])
+    store = await open_store(tmp_path)
+
+    [hit] = await store.query([1.0, 0.0], top_k=1)
+
+    assert (hit.id, hit.metadata) == ("old-0", read)
+
+
+async def test_chroma_stores_a_records_metadata_as_it_is_the_id_with_it(
+    tmp_path: Path,
+) -> None:
+    store = await open_store(tmp_path)
+    await store.upsert(PASSAGES[:1], VECTORS[:1])
+    import chromadb
+
+    client = chromadb.PersistentClient(
+        path=str(tmp_path), settings=chromadb.Settings(anonymized_telemetry=False)
+    )
+    row = client.get_collection(COLLECTION).get(ids=["p1"], include=["metadatas"])
+    assert row["metadatas"] == [{"id": "p1", "topic": "hr"}]
 
 
 def cond(
@@ -79,9 +141,15 @@ def cond(
 
 
 TAGGED = [
-    Passage(id="amf", text="t", metadata={"source": "AMF", "chunk": 1, "on": True}),
-    Passage(id="gaa", text="t", metadata={"source": "GAA", "chunk": 2, "on": False}),
-    Passage(id="chad", text="t", metadata={"source": "CHAD", "chunk": 3.5}),
+    VectorStoreRecord(
+        text="t", metadata={"id": "amf", "source": "AMF", "chunk": 1, "on": True}
+    ),
+    VectorStoreRecord(
+        text="t", metadata={"id": "gaa", "source": "GAA", "chunk": 2, "on": False}
+    ),
+    VectorStoreRecord(
+        text="t", metadata={"id": "chad", "source": "CHAD", "chunk": 3.5}
+    ),
 ]
 TAGGED_VECTORS = [[1.0, 0.0], [0.8, 0.6], [0.6, 0.8]]  # amf nearest, chad last
 

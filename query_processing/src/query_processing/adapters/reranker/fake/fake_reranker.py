@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ....domain.retrieval.passages import ScoredPassage, top_by_score
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
+from ....domain.retrieval.rag_result import top_by_score
 from ....infrastructure.fake_text import tokenize
 from ..base_reranker import BaseReranker
 
@@ -17,8 +19,8 @@ class FakeReranker(BaseReranker):
     """Scores by Jaccard overlap between query and passage tokens (0..1)."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, passages: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         """Score each passage by token overlap with the query and keep the best.
 
         Args:

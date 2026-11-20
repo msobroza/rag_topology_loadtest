@@ -1,4 +1,6 @@
-"""Value objects of a RAG run: passages and results.
+"""The outcome of a RAG run, its mode, and the keeping of the best-scored records.
+
+The records themselves are the core's vector-store records (ADR 0014).
 
 Nothing heavy is imported here, so the OVMS-only and fake topologies never pay
 for torch or elasticsearch.
@@ -10,9 +12,9 @@ from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from query_processing_core.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataValue,
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
 )
 
 RagMode = Literal["query", "retrieve"]
@@ -20,21 +22,6 @@ RagMode = Literal["query", "retrieve"]
 # other key is a stage of the graph that ran, so no list of stages is kept here:
 # the workflow and the load-test client share only this name of the wire.
 TOTAL_TIMING_KEY = "total"
-
-
-class Passage(BaseModel):
-    """A chunk of text stored in the vector store."""
-
-    id: str
-    text: str
-    metadata: dict[str, MetadataValue] = Field(default_factory=dict)
-
-
-class ScoredPassage(Passage):
-    """A passage returned by retrieval, optionally re-scored by the reranker."""
-
-    retrieval_score: float
-    rerank_score: float | None = None
 
 
 class RagResult(BaseModel):
@@ -55,7 +42,7 @@ class RagResult(BaseModel):
     question: str
     mode: RagMode
     answer: str | None
-    passages: list[ScoredPassage]
+    passages: list[ScoredVectorStoreRecord]
     timings_ms: dict[str, float]
     tokens: dict[str, dict[str, int]] = Field(default_factory=dict)
     # The conditions applied: the client's, then those the stages added.
@@ -63,8 +50,8 @@ class RagResult(BaseModel):
 
 
 def top_by_score(
-    passages: Sequence[ScoredPassage], scores: Sequence[float], top_n: int
-) -> list[ScoredPassage]:
+    passages: Sequence[ScoredVectorStoreRecord], scores: Sequence[float], top_n: int
+) -> list[ScoredVectorStoreRecord]:
     """Keep the ``top_n`` passages with the highest score.
 
     Args:
