@@ -4,7 +4,11 @@ Each attempt times out after ``timeout_s``; transport errors, 5xx and the
 caller's extra statuses are retried ``retries`` times, waiting
 ``policy.backoff_before(attempt)`` in between; any other 4xx fails at once. The
 model endpoints (``endpoint/api_endpoint_client.py``) post through it; they
-differ only in their headers and extra retryable statuses.
+differ only in their headers and extra retryable statuses. The headers a
+caller supplies carry its key alone, so the body a failure quotes has every
+credential they sent masked: an endpoint that echoes the key it was sent does
+not put it in our error. ``keys_masked`` does the same for any other error
+that quotes what was sent, such as the Elasticsearch client's.
 
 Example:
     >>> rate_limited = frozenset({HTTPStatus.TOO_MANY_REQUESTS})
@@ -16,7 +20,8 @@ Example:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import json
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from http import HTTPStatus
 from typing import NamedTuple
 
@@ -27,12 +32,59 @@ from ...domain.errors import RagDependencyError, describe_error
 from .http_policy import HttpPolicy
 
 HeaderSupplier = Callable[[], Awaitable[dict[str, str]]]
-StatusHook = Callable[[int], None]
+# Called with a retried status and the headers of the attempt that got it.
+StatusHook = Callable[[int, Mapping[str, str]], None]
+# Called with a failed status; what it returns is added to the failure's detail.
+StatusNote = Callable[[int], str]
+# What stands in a quoted body for a credential the request sent.
+_MASK = "***"
+# How many JSON encoders write a "/" in a string.
+_ESCAPED_SLASH = "\\/"
 
 
-def _ignore_status(status: int) -> None:
+def _ignore_status(status: int, sent: Mapping[str, str]) -> None:
     # Default hook: most callers have nothing to reset before a retry.
+    del status, sent
+
+
+def _no_note(status: int) -> str:
+    # Default note: most callers have nothing to add to a status.
     del status
+    return ""
+
+
+def keys_masked(text: str, keys: Iterable[str]) -> str:
+    """Return ``text`` with every one of ``keys`` in it replaced by ``***``.
+
+    Args:
+        text: What an error quotes, such as a body or a client's exception.
+        keys: The keys a call sent; an empty one masks nothing.
+
+    Returns:
+        The text, holding none of the keys, as sent nor as a JSON string
+        writes them (a quote or a backslash escaped, a slash escaped or not).
+
+    Example:
+        >>> keys_masked("key sk-1 refused", ["sk-1"])
+        'key *** refused'
+    """
+    for key in keys:
+        for written in _written_forms(key):
+            text = text.replace(written, _MASK)
+    return text
+
+
+def _written_forms(key: str) -> list[str]:
+    # The key as sent, then as a JSON string holds it, its '/' escaped or not.
+    if not key:
+        return []
+    escaped = json.dumps(key)[1:-1]
+    return list(dict.fromkeys((key, escaped, escaped.replace("/", _ESCAPED_SLASH))))
+
+
+def _masked(text: str, sent: Mapping[str, str]) -> str:
+    # Each header sent is a credential, "Bearer <key>": its last word is the key.
+    return keys_masked(text, (value.rsplit(" ", 1)[-1] for value in sent.values()))
 
 
 class _RetryableFailure(NamedTuple):
@@ -49,8 +101,12 @@ class RetryingJsonPost:
         policy: Timeout, retries and backoff of every call.
         headers: Supplies the headers of each attempt, called once per attempt.
         retry_statuses: 4xx statuses retried like a 5xx (e.g. 429).
-        on_retry_status: Called with each retryable status before the retry, so
-            a caller can drop a stale token.
+        on_retry_status: Called with each retryable status and the headers of
+            the attempt that got it, before the retry, so a caller can tell a
+            key source which key was refused.
+        note_on_status: Called with a failed attempt's status; what it returns
+            ends that attempt's detail, so a caller can say where a refused key
+            comes from.
 
     Example:
         >>> post = RetryingJsonPost(client, policy, headers=token.headers,
@@ -65,9 +121,11 @@ class RetryingJsonPost:
         headers: HeaderSupplier,
         retry_statuses: frozenset[int],
         on_retry_status: StatusHook = _ignore_status,
+        note_on_status: StatusNote = _no_note,
     ) -> None:
         self._client, self._policy, self._headers = client, policy, headers
         self._retry_statuses, self._on_retry_status = retry_statuses, on_retry_status
+        self._note_on_status = note_on_status
 
     async def post(self, component: str, url: str, payload: object) -> object:
         """POST ``payload`` until an attempt succeeds or the retries run out.
@@ -111,9 +169,11 @@ class RetryingJsonPost:
         status = response.status_code
         if status < HTTPStatus.BAD_REQUEST:
             return response.json()
-        detail = f"HTTP {status}: {response.text[:200]}"
+        # Masked before the cut, which could leave a key's first characters.
+        quoted = _masked(response.text, headers)[:200]
+        detail = f"HTTP {status}: {quoted}{self._note_on_status(status)}"
         if status >= HTTPStatus.INTERNAL_SERVER_ERROR or status in self._retry_statuses:
-            self._on_retry_status(status)
+            self._on_retry_status(status, headers)
             return _RetryableFailure(detail, "unavailable")
         raise RagDependencyError(component, detail, target=url)
 

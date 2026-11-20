@@ -5,8 +5,9 @@ workflow file: each override reaches every App's launch script under the
 variable of its path, after the App's free list and before qp-deploy's own
 exports; a workflow setting in a free list, a misspelt key, a secret, a
 placeholder or a value the workflow settings refuse stops the deploy before
-anything is sent to Domino. That the workflow app reads each override back to
-the same value, through ``domino/app.sh``, is in
+anything is sent to Domino; what it says of API keys is in
+test_domino_deploy_key_sources.py. That the workflow app reads each override
+back to the same value, through ``domino/app.sh``, is in
 test_entry_scripts_through_app_sh.py. The fixtures (run_main) are in
 domino_deploy_fixtures.
 """
@@ -269,42 +270,6 @@ def test_an_empty_value_is_refused() -> None:
     assert refusal(settings) == (
         "overrides.http.timeout_s in deploy.yaml has no value: give it one, or "
         "leave it out to keep the workflow file's"
-    )
-
-
-@pytest.mark.parametrize(
-    ("overrides", "place", "variable"),
-    [
-        (
-            {"components": {"llm": {"api": {"api_key": "sk-1"}}}},
-            "components.llm.api.api_key",
-            "QP_COMPONENTS__LLM__API__API_KEY",
-        ),
-        (
-            {"components": {"vector_store": {"elasticsearch": {"api_key": "es-1"}}}},
-            "components.vector_store.elasticsearch.api_key",
-            "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY",
-        ),
-    ],
-)
-def test_a_secret_is_refused_as_in_a_free_list(
-    overrides: dict[str, object], place: str, variable: str
-) -> None:
-    assert refusal(make_settings(overrides=overrides)) == (
-        f"overrides.{place} is set in deploy.yaml, whose values are written into "
-        f"the Apps' launch scripts: set {variable} as a Domino project or user "
-        "environment variable instead"
-    )
-
-
-@pytest.mark.parametrize("value", ["", "domino"])
-def test_an_empty_or_domino_api_key_passes_through(value: str) -> None:
-    overrides = {"components": {"reranker": {"api": {"api_key": value}}}}
-    apps = FakeDominoApps(["Running"])
-    run_deploy(apps, make_settings(overrides=overrides))
-    workflow = scripts(apps)["rag-workflow"]
-    assert exported(workflow, "QP_COMPONENTS__RERANKER__API__API_KEY") == (
-        value or "''"
     )
 
 

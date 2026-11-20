@@ -25,7 +25,7 @@ async def open_embedder_on_served(
     Args:
         component: The embedder's alias, query prefix, ``served`` and
             ``http`` blocks.
-        shared: The shared HTTP client, the default policy, the run tokens and
+        shared: The shared HTTP client, the default policy, the key sources and
             where the process runs.
 
     Returns:
@@ -35,4 +35,6 @@ async def open_embedder_on_served(
         >>> embedder = await open_embedder_on_served(embedder_settings, shared)
     """
     endpoint = shared.http.served_endpoint(component)
-    return await open_embedder_at(endpoint, component.served, component, shared)
+    key_source = await shared.http.served_key_source()
+    served = component.served
+    return await open_embedder_at(endpoint, key_source, served, component, shared)

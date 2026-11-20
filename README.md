@@ -246,7 +246,7 @@ real run.
 The models, Elasticsearch and an API key, from the use case's directory:
 
 ```bash
-cp .env.example .env          # set QP_COMPONENTS__LLM__API__API_KEY there, or uncomment QP_COMPONENTS__LLM__BACKEND=fake
+cp .env.example .env          # set OPENAI_API_KEY there (the LLM's key block names it), or uncomment QP_COMPONENTS__LLM__BACKEND=fake
 make infra-up                 # docker compose: Elasticsearch on :9200 (the OVMS containers need make ovms-export first)
 make openvino-export          # once: the two embedders and the reranker from the Hugging Face Hub, converted under models/openvino
 make ingest                   # qp-ingest --synthetic 200 --embedder embedder -> index rag_passages
@@ -638,8 +638,8 @@ and no package imports it either, `extension_api` included.
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse; they open nothing |
-   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
+   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` two modules and nothing else: `composition_root.py` and `registered_names.py`, for start-up's two checks (`check_workflow_graph`, `check_registered_names`), to ask of the settings an App will read what its start-up would refuse, and for `key_source_variables`, the variables their key sources read keys from, which a `settings` list may not set; they open nothing; `status.py` alone may also import, of `composition`, `standalone_key_source.py` alone, whose `run_token_source` opens the `domino` key source that asks for the run token `qp-deploy status` sends (only `composition` builds an adapter), and of `adapters` the key source's port alone, `key_source/base_key_source.py`, to name its type |
+   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends and for its `key` and `domino` blocks; `target_client.py` alone may also import, of `composition`, `standalone_key_source.py` alone, whose `opened_standalone_key_source` opens the key source of the load test's `key` block (only `composition` builds an adapter from settings), and of `adapters` the key source's port alone, `key_source/base_key_source.py`, to name its type |
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
 2. **Commands.** A command lives in its own application, in a module named
@@ -654,14 +654,16 @@ and no package imports it either, `extension_api` included.
    `api_endpoint.py`).
 4. **Adapters.** `adapters/` holds the ports and their implementations, nothing
    else: one package per component, `embedder/`, `reranker/`, `llm/`
-   (generation), `vector_store/` and `router/`, and the orchestrator's,
-   `orchestrator/`. Its port, the abstract class the application depends on,
+   (generation), `vector_store/` and `router/`, the orchestrator's,
+   `orchestrator/`, and the key source's, `key_source/`. Its port, the abstract class the application depends on,
    is `base_<component>.py`; each implementation is a directory named after its
    Backend value, an embedder's `backend: local` being `embedder/local/`, and
    holds one implementation of the port. The orchestrator's package is laid
    out the same way, with one directory per registered name: its port is
    `base_orchestrator.py`, and `orchestrator: pydantic_graph` is
-   `orchestrator/pydantic_graph/`. One
+   `orchestrator/pydantic_graph/`; so is the key source's, whose port is
+   `base_key_source.py` and where a `key` block's `source: env` is
+   `key_source/env/`. One
    directory serves two Backends: `api/` implements both `served` and `api`,
    which call an endpoint over HTTP the same way and differ only in how it is
    resolved (two directories would hold the same class twice). The router's
@@ -688,7 +690,7 @@ and no package imports it either, `extension_api` included.
    `component_factory.py`, opens a component once with the opener of its type
    and Backend, so a new Backend is one new module in `openers/` and no
    factory is edited; `registered_names.py` refuses an unknown Backend, API
-   format or orchestrator before a command opens anything;
+   format, key source or orchestrator before a command opens anything;
    `chosen_orchestrator.py` finds the orchestrator's class the settings name
    and asks it whether it runs the graph; `composition_root.py` wires them
    and gives each command what it asks for.
@@ -776,12 +778,16 @@ and no package imports it either, `extension_api` included.
    tests call on the use case.
 
 `tests/structure/test_layering.py` checks rule 1 for every package, that
-`locustfile.py` imports only the `loadtest` package, that no package imports
-`extension_api` or `testing`, and the toolkit's side of rule 8; the use case's
-`tests/test_layering.py` checks its side;
-`tests/structure/test_placement.py` checks rule 2, the file names of rule 3,
-rule 4 (only component packages and the orchestrator's in `adapters/`, their layout with `api/` for
-both `served` and `api`, and no port implemented anywhere else) and rule 7;
+`locustfile.py` imports only the `loadtest` package, and that no package imports
+`extension_api` or `testing`; `tests/structure/test_layering_exceptions.py`
+shows that a module the table names alone may import what the table names for
+it and nothing wider; `tests/structure/test_one_way_to_use_cases.py` checks the
+toolkit's side of rule 8, and the use case's `tests/test_layering.py` its side;
+`tests/structure/test_placement.py` checks rule 2, the file names of rule 3
+and rule 7; `tests/structure/test_adapters_placement.py` checks rule 4 (only
+component packages, the orchestrator's and the key source's in `adapters/`,
+their layout with `api/` for both `served` and `api`, and no port implemented
+anywhere else);
 `tests/structure/test_directory_size_rule.py` checks rule 9 on the toolkit, the use
 case's `tests/test_layering.py` on the use case, with no exception, and the
 charts package's `tests/test_experiment_charts_directory_size.py` on that
@@ -813,7 +819,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     __init__.py       package docstring, __version__
     extension_api.py  what a use case imports of the toolkit, every name it needs; its docstring holds the table of what can be added; no package imports it
     domain/           no I/O, no framework; imports no other package
-      errors.py       RagDependencyError, describe_error
+      errors.py       RagDependencyError, describe_error, MissingKeyError (a key its source finds nowhere, a settings mistake)
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
       conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
@@ -828,7 +834,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         component_resources.py  ComponentResources: what an implementation's from_settings may use besides its own block
         routes.py     Route, RouteRequest, RouteChoice: a route of routes.yaml (name, description, utterances), and the router's request and answer
       endpoints/      what an Endpoint is and what is said to it
-        api_endpoint.py  ApiEndpoint (URL, API format, API key, model name), the model servers' routes (the /v3 routes, vLLM's /v1 ones)
+        api_endpoint.py  ApiEndpoint (URL, API format, model name; its key is its key source's), the model servers' routes (the /v3 routes, vLLM's /v1 ones)
         api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
         standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       retrieval/      what is searched and what comes back
@@ -865,6 +871,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the orchestrator, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
+      ingestion_components.py  ingestion_store, ingestion_embedder: the one vector store qp-ingest fills, and the embedder it fills it with
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
@@ -880,11 +887,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
         component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
+        key_settings.py  KeySettings: the key block of an api block or of the store's elasticsearch block, a key source's name and the keys it reads
+        key_blocks.py  check_key_block: the one check of a key block as read, before the settings library sees it, a refusal naming the place and the variable, never a value; refuse_key_mistakes: that check on every component's key blocks, and the old api_key anywhere under a component; KeyBlocksChecked: the last settings source, running them; file_key_blocks_given_above_left_out: a key block given above the workflow file with a source replaces the file's
         registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
         router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
         endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
       files/          the three files a use case writes, and the settings sources that read them
-        workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
+        workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it (WorkflowFileSource, less each key block a place above it gives with a source), declared_alias
         prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
         routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
     adapters/         the ports and their implementations, nothing else (rule 4)
@@ -932,6 +941,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         base_metadata_filter_translator.py  BaseMetadataFilterTranslator, the port that turns a metadata filter into a store's own
         elasticsearch/  backend: elasticsearch
           elasticsearch_store.py  ElasticsearchVectorStore (kNN, and Elasticsearch's BM25 for lexical search)
+          elasticsearch_client_key.py  ElasticsearchClientKey: the client built with its key source's key, and built again when Elasticsearch refuses it
           elasticsearch_filter_translator.py  ElasticsearchFilterTranslator: a metadata filter as filter clauses
         chroma/       backend: chroma
           chroma_store.py  ChromaVectorStore (embedded or server; dense only, it ranks no text)
@@ -945,11 +955,17 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing only a stage name LangGraph does not take for a node, the one module importing LangGraph; state_type, langgraph_name, path_map
         pydantic_graph/  orchestrator: pydantic_graph, pydantic-graph (Pydantic AI's graph library)
           pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision named after it; refuses a stage named as one of those nodes, more than one way out at once, a loop, and what its library does not build; the one module importing pydantic-graph
+      key_source/     where an API key comes from (ADR 0012); importing it imports every module under it, so each source registers itself
+        base_key_source.py  BaseKeySource, the port: key gives the key held, asking its source only when it must and may; refused forgets a refused key if still held; described says where the key comes from, for an error; reads, the keys of its block; from_block; variables, the environment variables a block makes it read; KEY_SOURCES
+        domino/       key source: domino
+          domino_key_source.py  DominoKeySource: the run token, asked at the token URL under the shared http block, held for token_ttl_s
+        env/          key source: env
+          env_key_source.py  EnvKeySource: the key a variable holds, read from the environment, then the settings' .env, when the source opens; refused if unset or empty
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
-        bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
-        open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
+        bearer_key.py  BearerKey: the Authorization header of every call from a key source; key_of, which calls a source off the event loop only when it must ask, for the Elasticsearch store too; KeySupplier, the source's three methods as this layer calls them
+        open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with the key source it is given or none
         served_call.py  ServedCallMixin: a registered component answered by a model server of ours, on its call route
       local_models/   what the local implementations share
         local_model.py  LocalModel: which files a model loads from and what runs it (OpenVINO or PyTorch)
@@ -962,7 +978,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       process_environment.py  restart_with: start the process again as it was started (sys.orig_argv: -m and the interpreter's flags kept), in the environment its settings want
       http/           what every adapter that calls out shares
         http_policy.py  HttpPolicy: timeout, retries and backoff shared by every adapter that calls out
-        json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share
+        json_post.py    RetryingJsonPost: the POST-with-retries the endpoint adapters share; keys_masked, which masks the keys sent in a quoted error
         uvicorn_run.py  run_uvicorn: one worker serves the app object, several an import string of a factory, each worker told what main was told
         startup_refusal_in_one_line.py  StartupRefusalInOneLine: a server's start-up refused in one line naming the command, for the exception type it is given
       corpora/        an outside source: the public corpora qp-fetch-corpus downloads
@@ -984,13 +1000,14 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     composition/      the composition root: builds the adapters from the settings (rule 5)
       composition_root.py  CompositionRoot: settings in, ready ports out, and the orchestrator's class the settings name; what each command asks for; check_workflow_graph: the toolkit's checks of the graph, then the orchestrator's
       resource_scope.py  ResourceScope: each resource opened once, all closed together
-      http_resources.py  HttpResources: the shared HTTP client, its policy, the run token source, served_endpoint (the run token on Domino)
+      http_resources.py  HttpResources: the shared HTTP client, its policy, the key sources (one per key block, the process's one domino source), served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
+      standalone_key_source.py  opened_standalone_key_source: the key source of a key block, for a command that reads no workflow file (the load-test client), refused as start-up refuses it (checked_key_source, the one declaration of that refusal) and closed with its block; run_token_source: the domino source qp-deploy status asks the run token of; domino_key_source: the one place the domino source is built
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
-      component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
-      registered_names.py  check_registered_names: an unknown Backend, API format or orchestrator refused before a command opens anything
+      component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once; open_key_source: the key source of the block its Backend reads, opened before any component
+      registered_names.py  check_registered_names: an unknown Backend, API format, key source or orchestrator, and a key block holding what its source does not read, refused before a command opens anything; key_source_variables: the variables the key blocks' sources read keys from
       registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_resources, what it is given besides its block; component_type_settings, each component's type keys
       chosen_orchestrator.py  chosen_orchestrator: the orchestrator's class the settings name; check_orchestrator_runs_graph: its refusal of the graph, after its name
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
@@ -1022,9 +1039,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
       deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
-      deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
-      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks)
-      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list), then each App's exports
+      deploy_refusals.py  what is refused in the deploy settings before anything is published: a name ending in _API_KEY in a settings block, whatever its value, a value still holding an example placeholder
+      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks, and its lines for a key block not shaped as one and for the old api_key), and the variables its key sources read keys from
+      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list, and a variable a key source of the settings with them reads), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
       topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
       model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
@@ -1035,7 +1052,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       publish.py      where every App starts (LaunchPaths: the toolkit's launch script, found going up from the use case's directory, and that directory), the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
       app_id_cache.py the App ids already seen (.qp-deploy-cache.json): an App is redeployed, never created twice
-      status.py       qp-deploy status: one line per App, then the workflow App's /readyz
+      status.py       qp-deploy status: one line per App, then the workflow App's /readyz, with the run token the domino key source asks for
       qp_deploy.py    qp-deploy: the parser, url, --dry-run, tiers and environments (refused in a dry run)
       apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running; send_to_domino, domino_json and describe_failure, shared by every call to Domino
       domino_lookups/  what qp-deploy reads of Domino besides its Apps
@@ -1057,13 +1074,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         opening_list.py  OpeningItem, OpeningList, run_opening_list: the list that opens in a terminal, drawn by Textual (the extra terminal), the only module importing it; an item's lines asked when first opened, / matching its name
         listing_commands.py  show_tiers, show_environments: ask Domino, then show the look, the list without Textual the table and how to install it; tier_items, environment_items, list_is_installed; the internal route asked only for an environment named or opened
     loadtest/         the load-test client, with locustfile.py
-      loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
+      loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), the key block with the domino block's token URL and lifetime, DOMINO_API_KEY; KeySettingsChecked: the key block, and QP_LOADTEST_BEARER_TOKEN without one, refused as read, in a line that quotes no value
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
       answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers
-      target_client.py  TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings
+      target_client.py  TargetKey, opened_target_key: the API key each request carries, from the key source composition opens, told of a 401; TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings, a 401 sent again once its source is told
       qp_record_answers.py  qp-record-answers: each request of the request pool sent once, its answer recorded
       answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answers' text with a metric on demand
       rouge_l.py      ROUGE-L between two answers an LLM wrote, the one module importing rouge-score (the loadtest extra), with a tokenizer that keeps accented letters
@@ -1084,7 +1101,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     stand_ins.py      hardware tiers (the list, one by its id), environments (the list, one with its three revisions), fake_tier, fake_environment, and the stand-ins: every revision of an environment, /access-token and an App instance's /readyz
     server.py         create_fake_domino (FastAPI, Swagger at /docs), the in-process client, qp-fake-domino
     emulation/        TEMPORARY: the emulated Domino (proxy, App placement on machines), see emulation/README.md
-  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a use case's Makefile runs it (locust -f) from the use case's directory
+  locustfile.py       RagUser (FastHttpUser) + opt-in StepLoadShape; a refused setting ends it in one line, a request with no key from its source is a failed request; a use case's Makefile runs it (locust -f) from the use case's directory
   docker-compose.yml  Elasticsearch 9.0.0 (:9200) + OVMS reranker (:8001) + OVMS embedder (:8002), a use case's directory its project directory
   ovms/               versions.env (single OVMS version pin), export_models.sh (into ovms/models of the working directory, a use case's)
   domino/             app.sh (one entry point: the workflow app or a model server, from QP_ROLE, run in the use case's directory, QP_USE_CASE_DIR), model_servers/ (one launch script per model-server kind: fastapi.sh, ovms.sh, vllm.sh), Dockerfile (targets `rag` and `ovms`; neither is for a vLLM App)
@@ -1170,8 +1187,24 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | `QP_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
 | `QP_LOADTEST_ANSWER_ROUGE_L` | `qp-compare-answers` holds the answers an LLM wrote with ROUGE-L, default `false`: their text is not compared |
 | `QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD` | the lowest ROUGE-L F-measure at which an answer is the baseline's, default `0.9`; a number between 0 and 1 |
-| `QP_LOADTEST_BEARER_TOKEN` | sent as `Authorization: Bearer ...` (Domino run token) |
-| `DOMINO_API_KEY` | sent as `X-Domino-Api-Key` (from outside Domino) |
+| `QP_LOADTEST_KEY__SOURCE` | the key source of the API key each request carries, as `Authorization: Bearer ...`, the `key` block of an endpoint of the workflow app: `domino` for the run token, asked for at `QP_DOMINO__TOKEN_URL`, held for `QP_DOMINO__TOKEN_TTL_S` and asked for again after it (the workflow app's variables and defaults); `env` for a fixed key, from a target outside Domino; unset sends no key block. An unknown source is refused before the first request, as start-up refuses it |
+| `QP_LOADTEST_KEY__VARIABLE` | the variable an `env` source reads the key from, in the environment and then in `.env`; refused beside `domino`, and required by `env`, whose variable unset or empty is refused |
+| `DOMINO_API_KEY` | without a `key` block, sent as `X-Domino-Api-Key` (from outside Domino); a `key` block wins over it |
+
+Each request asks its key source for the key, so a run token that expires is
+asked for again and a run longer than a token lives goes to its end. A 401 is
+recorded as the failure it is and not sent again, so no retry bends the
+timings; the source is told, and the next request carries a new key. Asking the
+token URL takes `QP_LOADTEST_REQUEST_TIMEOUT_S`, `QP_LOADTEST_RETRIES` and
+`QP_LOADTEST_BACKOFF_S`, the load test's own, since it reads no `http` block.
+A request whose key source cannot give its key, such as a token URL that does
+not answer, is not sent and counts as a failed request under its own name, in
+`_stats.csv` and `_failures.csv`. `QP_LOADTEST_BEARER_TOKEN`, the pasted token
+of before, is ignored beside a `key` block and refused without one, in one line
+that names the block. A setting the load test refuses as Locust reads its file
+ends the run in one line, `locustfile.py: <the refusal>`, with no traceback; a
+`key` block is checked as it is read, so its refusal never shows a key typed in
+it, and the refusal of any other setting names it and quotes the value given.
 
 A request counts as a success only when the response is HTTP 200 with a JSON
 object body. Any other status fails as `HTTP <status>: <first 200 characters of
@@ -1274,10 +1307,12 @@ make record-answers-domino RUN_NAME=split-all   # the workflow App on Domino
 
 `qp-record-answers --host <url> --out <prefix>` sends each request of the load
 test's request pool once, in the pool's order, one after the other: each body
-to `/retrieve` and then to `/query`. The pool, the credentials and the wait for
-one answer are the load test's (`QP_LOADTEST_QUESTIONS`,
-`QP_LOADTEST_BEARER_TOKEN` or `DOMINO_API_KEY`,
-`QP_LOADTEST_REQUEST_TIMEOUT_S`). `QP_LOADTEST_QUESTIONS_FILE` replaces the
+to `/retrieve` and then to `/query`. The pool, the API key and the wait for
+one answer are the load test's (`QP_LOADTEST_QUESTIONS`, the key source of
+`QP_LOADTEST_KEY__SOURCE` or `DOMINO_API_KEY`,
+`QP_LOADTEST_REQUEST_TIMEOUT_S`). A 401 tells the key source and is sent again
+within the retries below; when they run out, the 401 is recorded as any
+other status. `QP_LOADTEST_QUESTIONS_FILE` replaces the
 synthetic questions with the reader's own file, already on the machine; `make
 record-answers` sets none. An endpoint whose load-test weight is 0 is
 not sent: `QP_LOADTEST_QUERY_WEIGHT=0` records `/retrieve` alone (a deployment
@@ -1576,15 +1611,15 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `api.url` | the LLM's: OpenAI's chat route | the full route of an endpoint we do not run, e.g. `https://api.cohere.com/v2/rerank`; required with the `api` backend |
 | every model | `api.api_format` | not written: `openai`, `cohere`, `openai` | the request and response shapes the route speaks |
 | every model | `api.model` | the LLM's: `gpt-4o-mini` | the model name sent; empty = the component's alias |
-| every model | `api.api_key` | never written | from the environment only: empty = no `Authorization` header; `domino` = the Domino run's token from `domino.token_url`; anything else = a bearer token |
+| every model | `api.key` | the LLM's: `{source: env, variable: OPENAI_API_KEY}`; not written for the others: none | where the endpoint's API key comes from, never the key: `{source: env, variable: <name>}` reads that variable from the environment, then `.env`, when the App starts (start-up refuses it unset or empty); `{source: domino}` sends the Domino run's token from `domino.token_url`; no block sends no `Authorization` header. An unknown `source`, a key its source does not read, a block that is not a mapping or names no `source`, a value beside `source` that is not text, a `source` or a `variable` not shaped like a name (letters, digits and underscores, not starting with a digit), and the old `api_key` anywhere under a component are refused at start-up, in one line that names the place and never shows the value |
 | `embedder` | `api.batch_size` | not written: `64` | texts per endpoint request (>= 1) |
 | `llm` | `api.temperature` | not written: `0` | sampling temperature, 0 to 2 |
 | every model | `http.timeout_s` | the LLM's: `120`; not written for the others: the top-level `http.timeout_s` (`30`) | timeout of one request to the component's endpoint on `served` or `api` (> 0), and of the Domino token fetched for it; the LLM's is longer, since an answer takes longer than a model-server call |
-| every model | `http.retries` | not written: the top-level `http.retries` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries the Domino run token; any other 4xx fails at once |
+| every model | `http.retries` | not written: the top-level `http.retries` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries a key from a key source (the source is told first, and asked again); any other 4xx fails at once |
 | every model | `http.backoff_s` | not written: the top-level `http.backoff_s` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
 | `vector_store` | `elasticsearch.url` | `http://localhost:9200` | the cluster; `http://user:password@host:9200` for basic auth |
 | `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages; required on `elasticsearch`: no default, start-up refuses an empty one |
-| `vector_store` | `elasticsearch.api_key` | never written | from the environment only (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`): an Elasticsearch API key, the alternative to basic auth; empty = none |
+| `vector_store` | `elasticsearch.key` | not written: none | where its Elasticsearch API key comes from, the alternative to basic auth, never the key: the same block as a model's `api.key` (`{source: env, variable: <name>}` or `{source: domino}`), refused at start-up the same way, and so is the old `elasticsearch.api_key`; no block sends no key. A call Elasticsearch refuses for its key (a 401) opens a new client with the key its source then gives and is made once more |
 | `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
 | `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the passages; the collection is required on `chroma`: no default |
@@ -1640,11 +1675,11 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 | `calibration` | `rounds` | `1` | timed requests per calibration candidate, after one warm-up (>= 1) |
 | `calibration` | `users` | `4` | requests in flight while a model server's candidate is timed: the load OVMS's stream count is chosen for (>= 1); in-process stages are timed on one request |
 | `http` | `timeout_s` | `30` | the default timeout of a request to a component on `served` or `api` and of the Domino token fetched for it, for every component whose `http.timeout_s` is not set (the RAG's LLM sets `120`); also the timeout of the hardware-tier lookup |
-| `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries the Domino run token; also the hardware-tier lookup's retries, on transport errors |
+| `http` | `retries` | `2` | the default retries of a component on `served` or `api` whose `http.retries` is not set, on transport errors, 5xx, 429, and 401 when the call carries a key from a key source, whichever source (the source is told first, and asked again); also the hardware-tier lookup's retries, on transport errors |
 | `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
 | `http` | `max_connections`, `max_keepalive_connections`, `keepalive_expiry_s` | `100`, `20`, `5.0` | the shared client's pool, httpx's own values: connections at once (>= 1), connections kept alive (>= 0), and the seconds an idle one is kept (>= 0). 32 users hold at most 32 calls in flight, and a handshake costs milliseconds against calls of 0.3 to 20 s. The top-level block's only |
 | `http` | `http2` | `false` | HTTP/2 on the shared client; `true` needs the `h2` package (`httpx[http2]`), and is refused without it, and a server that speaks HTTP/2 (Uvicorn's is experimental, OVMS has none). The top-level block's only |
-| `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `qp-serve --domino`, and for an `api` key set to `domino` |
+| `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token, a setting of the `domino` key source: for every `served` component under `qp-serve --domino`, for a `key` block `{source: domino}`, and for the load-test client's |
 | `domino` | `token_ttl_s` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `domino` | `tracing` | `false` | wrap the workflow run with Domino `add_tracing` |
 
@@ -1701,12 +1736,24 @@ whole prompt, written as JSON:
 ```bash
 QP_GRAPH__STAGES__RERANK__TOP_K=5 make serve
 QP_PROMPTS__ANSWER_FROM_CONTEXT='[{"role": "user", "content": "Answer in French: {{ conversational_query }}"}]' make serve
-QP_COMPONENTS__RERANKER__BACKEND=none QP_COMPONENTS__LLM__API__API_KEY=<key> make serve
+QP_COMPONENTS__RERANKER__BACKEND=none OPENAI_API_KEY=<key> make serve
 ```
 
-An API key is read from the environment or `.env` only, by its path
-(`QP_COMPONENTS__LLM__API__API_KEY`): the workflow file is versioned and never
-holds one.
+An endpoint's API key is never a setting: its `api` block names where the
+key comes from in a `key` block, such as `key: {source: env, variable:
+OPENAI_API_KEY}` (read from the environment or `.env`) or `key: {source:
+domino}`, so the workflow file, which is versioned, never holds one. The block
+is set by the variables its path names too, such as
+`QP_COMPONENTS__LLM__API__KEY__SOURCE` and `QP_COMPONENTS__LLM__API__KEY__VARIABLE`,
+or as a whole, `QP_COMPONENTS__LLM__API__KEY='{"source": "domino"}'`. A block
+given above the workflow file (by a variable, in `.env` or by a deploy
+override) that names `source` replaces the file's block whole, so
+`QP_COMPONENTS__LLM__API__KEY__SOURCE=domino` over the file's `{source: env,
+variable: OPENAI_API_KEY}` gives `{source: domino}`: a site changes where a key
+comes from without editing the file. One that names another key alone, such as
+`..._KEY__VARIABLE`, changes that key and keeps the file's `source`.
+The vector store's `elasticsearch` block takes the same `key` block for its
+Elasticsearch API key (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE`, ...).
 
 Sources win in this order: constructor arguments, environment variables, `.env`,
 the workflow file and the prompts file, then the defaults of the code. A top-level key of the file
@@ -1953,7 +2000,7 @@ before the app serves, with one line in the server's log.
 | `QP_ORCHESTRATOR` | `langgraph` | the library that runs the workflow graph, a name registered in `ORCHESTRATORS`; also the workflow file's top-level `orchestrator` and a key of the overrides of `deploy.yaml` (see the workflow file above); an unknown name is refused before any component opens, listing the registered ones |
 | `QP_WORKFLOW_FILE` | unset | the workflow file to read, before a `workflow.yaml` in the working directory (environment only, not `.env`); with neither, a command stops, naming both places |
 | `QP_PROMPTS_FILE`, `QP_ROUTES_FILE` | unset | the prompts file and the routes file to read, before a `prompts.yaml` and a `routes.yaml` in the working directory; with neither, there are no prompts or no routes, and a stage or a router that names one is refused at start-up |
-| `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__API_KEY` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
+| `QP_COMPONENTS__<NAME>__...` | from the workflow file | one value of a component of the workflow file, named by its path, such as `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `QP_COMPONENTS__LLM__API__KEY__VARIABLE` or `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (see the workflow file above) |
 | `QP_GRAPH__<KEY>__...` | from the workflow file | one value of the workflow file's `graph` block, named by its path, such as `QP_GRAPH__STAGES__RERANK__TOP_K` (see the workflow file above) |
 | `QP_LOCAL_MODELS__...`, `QP_CALIBRATION__...`, `QP_HTTP__...`, `QP_DOMINO__...` | from the workflow file, else the defaults | one value of a block the components share, named by its path, such as `QP_LOCAL_MODELS__CPUS` or `QP_DOMINO__TRACING` (see the shared blocks above) |
 | `QP_OVMS_NUM_STREAMS` | `0` | an OVMS model server App's own, no value of the workflow file: requests OVMS runs at once on its model (`NUM_STREAMS`); `0` = calibrated at start-up, 1, 2, 4, ... up to the cores (the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE`). Set in that App's block of `deploy.yaml` (`apps.<component>.settings`). Under a performance hint it is not calibrated nor written, and a pinned value is refused |
@@ -1999,7 +2046,7 @@ before the app serves, with one line in the server's log.
 | `QP_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `QP_LOADTEST_MODEL_SERVER_PATH` | empty | Locust side: the path a `rerank` or `embeddings` target posts to; empty = `/v3/rerank` or `/v3/embeddings`; `/v1/rerank` or `/v1/embeddings` for a vLLM App; a path starts with `/` |
 | `QP_TOP_K_RETRIEVE`, `QP_TOP_K_RERANK` | none: required by the `rerank` target | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the use case's sizes, which its `.env.example` states (the RAG's: `20`, `10`, its stages' `top_k`), and the workflow app does not read either. The aliases a model-server target sends default to the workflow file's, which only that target reads |
-| `QP_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
+| `QP_LOADTEST_KEY__SOURCE`, `QP_LOADTEST_KEY__VARIABLE`, `DOMINO_API_KEY` | unset | Locust side: the API key each request carries, from a key source (`domino` reads `QP_DOMINO__TOKEN_URL` and `QP_DOMINO__TOKEN_TTL_S`), see the load-test table |
 | `QP_LOADTEST_QUERY_WEIGHT`, `QP_LOADTEST_RETRIEVE_WEIGHT`, `QP_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
 | `QP_LOADTEST_WAIT_MIN_S`, `QP_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
 | `QP_LOADTEST_STEP_USERS`, `QP_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `QP_LOADTEST_SHAPE=step` |
@@ -2045,11 +2092,12 @@ graph is built. All are at start-up, with the offending value. For example:
 QP_COMPONENTS__RERANKER__BACKEND='served' needs QP_COMPONENTS__RERANKER__SERVED__URL, the full route of the endpoint (for example http://localhost:8001/v3/rerank); got ''
 ```
 
-An unknown backend, API format or orchestrator stops every command that opens
-components (`qp-serve`, `qp-model-server`, `qp-ingest`, `qp-calibrate`) before
-it opens any, as a settings mistake: the settings cannot see the openers, the
-formats and the orchestrators, which are registered in the composition and the
-adapters, so each
+An unknown backend, API format, key source or orchestrator stops every command
+that opens components (`qp-serve`, `qp-model-server`, `qp-ingest`,
+`qp-calibrate`) before it opens any, as a settings mistake, and so does a `key`
+block that holds a key its source does not read or lacks one it reads: the
+settings cannot see the openers, the formats, the key sources and the
+orchestrators, which are registered in the composition and the adapters, so each
 command asks their registries as it reads its settings, and the registry
 refuses the name, after the variable it is read from, and lists the known ones.
 The variable is named wherever the name was written: `orchestrator: pydantic`
@@ -2274,7 +2322,10 @@ What a load test sees does not change: `/query`, `/retrieve` and their headers
   file must now name its prefix). The old `rag-workflow`, `rag-embedder` and
   `rag-reranker` keep running until they are deleted by hand in Domino.
 - **Every `RAG_` variable is now `QP_`**, with the same path after the prefix
-  (`RAG_COMPONENTS__LLM__API__API_KEY` is `QP_COMPONENTS__LLM__API__API_KEY`).
+  (`RAG_COMPONENTS__LLM__API__MODEL` is `QP_COMPONENTS__LLM__API__MODEL`;
+  `RAG_COMPONENTS__LLM__API__API_KEY` was `QP_COMPONENTS__LLM__API__API_KEY`,
+  which an endpoint's `key` block has since replaced: start-up refuses it,
+  naming the block to write).
   The Project environment variables that hold the API keys on Domino must be
   created again under their new names, and a local `.env` or `deploy.yaml`
   written before the rename must be renamed the same way: a variable under the
@@ -2305,7 +2356,7 @@ any more by the workflow app:
 | the LLM's `http` block with a timeout only, `120` when not written | every component's `http` block: `timeout_s`, `retries`, `backoff_s`, each the top-level `http` block's when not written; the LLM's `120` is written in the RAG's workflow file, and a workflow file that gives its LLM none calls it with `QP_HTTP__TIMEOUT_S` |
 | `RAG_LLM_BACKEND` (`openai` \| `fake`) | `QP_COMPONENTS__LLM__BACKEND` (`api` \| `fake`) |
 | `RAG_VECTOR_STORE_BACKEND` | the vector store component's `backend` (`QP_COMPONENTS__VECTOR_STORE__BACKEND`) |
-| `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
+| `RAG_ES_URL`, `RAG_ES_API_KEY`, `RAG_ES_INDEX`, `RAG_ES_TEXT_ANALYZER` | its `elasticsearch` block: `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, its `key` block in place of the key itself (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE` and, for `env`, `__KEY__VARIABLE`, the variable that holds the key), `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__INDEX`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__TEXT_ANALYZER` |
 | `RAG_CHROMA_URL`, `RAG_CHROMA_PATH`, `RAG_CHROMA_COLLECTION` | its `chroma` block: `QP_COMPONENTS__VECTOR_STORE__CHROMA__URL`, `__PATH`, `__COLLECTION` |
 | `RAG_FAKE_STORE_SEED_DOCUMENTS` | its `fake` block: `QP_COMPONENTS__VECTOR_STORE__FAKE__SEED_DOCUMENTS` |
 | `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_OPENVINO_WEIGHT_FORMAT`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `QP_LOCAL_MODELS__RUNTIME`, `QP_LOCAL_MODELS__OPENVINO_DIR`, `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`, `QP_LOCAL_MODELS__WORKERS`, `QP_LOCAL_MODELS__CPUS` |
@@ -2315,7 +2366,7 @@ any more by the workflow app:
 | `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` | the top-level `http` block: `QP_HTTP__TIMEOUT_S`, `QP_HTTP__RETRIES`, `QP_HTTP__BACKOFF_S` |
 | `RAG_DOMINO_TOKEN_URL`, `RAG_DOMINO_TOKEN_TTL_S`, `RAG_DOMINO_TRACING` | the `domino` block: `QP_DOMINO__TOKEN_URL`, `QP_DOMINO__TOKEN_TTL_S`, `QP_DOMINO__TRACING` |
 | `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `QP_COMPONENTS__LLM__API__MODEL`, `QP_COMPONENTS__LLM__API__TEMPERATURE` |
-| `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `QP_COMPONENTS__LLM__API__URL` (the full route), `QP_COMPONENTS__LLM__API__API_KEY` |
+| `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `QP_COMPONENTS__LLM__API__URL` (the full route); `OPENAI_API_KEY` itself, which the LLM's `key` block names (`{source: env, variable: OPENAI_API_KEY}`) |
 | backends `ovms`, `openai`, `cohere` | backend `served` for a model server of ours (OVMS among them), `api` for an endpoint in an API format |
 | `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `api` block instead; the BM25 tunables have no replacement |
 
@@ -2362,8 +2413,9 @@ its type, under its alias, and with the Domino run token when `qp-serve
 --domino` says the app runs on Domino, with no key elsewhere. A component on
 `api` calls an endpoint we do not run, and its `api` block gives four
 settings: `url`, `api_format` (which request and response shapes the route
-speaks), `api_key` (from the environment only) and `model` (the model name
-sent, the component's alias when empty), each set by its path, such as
+speaks), `key` (the block that names where its API key comes from) and `model`
+(the model name sent, the component's alias when empty), each set by its
+path, such as
 `QP_COMPONENTS__RERANKER__API__URL`. An API format is a wire shape, not a
 vendor. The formats today:
 
@@ -2390,13 +2442,17 @@ its type in `COMPONENT_API_FORMATS`, else one the toolkit builds that mirrors
 its request and its answer. The router's is written by hand, `{"embedding"}` →
 `{"route","confidence"}` (`adapters/router/router_api_format.py`).
 
-An `api` key is the same for every component: empty sends no `Authorization`
-header, `domino` sends the Domino run's token, anything else is sent as a
-bearer token. Every call times out (`QP_HTTP__TIMEOUT_S`,
+An `api` block's `key` is the same for every component: no block sends no
+`Authorization` header, `{source: env, variable: <name>}` sends the key that
+variable holds, read when the App starts, and `{source: domino}` sends the
+Domino run's token, as `Authorization: Bearer`. Two components that name the
+same block share one key source. Every call times out (`QP_HTTP__TIMEOUT_S`,
 `QP_COMPONENTS__LLM__HTTP__TIMEOUT_S` for generation) and is retried
 `QP_HTTP__RETRIES` times on transport errors, 5xx and 429, and on 401 when it
-carries the run token (after the token is fetched again); any other 4xx fails
-at once. A `served` or `api` embedder or reranker reports ready in `/readyz`
+carries a key from a key source (the source is told the key was refused and
+asked again: the run token is fetched again, an `env` key stays the same, so
+its retries run out and the error names the variable and says to restart the
+App after changing it); any other 4xx fails at once, and no error quotes a key. A `served` or `api` embedder or reranker reports ready in `/readyz`
 after one real minimal request to its endpoint, sent once without retry; on a
 metered API that request is billed like any other.
 
@@ -2411,9 +2467,10 @@ An OpenAI-compatible gateway, for generation and embeddings:
 
 ```bash
 QP_COMPONENTS__LLM__API__URL=https://gateway.example/v1/chat/completions \
-  QP_COMPONENTS__LLM__API__API_KEY=<key> QP_COMPONENTS__LLM__API__MODEL=<model name> \
+  OPENAI_API_KEY=<key> QP_COMPONENTS__LLM__API__MODEL=<model name> \
   QP_COMPONENTS__EMBEDDER__BACKEND=api QP_COMPONENTS__EMBEDDER__API__URL=https://gateway.example/v1/embeddings \
-  QP_COMPONENTS__EMBEDDER__API__API_KEY=<key> QP_COMPONENTS__EMBEDDER__API__MODEL=<embedding model> make serve
+  QP_COMPONENTS__EMBEDDER__API__KEY__SOURCE=env QP_COMPONENTS__EMBEDDER__API__KEY__VARIABLE=OPENAI_API_KEY \
+  QP_COMPONENTS__EMBEDDER__API__MODEL=<embedding model> make serve
 ```
 
 The `served` and `api` embedders send `QP_COMPONENTS__EMBEDDER__QUERY_PREFIX`
@@ -2423,7 +2480,8 @@ Cohere's rerank route:
 
 ```bash
 QP_COMPONENTS__RERANKER__BACKEND=api QP_COMPONENTS__RERANKER__API__URL=https://api.cohere.com/v2/rerank \
-  QP_COMPONENTS__RERANKER__API__API_KEY=<Cohere key> QP_COMPONENTS__RERANKER__API__MODEL=rerank-v3.5 make serve
+  QP_COMPONENTS__RERANKER__API__KEY__SOURCE=env QP_COMPONENTS__RERANKER__API__KEY__VARIABLE=COHERE_API_KEY \
+  COHERE_API_KEY=<Cohere key> QP_COMPONENTS__RERANKER__API__MODEL=rerank-v3.5 make serve
 ```
 
 Any component may be on any of its backends, `api` like `fake` and `none`, and
@@ -2535,8 +2593,14 @@ showing the text. The fake LLM answers a valid instance.
   hold `text`, `metadata` and the vector, and the `_id` is the passage id
   (`<doc id>:<chunk>`), so re-ingesting overwrites in place.
 * Auth: basic credentials inside the `elasticsearch.url` of the vector store
-  (`https://user:password@host:9200`) or its `elasticsearch.api_key`, from the
-  environment only (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`). Any Elasticsearch 8 or 9 cluster works; the compose file
+  (`https://user:password@host:9200`), or an Elasticsearch API key from the key
+  source its `elasticsearch.key` block names, such as `{source: env, variable:
+  ES_API_KEY}`; with no block, no key is sent. When Elasticsearch refuses the
+  key (a 401), the store tells its source, opens a new client with the key the
+  source then gives and makes the call once more, keeping the old client until
+  the store closes so a call in flight on it ends; a second refusal is the
+  store's error, which says where the key comes from and holds
+  no key. Any Elasticsearch 8 or 9 cluster works; the compose file
   runs a single 9.0.0 node with security disabled, for development only.
 * Failures surface as `503 vector_store_unavailable`; `/readyz` reports
   `not_ready` while the index is missing or empty.
@@ -2832,8 +2896,9 @@ declares the route of each component type it serves
 Both map results back by `index` (an index outside the request, or a body that
 does not fit the shape, is a malformed response), never send a field as `null`,
 time out after `QP_HTTP__TIMEOUT_S` (30 s) and retry `QP_HTTP__RETRIES` (2)
-times on transport errors, 5xx and 429, and on 401 when the call carries the
-run token (the token is fetched again first); other 4xx fail immediately,
+times on transport errors, 5xx and 429, and on 401 when the call carries a
+key from a key source, such as the run token (the token is fetched again
+first); other 4xx fail immediately,
 including the 404 for a `model` that is not the server's alias. Readiness is one real minimal
 request (one text embedded, one document scored), not a probe of
 `GET /v3/models/{model}`.
@@ -2876,12 +2941,12 @@ The table shows the three aliases of `deploy.example.yaml`.
 
 | Topology | App | `QP_ROLE` (kind: OVMS / FastAPI / vLLM) | Environment variables | Image: OVMS / FastAPI / vLLM |
 | --- | --- | --- | --- | --- |
-| `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
+| `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `OPENAI_API_KEY` (the LLM's key block names it), `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one) | `rag` |
 | `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
-| | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank` (`/v1/rerank` on vLLM), `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
+| | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank` (`/v1/rerank` on vLLM), `OPENAI_API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 | `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | as above | `ovms` / `rag` / as above |
 | | **C** model server: embedder | `model-server` (`ovms` / `fastapi` / `vllm`) | as above, `QP_MODEL_SERVER_COMPONENT=embedder` (FastAPI and vLLM: weights from `QP_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` / as above |
-| | **B** workflow | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings` (`/v1/...` on vLLM), `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
+| | **B** workflow | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank`, `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL=<URL of C>/v3/embeddings` (`/v1/...` on vLLM), `OPENAI_API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 
 `qp-deploy` also gives the workflow App `QP_TOPOLOGY_ALIAS`, the alias it
 deploys, which the app only reports as `X-RAG-Topology`. The workflow role runs
@@ -2914,7 +2979,7 @@ set `QP_OVMS_MODELS_DIR` there) and fill it from a Workspace, in the use case's
 directory, with `../query_processing/ovms/export_models.sh /mnt/data/ovms-models`,
 or upload the contents of a local `ovms/models/` (the use case's). Apps inherit the project's Dataset mounts.
 
-**Elasticsearch and corpus.** Put `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (and `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) of a cluster the
+**Elasticsearch and corpus.** Put `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (and the variable the store's `key` block names, if it has one) of a cluster the
 apps can reach in Project → Settings → Environment variables, then run `make ingest` once from a Workspace.
 
 **Publishing.** For each app (Apps → Publish): entry point
@@ -2932,9 +2997,11 @@ run a short-lived bearer token is served at `http://localhost:8899/access-token`
 started with `qp-serve --domino`, the workflow app fetches it for every
 component on the `served` backend, caches it for 4 minutes, refreshes it on
 `401` and sends it as `Authorization: Bearer` on every model server call. To
-call an App with a fixed token instead, put the component on `api` with that
-token as its key (`QP_COMPONENTS__RERANKER__API__API_KEY`); the key `domino`
-there sends the run token too.
+call an App with a fixed token instead, put the component on `api` with a
+`key` block that names the variable holding that token
+(`QP_COMPONENTS__RERANKER__API__KEY__SOURCE=env`,
+`QP_COMPONENTS__RERANKER__API__KEY__VARIABLE=<its name>`); the block
+`{source: domino}` there sends the run token too.
 
 **Proxy prefix (`DOMINO_RUN_HOST_PATH`).** Domino serves an app under a path
 prefix (`/apps/<app-id>/` in 6.2), exposed to the process as `DOMINO_RUN_HOST_PATH`,
@@ -2981,21 +3048,25 @@ per-request overhead).
 **Running Locust.** From a Workspace in the same project (`rag` environment):
 
 ```bash
-export QP_LOADTEST_BEARER_TOKEN=$(curl -s http://localhost:8899/access-token)
+export QP_LOADTEST_KEY__SOURCE=domino   # each request carries the run token
 make loadtest RUN_NAME=monolith        HOST=https://<domino-host><path of the monolith app>
 make loadtest RUN_NAME=split-reranker  HOST=https://<domino-host><path of workflow app B>
 make loadtest RUN_NAME=split-all       HOST=https://<domino-host><path of workflow app B, split-all project>
 make compare                           # results/comparison.md
 ```
 
-The run token expires after about 5 minutes and Locust reads it once per user at
-start, so for longer runs (`RUN_TIME=10m`, `QP_LOADTEST_SHAPE=step`) or from a laptop
-use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (sent as
-`X-Domino-Api-Key`). Keep `USERS`, `SPAWN_RATE`, `RUN_TIME` and the tiers identical across topologies.
+The run token expires after about 5 minutes; the `domino` key source holds it
+for `QP_DOMINO__TOKEN_TTL_S` and asks for it again after that, or after a 401,
+so a longer run (`RUN_TIME=10m`, `QP_LOADTEST_SHAPE=step`) goes to its end with
+nothing pasted. From a laptop, where no run serves a token, leave the `key`
+block unset and use an API key: `export DOMINO_API_KEY=<Account settings → API
+Key>` (sent as `X-Domino-Api-Key`). Keep `USERS`, `SPAWN_RATE`, `RUN_TIME` and
+the tiers identical across topologies.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `401`/`403` from Locust | missing or expired `QP_LOADTEST_BEARER_TOKEN` / `DOMINO_API_KEY`, or the app is not shared with that user |
+| `401`/`403` from Locust | no `QP_LOADTEST_KEY__SOURCE` and no `DOMINO_API_KEY`, a key the target does not accept, or the app is not shared with that user; a 401 with the `domino` source counts as one failure, and the next request carries a new token |
+| `QP_LOADTEST_BEARER_TOKEN is no longer read: ...` | the pasted token of before: set `QP_LOADTEST_KEY__SOURCE=domino` instead, and unset it |
 | `404` on `/query` | `HOST` lacks the App path prefix, or has a trailing slash |
 | `503 reranker_unavailable` / `embedder_unavailable` | model server app not ready (Dataset missing, wrong `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_COMPONENTS__EMBEDDER__SERVED__URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
 | `503 vector_store_unavailable` / `/readyz` not ready | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
@@ -3228,12 +3299,24 @@ vLLM `/v1/rerank`, `/v1/embeddings` or `/v1/chat/completions`), and
 settings and the overrides, which come first in the launch script), and
 `QP_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
 Domino's project or user environment variables, because `settings` and
-`overrides` are written into the Apps' launch scripts. `qp-deploy` refuses, in
-any block, a setting whose name ends in `_API_KEY` (such as
-`QP_COMPONENTS__LLM__API__API_KEY` or
-`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`), and an `api_key` under
-`overrides`, unless its value is empty or `domino`, which names the run's
-token and is not a secret. A misspelt key is refused with its name.
+`overrides` are written into the Apps' launch scripts: an API key goes in a
+project environment variable that an `env` key source names. `qp-deploy`
+refuses, in any block's `settings`, a variable that an `env` source of the
+workflow file with the overrides names (the line names the variable, its place
+and the `key` block that reads it), and any name ending in `_API_KEY` (such as
+`OPENAI_API_KEY`), whatever its value. An endpoint's and the vector store's
+`key` block hold no key, so the overrides may set one, another source or
+another variable than the workflow file's (`components.llm.api.key: {source:
+env, variable: LLM_KEY}`), exported as the variables its path names
+(`QP_COMPONENTS__LLM__API__KEY__SOURCE`, `..._KEY__VARIABLE`): a block that
+names `source` replaces the file's whole, as an App's start-up reads it, so
+`{source: domino}` over the file's `env` block leaves no `variable` beside it,
+and one that names `variable` alone changes the file's variable; a block an App's
+start-up would refuse (an unknown source, a key its source does not read) is
+refused with start-up's line, and so is an old `api_key` of either under
+`overrides` or in the workflow file. `qp-deploy status` asks for the run token
+it sends to `/readyz` through the `domino` key source, at `run_token_url`,
+under `http_timeout_s` and `http_retries`. A misspelt key is refused with its name.
 
 **Topology aliases.** Where each component runs is a deployment matter, so the
 topologies live in `deploy.yaml` (ADR 0003): `topology` chooses one by its alias,
@@ -3573,8 +3656,10 @@ qp-deploy: error: environment_id in defaults of deploy.yaml still holds the exam
 
 The `overrides` are checked against the workflow settings, in a dry run as in a
 deploy: each key must be a place of the workflow file (under `components` and
-`graph.stages`, a name the file declares), an API key is refused unless it is
-empty or `domino`, and each
+`graph.stages`, a name the file declares), an old `api_key` is refused with
+the line start-up prints of it, and any other place whose variable ends in
+`_API_KEY` whatever its value, while a `key` block, which names where a key comes from and holds none,
+may be overridden, and each
 value must have the type and range the settings take, with the checks of the
 whole. Then the workflow file with the overrides, read with the prompts and
 routes files found here as the App finds them, is asked what an App's start-up
@@ -3650,9 +3735,11 @@ Domino**:
    rejected (`503 reranker_unavailable` with HTTP 401 or a redirect in the detail),
    a served component cannot take another key: set the reranker and the embedder
    on `api` instead (`QP_COMPONENTS__RERANKER__BACKEND=api`,
-   `QP_COMPONENTS__RERANKER__API__URL` the same URL), with a personal access token
-   as `QP_COMPONENTS__RERANKER__API__API_KEY` (the embedder's likewise), as
-   project environment variables.
+   `QP_COMPONENTS__RERANKER__API__URL` the same URL), with a `key` block that
+   names the variable holding a personal access token
+   (`QP_COMPONENTS__RERANKER__API__KEY__SOURCE=env`,
+   `QP_COMPONENTS__RERANKER__API__KEY__VARIABLE=<its name>`, the embedder's
+   likewise), as project environment variables.
 4. An App answers on `/{owner}/{project}/r/notebookSession/{instance id}` of the
    Domino host. This path is not in the API reference: it comes from using
    Domino. If it is wrong, every URL `qp-deploy` hands out is wrong; the App's
@@ -3712,8 +3799,8 @@ instance. Replace the placeholders once; the code itself does not change.
 | --- | --- |
 | `<domino-host>` | your Domino URL, e.g. `https://domino.example.com` |
 | `<registry>` | a registry Domino can pull environments from (only for step 1a) |
-| `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY` | project environment variables, every project |
-| `QP_COMPONENTS__LLM__API__API_KEY` (and `QP_COMPONENTS__LLM__API__URL` for a gateway), or `QP_COMPONENTS__LLM__BACKEND=fake` | project environment variables of the monolith and workflow projects |
+| `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, and the variable the store's `key` block names, if it has one | project environment variables, every project |
+| `OPENAI_API_KEY`, the variable the LLM's key block names (and `QP_COMPONENTS__LLM__API__URL` for a gateway), or `QP_COMPONENTS__LLM__BACKEND=fake` | project environment variables of the monolith and workflow projects |
 | `QP_ROLE`, and a model server's `QP_MODEL_SERVER_COMPONENT` and `QP_MODEL_SERVER_KIND` | project environment variables, one set per project (see step 2) |
 | `QP_USE_CASE_DIR` | project environment variables, every project: the use case's directory as the Apps see the repository, e.g. `/mnt/code/query_processing_rag_usecase`, where `domino/app.sh` runs the role's command (`qp-deploy` sets it itself) |
 | `QP_COMPONENTS__RERANKER__SERVED__URL`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` | workflow project, set after step 5 publishes the model apps |
@@ -3745,14 +3832,14 @@ set, in Project → Settings → Environment variables:
 
 | Project | `QP_ROLE` | Environment | Other variables |
 | --- | --- | --- | --- |
-| `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
+| `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one), `OPENAI_API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
 | `rag-ovms-reranker` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
 | `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=fastapi` |
-| `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
+| `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one), `OPENAI_API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
 
 Skip the rows you do not test. Keep `QP_DOMINO__TRACING` identical across projects
 (unset, or `true` everywhere). With a `rag-ovms-llm` or `rag-vllm-llm` project made by hand, the
@@ -3763,7 +3850,8 @@ export for an alias whose row says `llm: served`: `QP_COMPONENTS__LLM__BACKEND=s
 both projects (the name the LLM is served and asked for under), and
 `QP_TOPOLOGY_ALIAS` set to that alias (such as `split-all-llm`) to report the
 topology. A served LLM is called with the run token, so that project needs no
-`QP_COMPONENTS__LLM__API__API_KEY` for it. What a served LLM is and what of it is
+`OPENAI_API_KEY` for it: with the LLM on `served`, its `api` block's `key` is
+not opened. What a served LLM is and what of it is
 not verified: "A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
 
 **3. OVMS models Dataset (once, OVMS projects only).** In `rag-ovms-reranker`
@@ -3824,10 +3912,11 @@ A `404` on the first call means Domino forwards the path prefix to OVMS: set
 dependency is missing when it answers `503`.
 
 **7. Load test (Workspace in `rag-monolith`, `rag` environment, from the use case's directory).** The run token
-expires after about 5 minutes, so export it right before each run:
+expires after about 5 minutes; the `domino` key source asks for it again as it
+expires, so nothing is pasted:
 
 ```bash
-export QP_LOADTEST_BEARER_TOKEN=$(curl -s http://localhost:8899/access-token)
+export QP_LOADTEST_KEY__SOURCE=domino
 make loadtest RUN_NAME=monolith        HOST=<URL of the monolith app>
 make loadtest RUN_NAME=split-reranker  HOST=<URL of the workflow app>      # the reranker on served
 make loadtest RUN_NAME=split-all       HOST=<URL of the workflow app>      # after switching it to split-all

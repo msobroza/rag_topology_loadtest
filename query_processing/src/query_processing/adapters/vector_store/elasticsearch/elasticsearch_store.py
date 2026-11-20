@@ -14,18 +14,33 @@ an index keeps it. Any analyzer but ``standard`` is mapped on the text field, so
 indexing and the BM25 ``match`` of ``lexical_query`` both use it. With
 ``standard`` (or "") the text field is left unmapped: Elasticsearch's dynamic
 mapping then gives it exactly what it got before this adapter created indices.
+
+Its API key comes from a key source, when its block names one: a call that
+Elasticsearch refuses for its key (its 401) opens a new client with the key
+the source then gives and is made once more, a single further attempt
+(``elasticsearch_client_key.py``). The replaced client is closed with the
+store, not at once, so a call still in flight on it gets its answer. Every
+call goes through ``_call``, so each one, a write and the readiness check
+included, does so.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
+from functools import partial
 from typing import Any
 
-from ....domain.errors import RagDependencyError
+from ....domain.errors import MissingKeyError, RagDependencyError, describe_error
 from ....domain.retrieval.metadata_filter import MetadataCondition
 from ....domain.retrieval.passages import Passage, ScoredPassage
+from ...key_source.base_key_source import BaseKeySource
 from ..base_vector_store import BaseLexicalSearch, BaseVectorStore
+from .elasticsearch_client_key import ElasticsearchClientKey, StoreConnector
 from .elasticsearch_filter_translator import ElasticsearchFilterTranslator
+
+# One call of LangChain's store, given the store in use when it is made.
+StoreRequest = Callable[[Any], Awaitable[Any]]
 
 
 class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
@@ -46,9 +61,12 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             leaves Elasticsearch's default.
         index_strategy: The retrieval strategy ``store`` was built with; a new
             index gets its mapping.
+        key: Builds ``store`` again with its key source's next key when
+            Elasticsearch refuses the one it holds; None: a refusal fails at once.
 
     Example:
-        >>> store = ElasticsearchVectorStore.open("http://localhost:9200", index="rag")
+        >>> store = await ElasticsearchVectorStore.open(
+        ...     "http://localhost:9200", index="rag", key_source=None)
         >>> hits = await store.query(vector, top_k=20)
     """
 
@@ -59,44 +77,115 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         text_analyzer: str = "",
         *,
         index_strategy: Any,
+        key: ElasticsearchClientKey | None = None,
     ) -> None:
         self._store, self.index = store, index
         self._text_analyzer = "" if text_analyzer == "standard" else text_analyzer
         self._index_strategy = index_strategy
         self._index_ensured = False
         self._filter_translator = ElasticsearchFilterTranslator()
+        self._key = key
+        # One new client for calls refused together, not one each.
+        self._reconnecting = asyncio.Lock()
+        # Clients a refused key replaced, closed with the store: a call still in
+        # flight on one gets its answer.
+        self._replaced: list[Any] = []
 
     @classmethod
-    def open(
-        cls, url: str, *, index: str, api_key: str = "", text_analyzer: str = ""
+    async def open(
+        cls,
+        url: str,
+        *,
+        index: str,
+        key_source: BaseKeySource | None = None,
+        text_analyzer: str = "",
     ) -> ElasticsearchVectorStore:
         """Build the store on a new ``AsyncElasticsearchStore``, importing it here.
 
         Args:
-            url: The Elasticsearch URL.
+            url: The Elasticsearch URL; ``user:password@`` in it for basic
+                authentication.
             index: The index the passages live in (``elasticsearch.index``).
-            api_key: An Elasticsearch API key; "" connects without one.
+            key_source: Where its Elasticsearch API key comes from; None
+                connects without one.
             text_analyzer: The analyzer of the passages' text; "" or ``standard``
                 leaves Elasticsearch's default.
 
         Returns:
             The vector store on that index.
+
+        Raises:
+            MissingKeyError: If the key source could not give its key.
+
+        Example:
+            >>> store = await ElasticsearchVectorStore.open(url, index="rag")
         """
         from elasticsearch.helpers.vectorstore import (
             AsyncDenseVectorStrategy,
             DistanceMetric,
         )
-        from langchain_elasticsearch import AsyncElasticsearchStore
 
         # What LangChain's default ApproxRetrievalStrategy() converts to, made
         # explicit so the index this adapter creates gets the same mapping.
         strategy = AsyncDenseVectorStrategy(
             distance=DistanceMetric.COSINE, hybrid=False, rrf=False
         )
-        store = AsyncElasticsearchStore(
-            index, es_url=url, es_api_key=api_key or None, strategy=strategy
+        connect = partial(_langchain_store, url, index, strategy)
+        return await cls.open_with(
+            connect,
+            index,
+            text_analyzer,
+            index_strategy=strategy,
+            key_source=key_source,
         )
-        return cls(store, index, text_analyzer, index_strategy=strategy)
+
+    @classmethod
+    async def open_with(
+        cls,
+        connect: StoreConnector,
+        index: str,
+        text_analyzer: str = "",
+        *,
+        index_strategy: Any,
+        key_source: BaseKeySource | None,
+    ) -> ElasticsearchVectorStore:
+        """Build the store on what ``connect`` builds from the key source's key.
+
+        ``open`` gives LangChain's own; a test gives one that builds its fake.
+
+        Args:
+            connect: Builds LangChain's store from a key, or with none.
+            index: The index the passages live in.
+            text_analyzer: The analyzer of the passages' text.
+            index_strategy: The retrieval strategy ``connect``'s store is built
+                with; a new index gets its mapping.
+            key_source: Where its API key comes from; None sends none.
+
+        Returns:
+            The vector store, opened again with a new key when one is refused.
+
+        Raises:
+            MissingKeyError: If the key source could not give its key, such as
+                a ``domino`` source whose token URL does not answer.
+
+        Example:
+            >>> store = await ElasticsearchVectorStore.open_with(
+            ...     connect, "rag", index_strategy=strategy, key_source=source)
+        """
+        key = ElasticsearchClientKey(connect, key_source)
+        try:
+            store = await key.connected()
+        except RagDependencyError as exc:  # at start-up, a settings matter: one line
+            raise MissingKeyError(
+                f"its key source could not give its key when the store opened: {exc}"
+            ) from exc
+        return cls(
+            store,
+            index,
+            text_analyzer,
+            index_strategy=index_strategy,
+            key=key,
+        )
 
     async def upsert(
         self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
@@ -111,11 +200,9 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             return
         await self._ensure_index(len(embeddings[0]))
         pairs = [(p.text, list(e)) for p, e in zip(passages, embeddings, strict=True)]
+        metadatas, ids = [dict(p.metadata) for p in passages], [p.id for p in passages]
         await self._call(
-            self._store.aadd_embeddings,
-            pairs,
-            metadatas=[dict(p.metadata) for p in passages],
-            ids=[p.id for p in passages],
+            lambda store: store.aadd_embeddings(pairs, metadatas=metadatas, ids=ids)
         )
 
     async def query(
@@ -137,12 +224,11 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             The nearest passages with Elasticsearch's relevance score as
             ``retrieval_score``.
         """
+        clauses = self._filter_translator.translate(metadata_filter)
         hits = await self._call(
-            self._store.asimilarity_search_by_vector_with_relevance_scores,
-            list(embedding),
-            k=top_k,
-            filter=self._filter_translator.translate(metadata_filter),
-            doc_builder=_document_with_id,
+            lambda store: store.asimilarity_search_by_vector_with_relevance_scores(
+                list(embedding), k=top_k, filter=clauses, doc_builder=_document_with_id
+            )
         )
         return [
             ScoredPassage(
@@ -173,11 +259,9 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             The best-matching passages, best first, with Elasticsearch's BM25
             ``_score`` as ``retrieval_score``.
         """
+        query = self._text_query(text, metadata_filter)
         found = await self._call(
-            self._store.client.search,
-            index=self.index,
-            query=self._text_query(text, metadata_filter),
-            size=top_k,
+            lambda store: store.client.search(index=self.index, query=query, size=top_k)
         )
         return [
             ScoredPassage(
@@ -203,10 +287,10 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         Returns:
             The number of documents in the index; 0 when it does not exist yet.
         """
-        client = self._store.client
-        if not await self._call(client.indices.exists, index=self.index):
+        if not await self._index_exists():
             return 0
-        return int((await self._call(client.count, index=self.index))["count"])
+        counted = await self._call(lambda store: store.client.count(index=self.index))
+        return int(counted["count"])
 
     async def ready(self) -> tuple[bool, str]:
         """Report whether the index holds any passage.
@@ -222,19 +306,28 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         return count > 0, status
 
     async def aclose(self) -> None:
-        """Close the Elasticsearch connections held by the underlying store."""
-        await self._store.aclose()
+        """Close the client in use and every client a refused key replaced."""
+        for client in [*self._replaced, self._store]:
+            await client.aclose()
+        self._replaced.clear()
 
     async def _ensure_index(self, dimensions: int) -> None:
         # Create a missing index before LangChain's first write would try to and
         # fail; once per store, as an index is never dropped.
         if self._index_ensured:
             return
-        client = self._store.client
-        if not await self._call(client.indices.exists, index=self.index):
+        if not await self._index_exists():
             body = await self._index_body(dimensions)
-            await self._call(client.indices.create, index=self.index, **body)
+            await self._call(
+                lambda store: store.client.indices.create(index=self.index, **body)
+            )
         self._index_ensured = True
+
+    async def _index_exists(self) -> bool:
+        exists = await self._call(
+            lambda store: store.client.indices.exists(index=self.index)
+        )
+        return bool(exists)
 
     async def _index_body(self, dimensions: int) -> dict[str, Any]:
         # LangChain's path (_create_index_if_not_exists in elasticsearch-py's
@@ -253,13 +346,13 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
                 "analyzer": self._text_analyzer,
             }
         strategy_setup = self._index_strategy.before_index_creation
-        await self._call(strategy_setup, client=self._store.client, **fields)
+        await self._call(lambda store: strategy_setup(client=store.client, **fields))
         return {"mappings": mappings, "settings": settings}
 
     async def _analyzer_mismatch(self) -> str:
         # "" when the index's text field has the configured analyzer, else a note.
         found = await self._call(
-            self._store.client.indices.get_mapping, index=self.index
+            lambda store: store.client.indices.get_mapping(index=self.index)
         )
         text_field = self._store.query_field
         analyzers = {
@@ -277,12 +370,45 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             f"{self._text_analyzer!r}: an index keeps the analyzer it was created with"
         )
 
-    async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    async def _call(self, request: StoreRequest) -> Any:
+        # Every call that reaches Elasticsearch: a key refused (its 401) opens a
+        # new client with the source's next key, for one further attempt.
+        store = self._store
         try:
-            return await fn(*args, **kwargs)
+            return await request(store)
         except Exception as exc:
-            detail = f"{type(exc).__name__}: {exc}"
-            raise RagDependencyError("vector_store", detail, target=self.index) from exc
+            if not await self._reconnected(exc, refused_on=store):
+                raise self._failure(exc) from exc
+        try:
+            return await request(self._store)
+        except Exception as exc:
+            raise self._failure(exc) from exc
+
+    async def _reconnected(self, failure: Exception, *, refused_on: Any) -> bool:
+        # Whether a client with another key serves the next attempt: one another
+        # call built already, or a new one; none when the source keeps its key.
+        if self._key is None or not self._key.rotates_on(failure):
+            return False
+        async with self._reconnecting:
+            if self._store is not refused_on:
+                return True
+            store = await self._key.reconnected()
+            if store is None:
+                return False
+            self._store = store
+            self._replaced.append(refused_on)
+            return True
+
+    def _failure(self, exc: Exception) -> RagDependencyError:
+        detail = self._key.described(exc) if self._key else describe_error(exc)
+        return RagDependencyError("vector_store", detail, target=self.index)
+
+
+def _langchain_store(url: str, index: str, strategy: Any, key: str | None) -> Any:
+    # LangChain's store, its client sending ``key`` as an Elasticsearch API key.
+    from langchain_elasticsearch import AsyncElasticsearchStore
+
+    return AsyncElasticsearchStore(index, es_url=url, es_api_key=key, strategy=strategy)
 
 
 def _document_with_id(hit: dict[str, Any]) -> Any:

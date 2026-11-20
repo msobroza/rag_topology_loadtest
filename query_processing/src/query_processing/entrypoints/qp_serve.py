@@ -44,7 +44,7 @@ from ..config.apps.process_environment_settings import ProcessEnvironmentSetting
 from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
-from ..domain.errors import RagDependencyError
+from ..domain.errors import MissingKeyError, RagDependencyError
 from ..domain.query_request import QueryRequest
 from ..domain.retrieval.metadata_filter import (
     MetadataCondition,
@@ -187,9 +187,12 @@ def create_app(composition: CompositionRoot) -> FastAPI:
     app.state.composition = composition
     app.state.metadata_fields = declared_metadata_fields(composition.settings)
     app.middleware("http")(_stamp_headers)
-    # A graph refused once its components are open is a settings mistake.
+    # A graph refused once its components are open is a settings mistake, and
+    # so is a key its source finds nowhere when the component opens.
     app.add_middleware(
-        StartupRefusalInOneLine, refused=WorkflowGraphError, prog="qp-serve"
+        StartupRefusalInOneLine,
+        refused=(WorkflowGraphError, MissingKeyError),
+        prog="qp-serve",
     )
     app.exception_handler(RagDependencyError)(_dependency_error)
     app.include_router(routes)
@@ -246,6 +249,8 @@ async def _dependency_error(request: Request, exc: RagDependencyError) -> JSONRe
         request_id=request.state.request_id,
         status=status.value,
         error=error,
+        # What the client is sent too: the keys masked, a refused key's source said.
+        detail=str(exc),
     )
     body = {"error": error, "detail": str(exc), "target": exc.target}
     return JSONResponse(status_code=status, content=body)

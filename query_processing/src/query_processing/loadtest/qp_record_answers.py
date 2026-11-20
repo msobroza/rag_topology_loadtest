@@ -3,8 +3,8 @@
 The requests are the load test's request pool, in its order: the questions
 file of ``QP_LOADTEST_QUESTIONS_FILE`` when it is set, else the synthetic
 questions. Each body is sent once to ``/retrieve`` and then once to
-``/query``, one request after the other, with the load test's credentials and
-its wait for one answer (``QP_LOADTEST_REQUEST_TIMEOUT_S``). An endpoint whose
+``/query``, one request after the other, with the load test's API key and its
+wait for one answer (``QP_LOADTEST_REQUEST_TIMEOUT_S``). An endpoint whose
 load-test weight is 0 (``QP_LOADTEST_RETRIEVE_WEIGHT``,
 ``QP_LOADTEST_QUERY_WEIGHT``) is not sent: a deployment without a working LLM
 is recorded on ``/retrieve`` alone. The answers go to ``<prefix>_answers.json``,
@@ -12,12 +12,15 @@ an answer record, which ``qp-compare-answers`` compares with another.
 
 A request the target never answers is retried as ``QP_LOADTEST_RETRIES`` and
 ``QP_LOADTEST_BACKOFF_S`` say; when it stays unanswered the command stops and
-writes nothing, since half a record would pass for a whole one. It runs on
+writes nothing, since half a record would pass for a whole one. A 401 tells
+the key source of the load test's ``key`` block and is sent again within the
+same retries; once they run out, its response is recorded as any other. A
+``key`` block start-up would refuse stops it before any request. It runs on
 demand, against whatever is deployed: a laptop, Domino, any topology. It is
 self-contained: without a questions file it reads none (only the load
 test's ``.env``, when there is one), the synthetic questions being built in
-process, and calls nothing but its target; the corpus and the models are the
-deployment's own.
+process, and calls nothing but its target and, with the ``domino`` key source,
+the run's token URL; the corpus and the models are the deployment's own.
 
 Example:
     $ qp-record-answers --host http://localhost:8888 --out results/monolith
@@ -30,11 +33,12 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import nullcontext
+from contextlib import ExitStack
 from pathlib import Path
 
 import httpx
 
+from ..domain.errors import RagDependencyError
 from .answer_record import (
     MalformedAnswerError,
     RecordedAnswer,
@@ -44,7 +48,13 @@ from .answer_record import (
 )
 from .loadtest_settings import LoadTestSettings
 from .request_plans import RequestPool, build_request_pool
-from .target_client import RetryPolicy, TargetClient, TargetUnreachableError
+from .target_client import (
+    RetryPolicy,
+    TargetClient,
+    TargetKey,
+    TargetUnreachableError,
+    opened_target_key,
+)
 from .target_record import TargetPair, target_pair
 
 RETRIEVE_PATH, QUERY_PATH = "/retrieve", "/query"
@@ -136,6 +146,7 @@ def record_answers_main(
     *,
     client: httpx.Client | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    key_transport: httpx.BaseTransport | None = None,
 ) -> int:
     """Run ``qp-record-answers --host <url> --out <prefix>``.
 
@@ -144,52 +155,64 @@ def record_answers_main(
         client: What does the HTTP; ``None`` opens one. A test hands it an app
             in process (``fastapi.testclient.TestClient``).
         sleep: The wait between retries.
+        key_transport: What the ``domino`` key source asks its token URL
+            through; ``None`` for the network. A test hands it a stand-in.
 
     Returns:
-        0 once the record is written; 2 for settings it cannot run with; 3
-        when the target never answered a request, and 4 when a 200 was not
-        of the answer's shape, each with nothing written.
+        0 once the record is written; 2 for settings it cannot run with, a
+        ``key`` block start-up would refuse included; 3 when the target never
+        answered a request or the key source could not be asked, and 4 when a
+        200 was not of the answer's shape, each with nothing written.
     """
     args = _parser().parse_args(argv)
-    settings = LoadTestSettings()
-    try:
-        endpoints = recorded_endpoints(settings)
-    except ValueError as exc:
-        print(f"qp-record-answers: {exc}", file=sys.stderr)
-        return USAGE_ERROR
+    with ExitStack() as opened:
+        try:  # a setting refused as the settings are built is a usage error too
+            settings = LoadTestSettings()
+            endpoints = recorded_endpoints(settings)
+            key = opened.enter_context(opened_target_key(settings, key_transport))
+        except ValueError as exc:  # a MissingKeyError too
+            print(f"qp-record-answers: {exc}", file=sys.stderr)
+            return USAGE_ERROR
+        poster = _poster(client, args.host, settings, key, sleep, opened)
+        return _record_and_write(poster, settings, endpoints, args.out)
+
+
+def _record_and_write(
+    poster: TargetClient,
+    settings: LoadTestSettings,
+    endpoints: Sequence[str],
+    out: Path,
+) -> int:
     # No rerank candidates and no top_n: only a model server's target sends them.
     pool = build_request_pool(
         settings.question_count, 0, 0, questions_file=settings.questions_file
     )
     try:
-        answers, seen = _record_with(
-            client, args.host, settings, sleep, pool, endpoints
-        )
-    except (TargetUnreachableError, MalformedAnswerError) as exc:
+        answers, seen = record_answers(poster, pool, endpoints)
+    except (TargetUnreachableError, RagDependencyError, MalformedAnswerError) as exc:
         print(f"qp-record-answers: {exc}; nothing written", file=sys.stderr)
-        unreachable = isinstance(exc, TargetUnreachableError)
-        return UNREACHABLE if unreachable else MALFORMED_ANSWER
-    path = write_answer_record(args.out, answer_record(answers, seen))
+        malformed = isinstance(exc, MalformedAnswerError)
+        return MALFORMED_ANSWER if malformed else UNREACHABLE
+    path = write_answer_record(out, answer_record(answers, seen))
     print(f"wrote {path}", file=sys.stderr)
     return 0
 
 
-def _record_with(
+def _poster(
     client: httpx.Client | None,
     host: str,
     settings: LoadTestSettings,
+    key: TargetKey,
     sleep: Callable[[float], None],
-    pool: RequestPool,
-    endpoints: Sequence[str],
-) -> tuple[list[RecordedAnswer], Counter[TargetPair]]:
+    opened: ExitStack,
+) -> TargetClient:
     policy = RetryPolicy(
         settings.request_timeout_s, settings.retries, settings.backoff_s
     )
     # A client handed in is the caller's to close; one opened here is closed here.
-    opened = nullcontext(client) if client else httpx.Client(timeout=policy.timeout_s)
-    with opened as http:
-        poster = TargetClient(http, host, settings.auth_headers, policy, sleep)
-        return record_answers(poster, pool, endpoints)
+    if client is None:
+        client = opened.enter_context(httpx.Client(timeout=policy.timeout_s))
+    return TargetClient(client, host, key, policy, sleep)
 
 
 def _parser() -> argparse.ArgumentParser:

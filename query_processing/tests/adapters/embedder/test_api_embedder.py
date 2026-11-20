@@ -12,14 +12,13 @@ from model_api_fakes import (
     HttpClients,
     ScriptedRoute,
     endpoint_client,
-    token_text,
 )
 from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
 from query_processing.adapters.embedder.api.openai_embeddings_format import (
     OpenAIEmbeddingsFormat,
 )
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
-from query_processing.domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.domain.errors import RagDependencyError
 
 URL = "http://models.test:8002/v3/embeddings"
@@ -41,8 +40,10 @@ def make(
     batch_size: int = 64,
 ) -> tuple[ApiEmbedder, ScriptedRoute]:
     route = ScriptedRoute(*script)
-    endpoint = ApiEndpoint(url=URL, api_format="openai", api_key=api_key, model=MODEL)
-    client = endpoint_client(clients.over(route), endpoint, component="embedder")
+    endpoint = ApiEndpoint(url=URL, api_format="openai", model=MODEL)
+    client = endpoint_client(
+        clients.over(route), endpoint, component="embedder", key=api_key
+    )
     embedder = ApiEmbedder(
         client, OpenAIEmbeddingsFormat(), batch_size=batch_size, query_prefix=PREFIX
     )
@@ -118,15 +119,6 @@ async def test_retries_a_5xx_then_succeeds(clients: HttpClients) -> None:
     assert route.methods == ["POST", "POST"]
 
 
-async def test_domino_key_sends_the_run_token(clients: HttpClients) -> None:
-    embedder, route = make(
-        clients, token_text("tok-1"), embeddings_body([[1.0]]), api_key=DOMINO_RUN_TOKEN
-    )
-    await embedder.embed_documents(["a"])
-    assert route.methods == ["GET", "POST"]
-    assert route.requests[1].authorization == "Bearer tok-1"
-
-
 async def test_malformed_body_raises(clients: HttpClients) -> None:
     embedder, _ = make(clients, httpx.Response(200, json={"object": "list"}))
     with pytest.raises(RagDependencyError, match="malformed response") as info:
@@ -190,13 +182,3 @@ async def test_ready_reports_failure_without_retry_or_raising(
     assert not ok
     assert expected in detail
     assert len(route.requests) == 1
-
-
-async def test_ready_reports_a_failed_token_fetch(clients: HttpClients) -> None:
-    embedder, route = make(
-        clients, httpx.Response(500, text="nope"), api_key=DOMINO_RUN_TOKEN
-    )
-    ok, detail = await embedder.ready()
-    assert not ok
-    assert "domino_access_token" in detail
-    assert route.methods == ["GET"]

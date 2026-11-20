@@ -400,7 +400,7 @@ async def test_es_ready_reports_an_index_analyzer_that_differs(
 
 async def test_es_open_hands_langchain_the_strategy_the_index_is_built_from() -> None:
     # A contract check on the installed LangChain: no request is sent.
-    store = ElasticsearchVectorStore.open(
+    store = await ElasticsearchVectorStore.open(
         "http://localhost:9200", index=INDEX, text_analyzer="french"
     )
     try:

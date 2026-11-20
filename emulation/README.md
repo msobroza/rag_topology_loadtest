@@ -86,11 +86,16 @@ gcloud config set project <project id>
 make -C emulation setup BUCKET=<globally unique bucket name>   # Terraform into ~/bin, private versioned state bucket
 ```
 
-Optional, for the generation endpoint's API key (a Project environment variable):
+Optional, for the generation endpoint's API key (a Project environment variable,
+the one the LLM's `key` block names in the workflow file):
 
 ```bash
-printf 'QP_COMPONENTS__LLM__API__API_KEY=%s\n' "<key>" | gcloud secrets create rag-emu-project-env --data-file=-
+printf 'OPENAI_API_KEY=%s\n' "<key>" | gcloud secrets create rag-emu-project-env --data-file=-
 ```
+
+A secret that still holds `QP_COMPONENTS__LLM__API__API_KEY`, the variable before
+key sources, stops the workflow App at start-up, naming the `key` block to write:
+add a version that holds `OPENAI_API_KEY` instead.
 
 A secret created before the toolkit's variables took the `QP_` prefix holds the
 old names, which no App reads: add a version under the new names (`gcloud secrets

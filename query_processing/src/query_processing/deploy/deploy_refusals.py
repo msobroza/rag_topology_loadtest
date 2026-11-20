@@ -4,8 +4,8 @@ A secret in a ``settings`` block, which would land in a launch script, and a
 value the deploy uses that still holds a placeholder of the example file.
 
 Example:
-    >>> refuse_secrets(DeploySettings())
-    DominoDeployError: QP_COMPONENTS__LLM__API__API_KEY ...
+    >>> refuse_secrets(DeploySettings(defaults={"settings": {"X_API_KEY": ""}}))
+    DominoDeployError: X_API_KEY is set in deploy.yaml under defaults.settings ...
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
-from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN
 from ..domain.roles import AppPart
 from .apps_client import DominoDeployError
 from .deploy_settings import DeploySettings, deploy_file, override_values
@@ -26,13 +25,12 @@ def refuse_secrets(settings: DeploySettings) -> None:
         settings: The deploy settings whose ``defaults`` and ``apps`` are checked.
 
     Raises:
-        DominoDeployError: If a setting whose name ends with ``_API_KEY``
-            (``QP_COMPONENTS__LLM__API__API_KEY``, the vector store's key, ...)
-            holds a value other than "" or ``domino``.
+        DominoDeployError: If a setting's name ends with ``_API_KEY``
+            (``X_API_KEY`` and the like), whatever its value.
 
     Example:
-        >>> refuse_secrets(DeploySettings())
-        DominoDeployError: QP_COMPONENTS__LLM__API__API_KEY ...
+        >>> refuse_secrets(DeploySettings(defaults={"settings": {"X_API_KEY": ""}}))
+        DominoDeployError: X_API_KEY is set in deploy.yaml under ...
     """
     blocks = {f"apps.{part}": block for part, block in settings.apps.items()}
     for block_name, block in {"defaults": settings.defaults, **blocks}.items():
@@ -91,9 +89,6 @@ def _values_used(
 
 
 def _secrets_in(values: dict[str, str]) -> list[str]:
-    # An API key is a secret unless it is empty or names the Domino run token.
-    return [
-        name
-        for name, value in values.items()
-        if name.endswith("_API_KEY") and value not in ("", DOMINO_RUN_TOKEN)
-    ]
+    # A name that says it holds an API key, whatever its value: "" and "domino"
+    # meant something before key sources (ADR 0012), and any other is a key.
+    return [name for name in values if name.endswith("_API_KEY")]

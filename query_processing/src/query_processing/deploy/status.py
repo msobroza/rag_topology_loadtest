@@ -1,15 +1,19 @@
 """``qp-deploy status``: one line per App, then the workflow App's /readyz.
 
 A Running App shows where its instance answers; any other, its page in Domino.
+The /readyz request carries the run token, asked for through the ``domino`` key
+source the composition opens (``run_token_source``), under the deploy tool's own
+timeout and retries: the one module of ``deploy`` that imports it for that, and
+the key source's port to name its type (README rule 1).
 """
 
 from __future__ import annotations
 
-from http import HTTPStatus
-
 import httpx
 
-from ..domain.errors import describe_error
+from ..adapters.key_source.base_key_source import BaseKeySource
+from ..composition.standalone_key_source import run_token_source
+from ..domain.errors import RagDependencyError, describe_error
 from .apps_client import (
     DominoApp,
     DominoAppsClient,
@@ -31,7 +35,7 @@ def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
     Args:
         client: Apps API client for the project.
         settings: The deploy settings (topology alias, Domino host, run token
-            URL).
+            URL, the timeout and retries of a call).
 
     Example:
         >>> print_status(client, DeploySettings())
@@ -48,8 +52,13 @@ def print_status(client: DominoAppsClient, settings: DeploySettings) -> None:
             endpoint = endpoint_url(client, app, settings.domino_host)
         print(_status_line(f"{name:<{width}}", app, endpoint))
     if endpoint is not None:
-        lines = readiness_lines(client.http, endpoint, settings.run_token_url)
-        print("\n".join(lines))
+        source = run_token_source(
+            client.http,
+            token_url=settings.run_token_url,
+            timeout_s=settings.http_timeout_s,
+            retries=settings.http_retries,
+        )
+        print("\n".join(readiness_lines(client.http, endpoint, source)))
 
 
 def _status_line(column: str, app: DominoApp | None, endpoint: str | None) -> str:
@@ -58,28 +67,30 @@ def _status_line(column: str, app: DominoApp | None, endpoint: str | None) -> st
     return f"{column} {app.status or 'no instance':<14} {endpoint or app.url}"
 
 
-def readiness_lines(http: httpx.Client, url: str, token_url: str) -> list[str]:
+def readiness_lines(http: httpx.Client, url: str, source: BaseKeySource) -> list[str]:
     """Report the workflow App's /readyz checks and run headers.
 
     Never raises: the App table is the main output of ``qp-deploy status``.
 
     Args:
-        http: Client the token and /readyz requests go through.
+        http: Client the /readyz request goes through.
         url: Where the workflow App's instance answers.
-        token_url: The run's token service, whose token is sent as a Bearer.
+        source: The ``domino`` key source, whose run token is sent as a Bearer.
 
     Returns:
         The status and run headers, then one line per check; or one line saying
         why /readyz was not checked.
 
     Example:
-        >>> readiness_lines(http, endpoint, settings.run_token_url)
+        >>> readiness_lines(http, endpoint, source)
         ['readyz: ...', ...]
     """
     try:
-        headers = {"Authorization": f"Bearer {_run_token(http, token_url)}"}
+        headers = {"Authorization": f"Bearer {source.key(may_ask=True)}"}
         response = http.get(f"{url}/readyz", headers=headers)
         checks = json_list(json_mapping(response.json()).get("checks"))
+    except RagDependencyError as exc:  # the token URL never gave a token
+        return [f"readyz: not checked (run token from {exc.target}: {exc.detail})"]
     except DominoDeployError as exc:
         return [f"readyz: not checked ({exc})"]
     except (httpx.HTTPError, ValueError) as exc:
@@ -93,13 +104,3 @@ def readiness_lines(http: httpx.Client, url: str, token_url: str) -> list[str]:
         verdict = "ok" if check.get("ok") is True else "FAIL"
         lines.append(f"  {check.get('name')}: {verdict} {check.get('detail')}")
     return lines
-
-
-def _run_token(http: httpx.Client, token_url: str) -> str:
-    response = http.get(token_url)
-    token = response.text.strip()
-    if response.status_code != HTTPStatus.OK or not token:
-        raise DominoDeployError(
-            f"run token from {token_url}: HTTP {response.status_code}"
-        )
-    return token

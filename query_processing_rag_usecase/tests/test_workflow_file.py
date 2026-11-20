@@ -159,6 +159,9 @@ def test_the_file_pins_the_rags_models_and_its_endpoint(use_case_dir: Path) -> N
         "openai",
         "gpt-4o-mini",
     )
+    assert llm.api.key is not None
+    key = (llm.api.key.source, llm.api.key.read_keys())
+    assert key == ("env", {"variable": "OPENAI_API_KEY"})
     assert llm.http.timeout_s == 120.0  # an answer takes longer than a model call
 
 

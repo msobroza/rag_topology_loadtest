@@ -292,7 +292,6 @@ class OvmsCalibration:
         ready = dataclasses.replace(http.policy_of(component), retries=0, backoff_s=0.0)
         calls = OvmsCalls(
             await http.client(),
-            http.run_tokens,
             ready=ready,
             sample=calibration_http_policy(self._calibration),
             users=self._calibration.users,

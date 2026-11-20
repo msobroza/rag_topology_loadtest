@@ -115,15 +115,13 @@ tiers: ## On Domino: the hardware tiers with their size, a list to move through 
 environments: ## On Domino: the environments, a list to move through in a terminal; make environments ARGS="<name> --table" for its revisions and their build dates
 	$(BIN)qp-deploy environments $(ARGS)
 
-loadtest-domino: ## On Domino: loadtest against the workflow App: make loadtest-domino RUN_NAME=split-all
+loadtest-domino: ## On Domino: loadtest against the workflow App, each request with the run token: make loadtest-domino RUN_NAME=split-all
 	host=$$($(BIN)qp-deploy url workflow) && \
-		QP_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
-		$(MAKE) loadtest HOST="$$host"
+		QP_LOADTEST_KEY__SOURCE=domino $(MAKE) loadtest HOST="$$host"
 
-record-answers-domino: ## On Domino: record the workflow App's answers: make record-answers-domino RUN_NAME=split-all
+record-answers-domino: ## On Domino: record the workflow App's answers, each request with the run token: make record-answers-domino RUN_NAME=split-all
 	host=$$($(BIN)qp-deploy url workflow) && \
-		QP_LOADTEST_BEARER_TOKEN="$$(curl -s http://localhost:8899/access-token)" \
-		$(MAKE) record-answers HOST="$$host"
+		QP_LOADTEST_KEY__SOURCE=domino $(MAKE) record-answers HOST="$$host"
 
 infra-up: ## Start Elasticsearch (9200) + OVMS reranker (8001) + embedder (8002), serving ovms/models from here
 	$(COMPOSE) up -d

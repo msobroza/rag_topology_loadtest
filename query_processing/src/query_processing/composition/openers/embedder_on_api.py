@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from ...adapters.embedder.api.api_embedder import open_api_embedder
 from ...adapters.embedder.base_embedder import BaseEmbedder
+from ...adapters.key_source.base_key_source import BaseKeySource
 from ...config.components.component_settings import (
     EmbedderServedSettings,
     EmbedderSettings,
@@ -28,7 +29,7 @@ async def open_embedder_on_api(
     Args:
         component: The embedder's alias, query prefix, ``api`` and ``http``
             blocks.
-        shared: The shared HTTP client, the default policy and the run tokens.
+        shared: The shared HTTP client, the default policy and the key sources.
 
     Returns:
         The endpoint's embedder; an unknown API format is refused here.
@@ -37,11 +38,14 @@ async def open_embedder_on_api(
         >>> embedder = await open_embedder_on_api(embedder_settings, shared)
     """
     api = component.api
-    return await open_embedder_at(api.endpoint(component.alias), api, component, shared)
+    key_source = await shared.http.key_source_of(api.key)
+    endpoint = api.endpoint(component.alias)
+    return await open_embedder_at(endpoint, key_source, api, component, shared)
 
 
 async def open_embedder_at(
     endpoint: ApiEndpoint,
+    key_source: BaseKeySource | None,
     block: EmbedderServedSettings,
     component: EmbedderSettings,
     shared: SharedResources,
@@ -49,24 +53,25 @@ async def open_embedder_at(
     """Open the embedder of one endpoint, however it was resolved.
 
     Args:
-        endpoint: The route, its API format, its key and the model name sent.
+        endpoint: The route, its API format and the model name sent.
+        key_source: Where its API key comes from; None sends no key.
         block: The block of the component's backend, for the texts per request.
         component: The embedder, for its query prefix and how patiently it is
             called.
-        shared: The shared HTTP client, the default policy and the run tokens.
+        shared: The shared HTTP client, the default policy and the key sources.
 
     Returns:
         The endpoint's embedder; an unknown API format is refused here.
 
     Example:
-        >>> embedder = await open_embedder_at(endpoint, component.api, component,
-        ...                                   shared)
+        >>> embedder = await open_embedder_at(endpoint, None, component.api,
+        ...                                   component, shared)
     """
     http = shared.http
     return open_api_embedder(
         await http.client(),
         endpoint,
-        tokens=http.run_tokens,
+        key_source=key_source,
         policy=http.policy_of(component),
         batch_size=block.batch_size,
         query_prefix=component.query_prefix,

@@ -50,8 +50,8 @@ def make(
     structured_output: str = "json_schema",
 ) -> tuple[ApiLLM, ScriptedRoute]:
     route = ScriptedRoute(*script)
-    endpoint = ApiEndpoint(url=URL, api_format="openai", api_key="k1", model=MODEL)
-    client = endpoint_client(clients.over(route), endpoint, component="llm")
+    endpoint = ApiEndpoint(url=URL, api_format="openai", model=MODEL)
+    client = endpoint_client(clients.over(route), endpoint, component="llm", key="k1")
     llm = ApiLLM(
         client,
         OpenAIChatFormat(),
@@ -157,8 +157,10 @@ async def test_failures_carry_component_llm_and_kind(
 
 
 async def test_a_rejected_key_fails_at_once(clients: HttpClients) -> None:
-    llm, route = make(clients, httpx.Response(401, text="bad key"))
-    with pytest.raises(RagDependencyError, match="HTTP 401"):
+    # A 403: a key refused with a 401 is tried again within the retries
+    # (tests/entrypoints/qp_serve/test_qp_serve_key_sources.py).
+    llm, route = make(clients, httpx.Response(403, text="bad key"))
+    with pytest.raises(RagDependencyError, match="HTTP 403"):
         await llm.generate(MESSAGES)
     assert len(route.requests) == 1
 

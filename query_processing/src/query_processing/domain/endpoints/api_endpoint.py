@@ -8,15 +8,13 @@ names one, and a command refuses an unknown name before it opens anything.
 
 Example:
     >>> endpoint = ApiEndpoint(url="http://host:8000/v3/embeddings",
-    ...                        api_format="openai", api_key="", model="bge-small")
+    ...                        api_format="openai", model="bge-small")
 """
 
 from __future__ import annotations
 
 from typing import Final, NamedTuple
 
-# The ``api_key`` that means "send the Domino run's token", fetched per run.
-DOMINO_RUN_TOKEN = "domino"
 # The backend that calls a model server of ours, which every component type
 # has: named here for the composition and the deploy tool, which share no other
 # package.
@@ -59,21 +57,17 @@ def call_path(component_type: str) -> str:
 
 
 class ApiEndpoint(NamedTuple):
-    """Where one model is served, in which API format, and how to authenticate.
+    """Where one model is served, and in which API format; its key is its key source's.
 
     Attributes:
         url: The full route, such as ``http://host:8000/v3/embeddings``.
         api_format: The wire shape the route speaks, such as ``"openai"``.
-        api_key: "" sends no ``Authorization`` header; ``DOMINO_RUN_TOKEN`` sends
-            the Domino run's token; anything else is sent as a bearer token.
         model: The model name sent with every request.
 
     Example:
-        >>> ApiEndpoint("https://api.cohere.com/v2/rerank", "cohere", "key",
-        ...             "rerank-v3.5")
+        >>> ApiEndpoint("https://api.cohere.com/v2/rerank", "cohere", "rerank-v3.5")
     """
 
     url: str
     api_format: str
-    api_key: str
     model: str

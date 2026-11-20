@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from query_processing.config.components.key_settings import KeySettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 
@@ -109,9 +110,9 @@ def test_unprefixed_provider_variables_are_not_read(
     assert llm.api.endpoint(llm.alias) == ApiEndpoint(
         "https://llm.fixture.test/v1/chat/completions",
         "openai",
-        "",
         "fixture-chat-model",
     )
+    assert llm.api.key is None
 
 
 # --- the endpoints ---------------------------------------------------------------
@@ -131,15 +132,16 @@ def test_an_api_block_gives_its_endpoint(
     s = settings_factory(
         **{
             f"components__{component}__api__url": url,
-            f"components__{component}__api__api_key": "key",
+            f"components__{component}__api__key": {"source": "env", "variable": "K"},
             f"components__{component}__api__model": "served-name",
         }
     )
 
     model = s.components[component]
     assert model.api.endpoint(model.alias) == ApiEndpoint(
-        url, api_format, "key", "served-name"
+        url, api_format, "served-name"
     )
+    assert model.api.key == KeySettings(source="env", variable="K")
 
 
 def test_an_api_block_without_a_model_sends_the_alias(

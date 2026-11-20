@@ -100,7 +100,7 @@ async def test_ports_open_once_and_are_reused(fake_settings: WorkflowSettings) -
 # --- backends -------------------------------------------------------------------------
 
 
-async def test_each_model_server_endpoint_fetches_its_own_domino_token(
+async def test_the_model_server_endpoints_share_one_domino_token(
     settings_factory: SettingsFactory,
 ) -> None:
     requested: list[str] = []
@@ -141,8 +141,8 @@ async def test_each_model_server_endpoint_fetches_its_own_domino_token(
         [ranked] = await deps.by_name["reranker"].rerank("q", [candidate], 1)
         assert ranked.rerank_score == 0.9
 
-    # One BearerToken per endpoint: each has its own key, so its own cache.
-    assert requested == [TOKEN_URL, EMBED_URL, TOKEN_URL, RERANK_URL]
+    # One domino key source a process: both endpoints share one token.
+    assert requested == [TOKEN_URL, EMBED_URL, RERANK_URL]
     assert read_timeouts == {7.5}
 
 

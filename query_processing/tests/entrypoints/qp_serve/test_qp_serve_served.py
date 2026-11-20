@@ -4,7 +4,7 @@ A component on ``served`` is a model server of ours: it is called at the URL it
 is given, in the standard format of its type, under its alias, with the Domino
 run token when ``qp-serve --domino`` says the app runs on Domino and with no
 key elsewhere. A component on ``api`` is an endpoint we do not run, called with
-its own URL, API format, key and model name wherever the app runs. The
+its own URL, API format, key block and model name wherever the app runs. The
 endpoints and Domino's token URL are one HTTP transport that answers in their
 place and records what each call carried.
 """
@@ -277,14 +277,14 @@ def test_a_split_run_on_a_laptop_moves_one_component_by_its_backend_and_url(
 
 @pytest.mark.parametrize(
     ("key", "authorization"),
-    [("", None), ("co-key", "Bearer co-key")],
+    [({}, None), ({"SOURCE": "env", "VARIABLE": "VENDOR_KEY"}, "Bearer co-key")],
     ids=["no-key", "its-key"],
 )
 def test_on_domino_an_api_component_keeps_its_own_url_format_key_and_model(
     monkeypatch: pytest.MonkeyPatch,
     qp_serve_apps: list[FastAPI],
     endpoints: FakeModelEndpoints,
-    key: str,
+    key: dict[str, str],
     authorization: str | None,
 ) -> None:
     # The Domino flag no longer gives an api component the run token: an
@@ -293,10 +293,11 @@ def test_on_domino_an_api_component_keeps_its_own_url_format_key_and_model(
         "QP_COMPONENTS__RERANKER__BACKEND": "api",
         "QP_COMPONENTS__RERANKER__API__URL": VENDOR_RERANK_URL,
         "QP_COMPONENTS__RERANKER__API__API_FORMAT": "cohere",
-        "QP_COMPONENTS__RERANKER__API__API_KEY": key,
         "QP_COMPONENTS__RERANKER__API__MODEL": "rerank-v3.5",
+        "VENDOR_KEY": "co-key",
     }
-    set_environment(monkeypatch, SERVED_RERANKER | vendor)
+    block = {f"QP_COMPONENTS__RERANKER__API__KEY__{k}": v for k, v in key.items()}
+    set_environment(monkeypatch, SERVED_RERANKER | vendor | block)
 
     assert qp_serve.main(["--domino"]) == 0
     retrieve(qp_serve_apps[0])

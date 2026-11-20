@@ -19,11 +19,13 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic_settings import BaseSettings, YamlConfigSettingsSource
 
 from ..components.component_settings import alias_of
+from ..components.key_blocks import file_key_blocks_given_above_left_out
 from .prompts_file import refuse_prompts_key
 from .routes_file import refuse_routes_key
 
@@ -74,9 +76,30 @@ def workflow_file() -> Path:
     )
 
 
+class WorkflowFileSource(YamlConfigSettingsSource):
+    """The workflow file's values, less each ``key`` block a place above gives.
+
+    A ``key`` block that the places above the file (the command's values, the
+    environment, ``.env``) give with a ``source`` replaces the file's whole;
+    one they give without changes the file's key by key.
+
+    Example:
+        >>> WorkflowFileSource(WorkflowSettings, yaml_file=Path("workflow.yaml"))()
+    """
+
+    def __call__(self) -> dict[str, Any]:
+        """Return the file's values, less the key blocks given above it.
+
+        Returns:
+            The values, as ``file_key_blocks_given_above_left_out`` leaves them.
+        """
+        values = super().__call__()
+        return file_key_blocks_given_above_left_out(values, self.current_state)
+
+
 def workflow_file_source(
     settings_cls: type[BaseSettings], path: Path
-) -> YamlConfigSettingsSource:
+) -> WorkflowFileSource:
     """Build the YAML settings source over the workflow file.
 
     A missing file is an error: pydantic-settings would silently skip it,
@@ -89,7 +112,7 @@ def workflow_file_source(
         path: The workflow file.
 
     Returns:
-        The YAML source over ``path``.
+        The YAML source over ``path``, less the key blocks given above it.
 
     Raises:
         WorkflowFileNotFoundError: If ``path`` is not a file.
@@ -105,7 +128,7 @@ def workflow_file_source(
     if not path.is_file():
         raise WorkflowFileNotFoundError(f"workflow file {str(path)!r} does not exist")
     try:
-        source = YamlConfigSettingsSource(settings_cls, yaml_file=path)
+        source = WorkflowFileSource(settings_cls, yaml_file=path)
     except OSError as exc:
         raise OSError(f"cannot read workflow file {str(path)!r}: {exc}") from exc
     refuse_prompts_key(source.yaml_data, path)

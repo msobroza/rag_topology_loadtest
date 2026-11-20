@@ -3,7 +3,8 @@
 Inside ``async with`` a named resource is opened on its first request and reused
 until the block ends, when everything registered on the exit stack is closed, in
 reverse order. A failure to open is reported as a ``RagDependencyError`` naming
-the resource. First requests are not guarded against running concurrently: open
+the resource, except a ``MissingKeyError``: a settings mistake, reported as
+it is. First requests are not guarded against running concurrently: open
 resources from one task (an app lifespan or a CLI ``main``).
 
 Example:
@@ -19,7 +20,7 @@ from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import TypeVar, cast
 
-from ..domain.errors import RagDependencyError, describe_error
+from ..domain.errors import MissingKeyError, RagDependencyError, describe_error
 
 T = TypeVar("T")
 Opener = Callable[[], Awaitable[T]]  # opens one resource
@@ -72,6 +73,7 @@ class ResourceScope:
             The opened resource.
 
         Raises:
+            MissingKeyError: If ``open_it`` finds no key, as it was raised.
             RagDependencyError: If ``open_it`` fails; an error that already is one
                 propagates as it is, since it names what failed further down.
 
@@ -82,8 +84,10 @@ class ResourceScope:
         if name not in self._opened:
             try:
                 self._opened[name] = await open_it()
-            except RagDependencyError:
-                raise  # a resource this one depends on already says what failed
+            except (RagDependencyError, MissingKeyError):
+                # A resource this one depends on already says what failed, and
+                # a missing key is a settings mistake, not a failed dependency.
+                raise
             except Exception as exc:
                 detail = f"could not open backend {backend!r}: {describe_error(exc)}"
                 raise RagDependencyError(name, detail) from exc

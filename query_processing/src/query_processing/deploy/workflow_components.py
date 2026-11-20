@@ -8,12 +8,13 @@ in, each component or stage named one the file declares, then the file with
 the overrides merged as the workflow app merges a variable over it. Then it
 asks of those settings what an App's start-up refuses before it opens
 anything, with start-up's own two checks: a name nobody registered, and a
-graph that cannot run or that the chosen orchestrator does not run. It reads
+graph that cannot run or that the chosen orchestrator does not run; and names
+the variables their key sources read keys from. It reads
 the file the workflow App will read, and the prompts and routes files a
 command finds here, as the App finds them beside it, and nothing else: the
 variables of this Workspace are not the App's. The one module of ``deploy``
-that may import the workflow settings, and the composition's two start-up
-checks (README rule 1).
+that may import the workflow settings, and of the composition the two start-up
+checks and ``key_source_variables`` (README rule 1).
 
 Example:
     >>> read_workflow_components(Path("workflow.yaml"))["reranker"]
@@ -35,12 +36,13 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
 from ..composition.composition_root import check_workflow_graph
-from ..composition.registered_names import check_registered_names
+from ..composition.registered_names import check_registered_names, key_source_variables
 from ..config.components.component_settings import (
     COMPONENT_TYPE_SETTINGS,
     Component,
     typed_by_name,
 )
+from ..config.components.key_blocks import KeyBlocksChecked, refuse_key_mistakes
 from ..config.extensions import load_extensions
 from ..config.files.prompts_file import prompts_file, prompts_file_source
 from ..config.files.routes_file import routes_file, routes_file_source
@@ -226,12 +228,17 @@ def refuse_unknown_override_keys(overrides: Mapping[str, object], path: Path) ->
 
     Raises:
         DominoDeployError: The first misspelt key, undeclared name, block that
-            is not a mapping, or value left empty, with its place.
+            is not a mapping, or value left empty, with its place; first, an
+            old ``api_key``, with the line start-up prints of it.
 
     Example:
         >>> refuse_unknown_override_keys({"htpp": {"retries": 0}}, path)
         DominoDeployError: overrides in deploy.yaml has no key 'htpp': ...
     """
+    try:  # its own line, which names the key block, not "no key 'api_key'"
+        refuse_key_mistakes(overrides.get("components"), WorkflowSettings.variable_of)
+    except ValueError as exc:
+        raise DominoDeployError(f"overrides in {deploy_file()}: {exc}") from exc
     _refuse_unknown_keys(overrides, WorkflowSettings, _workflow_data(path), (), path)
 
 
@@ -406,6 +413,25 @@ def refuse_what_start_up_refuses(overrides: Mapping[str, object], path: Path) ->
         ) from exc
 
 
+def key_variables_of(overrides: Mapping[str, object], path: Path) -> dict[str, str]:
+    """Name the variables the key sources of an App's settings read keys from.
+
+    Args:
+        overrides: The ``overrides`` block, already checked with the file.
+        path: The workflow file the workflow App reads.
+
+    Returns:
+        Each variable an ``env`` source names, in the file or an override, and
+        the place of its ``key`` block (``key_source_variables``).
+
+    Example:
+        >>> # workflow.yaml's llm: api.key {source: env, variable: EXAMPLE_LLM_KEY}.
+        >>> key_variables_of({}, Path("workflow.yaml"))
+        {'EXAMPLE_LLM_KEY': 'components.llm.api.key'}
+    """
+    return key_source_variables(_settings_with_overrides(overrides, path))
+
+
 def _settings_with_overrides(
     overrides: Mapping[str, object], path: Path
 ) -> WorkflowSettings:
@@ -440,12 +466,13 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
             file_secret_settings: PydanticBaseSettingsSource,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
             del env_settings, dotenv_settings, file_secret_settings
-            workflow = workflow_file_source(settings_cls, path)
+            # The key blocks checked as start-up checks them, never quoting one.
             return (
                 init_settings,
-                workflow,
+                workflow_file_source(settings_cls, path),
                 prompts_file_source(settings_cls, prompts_file()),
                 routes_file_source(settings_cls, routes_file()),
+                KeyBlocksChecked(settings_cls, WorkflowSettings.variable_of),
             )
 
     return FileWithOverrides
