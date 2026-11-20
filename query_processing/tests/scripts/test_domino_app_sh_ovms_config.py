@@ -24,7 +24,7 @@ from launch_script_stand_ins import (
     write_fake,
     write_ovms_config_stand_in,
 )
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id", "mktemp")
 
@@ -92,7 +92,7 @@ def test_with_uv_the_project_is_installed_and_its_config_served(
     venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     config = served_config(tmp_path, "venv-qp-ovms-config")
     assert config.startswith(str(tmp_path / "tmp"))  # a fresh temporary folder

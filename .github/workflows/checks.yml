@@ -1,5 +1,6 @@
-# The same gates as `make check` locally: lint, typecheck, complexity, deadcode,
-# deps and test over the toolkit in query_processing/, then the RAG use case's
+# The same gates as `make check` locally: lint, typecheck, complexity, deps and
+# test over the core in query_processing_core/, then lint, typecheck, complexity,
+# deadcode, deps and test over the toolkit in query_processing/, then the RAG use case's
 # gates and tests in query_processing_rag_usecase/, then the charts package's in
 # experiment_charts/, stopping at the first failure. They run
 # inside the image query_processing/domino/Dockerfile builds from (Domino's
@@ -49,10 +50,12 @@ jobs:
       - run: $AS_UBUNTU uv venv
       # CPU-only torch first, so sentence-transformers does not pull the CUDA wheels.
       - run: $AS_UBUNTU uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-      # The toolkit and the use case in one command, the toolkit first: no package
-      # index has the toolkit the use case depends on. The charts package with
-      # them, as make install-dev does: its tests need its matplotlib.
-      - run: $AS_UBUNTU uv pip install -e "./query_processing[dev]" -e ./query_processing_rag_usecase -e ./experiment_charts
-      # The root Makefile uses the .venv beside it, hands check to the toolkit's,
-      # then runs the use case's gates and tests, then the charts package's.
+      # The core, the toolkit and the use case in one command, in that order: no
+      # package index has the core the toolkit depends on, nor the toolkit the use
+      # case depends on. The charts package with them, as make install-dev does:
+      # its tests need its matplotlib.
+      - run: $AS_UBUNTU uv pip install -e ./query_processing_core -e "./query_processing[dev]" -e ./query_processing_rag_usecase -e ./experiment_charts
+      # The root Makefile uses the .venv beside it, runs the core's gates and
+      # tests, hands check to the toolkit's, then runs the use case's gates and
+      # tests, then the charts package's.
       - run: $AS_UBUNTU make check

@@ -17,9 +17,10 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from ..adapters.orchestrator.base_orchestrator import BaseOrchestrator
 from ..domain.conversation import HistoryMessage
-from ..domain.retrieval.metadata_filter import MetadataCondition
 from ..domain.retrieval.passages import TOTAL_TIMING_KEY, RagMode, RagResult
 from .workflow_state import (
     METADATA_FILTER_FIELD,

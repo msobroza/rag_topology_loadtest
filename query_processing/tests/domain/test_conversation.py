@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import pytest
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
 
 from query_processing.domain.conversation import (
     HistoryMessage,
     check_history_conditions,
-)
-from query_processing.domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
 )
 
 TOPIC = MetadataFieldInfo(name="topic", type="string", description="d")

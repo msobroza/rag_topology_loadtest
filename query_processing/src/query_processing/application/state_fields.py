@@ -20,8 +20,9 @@ from collections.abc import Mapping
 from types import UnionType
 from typing import Any, Literal, NamedTuple, Union, get_args, get_origin
 
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from ..domain.opened_graph import Reducer
-from ..domain.retrieval.metadata_filter import MetadataCondition
 from .stages.base_stage import FieldTypes, type_name
 from .workflow_state import (
     METADATA_FILTER_FIELD,

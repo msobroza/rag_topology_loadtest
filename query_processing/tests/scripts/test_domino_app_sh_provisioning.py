@@ -20,7 +20,7 @@ from launch_script_stand_ins import (
     served_config,
     write_ovms_config_stand_in,
 )
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 SYSTEM_TOOLS = ("bash", "env", "cat", "dirname", "mkdir", "chmod", "id", "mktemp")
 EXPORTER_VENV = "ovms-exporter-venv"
@@ -163,7 +163,7 @@ def test_a_missing_config_is_exported_with_a_separate_python_then_served(
     project, exporter = home / "qp-venv", home / EXPORTER_VENV
     assert log(tmp_path, "uv") == [
         f"venv {project} --python 3.11",  # the project, for qp-served-models
-        f"pip install --python {project}/bin/python {tree}",
+        f"pip install --python {project}/bin/python {tree.parent / CORE_ROOT.name} {tree}",
         f"venv {exporter} --seed --python 3.11",  # the exporter's own pins go here
     ]
     assert log(tmp_path, "export") == [
@@ -196,7 +196,7 @@ def test_the_export_runs_in_the_use_cases_directory_after_installing_both(
     assert result.returncode == 0, result.stderr
     project = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv")[1] == (
-        f"pip install --python {project}/bin/python {tree} {use_case}"
+        f"pip install --python {project}/bin/python {tree.parent / CORE_ROOT.name} {tree} {use_case}"
     )
     assert (tmp_path / "export.cwd").read_text().splitlines() == [str(use_case)]
 

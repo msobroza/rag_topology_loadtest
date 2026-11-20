@@ -19,7 +19,7 @@
 # Unset, the command runs in the directory app.sh was started in.
 #
 # QP_BOOTSTRAP=1 (set by qp-deploy) first installs what the App needs, for a
-# generic environment with only uv: the workflow app uv-installs the toolkit, with
+# generic environment with only uv: the workflow app uv-installs the core, the toolkit, with
 # the extras named by QP_BOOTSTRAP_EXTRAS (e.g. "domino") when set, and the use
 # case of QP_USE_CASE_DIR, in one command, into a virtualenv under $HOME; a
 # model server runs its kind's bootstrap. Unset, nothing is installed: the
@@ -39,6 +39,9 @@ set -euo pipefail
 # project's .python-version is one level up, at the repository's root.
 TOOLKIT=$(cd "$(dirname "$0")/.." && pwd)
 PYTHON_VERSION_FILE=$TOOLKIT/../.python-version
+# The core's directory, beside the toolkit's: what the toolkit depends on and no
+# package index has, so it is named first in the same install (ADR 0014).
+CORE=${TOOLKIT%/*}/query_processing_core
 
 ROLE=${QP_ROLE:-workflow}
 WHO=$ROLE                                   # what die names: the role, or the kind and component
@@ -62,17 +65,18 @@ install_project() {
   export PATH="$venv/bin:$PATH"
 }
 
-# install_this_project: the toolkit, with the extras an Agent asks for (its
-# launch script sets QP_BOOTSTRAP_EXTRAS=domino, for tracing), then the use case
-# of QP_USE_CASE_DIR when there is one, into $HOME/qp-venv in one command: the
-# use case depends on the toolkit, which no package index has.
+# install_this_project: the core, then the toolkit, with the extras an Agent
+# asks for (its launch script sets QP_BOOTSTRAP_EXTRAS=domino, for tracing), then
+# the use case of QP_USE_CASE_DIR when there is one, into $HOME/qp-venv in one
+# command: the toolkit depends on the core, the use case on the toolkit, and no
+# package index has either.
 install_this_project() {
   local toolkit=$TOOLKIT
   if [ -n "${QP_BOOTSTRAP_EXTRAS:-}" ]; then toolkit="${TOOLKIT}[$QP_BOOTSTRAP_EXTRAS]"; fi
   if [ -n "${QP_USE_CASE_DIR:-}" ]; then
-    install_project "$HOME/qp-venv" "$toolkit" "$QP_USE_CASE_DIR"
+    install_project "$HOME/qp-venv" "$CORE" "$toolkit" "$QP_USE_CASE_DIR"
   else
-    install_project "$HOME/qp-venv" "$toolkit"
+    install_project "$HOME/qp-venv" "$CORE" "$toolkit"
   fi
 }
 

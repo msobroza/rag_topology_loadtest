@@ -7,14 +7,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from query_processing_core.retrieval.metadata_filter import (
+    Comparator,
+    MetadataCondition,
+)
 
 from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVectorStore
 from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.metadata_filter import (
-    Comparator,
-    MetadataCondition,
-)
 from query_processing.domain.retrieval.passages import MetadataValue, Passage
 
 COLLECTION = "passages_under_test"  # any name: the adapter must use the one given

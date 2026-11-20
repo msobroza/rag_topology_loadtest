@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from query_processing_core.retrieval.metadata_filter import (
+    Comparator,
+    MetadataCondition,
+)
 
 from query_processing.adapters.vector_store.chroma.chroma_filter_translator import (
     ChromaFilterTranslator,
@@ -14,10 +18,6 @@ from query_processing.adapters.vector_store.elasticsearch import (
 )
 from query_processing.adapters.vector_store.fake.in_memory_filter_translator import (
     InMemoryFilterTranslator,
-)
-from query_processing.domain.retrieval.metadata_filter import (
-    Comparator,
-    MetadataCondition,
 )
 from query_processing.domain.retrieval.passages import MetadataValue, Passage
 

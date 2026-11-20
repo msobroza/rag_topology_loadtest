@@ -19,15 +19,16 @@ CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 OVMS_BUNDLE='${ovms_bundle_path}'
 
-# The repository's one virtualenv, at the clone's root, with the toolkit installed from
+# The repository's one virtualenv, at the clone's root, with the core from
+# query_processing_core/, the toolkit installed from
 # query_processing/ with the loadtest and emulation extras (qp-deploy, qp-ingest,
 # qp-fetch-corpus, locust and qp-domino-emulation) and the RAG use case from
-# query_processing_rag_usecase/, in one command: no package index has the toolkit.
+# query_processing_rag_usecase/, in one command: no package index has the core or the toolkit.
 install_project() {
   if [ ! -x "$REPO_PATH/.venv/bin/python" ]; then
     retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv --python "$(cat .python-version)" .venv' _ "$REPO_PATH"
   fi
-  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python -e "./query_processing[loadtest,emulation]" -e ./query_processing_rag_usecase' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python -e ./query_processing_core -e "./query_processing[loadtest,emulation]" -e ./query_processing_rag_usecase' _ "$REPO_PATH"
 }
 
 # The key the fake Domino logs in to the pool machines with, from Secret Manager.

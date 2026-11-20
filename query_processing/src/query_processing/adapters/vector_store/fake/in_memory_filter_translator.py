@@ -17,7 +17,11 @@ import operator
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from ....domain.retrieval.metadata_filter import Comparator, MetadataCondition
+from query_processing_core.retrieval.metadata_filter import (
+    Comparator,
+    MetadataCondition,
+)
+
 from ....domain.retrieval.passages import Passage
 from ..base_metadata_filter_translator import BaseMetadataFilterTranslator
 

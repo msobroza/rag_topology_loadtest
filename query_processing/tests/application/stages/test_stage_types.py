@@ -6,6 +6,10 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
 
 from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
@@ -32,10 +36,6 @@ from query_processing.application.state_fields import field_types_of, state_fiel
 from query_processing.application.workflow_builder import open_stage
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.prompts import PromptMessage
-from query_processing.domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-)
 from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_graphs import rag_graph
 from workflow_fakes import DenseOnlyStore, ScriptedStore, scored

@@ -1,6 +1,7 @@
-"""The repository's Makefile and the toolkit's: the root installs the toolkit and
-the use case together, hands the gates to the toolkit's, then runs them over
-the use case and over the charts package, each followed by its own tests.
+"""The repository's Makefile and the toolkit's: the root installs the core, the
+toolkit and the use case together, runs the gates over the core and its tests,
+hands them to the toolkit's, then runs them over the use case and over the
+charts package, each followed by its own tests.
 
 ``make -n`` prints the commands without running them; a recursive ``$(MAKE)``
 still runs, under ``-n`` too, so the toolkit's commands are printed as well. The
@@ -21,6 +22,12 @@ from repo_paths import REPO_ROOT, TOOLKIT_ROOT
 
 TOOLS = "/tools/bin/"  # never run: printed only
 GATES = ("lint", "typecheck", "complexity", "deadcode", "deps", "test")
+# The core's directory, beside the toolkit's: what toolkits exchange, which the
+# toolkit installs. Its gates and tests run first. Named only, as the use case is.
+CORE = "query_processing_core"
+# The targets that run over the core before the toolkit; deadcode and test are
+# the toolkit's alone.
+BEFORE_THE_TOOLKIT = ("check", "format", "lint", "typecheck", "complexity", "deps")
 # The RAG use case's directory, beside the toolkit's: the root installs both and
 # runs the use case's tests. Named only: no test of the toolkit reads its files.
 USE_CASE = "query_processing_rag_usecase"
@@ -55,8 +62,12 @@ def test_the_root_hands_each_gate_to_the_toolkit_with_the_tools_place(
     target: str,
 ) -> None:
     lines = dry_run(REPO_ROOT, target, f"BIN={TOOLS}")
+    core = [line for line in lines if line.startswith(f"cd {CORE} && ")]
 
-    assert lines[0].endswith(f' -C {TOOLKIT_ROOT.name} {target} BIN="{TOOLS}"')
+    first_core = len(core) if target in BEFORE_THE_TOOLKIT else 0
+    assert lines[:first_core] == core
+    toolkit_line = lines[first_core]
+    assert toolkit_line.endswith(f' -C {TOOLKIT_ROOT.name} {target} BIN="{TOOLS}"')
 
 
 @pytest.mark.parametrize(
@@ -69,12 +80,13 @@ def test_the_root_hands_each_gate_to_the_toolkit_with_the_tools_place(
 def test_the_root_installs_the_toolkit_and_the_use_case_in_one_command(
     target: str, toolkit: str, for_development: str
 ) -> None:
-    # No package index has the toolkit: the use case's dependency on it is met
-    # only when both directories are named, the toolkit first. The charts
+    # No package index has the core or the toolkit: the toolkit's dependency on
+    # the core, and the use case's on the toolkit, are met only when the
+    # directories are named, the core first, then the toolkit. The charts
     # package is no part of what runs: only install-dev adds it.
     lines = dry_run(REPO_ROOT, target, f"BIN={TOOLS}")
 
-    installed = f"-e {toolkit} -e ./{USE_CASE}{for_development}"
+    installed = f"-e ./{CORE} -e {toolkit} -e ./{USE_CASE}{for_development}"
     assert lines == [f"{TOOLS}python -m pip install {installed}"]
     assert (REPO_ROOT / toolkit.strip('"').removesuffix("[dev]")).resolve() == (
         TOOLKIT_ROOT
@@ -84,7 +96,7 @@ def test_the_root_installs_the_toolkit_and_the_use_case_in_one_command(
 def test_the_toolkit_alone_installs_from_its_directory() -> None:
     lines = dry_run(TOOLKIT_ROOT, "install-dev", f"BIN={TOOLS}")
 
-    assert lines == [f'{TOOLS}python -m pip install -e ".[dev]"']
+    assert lines == [f'{TOOLS}python -m pip install -e ../{CORE} -e ".[dev]"']
 
 
 def gates_beside_the_toolkit(directory: str) -> list[str]:
@@ -110,9 +122,13 @@ def gates_beside_the_toolkit(directory: str) -> list[str]:
 def test_check_at_the_root_runs_the_toolkits_gates_then_those_of_the_two_beside() -> (
     None
 ):
-    from_root = dry_run(REPO_ROOT, "check", f"BIN={TOOLS}")[1:]
+    core = gates_beside_the_toolkit(CORE)
+    from_root = dry_run(REPO_ROOT, "check", f"BIN={TOOLS}")
     from_toolkit = dry_run(TOOLKIT_ROOT, "check", f"BIN={TOOLS}")
 
+    # The core first, since the toolkit installs it; then the toolkit's own.
+    assert from_root[: len(core)] == core
+    from_root = from_root[len(core) + 1 :]
     assert from_root[: len(from_toolkit)] == from_toolkit
     assert from_toolkit[0] == f"{TOOLS}ruff check src tests locustfile.py"
     assert from_toolkit[-1] == f"{TOOLS}pytest"
@@ -128,7 +144,11 @@ def test_a_gate_run_from_the_root_also_runs_over_the_two_beside(gate: str) -> No
     lines = dry_run(REPO_ROOT, gate, f"BIN={TOOLS}")
 
     beside = [line.split(" && ")[0] for line in lines if line.startswith("cd ")]
-    assert list(dict.fromkeys(beside)) == [f"cd {USE_CASE}", f"cd {CHARTS}"]
+    assert list(dict.fromkeys(beside)) == [
+        f"cd {CORE}",
+        f"cd {USE_CASE}",
+        f"cd {CHARTS}",
+    ]
     assert all(f" && {TOOLS}" in line for line in lines if line.startswith("cd "))
 
 
@@ -150,7 +170,7 @@ def test_ty_beside_the_toolkit_is_told_the_python_its_tools_come_from(
     beside = [line for line in lines if line.startswith("cd ") and "ty " in line]
     assert beside == [
         f"cd {directory} && {tools}ty check{told} src"
-        for directory in (USE_CASE, CHARTS)
+        for directory in (CORE, USE_CASE, CHARTS)
     ]
 
 

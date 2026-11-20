@@ -25,13 +25,13 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import Field
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from ...adapters.vector_store.base_vector_store import (
     BaseVectorStore,
     required_lexical_search,
 )
 from ...domain.components.component_requests import SearchRequest
-from ...domain.retrieval.metadata_filter import MetadataCondition
 from ...domain.retrieval.passages import ScoredPassage
 from ...domain.retrieval.retrieval_mode import RetrievalMode
 from ..workflow_state import WorkflowState

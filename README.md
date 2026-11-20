@@ -164,11 +164,11 @@ one per stage whose LLM reported its counts, `rewrite` and `generate`
 
 At the repository's root, create its one `.venv` on the Python of
 `.python-version`, 3.11 (`uv venv`, or `python3.11 -m venv .venv`), then
-install both distributions in one command, the toolkit first, since no package
-index has it:
+install the three distributions in one command, the core first, then the
+toolkit, since no package index has either:
 
 ```bash
-make install-dev    # the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
+make install-dev    # the core, the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
@@ -323,8 +323,9 @@ Start from a copy of the RAG's:
 | `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. An implementation of its own is tested by a subclass of a test class the toolkit ships, and its imports by a structure test of its own (the RAG's `tests/test_layering.py`). |
 
 The root `Makefile` and the CI install and test the RAG use case only: install
-another with the toolkit in one command (`python -m pip install -e
-./query_processing -e ./query_processing_<name>_usecase`) and run its tests in
+another with the core and the toolkit in one command (`python -m pip install -e
+./query_processing_core -e ./query_processing -e
+./query_processing_<name>_usecase`) and run its tests in
 its directory. The `rag` image of `domino/Dockerfile` takes
 `--build-arg USE_CASE=<its directory>`. A minimal workflow file, run from a
 scratch directory: a lexical search that keeps three passages, with no LLM and
@@ -589,13 +590,21 @@ the router's `RouterSettings` is, kept in `config/components/router_settings.py`
 
 ### Where a file goes
 
-The repository holds the product's two distributions (ADR 0005), each a
-directory of its own at its root:
+The repository holds the product's three distributions (ADR 0005, ADR 0014),
+each a directory of its own at its root:
 
+- **The core**, in `query_processing_core/`: what one toolkit writes and
+  another reads, today the metadata filter. Data only: no port, no settings,
+  no I/O; it imports the standard library and Pydantic alone, and no toolkit
+  and no use case (its own `tests/test_core_imports.py` checks it). The
+  toolkit depends on it, so every install names its directory first. Its
+  modules are laid out by the glossary's areas (`retrieval/`), and rules 3 and
+  9 below apply to it.
 - **The toolkit**, in `query_processing/`: what any use case can assemble.
   Every path of this section and of the tree below it is relative to that
-  directory, except the use case's and the repository's own entries at the end
-  of the tree (`query_processing_rag_usecase/`, `experiment_charts/`,
+  directory, except the core's, the use case's and the repository's own
+  entries at the end of the tree (`query_processing_core/`,
+  `query_processing_rag_usecase/`, `experiment_charts/`,
   `emulation/`, `experiments/`, `experiments-explained/`, `docs/`, the root
   `Makefile`, `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and
   `.github/`). It ships no workflow file and no default that is a use case's
@@ -627,11 +636,13 @@ through, and no package of the toolkit imports it. `testing/` holds the test
 classes a use case's tests subclass, imported as `query_processing.testing`,
 and no package imports it either, `extension_api` included.
 
-1. **Imports.** A package imports only what this table allows.
+1. **Imports.** A package imports only what this table allows, and every
+   package, `domain` included, may also import the core
+   (`query_processing_core`), which is data that every toolkit shares.
 
    | Package | May import |
    | --- | --- |
-   | `domain` | `domain` |
+   | `domain` | `domain` (and, as every package, the core) |
    | `application` | itself, `domain`, and the ports of the adapters (`adapters/<component>/base_<component>.py`), nothing else of them |
    | `config` | itself and `domain` |
    | `adapters` | `adapters`, `infrastructure` and `domain`, and a port only `domain` |
@@ -796,11 +807,11 @@ which keep the names of their day, and the rules above do not apply to them.
 `experiments-explained/` explains those measurements to a reader who does not know the
 domain: a tour with one chart per finding (see
 [experiments-explained/README.md](experiments-explained/README.md)). Its charts and the
-table behind each are drawn from the registry by `experiment_charts/`, a third
+table behind each are drawn from the registry by `experiment_charts/`, a fourth
 folder at the repository's root with a distribution of its own
 (`make experiment-charts`, from the root). That package is not part of the
 product: it depends on matplotlib and PyYAML, imports nothing from
-`query_processing`, `fake_domino` or a use case (its own
+`query_processing_core`, `query_processing`, `fake_domino` or a use case (its own
 `tests/test_experiment_charts_imports.py` checks it), and of the rules above
 only rule 9 applies to it.
 
@@ -833,7 +844,6 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       retrieval/      what is searched and what comes back
         passages.py   Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
-        metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
         retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
         rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
         corpus.py     synthetic handbook corpus, its questions, chunking
@@ -1095,7 +1105,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
-    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
+    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the three roots (REPO_ROOT, TOOLKIT_ROOT, CORE_ROOT) shared by several test files (on pytest's path)
+query_processing_core/   the core, one distribution (query-processing-core) that the toolkit installs: what toolkits exchange (ADR 0014)
+  pyproject.toml      the distribution: Pydantic alone; its package under src/
+  src/query_processing_core/   its package; it imports the standard library and Pydantic alone, no toolkit and no use case
+    retrieval/        what a search is asked
+      metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
+  tests/              its own tests, mirroring src/: the metadata filter's, and its imports (test_core_imports.py), read from its files with no toolkit started
 query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: its settings, and its kNN router (ADR 0006)
   pyproject.toml      the distribution (query-processing-rag-usecase): the toolkit, scikit-learn pinned exactly and joblib; its package under src/; qp-rag-train-router
   workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)
@@ -1131,7 +1147,7 @@ experiments/        the registry of every measurement: one folder per sitting (R
 experiments-explained/  the measurements told to a newcomer: README.md, and figures/ and data/ drawn by experiment_charts/
 docs/adr/           the decisions
 docs/plans/         dated records: a plan as it was approved, and what became of it
-Makefile            installs the toolkit and the use case in one command, and the charts package with them for development; hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; the one .venv here
+Makefile            installs the core, the toolkit and the use case in one command, and the charts package with them for development; runs check (with the core's tests) and lint, typecheck, complexity and deps over the core first, hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; the one .venv here
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
@@ -3536,10 +3552,10 @@ deploy-reranker` or `make deploy-llm` alone, `qp-deploy` reminds you that the wo
 deploy-workflow`. Every model server call in a split topology goes through
 Domino's proxy: it is part of what the split topologies measure on Domino.
 
-One-time prerequisites that stay manual: install the toolkit and the use case in
-the Workspace (`make install-dev` at the root, or `uv pip install -e
-"./query_processing[loadtest]" -e ./query_processing_rag_usecase`, both in one
-command), `make ingest`, and for `ovms` the exported models.
+One-time prerequisites that stay manual: install the core, the toolkit and the
+use case in the Workspace (`make install-dev` at the root, or `uv pip install -e
+./query_processing_core -e "./query_processing[loadtest]" -e
+./query_processing_rag_usecase`, all in one command), `make ingest`, and for `ovms` the exported models.
 
 #### Try the deploy without Domino
 

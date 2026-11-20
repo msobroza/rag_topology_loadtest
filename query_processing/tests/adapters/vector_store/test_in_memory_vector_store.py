@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
     distinct_words,
 )
 from query_processing.domain.components.component_requests import SearchRequest
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import Passage
 from query_processing.domain.retrieval.retrieval_mode import RetrievalMode
 

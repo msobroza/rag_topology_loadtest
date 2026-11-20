@@ -9,6 +9,10 @@ from __future__ import annotations
 import json
 
 import pytest
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
 
 from output_schema_fakes import ScriptedLLM
 from query_processing.application.output_schemas import StandaloneQueryWithFilter
@@ -19,10 +23,6 @@ from query_processing.application.stages.generate_stage import (
 )
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.prompts import PromptMessage
-from query_processing.domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-)
 
 SOURCE = MetadataFieldInfo(
     name="source",

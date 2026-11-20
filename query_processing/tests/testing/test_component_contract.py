@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing import extension_api
 from query_processing.adapters.llm.base_llm import BaseLLM
@@ -22,7 +23,6 @@ from query_processing.domain.components.component_requests import (
 )
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.registry import Registry
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.extension_api import BaseComponent
 from query_processing.testing import ComponentContract
 from shout_extension.shouting import BaseShouter, Shouted, ShoutRequest, UpperShouter

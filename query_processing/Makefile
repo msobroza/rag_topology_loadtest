@@ -22,11 +22,13 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install the toolkit alone (runtime deps only); the root's make install adds the use case
-	$(PYTHON) -m pip install -e .
+# No package index has the core the toolkit depends on: its directory, beside
+# this one, is named first in the same command.
+install: ## Install the core and the toolkit (runtime deps only); the root's make install adds the use case
+	$(PYTHON) -m pip install -e ../query_processing_core -e .
 
-install-dev: ## Install the toolkit alone with locust + test tooling
-	$(PYTHON) -m pip install -e ".[dev]"
+install-dev: ## Install the core and the toolkit with locust + test tooling
+	$(PYTHON) -m pip install -e ../query_processing_core -e ".[dev]"
 
 check: lint typecheck complexity deadcode deps test ## Run every quality gate, stopping at the first failure
 

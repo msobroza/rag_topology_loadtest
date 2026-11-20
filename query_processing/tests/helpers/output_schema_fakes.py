@@ -9,11 +9,11 @@ given and records what it was asked.
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.adapters.llm.base_llm import BaseLLM
 from query_processing.application.output_schemas import OUTPUT_SCHEMAS
 from query_processing.domain.components.component_requests import GenerateAnswer
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 
 FIXTURE_SCHEMA = "fixture_rewrite"
 

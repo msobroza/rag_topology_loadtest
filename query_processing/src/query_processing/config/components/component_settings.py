@@ -40,16 +40,16 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+    check_condition_shapes,
+)
 
 from ...domain.components.base_component import COMPONENT_TYPES
 from ...domain.endpoints.api_endpoint import ApiEndpoint
 from ...domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ...domain.registry import Registry
-from ...domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-    check_condition_shapes,
-)
 from .registered_component_settings import RegisteredComponentSettings
 from .router_settings import RouterSettings
 from .settings_blocks import (

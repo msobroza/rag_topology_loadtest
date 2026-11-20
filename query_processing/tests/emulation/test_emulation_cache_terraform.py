@@ -25,7 +25,7 @@ from emulation_terraform import (
     variables,
 )
 
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 # What render() puts in place of ${dataset_path}.
 DATASET_PATH = "dummy-dataset_path"
@@ -152,12 +152,12 @@ def test_the_pool_warms_what_app_sh_installs_at_every_app_start() -> None:
         'uv venv "$venv" --python "$(cat "$PYTHON_VERSION_FILE")"',
         'uv pip install --python "$venv/bin/python" "$@"',
     ]
-    # The pool, at the clone's paths: an Agent's toolkit, then the use case of
-    # QP_USE_CASE_DIR, the directory qp-deploy runs from.
+    # The pool, at the clone's paths: the core, an Agent's toolkit, then the use
+    # case of QP_USE_CASE_DIR, the directory qp-deploy runs from.
     venv = 'uv venv "$HOME/qp-venv" --python "$(cat "$1/.python-version")"'
     install = (
         'uv pip install --python "$HOME/qp-venv/bin/python" '
-        f'"$1/{TOOLKIT_ROOT.name}[domino]" "$1/{USE_CASE_ROOT.name}"'
+        f'"$1/{CORE_ROOT.name}" "$1/{TOOLKIT_ROOT.name}[domino]" "$1/{USE_CASE_ROOT.name}"'
     )
     for warmed in (venv, install):
         assert f'{warmed}\' _ "$REPO_PATH"' in pool, f"{warmed!r} not in pool.sh.tftpl"

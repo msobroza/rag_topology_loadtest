@@ -4,9 +4,10 @@ No docker here: the test reads the ``COPY`` lines of the toolkit's Dockerfile
 for the ``rag`` stage, with ``USE_CASE`` set to this directory's name, copies
 those files and nothing else into a folder laid out as the image's ``/opt/qp``,
 and reads the settings there, the first thing the image's export step does.
-The two packages are found on ``PYTHONPATH`` in their copied folders, as the
-image installs them from there. A file the use case gains and the Dockerfile
-forgets fails here, not in a build.
+The three packages, the core's, the toolkit's and this one's, are found on
+``PYTHONPATH`` in their copied folders, as the image installs them from there.
+A file the use case gains and the Dockerfile forgets fails here, not in a
+build.
 """
 
 from __future__ import annotations
@@ -84,6 +85,11 @@ def settings_read_in(directory: Path, *python_path: Path) -> list[str]:
     return run.stdout.splitlines()[-2:]
 
 
+def toolkit_sources(root: Path) -> tuple[Path, Path]:
+    """The source folders of the core and the toolkit, laid out under ``root``."""
+    return root / "query_processing_core" / "src", root / "query_processing" / "src"
+
+
 def test_the_files_the_image_copies_are_enough_to_read_the_settings(
     tmp_path: Path,
 ) -> None:
@@ -93,10 +99,10 @@ def test_the_files_the_image_copies_are_enough_to_read_the_settings(
     copied = tmp_path / use_case
 
     package_file, in_image = settings_read_in(
-        copied, tmp_path / "query_processing" / "src", copied / "src"
+        copied, *toolkit_sources(tmp_path), copied / "src"
     )
     _, here = settings_read_in(
-        USE_CASE_DIR, REPO_ROOT / "query_processing" / "src", USE_CASE_DIR / "src"
+        USE_CASE_DIR, *toolkit_sources(REPO_ROOT), USE_CASE_DIR / "src"
     )
 
     assert Path(package_file).is_relative_to(copied / "src")

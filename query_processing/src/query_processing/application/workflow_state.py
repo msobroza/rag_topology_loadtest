@@ -20,8 +20,9 @@ import operator
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from ..domain.conversation import HistoryMessage
-from ..domain.retrieval.metadata_filter import MetadataCondition
 from ..domain.retrieval.passages import RagMode, ScoredPassage
 
 # What one request carries from stage to stage, by field name: a stage reads

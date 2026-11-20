@@ -25,10 +25,10 @@ from dataclasses import field as dataclass_field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
+from query_processing_core.retrieval.metadata_filter import MetadataFieldInfo
 
 from ...domain.prompts import Prompt
 from ...domain.registry import Registry
-from ...domain.retrieval.metadata_filter import MetadataFieldInfo
 from ..workflow_state import WorkflowState
 
 # A dotted module path in front of a class name, as str() of a generic shows it.

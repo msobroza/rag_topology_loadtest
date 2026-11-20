@@ -10,8 +10,10 @@ from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
-from .metadata_filter import MetadataCondition, MetadataValue
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataValue,
+)
 
 RagMode = Literal["query", "retrieve"]
 # The key of ``RagResult.timings_ms`` that holds the whole run's wall time. Every

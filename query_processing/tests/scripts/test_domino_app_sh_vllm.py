@@ -35,7 +35,7 @@ from launch_script_stand_ins import (
     write_vllm_stand_in,
 )
 from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 VLLM_SH = TOOLKIT_ROOT / "domino" / "model_servers" / "vllm.sh"
 EIGHT_GIB = str(8 * 2**30)
@@ -327,7 +327,7 @@ def test_a_vllm_app_installs_the_project_when_qp_vllm_config_is_missing(
     venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     assert log(tmp_path, "qp-vllm-config").splitlines() == [
         "--environment embedder",

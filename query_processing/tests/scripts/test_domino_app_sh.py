@@ -30,7 +30,7 @@ from launch_script_stand_ins import (
     write_fake,
 )
 from query_processing.domain.roles import Role
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 
 @pytest.fixture
@@ -275,7 +275,7 @@ def test_bootstrap_installs_the_toolkit_in_a_venv_before_serving(
     venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",  # the project's Python, from .python-version
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     assert log(tmp_path, f"venv-{server}").strip() == argv
     assert log(tmp_path, server) == ""  # not the one already on PATH
@@ -303,7 +303,7 @@ def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
     assert result.returncode == 0, result.stderr
     venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines()[1] == (
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}[domino] {use_case}"
+        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}[domino] {use_case}"
     )
 
 

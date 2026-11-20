@@ -19,7 +19,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from ....domain.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from ..base_metadata_filter_translator import BaseMetadataFilterTranslator
 
 ChromaWhere = dict[str, Any]

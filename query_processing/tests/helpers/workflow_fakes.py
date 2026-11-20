@@ -17,6 +17,7 @@ import pytest
 from langchain_core.callbacks import AsyncCallbackHandler
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.llm.base_llm import BaseLLM
@@ -52,7 +53,6 @@ from query_processing.domain.opened_graph import (
     OpenedGraph,
     StageRun,
 )
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import Passage, ScoredPassage
 
 # Overrides the ``orchestrator`` fixture of tests/application: a test that

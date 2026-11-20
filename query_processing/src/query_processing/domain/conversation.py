@@ -18,8 +18,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from .retrieval.metadata_filter import (
+from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
     check_conditions,

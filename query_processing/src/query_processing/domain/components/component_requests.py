@@ -18,8 +18,8 @@ from __future__ import annotations
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
-from ..retrieval.metadata_filter import MetadataCondition
 from ..retrieval.passages import ScoredPassage
 from ..retrieval.retrieval_mode import RetrievalMode
 

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# The core (ADR 0014): what one toolkit writes and another reads. Data only: no
+# port, no settings, no I/O, and it imports no toolkit and no use case
+# (tests/test_core_imports.py). The toolkit depends on it, and no package index
+# has it: every install names its directory before the toolkit's (the root
+# Makefile, the CI, the image, domino/app.sh). The gates run over it with the
+# toolkit's configuration (the root Makefile).
+[project]
+name = "query-processing-core"
+version = "0.1.0"
+description = "What the query processing toolkits exchange: the metadata filter."
+requires-python = ">=3.11"  # the version in .python-version, at the repository's root
+license = { text = "Apache-2.0" }
+dependencies = [
+    "pydantic>=2.12",  # the toolkit's floor, so both install the same
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"query_processing_core" = ["py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# The tests mirror src/; the folders are not packages, so test files keep
+# unique names.
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

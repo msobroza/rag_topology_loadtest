@@ -11,6 +11,10 @@ description = "Locust load test comparing one RAG workflow (sentence-transformer
 requires-python = ">=3.11"  # the version in .python-version, at the repository's root
 license = { text = "Apache-2.0" }
 dependencies = [
+    # The core, what toolkits exchange (ADR 0014). No package index has it:
+    # every install names its directory first (the root Makefile, the CI, the
+    # image, domino/app.sh).
+    "query-processing-core",
     "fastapi>=0.115",
     "starlette>=0.40",  # imported directly (ASGI types, TestClient for --dry-run)
     "uvicorn[standard]>=0.30",

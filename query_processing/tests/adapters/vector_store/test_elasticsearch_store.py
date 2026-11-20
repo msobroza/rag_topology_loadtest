@@ -12,13 +12,13 @@ import pytest
 from elastic_transport import JsonSerializer
 from elasticsearch.helpers.vectorstore import AsyncDenseVectorStrategy, DistanceMetric
 from langchain_elasticsearch import AsyncElasticsearchStore
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
 from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from query_processing.domain.retrieval.passages import Passage
 
 INDEX = "passages_under_test"  # any name: the adapter must use the one it is given

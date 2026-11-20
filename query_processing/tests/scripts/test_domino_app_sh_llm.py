@@ -26,7 +26,7 @@ from launch_script_stand_ins import (
     stand_in_env,
     write_fake,
 )
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 SERVED_MODELS = (
     "embedder embedder fixture-org/fixture-embedder fixture-embedder fp32",
@@ -208,7 +208,7 @@ def test_an_llms_app_installs_the_project_to_learn_its_model(tmp_path: Path) -> 
     venv = tmp_path / "home" / "qp-venv"
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python {CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     assert log(tmp_path, "ovms").strip() == f"--rest_port 8888 {llm_argv(models)}"
 

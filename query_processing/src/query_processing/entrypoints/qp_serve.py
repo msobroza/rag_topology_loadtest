@@ -30,6 +30,11 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+    check_conditions,
+)
 
 from ..application.graph_check import WorkflowGraphError
 from ..application.rag_dependencies import RagDependencies
@@ -46,11 +51,6 @@ from ..config.workflow_settings import WorkflowSettings
 from ..domain.conversation import check_history_conditions
 from ..domain.errors import RagDependencyError
 from ..domain.query_request import QueryRequest
-from ..domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-    check_conditions,
-)
 from ..domain.retrieval.passages import RagMode, ScoredPassage
 from ..infrastructure.http.startup_refusal_in_one_line import (
     StartupRefusalInOneLine,
