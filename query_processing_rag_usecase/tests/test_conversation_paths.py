@@ -236,7 +236,7 @@ def test_a_rewrites_conditions_join_the_metadata_filter_and_its_query_is_searche
 
     assert app.embedder.queries == [STANDALONE]
     assert answered["metadata_filter"] == [ON_AMF]
-    # No passage of the fake store's synthetic corpus carries a source.
+    # No vector-store record of the fake store's synthetic corpus carries a source.
     assert answered["records"] == []
     # The answer is still asked about the message as the user sent it.
     answer_prompt, _ = app.llm.asked[-1]

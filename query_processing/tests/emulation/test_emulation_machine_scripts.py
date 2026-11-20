@@ -293,7 +293,7 @@ def test_snapshot_restore_replaces_the_index(machine: FakeMachine) -> None:
         f"POST {restore_path}",
         "GET /rag_passages/_count",
     ]
-    assert f"holds {INDEXED_RECORDS} passages" in result.stdout
+    assert f"holds {INDEXED_RECORDS} vector-store records" in result.stdout
 
 
 def test_snapshot_restore_of_a_missing_snapshot_names_it(machine: FakeMachine) -> None:

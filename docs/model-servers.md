@@ -51,7 +51,7 @@ stream count should not exceed the cores.
 | Weights | Its own export, at `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT` | The in-process export, at the same setting |
 | Requests at once | Its streams (`QP_OVMS_NUM_STREAMS`) | One under `openvino`: a loaded model holds one inference request. `QP_LOCAL_MODELS__WORKERS` under `torch` |
 | Calibration | Streams and threads, for `QP_CALIBRATION__USERS` requests in flight | Threads and batch size, on one request |
-| Batch size of a rerank request | The whole request, 20 passages: its rerank endpoint has no such setting | The reranker's `local.batch_size` (`QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE`), calibrated |
+| Batch size of a rerank request | The whole request, 20 vector-store records: its rerank endpoint has no such setting | The reranker's `local.batch_size` (`QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE`), calibrated |
 | More load | More streams, or more replicas | More replicas |
 | Stream candidates | 1, 2, 4, ... up to the cores, the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE` (2); none under a performance hint | None (see "Requests at once") |
 | OpenVINO's CPU properties | `QP_OVMS_OPENVINO__*`, written into the graph's `plugin_config`: `ENABLE_HYPER_THREADING` by default, a performance hint in place of `NUM_STREAMS` when set | The same block, `QP_LOCAL_MODELS__OPENVINO__*`, at load: `ENABLE_HYPER_THREADING` by default |
@@ -119,8 +119,9 @@ Two sittings on the Google Cloud emulation, 15 November 2026: one reranker insta
 2 vCPUs in the morning, then of 8 and of 16 vCPUs (4 and 8 cores, the same CPU model).
 Runs last 2 minutes, those of the larger reranker 3 ("A larger reranker did not turn
 the result"). "Alone" means Locust straight at the reranker, with the load
-test's uniform passages (303 to 380 characters). "End to end" means `/retrieve` through
-the proxy and two workflow replicas, with corpus passages (137 to 816 characters).
+test's uniform texts (303 to 380 characters). "End to end" means `/retrieve` through
+the proxy and two workflow replicas, with the corpus's vector-store records (texts of
+137 to 816 characters).
 
 ### Same weights, same throughput
 
@@ -138,8 +139,8 @@ One reranker instance alone, requests a second at 4 users, both servers calibrat
 
 The work is the same model computation, 0.3 to 4 seconds a request. The
 server around it costs milliseconds. The one gap, `fp32` on 16 vCPUs, is the batch
-size: these passages are uniform, where OVMS's one batch of 20 is efficient, and the
-FastAPI model server's calibration had chosen batches of 5 on passages of mixed length.
+size: these texts are uniform, where OVMS's one batch of 20 is efficient, and the
+FastAPI model server's calibration had chosen batches of 5 on texts of mixed length.
 
 ### Streams gained 2% at most
 
@@ -153,7 +154,7 @@ FastAPI model server's calibration:
 
 So several requests on a few cores each take about as long as the same requests one
 after the other on every core. OVMS, seconds until every request in flight is answered,
-corpus-like passages:
+corpus-like texts:
 
 | Streams | 8 vCPUs, 4 in flight | 8 vCPUs, 16 in flight | 16 vCPUs, 4 in flight | 16 vCPUs, 16 in flight |
 |---|---|---|---|---|
@@ -170,10 +171,10 @@ Turning CPU pinning off, or setting the throughput hint alone, changed nothing o
 8 vCPUs. Candidates this close swap places between runs: one timed round does not
 separate them.
 
-### On passages of mixed length the batch size decides
+### On texts of mixed length the batch size decides
 
-A batch is padded to its longest passage. Seconds for one request of 20 corpus-like
-passages, by batch size, from the FastAPI model server's calibration:
+A batch is padded to its longest text. Seconds for one request of 20 corpus-like
+vector-store records, by batch size, from the FastAPI model server's calibration:
 
 | Batch size | 20 | 10 | 5 | 2 | 1 |
 |---|---|---|---|---|---|
@@ -228,7 +229,7 @@ reranker's size: the FastAPI model server on the project's own `fp32` export of
 request carries the prompt format the two model cards give. One reranker alone, 3-minute
 runs, requests a second:
 
-| CPUs | Passages, users | FastAPI, own export | FastAPI, OpenVINO's files | OVMS, OpenVINO's files |
+| CPUs | Texts, users | FastAPI, own export | FastAPI, OpenVINO's files | OVMS, OpenVINO's files |
 |---|---|---|---|---|
 | 8 | uniform, 1 | 0.15, p50 6.3 s | 0.15, p50 6.0 s | 0.08, p50 12 s |
 | 8 | uniform, 4 | 0.16 | 0.17 | 0.16 |
@@ -238,7 +239,7 @@ runs, requests a second:
 | 16 | mixed, 4 | not run | 0.27 | 0.21 |
 
 - The conversion changes nothing: the project's export and OpenVINO's files serve alike.
-- Under load on uniform passages the two servers serve alike. On passages of mixed
+- Under load on uniform texts the two servers serve alike. On texts of mixed
   length the FastAPI model server leads, through its batch size again: 4.5 s a request
   in batches of 2 against 6.8 s as one batch of 20, on 8 CPUs.
 - Streams gain more here than on the small reranker, and cost the lone user. For
@@ -248,7 +249,7 @@ runs, requests a second:
   the FastAPI path returns 0.0427, 0.9992, 0.4064 and 0.9718, as the cards print; OVMS,
   on the same model file, returns 0.0655, 0.9956, 0.4441 and 0.9497. The order is the
   same. The likely cause, not tested: OVMS's source puts its own start, end and
-  separator tokens around the query and the passage, which the cards' code does not.
+  separator tokens around the query and the text, which the cards' code does not.
 
 ## What OVMS's own material says matters for a reranker
 
@@ -259,7 +260,7 @@ in flight on 8 vCPUs.
 
 | | Setting | What the material says | Measured here |
 |---|---|---|---|
-| 1 | The tokens of a request: its passages times their length | The demo's own benchmark, 20 passages a request: 3.6 requests a second on passages of 500 tokens, 12.7 on passages of 75. A passage longer than the model's context is cut into chunks, each one more row of the batch. `top_n` shortens the response, not the work | The batch is padded to its longest passage: "On passages of mixed length the batch size decides" |
+| 1 | The tokens of a request: its texts times their length | The demo's own benchmark, 20 texts a request: 3.6 requests a second on texts of 500 tokens, 12.7 on texts of 75. A text longer than the model's context is cut into chunks, each one more row of the batch. `top_n` shortens the response, not the work | The batch is padded to its longest text: "On texts of mixed length the batch size decides" |
 | 2 | The weight format | Every example exports with `--weight-format int8`, which is also the export helper's default | About 1.5 times the requests a second, on both servers |
 | 3 | `NUM_STREAMS` | The one speed option the export helper has for rerank, 1 by default. The guide: 1 for a single client, more under concurrency, fewer than the requests in flight, never more than the cores. A maintainer: about 2 streams for 4 clients, and more streams raise the throughput of most models at the cost of latency | Calibration kept 1 or 2 streams for 4 requests in flight. Gain: 2% at most, 13% at most on Qwen3; a lone request then takes twice as long |
 | 4 | `INFERENCE_NUM_THREADS` against the container's CPUs | The guide: give a container whole cores (Kubernetes' CPU manager, or `--cpuset-cpus`), not a share of CPU time. OVMS reads the CPUs of its container and adjusts threads and pinning only when it detects Docker or Kubernetes on Linux, and sets a stream count only under the `THROUGHPUT` hint; a CPU quota turns pinning off (`src/ov_utils.cpp`, 2026.4.1; this sentence corrected on 19 November 2026). One issue traces slow inference under a Kubernetes CPU limit to more threads than the limit allows | Not measurable on the emulation, where an App has its machine to itself. The App pins the thread count in OVMS's configuration to the CPUs it counts for itself |
@@ -274,11 +275,11 @@ What follows for this project:
   the CPUs divided by `QP_LOCAL_MODELS__THREADS_PER_CORE` (2 by default), as the
   guide advises; until 19 November 2026 they went up to the CPU count, and the
   candidates above the cores were never kept.
-- The largest effects lie outside the server: how many passages a request carries, how
+- The largest effects lie outside the server: how many vector-store records a request carries, how
   long they are, and the weight format.
 - The rerank endpoint has no batch size. OVMS's source builds one batch from every
-  passage of a request and scores it in one inference, so a smaller batch is a request
-  with fewer passages. Splitting a request on the client side was not tried.
+  text of a request and scores it in one inference, so a smaller batch is a request
+  with fewer vector-store records. Splitting a request on the client side was not tried.
 - Not done: reading OVMS's metrics (`QP_OVMS_METRICS=true` turns them on), where the time waiting for an inference request
   (`ovms_wait_for_infer_req_time_us`) set against the inference time
   (`ovms_inference_time_us`) would tell queueing from computing in "OVMS does not
@@ -294,7 +295,7 @@ backend on one's own model and data.
 A reading of the results above, not a measurement.
 
 - **The FastAPI model server** for these rerankers on machines of up to 8 cores. It
-  serves as much as OVMS on the same weights, more on passages of mixed length, and
+  serves as much as OVMS on the same weights, more on texts of mixed length, and
   under overload it loses fewer requests. It scales with the cores of one instance
   (0.28, 1.0 and 1.8 requests a second on 2, 8 and 16 vCPUs) and with replicas: end to
   end, four replicas of 2 vCPUs served 0.87 requests a second where one instance of
@@ -323,7 +324,7 @@ A reading of the results above, not a measurement.
 
 - Each figure is one run: of 2 minutes for the small reranker, of 3 minutes for the
   Qwen3 reranker and for text generation. The stream timings are one or two rounds each.
-- Two models at 20 passages a request: `crossencoder-camembert-base-mmarcoFR` for
+- Two models at 20 vector-store records a request: `crossencoder-camembert-base-mmarcoFR` for
   every figure but the last section's, and Qwen3 with 0.6 B parameters there, whose
   runs hold 14 to 60 requests each.
 - Machines of 2, 8 and 16 vCPUs. Nothing here says what happens with more cores, or

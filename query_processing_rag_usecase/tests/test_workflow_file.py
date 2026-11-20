@@ -290,10 +290,10 @@ def test_the_file_pins_the_rags_edges_and_its_three_conditional_edges(
 
 
 def old_messages(
-    question: str, passages: list[ScoredVectorStoreRecord]
+    question: str, records: list[ScoredVectorStoreRecord]
 ) -> list[dict[str, str]]:
     """What the generate stage's two settings gave before prompts.yaml."""
-    context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
+    context = "\n".join(f"[{i}] {r.text}" for i, r in enumerate(records, start=1))
     user = USER_PROMPT.format(context=context, question=question)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -306,18 +306,18 @@ def test_the_answer_prompt_renders_what_the_two_old_settings_gave(
     use_case_dir: Path, count: int
 ) -> None:
     prompt = settings_here().prompts["answer_from_context"]
-    passages = [
+    records = [
         ScoredVectorStoreRecord(
-            text=f"Passage {{x}} {i}.", metadata={"id": str(i)}, retrieval_score=1.0
+            text=f"Text {{x}} {i}.", metadata={"id": str(i)}, retrieval_score=1.0
         )
         for i in range(count)
     ]
 
     messages = render_prompt(
-        prompt, {"reranked": passages, "conversational_query": "Why {y}?"}
+        prompt, {"reranked": records, "conversational_query": "Why {y}?"}
     )
 
-    assert messages == old_messages("Why {y}?", passages)
+    assert messages == old_messages("Why {y}?", records)
 
 
 def test_the_rewrite_prompt_lists_the_stores_field_and_splices_the_earlier_turns(

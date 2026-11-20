@@ -200,8 +200,9 @@ overrides:
     vector_store:
       # Required: the Elasticsearch cluster every workflow App queries.
       elasticsearch: {url: "https://<elasticsearch host>:9200"}
-      # The passages this site's workflow can read at all: conditions every
-      # search applies before a request's own, on fields a client cannot name.
+      # The vector-store records this site's workflow can read at all:
+      # conditions every search applies before a request's own, on fields a
+      # client cannot name.
       # A value of the site, since which ingestion pipeline version is live
       # differs from one site to another; the workflow file states none, and an
       # index qp-ingest filled has neither field, so it would return nothing.

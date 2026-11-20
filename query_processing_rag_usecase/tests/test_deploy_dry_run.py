@@ -35,8 +35,8 @@ RUN_LABELS = {
     "split-reranker": "split-reranker+reranker=fastapi",
     "split-all": "split-all+embedder=fastapi+reranker=fastapi",
 }
-# A site value the example shows commented, under its overrides: the passages
-# this site's workflow can read at all.
+# A site value the example shows commented, under its overrides: the
+# vector-store records this site's workflow can read at all.
 PREFILTER = (
     "      # prefilter:\n"
     '      #   - {attribute: ingestion_pipeline_version, comparator: eq, value: "1"}\n'

@@ -282,7 +282,7 @@ vectors, which no model gives, and names the variable to unset. Commit both
 files of a training together. The calls of the
 first run reach it on port 8888; `make infra-down` stops the
 containers. `make ingest` embeds with the component `embedder`, which it names
-since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
+since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by the vector-store record's id; `qp-ingest
 --corpus docs.jsonl` loads a real corpus, one `{"id","title","text","metadata"}`
 object per line. It ends with one summary line, such as
 `{"event": "ingest_done", "documents": 200, "records": 200, "embedder": "...", "store": "200 records in rag_passages"}`:
@@ -345,7 +345,7 @@ pip install -e <the clone of document_doclang>/packages/core -e
 ./query_processing_<name>_usecase`) and run its tests in
 its directory. The `rag` image of `domino/Dockerfile` takes
 `--build-arg USE_CASE=<its directory>`. A minimal workflow file, run from a
-scratch directory: a lexical search that keeps three passages, with no LLM and
+scratch directory: a lexical search that keeps three vector-store records, with no LLM and
 no code:
 
 ```yaml
@@ -362,7 +362,7 @@ graph:
 ```
 
 `qp-serve` in that directory answers `/retrieve` and `/query` alike: three
-passages, `"answer": null`, `timings_ms` with `retrieve`, `rerank` and `total`.
+`records`, `"answer": null`, `timings_ms` with `retrieve`, `rerank` and `total`.
 The `fake` store is seeded through the file's embedder, so the file declares
 one that no stage calls: without it the app does not start (`vector_store
 unavailable: could not open backend 'fake': ValueError: ingestion embeds with
@@ -891,7 +891,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         is_query_mode.py  is_query_mode: whether the request goes on to generate, from the mode
         has_history.py  has_history: whether the request carries a conversational history, from that field
         label.py      label: answers with the one field it reads, such as a route
-      ingest.py       embed passages in batches and upsert them
+      ingest.py       embed vector-store records in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the orchestrator, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
@@ -967,7 +967,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           chroma_filter_translator.py  ChromaFilterTranslator: a metadata filter as a where
         fake/         backend: fake
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-          in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage
+          in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a record's metadata
       orchestrator/   the library that runs the workflow graph; importing it imports every module under it, so each orchestrator registers itself
         base_orchestrator.py  BaseOrchestrator, the port: check_graph_runs refuses a graph before anything opens, built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
         langgraph/    orchestrator: langgraph, the default
@@ -1487,7 +1487,7 @@ other. Both servers answer a request for an unknown model with the same
 `404 {"error": "Mediapipe graph definition with requested name is not found"}`.
 
 Direct comparison (Locust straight at the model servers, same payloads as the
-workflow sends: 20 candidate passages per rerank, one question per embedding):
+workflow sends: 20 candidate vector-store records per rerank, one question per embedding):
 
 ```bash
 make infra-up                                   # OVMS reranker :8001, embedder :8002
@@ -1624,11 +1624,11 @@ block, and `qp-ingest` fills the one the file declares.
 | every type | `type` | the router's embedder's: `embedder`; not written for the others: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` \| `router`, or a type an extension registers |
 | every model | `source_id` | the three models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker; an LLM's is the model OVMS pulls when it serves the LLM ("A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)), and the RAG's file writes none |
 | every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends |
-| `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
+| `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a text to store (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
 | `embedder` | `local.normalize` | not written: `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. The RAG's embedder ends its own pipeline with a normalisation step, so its vectors are unit-length whatever this says (measured: length 1.000000 with it off and on). It does not change OVMS: its own export normalises on its side (the exporter's default) |
-| `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | passages per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_records` |
-| `reranker` | `local.calibration_records` | not written: `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
+| `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | vector-store records per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_records` |
+| `reranker` | `local.calibration_records` | not written: `20` | vector-store records in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
 | every model | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `qp-serve --domino` and no key elsewhere |
 | `embedder` | `served.batch_size` | not written: `64` | texts per model-server request (>= 1) |
 | `llm` | `served.temperature` | not written: `0` | sampling temperature, 0 to 2 |
@@ -1643,11 +1643,11 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `http.retries` | not written: the top-level `http.retries` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries the Domino run token; any other 4xx fails at once |
 | every model | `http.backoff_s` | not written: the top-level `http.backoff_s` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
 | `vector_store` | `elasticsearch.url` | `http://localhost:9200` | the cluster; `http://user:password@host:9200` for basic auth |
-| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages; required on `elasticsearch`: no default, start-up refuses an empty one |
+| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the vector-store records; required on `elasticsearch`: no default, start-up refuses an empty one |
 | `vector_store` | `elasticsearch.api_key` | never written | from the environment only (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`): an Elasticsearch API key, the alternative to basic auth; empty = none |
-| `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
+| `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the vector-store records' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
-| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the passages; the collection is required on `chroma`: no default |
+| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the vector-store records; the collection is required on `chroma`: no default |
 | `vector_store` | `fake.seed_documents` | not written: `200` | synthetic documents seeded into the `fake` store when it opens (>= 1) |
 | `vector_store` | `metadata_field_info` | `source`, a string of seven values | the metadata fields a request's metadata filter, and an output schema narrowed to this store, can name: each a `name`, a `type` (`string`, `integer`, `float`, `boolean`), a `description` and optionally its `allowed_values`; none declared accepts only an empty filter ([The metadata filter](#the-metadata-filter-and-the-prefilter)) |
 | `vector_store` | `prefilter` | not written: none | conditions every search applies before the request's own, on fields a client cannot name; the RAG's `deploy.example.yaml` shows one under `overrides` |
@@ -1745,8 +1745,8 @@ answer_from_context:
   - role: user
     content: |-
       Context:
-      {% for passage in reranked %}
-      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {% for record in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ record.text }}
       {%- endfor %}
 
 
@@ -1801,7 +1801,7 @@ overrides:
 An unknown name stops every command that opens components, as an unknown
 backend does (see the variables below). The workflow app's `rag_startup` log
 line names the orchestrator it runs on. For every graph its check accepts, an
-orchestrator gives the last state LangGraph gives: the same answer, passages
+orchestrator gives the last state LangGraph gives: the same answer, `records`
 and metadata filter, and `timings_ms` and `tokens` with the same keys in the
 same order. Each library is imported by its own directory alone, never by
 `application/` or `domain/`.
@@ -1852,7 +1852,7 @@ run on every name `query_processing.testing.registered_orchestrators()` gives.
 A use case cannot add one: `extension_api` does not expose the port.
 
 Lexical retrieval is a workflow file without the embed stage, its components
-the same (ingestion still embeds the passages, with the embedder):
+the same (ingestion still embeds the vector-store records, with the embedder):
 
 ```yaml
 components: {…}
@@ -2171,7 +2171,7 @@ is one `stage_calibrated` JSON log line per stage: the choice, every trial and
 its seconds, the time spent, and whether the budget cut the search short.
 
 Why: on a 2-CPU App machine (one core, two hyper-threads), under `openvino`, a
-rerank request of 20 passages took 5.49 s with one batch of 20, 3.38 s with
+rerank request of 20 vector-store records took 5.49 s with one batch of 20, 3.38 s with
 batches of 2, and 2.94 s with batches of 2 on 2 real threads: 0.340 requests
 per second instead of 0.182. OpenVINO had kept to the physical core until it was
 allowed hyper-threads (`ENABLE_HYPER_THREADING`, set by default since:
@@ -2182,7 +2182,7 @@ the model with one thread each gave nothing more.
 Limits. It times one request at a time, which is how a stage runs under
 `openvino`. With a fixed number of users, latency is the users divided by the
 requests per second, so the fastest request is the best at any number of users.
-Its passages are synthetic, cut to 150 to 800 characters. An App does not
+Its vector-store records are synthetic, their texts cut to 150 to 800 characters. An App does not
 remember the result: every start and every replica calibrates again, about 70 s
 for the reranker on a 2-CPU machine. `qp-calibrate` finds the values once
 instead (below). Under `torch` with several workers, calls share the CPUs, and
@@ -2204,7 +2204,7 @@ streams than cores, and 16 streams on 8 cores were the slowest candidate
 measured, so a 2-vCPU App tries one stream alone. A pinned stream count is
 tried as pinned. Under a performance hint (`QP_OVMS_OPENVINO__PERFORMANCE_HINT`)
 OVMS chooses the streams, so only the thread counts are searched. The warm-up and rounds are the in-process ones,
-and so is the sample: a reranker's `local.calibration_records` passages, all
+and so is the sample: a reranker's `local.calibration_records` vector-store records, all
 kept, or one question an embedder embeds as a query.
 The budget also bounds a trial: one still running when it is spent is
 abandoned, its `ovms` stopped, and the search ends there. The fastest completed
@@ -2355,7 +2355,7 @@ any more by the workflow app:
 | `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | the retrieve and rerank stages' `top_k` (`QP_GRAPH__STAGES__RETRIEVE__TOP_K`, `QP_GRAPH__STAGES__RERANK__TOP_K`); Locust still reads `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a `rerank` target |
 | `RAG_HYBRID_RRF_K` | the retrieve stage's `rrf_k` |
 | `RAG_SYSTEM_PROMPT`, `RAG_USER_PROMPT`, `RAG_PROMPTS_FILE` (`config/prompts.yaml`) | the use case's `prompts.yaml` (`QP_PROMPTS_FILE`, else `./prompts.yaml`), which the generate stage names by its `prompt` |
-| the generate stage's `system_prompt` and `user_prompt` in the workflow file (`QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT`, `__USER_PROMPT`), the user template holding `{context}` and `{question}` | a prompt of `prompts.yaml` (the RAG's `answer_from_context`), a list of messages whose contents are Jinja2 templates over the fields the stage reads (the passages by a loop over `reranked`), named by the stage's `prompt`; a variable by its path replaces the whole prompt, as JSON (`QP_PROMPTS__ANSWER_FROM_CONTEXT`) |
+| the generate stage's `system_prompt` and `user_prompt` in the workflow file (`QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT`, `__USER_PROMPT`), the user template holding `{context}` and `{question}` | a prompt of `prompts.yaml` (the RAG's `answer_from_context`), a list of messages whose contents are Jinja2 templates over the fields the stage reads (the vector-store records by a loop over `reranked`), named by the stage's `prompt`; a variable by its path replaces the whole prompt, as JSON (`QP_PROMPTS__ANSWER_FROM_CONTEXT`) |
 | the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS` vector-store records, all kept |
 | `RAG_EMBEDDING_*`, `RAG_RERANK_*`, `RAG_GENERATION_*`, and before them `RAG_EMBEDDER_*`, `RAG_RERANKER_*` | each model component's entry in the workflow file, by its path: `RAG_EMBEDDING_MODEL` is the embedder's `source_id` (`QP_COMPONENTS__EMBEDDER__SOURCE_ID`), `RAG_RERANK_API_MODEL` its alias as a model server serves it (`QP_COMPONENTS__RERANKER__ALIAS`) or the name sent to an endpoint (`api.model`), `RAG_RERANK_THREADS` `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_EMBEDDING_NORMALIZE` `QP_COMPONENTS__EMBEDDER__LOCAL__NORMALIZE`, `RAG_GENERATION_TIMEOUT_S` `QP_COMPONENTS__LLM__HTTP__TIMEOUT_S` |
 | `RAG_OVMS_EMBEDDINGS_URL`, `RAG_OVMS_RERANK_URL` (a base URL with a localhost default) | `QP_COMPONENTS__EMBEDDER__SERVED__URL`, `QP_COMPONENTS__RERANKER__SERVED__URL` (the full route, no default) |
@@ -2385,14 +2385,14 @@ any more by the workflow app:
 ## Retrieval, stores and model endpoints
 
 **Retrieval mode** (the retrieve stage's `retrieval_mode`). `dense` asks the
-store for the passages nearest to the question's vector. `lexical` asks for the
-passages whose words match best, as the store ranks them: no vector is needed,
+store for the vector-store records nearest to the question's vector. `lexical`
+asks for the records whose words match best, as the store ranks them: no vector is needed,
 so a lexical workflow file has no embed stage (no `embed` timing, and the
 workflow app opens no embedder unless a fake store is seeded through it). `hybrid` asks
 both ways at once, the retrieve stage's `top_k` each, and fuses the two rankings
-by reciprocal rank (`1 / (rrf_k + rank)`, summed per passage). The fusion runs in the
+by reciprocal rank (`1 / (rrf_k + rank)`, summed per record). The fusion runs in the
 workflow, so it needs no Elasticsearch licence, at the price of two store calls
-where a server-side fusion would make one. Passages are always ingested with
+where a server-side fusion would make one. Vector-store records are always ingested with
 their vectors, so one index serves the three modes.
 
 Lexical and hybrid retrieval need a store that ranks text. With `chroma` they
@@ -2402,7 +2402,7 @@ are refused at start-up.
 | --- | --- | --- |
 | `elasticsearch` | kNN on the vector field | Elasticsearch's own BM25 (`match` on the `text` field) |
 | `chroma` | cosine, HNSW | refused at start-up |
-| `fake` | brute-force cosine | a stand-in: passages ranked by how many distinct words they share with the question |
+| `fake` | brute-force cosine | a stand-in: vector-store records ranked by how many distinct words they share with the question |
 
 **Chroma** (`QP_COMPONENTS__VECTOR_STORE__BACKEND=chroma`, the toolkit's `[chroma]` extra).
 Embedded by default: a folder (its `chroma.path`, in the use case's directory), no server to run, filled by
@@ -2410,7 +2410,7 @@ Embedded by default: a folder (its `chroma.path`, in the use case's directory), 
 Chroma serves dense retrieval only. Open-source Chroma filters text by substring
 but does not rank it (its ranked Search API is Chroma Cloud only), so a
 `lexical` or `hybrid` retrieve stage with `chroma` stops `qp-serve` at
-start-up. On Chroma, `ne` and `nin` keep a passage that lacks the field, where
+start-up. On Chroma, `ne` and `nin` keep a vector-store record that lacks the field, where
 the other stores drop it
 ([The metadata filter](#the-metadata-filter-and-the-prefilter)).
 
@@ -2499,7 +2499,7 @@ elsewhere leaves one unused.
 **A French corpus.** The synthetic handbook is English. For a French,
 domain-specific corpus, `qp-fetch-corpus quebec-insurance --out DIR` downloads
 the Quebec automobile insurance corpus of GRAAL-Research (Beauchemin et al.,
-NLLP 2024: about 1,200 passages and 82 questions) and writes `DIR/corpus.jsonl`
+NLLP 2024: about 1,200 texts and 82 questions) and writes `DIR/corpus.jsonl`
 for `qp-ingest --corpus` and `DIR/questions.jsonl` for
 `QP_LOADTEST_QUESTIONS_FILE`. Its source repository states no licence: research
 use, cite the paper, and commit none of it. With Elasticsearch, ingest it into
@@ -2554,7 +2554,7 @@ stage can add conditions, as the RAG's `rewrite` does, and never removes the
 client's; the response's `metadata_filter` is the conditions applied.
 
 A vector store can also state a `prefilter`, conditions in the same shape that
-every search applies before the request's own: which passages a workflow can
+every search applies before the request's own: which vector-store records a workflow can
 read at all. Its fields are not declared, so neither a client nor the LLM can
 name them, and the response does not report them. `qp-ingest` writes none of
 them, so a store filled by it returns nothing under a prefilter; the RAG's
@@ -2563,11 +2563,11 @@ workflow file states none, and its `deploy.example.yaml` shows one under
 
 Each store turns the conditions into its own filter:
 
-| Store | The filter | A passage that lacks the field |
+| Store | The filter | A vector-store record that lacks the field |
 | --- | --- | --- |
 | `elasticsearch` | filter clauses on `metadata.<attribute>`, a string on its `.keyword` sub-field; inside the `knn` clause of a vector search, which the server applies during the search, and in the filter of a text search | dropped, whatever the comparator |
 | `chroma` | a `where` with Chroma's operators, applied before its vector search | dropped, except that `ne` and `nin` keep it, since Chroma has no operator that asks for a field |
-| `fake` | a predicate over a passage's metadata | dropped, whatever the comparator |
+| `fake` | a predicate over a record's metadata | dropped, whatever the comparator |
 
 ### Structured output
 
@@ -2593,7 +2593,7 @@ showing the text. The fake LLM answers a valid instance.
 
 * The store is LangChain's `AsyncElasticsearchStore` over index `rag_passages`,
   created on the first `qp-ingest` with a dense-vector kNN mapping; documents
-  hold `text`, `metadata` and the vector, and the `_id` is the passage id
+  hold `text`, `metadata` and the vector, and the `_id` is the vector-store record's id
   (`<doc id>:<chunk>`), so re-ingesting overwrites in place.
 * Auth: basic credentials inside the `elasticsearch.url` of the vector store
   (`https://user:password@host:9200`) or its `elasticsearch.api_key`, from the

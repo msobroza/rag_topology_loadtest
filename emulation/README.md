@@ -359,7 +359,7 @@ boot (`make ready` says `failed`); an empty bucket is the first sitting's normal
 state. `make -C emulation destroy` deletes the bucket with everything in it.
 
 Measured on 14 November 2026, in two sittings on `split-all` with the French corpus
-(1,592 passages), Spot pool machines and a 4-CPU Workspace:
+(1,592 vector-store records), Spot pool machines and a 4-CPU Workspace:
 
 | | First sitting (empty bucket) | Second sitting (fresh machines) |
 |---|---|---|
@@ -459,7 +459,7 @@ servers, the French corpus. It showed:
   proxied every call. The workflow App fetched its token from `localhost:8899`
   through the forwarder and called the model servers through the proxy.
 - `qp-fetch-corpus` and `qp-ingest` with the French analyzer (1,223 documents,
-  1,592 passages).
+  1,592 vector-store records).
 - The three topologies, each deployed in turn on the same machines: `deploy` of
   `split-all` was done about 11 minutes after `apply` and the corpus ingested
   after 19, the two running side by side, then `monolith` and `split-reranker`.
