@@ -165,9 +165,9 @@ def record_answers_main(
         200 was not of the answer's shape, each with nothing written.
     """
     args = _parser().parse_args(argv)
-    settings = LoadTestSettings()
     with ExitStack() as opened:
-        try:
+        try:  # a setting refused as the settings are built is a usage error too
+            settings = LoadTestSettings()
             endpoints = recorded_endpoints(settings)
             key = opened.enter_context(opened_target_key(settings, key_transport))
         except ValueError as exc:  # a MissingKeyError too

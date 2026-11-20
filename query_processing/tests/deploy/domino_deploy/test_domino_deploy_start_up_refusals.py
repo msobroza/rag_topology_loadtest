@@ -1,9 +1,10 @@
 """The deploy refuses what an App's start-up would refuse, before anything is published.
 
 Through ``deploy`` over the fake Domino, against the tests' workflow file: an
-orchestrator, a backend, an API format or a structured output method nobody
-registered, and a graph the chosen orchestrator does not run, whether an
-override or the workflow file says so. The refusal names the two files, then
+orchestrator, a backend, an API format, a structured output method or a key
+source nobody registered, a ``key`` block holding a key its source does not
+read, and a graph the chosen orchestrator does not run, whether an override or
+the workflow file says so. The refusal names the two files, then
 says, to the character, what ``qp-serve``'s start-up checks say of the same
 settings.
 """
@@ -82,6 +83,10 @@ def test_an_orchestrator_nobody_registered_is_refused_and_nothing_published() ->
         {"embedder": {"api": {"api_format": "jina"}}},
         {"llm": {"api": {"structured_output": "telepathy"}}},
         {"llm": {"served": {"structured_output": "telepathy"}}},
+        {"llm": {"api": {"key": {"source": "vault"}}}},
+        {"vector_store": {"elasticsearch": {"key": {"source": "vault"}}}},
+        {"reranker": {"api": {"key": {"source": "domino", "variable": "X"}}}},
+        {"embedder": {"api": {"key": {"source": "env"}}}},
     ],
     ids=[
         "reranker-backend",
@@ -90,6 +95,10 @@ def test_an_orchestrator_nobody_registered_is_refused_and_nothing_published() ->
         "embedder-api-format",
         "api-structured-output",
         "served-structured-output",
+        "llm-key-source",
+        "store-key-source",
+        "key-the-domino-source-does-not-read",
+        "key-the-env-source-lacks",
     ],
 )
 def test_a_name_nobody_registered_is_refused_and_nothing_published(
@@ -140,5 +149,22 @@ def test_the_dry_run_exits_with_start_ups_line_and_prints_no_app(
     Path("deploy.yaml").write_text(ENV_1 + "overrides: {orchestrator: pydantic}\n")
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     line = refusal(FIXTURE_WORKFLOW, start_up_line(orchestrator="pydantic"))
+    assert (code, out) == (2, "")
+    assert err.endswith(f"qp-deploy: error: {line}\n")
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["{source: vault}", "{source: domino, variable: X}"],
+    ids=["unknown-source", "key-the-source-does-not-read"],
+)
+def test_the_dry_run_exits_with_start_ups_line_of_a_key_block(
+    run_main: RunMain, key: str
+) -> None:
+    overrides = f"overrides: {{components: {{llm: {{api: {{key: {key}}}}}}}}}\n"
+    Path("deploy.yaml").write_text(ENV_1 + overrides)
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+    given = yaml.safe_load(overrides)["overrides"]
+    line = refusal(FIXTURE_WORKFLOW, start_up_line(**given))
     assert (code, out) == (2, "")
     assert err.endswith(f"qp-deploy: error: {line}\n")

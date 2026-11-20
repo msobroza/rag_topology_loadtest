@@ -7,13 +7,13 @@
 # its role's command here (QP_USE_CASE_DIR), where it finds workflow.yaml.
 #
 # Secrets do NOT go here: every `settings` and `overrides` value is written into
-# an App's launch script. Keep every API key
-# (QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY,
-# QP_COMPONENTS__LLM__API__API_KEY,
-# any bearer token for QP_COMPONENTS__EMBEDDER__API__API_KEY or
-# QP_COMPONENTS__RERANKER__API__API_KEY) in Domino's project or user environment
-# variables: qp-deploy refuses a setting ending with _API_KEY, or an api_key
-# under overrides, unless it is empty or `domino`.
+# an App's launch script. An API key goes in a Domino project (or user)
+# environment variable that an `env` key source names: the workflow file's key
+# block, such as the LLM's {source: env, variable: OPENAI_API_KEY}, or one set
+# under overrides below. qp-deploy refuses, in any `settings` list, a variable
+# such a source names and any name ending with _API_KEY, whatever its value, and
+# an old api_key under overrides; a key block holds no key, so overrides may set
+# one (another source or another variable than the workflow file's).
 #
 # Unknown keys are refused. A QP_DEPLOY_<KEY> environment variable overrides a
 # top-level key, e.g. `QP_DEPLOY_TOPOLOGY=monolith make deploy`; QP_DEPLOY_FILE
@@ -180,8 +180,9 @@ apps:
 # api_key, or a value of a type or range the workflow settings refuse stops the
 # deploy, naming its place. Then the workflow file with them is refused, with
 # the line qp-serve prints, if an App's start-up would refuse it: a name nobody
-# registered (a backend, an API format, a structured output method, an
-# orchestrator) or a graph the chosen orchestrator does not run.
+# registered (a backend, an API format, a structured output method, a key
+# source, an orchestrator), a key block holding a key its source does not read,
+# or a graph the chosen orchestrator does not run.
 # qp-deploy's own exports win over them: QP_TOPOLOGY_ALIAS, and the
 # backend and served URL of each component the topology alias names. The run
 # label is the alias plus each served component's kind unless run_label is set

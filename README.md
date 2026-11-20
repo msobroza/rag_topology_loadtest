@@ -638,7 +638,7 @@ and no package imports it either, `extension_api` included.
    | `infrastructure` | itself and `domain` |
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
-   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse; they open nothing |
+   | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse, and `key_source_variables`, the variables their key sources read keys from, which a `settings` list may not set; they open nothing; `status.py` alone may also import `composition`, whose `run_token_source` opens the `domino` key source that asks for the run token `qp-deploy status` sends (only `composition` builds an adapter), and of `adapters` the key source's port, `base_key_source.py`, to name its type |
    | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends and for its `key` and `domino` blocks; `target_client.py` alone may also import `composition`, whose `opened_standalone_key_source` opens the key source of the load test's `key` block (only `composition` builds an adapter from settings), and of `adapters` the key source's port, `base_key_source.py`, to name its type |
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
@@ -952,7 +952,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         pydantic_graph/  orchestrator: pydantic_graph, pydantic-graph (Pydantic AI's graph library)
           pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision named after it; refuses a stage named as one of those nodes, more than one way out at once, a loop, and what its library does not build; the one module importing pydantic-graph
       key_source/     where an API key comes from (ADR 0012); importing it imports every module under it, so each source registers itself
-        base_key_source.py  BaseKeySource, the port: key gives the key held, asking its source only when it must and may; refused forgets a refused key if still held; described says where the key comes from, for an error; reads, the keys of its block; from_block; KEY_SOURCES
+        base_key_source.py  BaseKeySource, the port: key gives the key held, asking its source only when it must and may; refused forgets a refused key if still held; described says where the key comes from, for an error; reads, the keys of its block; from_block; variables, the environment variables a block makes it read; KEY_SOURCES
         domino/       key source: domino
           domino_key_source.py  DominoKeySource: the run token, asked at the token URL under the shared http block, held for token_ttl_s
         env/          key source: env
@@ -998,12 +998,12 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       resource_scope.py  ResourceScope: each resource opened once, all closed together
       http_resources.py  HttpResources: the shared HTTP client, its policy, the key sources (one per key block, the process's one domino source), served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
-      standalone_key_source.py  opened_standalone_key_source: the key source of a key block, for a command that reads no workflow file (the load-test client), refused as start-up refuses it and closed with its block
+      standalone_key_source.py  opened_standalone_key_source: the key source of a key block, for a command that reads no workflow file (the load-test client), refused as start-up refuses it (checked_key_source, the one declaration of that refusal) and closed with its block; run_token_source: the domino source qp-deploy status asks the run token of
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
       component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
-      registered_names.py  check_registered_names: an unknown Backend, API format, key source or orchestrator, and a key block holding what its source does not read, refused before a command opens anything
+      registered_names.py  check_registered_names: an unknown Backend, API format, key source or orchestrator, and a key block holding what its source does not read, refused before a command opens anything; key_source_variables: the variables the key blocks' sources read keys from
       registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_resources, what it is given besides its block; component_type_settings, each component's type keys
       chosen_orchestrator.py  chosen_orchestrator: the orchestrator's class the settings name; check_orchestrator_runs_graph: its refusal of the graph, after its name
       openers/        one opener per component type and Backend; importing it imports every module, so each registers itself
@@ -1035,9 +1035,9 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
       deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
-      deploy_refusals.py  what is refused in the deploy settings before anything is published: a secret in a settings block, a value still holding an example placeholder
-      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks)
-      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list), then each App's exports
+      deploy_refusals.py  what is refused in the deploy settings before anything is published: a name ending in _API_KEY in a settings block, whatever its value, a value still holding an example placeholder
+      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks, and the old api_key with start-up's line), and the variables its key sources read keys from
+      overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list, and a variable a key source of the settings with them reads), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
       topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
       model_server_kinds/  the model-server kinds (rule 6), each with its launch script domino/model_servers/<kind>.sh; importing it imports every module
@@ -1048,7 +1048,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       publish.py      where every App starts (LaunchPaths: the toolkit's launch script, found going up from the use case's directory, and that directory), the entry scripts of a topology's Apps (the workflow app, or a model server told its component and kind), App or Agent, and publishing them in order
       endpoint_url.py where an App answers: {host}/{owner}/{project}/r/notebookSession/{instance id}
       app_id_cache.py the App ids already seen (.qp-deploy-cache.json): an App is redeployed, never created twice
-      status.py       qp-deploy status: one line per App, then the workflow App's /readyz
+      status.py       qp-deploy status: one line per App, then the workflow App's /readyz, with the run token the domino key source asks for
       qp_deploy.py    qp-deploy: the parser, url, --dry-run, tiers and environments (refused in a dry run)
       apps_client.py  the Domino 6.2 beta Apps API calls qp-deploy makes (find, create, add a version, get, list instances) and the wait until Running; send_to_domino, domino_json and describe_failure, shared by every call to Domino
       domino_lookups/  what qp-deploy reads of Domino besides its Apps
@@ -1669,7 +1669,7 @@ domino:       {token_url: "http://localhost:8899/access-token", token_ttl_s: 240
 | `http` | `backoff_s` | `0.2` | the default wait before the first retry, doubled for each next one, for every component whose `http.backoff_s` is not set, and for the hardware-tier lookup |
 | `http` | `max_connections`, `max_keepalive_connections`, `keepalive_expiry_s` | `100`, `20`, `5.0` | the shared client's pool, httpx's own values: connections at once (>= 1), connections kept alive (>= 0), and the seconds an idle one is kept (>= 0). 32 users hold at most 32 calls in flight, and a handshake costs milliseconds against calls of 0.3 to 20 s. The top-level block's only |
 | `http` | `http2` | `false` | HTTP/2 on the shared client; `true` needs the `h2` package (`httpx[http2]`), and is refused without it, and a server that speaks HTTP/2 (Uvicorn's is experimental, OVMS has none). The top-level block's only |
-| `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token: for every `served` component under `qp-serve --domino`, and for an `api` key set to `domino` |
+| `domino` | `token_url` | `http://localhost:8899/access-token` | where a Domino run serves its token, a setting of the `domino` key source: for every `served` component under `qp-serve --domino`, for a `key` block `{source: domino}`, and for the load-test client's |
 | `domino` | `token_ttl_s` | `240` | how long a fetched Domino token is reused (tokens expire after about 5 minutes) |
 | `domino` | `tracing` | `false` | wrap the workflow run with Domino `add_tracing` |
 
@@ -3282,11 +3282,21 @@ vLLM `/v1/rerank`, `/v1/embeddings` or `/v1/chat/completions`), and
 settings and the overrides, which come first in the launch script), and
 `QP_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
 Domino's project or user environment variables, because `settings` and
-`overrides` are written into the Apps' launch scripts. `qp-deploy` refuses, in
-any block, a setting whose name ends in `_API_KEY` (such as
-`OPENAI_API_KEY`), unless its value is empty or `domino`. An endpoint's and
-the vector store's `key` block hold no key, and an old `api_key` of either
-under `overrides` is refused as a key the workflow file does not have. A misspelt key is refused with its name.
+`overrides` are written into the Apps' launch scripts: an API key goes in a
+project environment variable that an `env` key source names. `qp-deploy`
+refuses, in any block's `settings`, a variable that an `env` source of the
+workflow file with the overrides names (the line names the variable, its place
+and the `key` block that reads it), and any name ending in `_API_KEY` (such as
+`OPENAI_API_KEY`), whatever its value. An endpoint's and the vector store's
+`key` block hold no key, so the overrides may set one, another source or
+another variable than the workflow file's (`components.llm.api.key: {source:
+env, variable: LLM_KEY}`), exported as the variables its path names
+(`QP_COMPONENTS__LLM__API__KEY__SOURCE`, `..._KEY__VARIABLE`); a block an App's
+start-up would refuse (an unknown source, a key its source does not read) is
+refused with start-up's line, and so is an old `api_key` of either under
+`overrides` or in the workflow file. `qp-deploy status` asks for the run token
+it sends to `/readyz` through the `domino` key source, at `run_token_url`,
+under `http_timeout_s` and `http_retries`. A misspelt key is refused with its name.
 
 **Topology aliases.** Where each component runs is a deployment matter, so the
 topologies live in `deploy.yaml` (ADR 0003): `topology` chooses one by its alias,

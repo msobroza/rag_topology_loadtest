@@ -75,6 +75,22 @@ class EnvKeySource(BaseKeySource):
         """
         return cls(keys["variable"], env_file=env_file)
 
+    @classmethod
+    def variables(cls, keys: Mapping[str, str]) -> tuple[str, ...]:
+        """Name the variable a block ``{source: env, variable: X}`` reads.
+
+        Args:
+            keys: The block's ``variable``.
+
+        Returns:
+            That variable alone.
+
+        Example:
+            >>> EnvKeySource.variables({"variable": "OPENAI_API_KEY"})
+            ('OPENAI_API_KEY',)
+        """
+        return (keys["variable"],)
+
     def key(self, *, may_ask: bool) -> str:
         """Give the key read when the source opened: it never asks again.
 

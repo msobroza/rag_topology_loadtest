@@ -5,8 +5,9 @@ workflow file: each override reaches every App's launch script under the
 variable of its path, after the App's free list and before qp-deploy's own
 exports; a workflow setting in a free list, a misspelt key, a secret, a
 placeholder or a value the workflow settings refuse stops the deploy before
-anything is sent to Domino. That the workflow app reads each override back to
-the same value, through ``domino/app.sh``, is in
+anything is sent to Domino; what it says of API keys is in
+test_domino_deploy_key_sources.py. That the workflow app reads each override
+back to the same value, through ``domino/app.sh``, is in
 test_entry_scripts_through_app_sh.py. The fixtures (run_main) are in
 domino_deploy_fixtures.
 """
@@ -270,29 +271,6 @@ def test_an_empty_value_is_refused() -> None:
         "overrides.http.timeout_s in deploy.yaml has no value: give it one, or "
         "leave it out to keep the workflow file's"
     )
-
-
-def test_the_stores_old_api_key_is_an_unknown_key() -> None:
-    # The store names its key source in a key block: api_key is no setting.
-    overrides = {"components": {"vector_store": {"elasticsearch": {"api_key": "es-1"}}}}
-    said = refusal(make_settings(overrides=overrides))
-    assert said.startswith(
-        "overrides.components.vector_store.elasticsearch in deploy.yaml has no key "
-        "'api_key'"
-    )
-    assert "'key'" in said
-    assert "es-1" not in said
-
-
-@pytest.mark.parametrize("value", ["", "domino", "sk-1"])
-def test_an_endpoints_old_api_key_is_an_unknown_key(value: str) -> None:
-    # An endpoint names its key source in a key block: api_key is no setting.
-    overrides = {"components": {"reranker": {"api": {"api_key": value}}}}
-    said = refusal(make_settings(overrides=overrides))
-    assert said.startswith(
-        "overrides.components.reranker.api in deploy.yaml has no key 'api_key'"
-    )
-    assert "'key'" in said
 
 
 def test_an_example_placeholder_is_refused() -> None:

@@ -3,13 +3,13 @@ packages of ``query_processing`` may import (the table in the README's "Where a 
 goes"). And the mock rule: ``fake_domino`` imports nothing from ``query_processing``,
 and only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
 mock's own tests, in ``tests/fake_domino/``, import nothing from ``query_processing``
-either. And the one-way rule: no file of the toolkit's source names a use case."""
+either. The one-way rule, that no file of the toolkit's source names a use case, is
+in test_one_way_to_use_cases.py."""
 
 from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -67,18 +67,26 @@ MAY_IMPORT: dict[str, set[str]] = {
     },
 }
 # A port: adapters/<component>/base_<component>.py, which imports only the domain.
-# The application and target_client import ports and nothing else of the adapters.
+# The application, target_client and the deploy's status import ports and nothing
+# else of the adapters.
 PORT_MODULE = re.compile(r"query_processing\.adapters\.(\w+)\.base_\1")
-MAY_IMPORT_PORTS = {"application", "query_processing.loadtest.target_client"}
+MAY_IMPORT_PORTS = {
+    "application",
+    "query_processing.loadtest.target_client",
+    "query_processing.deploy.status",
+}
 # The named exceptions: one module each, allowed more than its package.
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
     # The defaults of a load test's QP_* values and retries; its key and domino blocks.
     "query_processing.loadtest.loadtest_settings": {"config"},
     "query_processing.loadtest.target_client": {"composition"},  # its key source
     # The deploy tool reads the workflow settings (ADR 0003), checks the overrides,
-    # and asks the composition's two start-up checks what an App would refuse;
-    # the rest of deploy reads them through it.
+    # asks the composition's two start-up checks what an App would refuse, and
+    # its key_source_variables what the key sources read; the rest of deploy
+    # reads them through it.
     "query_processing.deploy.workflow_components": {"config", "composition"},
+    # qp-deploy status sends the run token, which only a key source asks for.
+    "query_processing.deploy.status": {"composition"},
 }
 # The named exceptions that load modules by name, as an extension is loaded,
 # from a package their own may not import: one module each, and the modules
@@ -458,43 +466,3 @@ def test_only_qp_deploy_imports_fake_domino() -> None:
     assert (
         not offending
     ), f"only deploy/qp_deploy.py may import fake_domino: {offending}"
-
-
-# --- one way: a use case installs the toolkit, never the reverse --------------------
-
-# A use case is a distribution of its own beside the toolkit (ADR 0005), named
-# query_processing_<name>_usecase (its distribution with hyphens). No file of the
-# toolkit's source names one: not in an import, not as a path or a default.
-USE_CASE_NAME = re.compile(r"query[_-]processing[_-]\w+?[_-]usecase")
-
-
-def files_naming_a_use_case(files: Mapping[str, str]) -> list[str]:
-    """The paths of ``files`` (path to text) whose text names a use case.
-
-    Example::
-
-        files_naming_a_use_case({"a.py": "import query_processing_rag_usecase"})
-        # ["a.py"]
-    """
-    return sorted(path for path, text in files.items() if USE_CASE_NAME.search(text))
-
-
-def test_the_use_case_rule_on_literal_files() -> None:
-    files = {
-        "a.py": "from query_processing_rag_usecase import settings\n",
-        "b.py": "import query_processing  # the toolkit's own name\n",
-        "c.yaml": "dependencies: [query-processing-legal-usecase]\n",
-        "d.py": "# a use case's directory holds workflow.yaml\n",
-    }
-    assert files_naming_a_use_case(files) == ["a.py", "c.yaml"]
-
-
-def test_no_file_of_the_toolkits_source_names_a_use_case() -> None:
-    source = TOOLKIT_ROOT / "src"
-    files = {
-        str(path.relative_to(source)): path.read_text(encoding="utf-8")
-        for path in sorted(source.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    }
-    assert files, f"no file was read under {source}: the walk is wrong"
-    assert files_naming_a_use_case(files) == []

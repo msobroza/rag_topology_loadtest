@@ -8,8 +8,9 @@ methods do not await: code that awaits asks for a held key on the event loop
 and calls the source off it only when the source must ask. Each source is one
 directory under this package, registered in ``KEY_SOURCES`` by the name a
 ``key`` block's ``source`` gives, and declares in ``reads`` the other keys of
-that block, which the start-up check of registered names holds a block to.
-This module imports the domain only.
+that block, which the start-up check of registered names holds a block to,
+and in ``variables`` the environment variables a block makes it read. This
+module imports the domain only.
 
 Example:
     >>> source = KEY_SOURCES.get("env").from_block(
@@ -67,6 +68,27 @@ class BaseKeySource(abc.ABC):
         """
         del env_file
         return cls(**keys)
+
+    @classmethod
+    def variables(cls, keys: Mapping[str, str]) -> tuple[str, ...]:
+        """Name the environment variables a block of this source reads its key from.
+
+        None by default: a source that asks a service holds no key in a
+        variable. The deploy tool refuses a value for each one in its deploy
+        file, whose values are written into the Apps' launch scripts.
+
+        Args:
+            keys: The block's keys beside ``source``, as ``reads`` names them.
+
+        Returns:
+            The variables, such as ``("OPENAI_API_KEY",)`` for ``env``.
+
+        Example:
+            >>> KEY_SOURCES.get("domino").variables({})
+            ()
+        """
+        del keys
+        return ()
 
     @abc.abstractmethod
     def key(self, *, may_ask: bool) -> str | None:

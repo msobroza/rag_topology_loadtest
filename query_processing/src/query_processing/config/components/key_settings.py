@@ -123,11 +123,30 @@ class OldApiKeysRefused(PydanticBaseSettingsSource):
         """
         values = self._workflow()
         for read in (self.current_state, values):
-            _refuse_old_api_keys(read.get("components"), self._variable_of)
+            refuse_old_api_keys(read.get("components"), self._variable_of)
         return values
 
 
-def _refuse_old_api_keys(components: object, variable_of: Callable[..., str]) -> None:
+def refuse_old_api_keys(components: object, variable_of: Callable[..., str]) -> None:
+    """Refuse a component whose ``api`` or ``elasticsearch`` block holds ``api_key``.
+
+    The one writer of that line: start-up raises it from the workflow file's
+    source, and the deploy tool for the ``components`` of its overrides.
+
+    Args:
+        components: A ``components`` block as read, any shape: a mapping of
+            names to blocks is checked, anything else passes.
+        variable_of: Names the variable a value of the workflow file is read
+            from (``WorkflowSettings.variable_of``).
+
+    Raises:
+        ValueError: For the first such component: its old variable, its key in
+            a workflow file, the ``key`` block to write; never the value.
+
+    Example:
+        >>> refuse_old_api_keys({"llm": {"api": {"api_key": "x"}}}, variable_of)
+        ValueError: QP_COMPONENTS__LLM__API__API_KEY (components.llm.api.api_key ...
+    """
     if not isinstance(components, Mapping):
         return
     for name, entry in components.items():

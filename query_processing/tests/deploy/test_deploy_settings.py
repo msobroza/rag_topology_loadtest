@@ -397,25 +397,6 @@ def test_a_secret_in_any_settings_block_is_refused(
     assert str(caught.value) == secret_message(name, deploy_file, f"{block}.settings")
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "QP_COMPONENTS__EMBEDDER__API__API_KEY",
-        "QP_COMPONENTS__RERANKER__API__API_KEY",
-        "QP_COMPONENTS__LLM__API__API_KEY",
-        "QP_ES_API_KEY",
-    ],
-)
-@pytest.mark.parametrize("value", ["domino", ""])
-def test_an_empty_or_domino_api_key_passes_through(
-    deploy_file: Path, name: str, value: str
-) -> None:
-    deploy_file.write_text(f"defaults: {{settings: {{{name}: '{value}'}}}}\n")
-    settings = DeploySettings()
-    refuse_secrets(settings)
-    assert settings.for_app("workflow").settings == {name: value}
-
-
 def test_only_a_name_ending_with_api_key_is_a_secret(deploy_file: Path) -> None:
     values = (
         "{QP_API_KEY_FILE: /run/key, QP_COMPONENTS__EMBEDDER__API__URL: 'http://e/v3'}"

@@ -9,7 +9,8 @@ it, but only when that component opens, which can be after another model has
 loaded; and the orchestrator would refuse it only once every component is open. So each
 command that opens components calls ``check_registered_names`` while it reads
 its settings, and reports a refusal as a usage error, as it reports any other
-settings mistake.
+settings mistake. Once the ``key`` blocks pass, ``key_source_variables`` names
+the environment variables their sources read keys from, for the deploy tool.
 
 Example:
     >>> check_registered_names(WorkflowSettings())  # a use case's file: nothing raised
@@ -39,6 +40,7 @@ from ..config.workflow_settings import WorkflowSettings
 from ..domain.registry import Registry
 from .openers.component_openers import OPENERS_BY_TYPE
 from .registered_components import registered_backend_class
+from .standalone_key_source import checked_key_source
 
 # The API formats of each model component type, by the type its settings name.
 _API_FORMATS_BY_TYPE: dict[str, Registry[Any]] = {
@@ -46,6 +48,7 @@ _API_FORMATS_BY_TYPE: dict[str, Registry[Any]] = {
     "reranker": RERANK_API_FORMATS,
     "llm": GENERATION_API_FORMATS,
 }
+Place = tuple[str, ...]  # a value's path in the workflow file, its levels in order
 
 
 def check_registered_names(settings: WorkflowSettings) -> None:
@@ -76,16 +79,56 @@ def check_registered_names(settings: WorkflowSettings) -> None:
     for name, component in settings.components.items():
         backend = variable_of("components", name, "backend")
         _check(_known_backends(component), component.backend, backend)
-        if isinstance(component, VectorStoreSettings):
-            _check_key_block(name, "elasticsearch", component.elasticsearch.key)
     for name, model in settings.model_components().items():
         api_format = variable_of("components", name, "api", "api_format")
         _check(_API_FORMATS_BY_TYPE[model.type].get, model.api.api_format, api_format)
-        _check_key_block(name, "api", model.api.key)
         if isinstance(model, LlmSettings):
             _check_structured_output(name, model)
+    for place, block in _key_blocks(settings):
+        checked_key_source(block, variable_of(*place))
     orchestrator = variable_of("orchestrator")
     _check(ORCHESTRATORS.get, settings.orchestrator, orchestrator)
+
+
+def key_source_variables(settings: WorkflowSettings) -> dict[str, str]:
+    """Name the environment variables the key sources of the settings read keys from.
+
+    Every ``key`` block is read, whatever its component's backend, as the
+    check of registered names reads them, which must have passed: the deploy
+    tool refuses a value for each variable in its deploy file.
+
+    Args:
+        settings: The settings an App will read, their ``key`` blocks checked.
+
+    Returns:
+        Each variable, such as ``OPENAI_API_KEY`` for ``{source: env,
+        variable: OPENAI_API_KEY}``, and the place of the block that names it
+        in the workflow file, such as ``components.llm.api.key``.
+
+    Example:
+        >>> key_source_variables(WorkflowSettings())
+        {'OPENAI_API_KEY': 'components.llm.api.key'}
+    """
+    return {
+        variable: ".".join(place)
+        for place, block in _key_blocks(settings)
+        for variable in KEY_SOURCES.get(block.source).variables(block.read_keys())
+    }
+
+
+def _key_blocks(settings: WorkflowSettings) -> list[tuple[Place, KeySettings]]:
+    # The store's in its elasticsearch block and every model's in its api block,
+    # each with its place in the workflow file; a component without one has none.
+    stores = [
+        (("components", name, "elasticsearch", "key"), component.elasticsearch.key)
+        for name, component in settings.components.items()
+        if isinstance(component, VectorStoreSettings)
+    ]
+    models = [
+        (("components", name, "api", "key"), model.api.key)
+        for name, model in settings.model_components().items()
+    ]
+    return [(place, block) for place, block in stores + models if block is not None]
 
 
 def _check_structured_output(name: str, llm: LlmSettings) -> None:
@@ -95,22 +138,6 @@ def _check_structured_output(name: str, llm: LlmSettings) -> None:
             "components", name, block_name, "structured_output"
         )
         _check(STRUCTURED_OUTPUT_METHODS.get, block.structured_output, variable)
-
-
-def _check_key_block(name: str, holder: str, block: KeySettings | None) -> None:
-    # The keys beside source are the ones its source reads, each and no other.
-    if block is None:
-        return
-    variable = WorkflowSettings.variable_of("components", name, holder, "key")
-    _check(KEY_SOURCES.get, block.source, f"{variable}__SOURCE")
-    reads, given = KEY_SOURCES.get(block.source).reads, sorted(block.read_keys())
-    if given != sorted(reads):
-        expected = ", ".join(map(repr, reads)) or "no key"
-        got = ", ".join(map(repr, given)) or "none"
-        raise ValueError(
-            f"{variable}: the {block.source!r} key source reads {expected} beside "
-            f"'source'; got {got}"
-        )
 
 
 def _known_backends(component: ComponentSettings) -> Callable[[str], object]:

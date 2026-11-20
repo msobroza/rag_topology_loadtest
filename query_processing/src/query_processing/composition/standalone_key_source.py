@@ -9,7 +9,9 @@ errors; the ``domino`` source's token URL and the time it holds a token; the
 timeout, retries and backoff of asking, its own, since it has no ``http``
 block; and the ``.env`` file an ``env`` source also reads. It refuses an
 unknown source and a key of the block its source does not read with the lines
-start-up prints, and closes what it opened when the block ends.
+start-up prints, and closes what it opened when the block ends. A command with
+no ``key`` block that sends the run token, ``qp-deploy status``, is opened its
+``domino`` source here too (``run_token_source``).
 
 Example:
     >>> needs = StandaloneKeyNeeds("QP_LOADTEST_KEY", token_url=url,
@@ -31,6 +33,7 @@ import httpx
 from ..adapters.key_source.base_key_source import KEY_SOURCES, BaseKeySource
 from ..adapters.key_source.domino.domino_key_source import DominoKeySource
 from ..config.components.key_settings import KeySettings
+from ..config.shared_settings import DefaultHttpSettings, DominoSettings
 from ..infrastructure.http.http_policy import HttpPolicy
 
 
@@ -82,7 +85,7 @@ def opened_standalone_key_source(
         ...                                   needs) as source:
         ...     source.key(may_ask=True)
     """
-    source = _checked_key_source(block, needs.variable)
+    source = checked_key_source(block, needs.variable)
     if source is not DominoKeySource:
         yield source.from_block(block.read_keys(), env_file=needs.env_file)
         return
@@ -90,12 +93,19 @@ def opened_standalone_key_source(
         yield _domino_source(client, needs)
 
 
-def _checked_key_source(block: KeySettings, variable: str) -> type[BaseKeySource]:
+def checked_key_source(block: KeySettings, variable: str) -> type[BaseKeySource]:
     """Return the class of the source a block names, once the block is one it reads.
+
+    The one declaration of what start-up refuses of a ``key`` block: the
+    check of registered names calls it for every ``key`` block of the
+    workflow settings, and a command that reads no workflow file through
+    ``opened_standalone_key_source``. The keys beside ``source`` must be the
+    ones its source reads, each and no other.
 
     Args:
         block: The ``key`` block.
-        variable: The variable it is read from, such as ``QP_LOADTEST_KEY``.
+        variable: The variable it is read from, such as
+            ``QP_COMPONENTS__LLM__API__KEY`` or ``QP_LOADTEST_KEY``.
 
     Returns:
         The registered key source.
@@ -106,7 +116,7 @@ def _checked_key_source(block: KeySettings, variable: str) -> type[BaseKeySource
             beside 'source'; got none``.
 
     Example:
-        >>> _checked_key_source(KeySettings(source="env", variable="X"),
+        >>> checked_key_source(KeySettings(source="env", variable="X"),
         ...                    "QP_LOADTEST_KEY").__name__
         'EnvKeySource'
     """
@@ -123,6 +133,36 @@ def _checked_key_source(block: KeySettings, variable: str) -> type[BaseKeySource
             f"'source'; got {got}"
         )
     return source
+
+
+def run_token_source(
+    client: httpx.Client, *, token_url: str, timeout_s: float, retries: int
+) -> BaseKeySource:
+    """Open the ``domino`` source of a command with neither workflow file nor key block.
+
+    ``qp-deploy status`` asks for the run token it sends to the workflow App
+    this way, so one piece of code asks Domino for a token. It asks through the
+    command's own client, under the command's timeout and retries; between
+    them it waits the shared ``http`` block's default backoff, and holds a
+    token the ``domino`` block's default time, which one ask never reaches.
+
+    Args:
+        client: The command's client, which the token is asked for through.
+        token_url: Where the run serves its token.
+        timeout_s: The wait for one answer.
+        retries: Asks after the first, on what the source retries.
+
+    Returns:
+        The source, which asks at its first ``key(may_ask=True)``.
+
+    Example:
+        >>> run_token_source(http, token_url=url, timeout_s=30.0,
+        ...                  retries=2).key(may_ask=True)
+        'eyJ...'
+    """
+    policy = HttpPolicy(timeout_s, retries, DefaultHttpSettings().backoff_s)
+    ttl_s = DominoSettings().token_ttl_s
+    return DominoKeySource(client, token_url=token_url, ttl_s=ttl_s, policy=policy)
 
 
 def _domino_source(client: httpx.Client, needs: StandaloneKeyNeeds) -> DominoKeySource:

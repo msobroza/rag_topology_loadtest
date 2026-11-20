@@ -317,6 +317,27 @@ def test_a_key_block_start_up_would_refuse_is_refused_before_a_request(
     assert not list(tmp_path.glob("*_answers.json"))
 
 
+def test_a_setting_the_load_test_refuses_is_a_usage_error_naming_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The old bearer token alone: the settings refuse it as they are built.
+    variables = {"QP_LOADTEST_BEARER_TOKEN": "secret-run-token"}
+    use_loadtest_variables(monkeypatch, tmp_path, variables)
+    never = httpx.MockTransport(pytest.fail)
+
+    argv = ["--host", HOST, "--out", "run"]
+    status = record_answers_main(
+        argv, client=httpx.Client(transport=never), key_transport=never
+    )
+
+    error = capsys.readouterr().err
+    assert status == 2
+    assert error.startswith("qp-record-answers: ")
+    assert "QP_LOADTEST_BEARER_TOKEN is no longer read" in error
+    assert "secret-run-token" not in error
+    assert not list(tmp_path.glob("*_answers.json"))
+
+
 def test_a_token_url_that_never_answers_is_asked_within_the_load_tests_retries(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
