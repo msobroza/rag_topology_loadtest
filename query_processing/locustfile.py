@@ -15,9 +15,12 @@ instead (what ``qp-fetch-corpus`` writes, or plain text). Each user waits
 ``QP_LOADTEST_WAIT_MIN_S`` to ``_MAX_S`` between requests, and waits for an
 answer at most ``QP_LOADTEST_REQUEST_TIMEOUT_S``;
 ``QP_LOADTEST_SHAPE=step`` steps through ``QP_LOADTEST_STEP_USERS`` users,
-``QP_LOADTEST_STEP_SECONDS`` each. As a run stops, its target record is written,
-with the tokens of each stage of its responses, and its statistics file is
-rewritten with the final numbers.
+``QP_LOADTEST_STEP_SECONDS`` each. Each request carries the API key the
+``key`` block's key source gives at that moment (``QP_LOADTEST_KEY__SOURCE``),
+else ``DOMINO_API_KEY``: a 401 is recorded as the failure it is and is not
+sent again, and the source is told, so the next request carries a new key. As
+a run stops, its target record is written, with the tokens of each stage of its
+responses, and its statistics file is rewritten with the final numbers.
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from __future__ import annotations
 import csv
 import random
 from collections import Counter
+from contextlib import ExitStack
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +49,7 @@ from query_processing.loadtest.response_checks import (
     ResponseVerdict,
     judge_response,
 )
+from query_processing.loadtest.target_client import TargetKey, opened_target_key
 from query_processing.loadtest.target_record import (
     StageTokenTotals,
     TargetPair,
@@ -53,6 +59,10 @@ from query_processing.loadtest.target_record import (
 )
 
 SETTINGS = LoadTestSettings()
+# The key source is opened once, as the settings are read, and closed as
+# Locust quits; a key block start-up would refuse fails the import.
+OPENED = ExitStack()
+KEY = OPENED.enter_context(opened_target_key(SETTINGS))
 POOL = build_request_pool(
     SETTINGS.question_count,
     *SETTINGS.rerank_sizes,
@@ -68,24 +78,29 @@ RESPONSES_SEEN: Counter[TargetPair] = Counter()
 TOKENS_SEEN: dict[str, StageTokenTotals] = {}
 
 
-def send(user: FastHttpUser, plan: RequestPlan) -> None:
+def send(user: FastHttpUser, plan: RequestPlan, key: TargetKey = KEY) -> None:
     """POST ``plan`` and record the response as ``judge_response`` decides.
 
     A response that names its target also counts towards the target record, and
-    each stage that reports its tokens towards that stage's token totals.
+    each stage that reports its tokens towards that stage's token totals. A 401
+    tells the key source, and is not sent again: a retry would bend the timings.
 
     Args:
         user: The Locust user whose client sends and whose environment fires the
             STAGE rows.
         plan: The path, JSON body and stats name of the request.
+        key: The API key the request carries; the run's, unless a test gives one.
     """
+    headers = key.headers()
     with user.client.post(
         plan.path,
         json=plan.payload,
-        headers=SETTINGS.auth_headers,
+        headers=headers,
         name=plan.stats_name,
         catch_response=True,
     ) as resp:
+        if resp.status_code == HTTPStatus.UNAUTHORIZED:
+            key.refused(headers)
         pair = target_pair(resp.headers)
         if pair is not None:
             RESPONSES_SEEN[pair] += 1
@@ -219,3 +234,13 @@ def write_final_stats_on_stop(environment: Any, **_kwargs: Any) -> None:
     # each of its writes ends with a truncate, which flushes.
     with Path(f"{csv_prefix}_stats.csv").open("w") as handle:
         final.requests_csv(csv.writer(handle))
+
+
+@events.quitting.add_listener
+def close_key_source_on_quit(**_kwargs: Any) -> None:
+    """Close what the key source opened, its client, as Locust quits.
+
+    Args:
+        **_kwargs: The ``quitting`` event's arguments, unused.
+    """
+    OPENED.close()

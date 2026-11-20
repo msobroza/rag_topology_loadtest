@@ -11,19 +11,25 @@ workflow file gives them, and the documents and ``top_n`` of a rerank request
 (``QP_TOP_K_RETRIEVE``, ``QP_TOP_K_RERANK``), which have no default: they
 are the use case's sizes, which its environment example states. The workflow
 app's own target reads none of them, and so needs no workflow file.
-``DOMINO_API_KEY`` is Domino's. This is the one module of the load-test client
-that imports the config package, and only for the defaults of the two aliases:
-it reads them from the workflow file and never builds the RAG system's
-settings. A model-server target posts to the /v3 path of OVMS and of our model
-server unless ``QP_LOADTEST_MODEL_SERVER_PATH`` names another, such as vLLM's
+A request carries the API key of the key source its ``key`` block names
+(``QP_LOADTEST_KEY__SOURCE``, ``QP_LOADTEST_KEY__VARIABLE``), the block an
+endpoint of the workflow app writes; without one, ``DOMINO_API_KEY``, Domino's,
+in its own header. The ``domino`` source asks the token URL and holds a token
+for the time the workflow app reads (``QP_DOMINO__TOKEN_URL``,
+``QP_DOMINO__TOKEN_TTL_S``), with its defaults. This is the one module of the
+load-test client that imports the config package: for the defaults of the two
+aliases, which it reads from the workflow file, and for the ``key`` and
+``domino`` blocks; it never builds the RAG system's settings. A model-server
+target posts to the /v3 path of OVMS and of our model server unless
+``QP_LOADTEST_MODEL_SERVER_PATH`` names another, such as vLLM's
 ``/v1/rerank``: a path, not a model-server kind, since the kinds are the deploy
-tool's and this package imports the domain alone.
+tool's, which this package does not import.
 
 Example:
     >>> LoadTestSettings().target  # "rag" unless QP_LOADTEST_TARGET says otherwise
     'rag'
-    >>> LoadTestSettings(domino_api_key="key").auth_headers
-    {'X-Domino-Api-Key': 'key'}
+    >>> LoadTestSettings(key={"source": "domino"}).key.source
+    'domino'
 """
 
 from __future__ import annotations
@@ -41,14 +47,17 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ..config.components.key_settings import KeySettings
 from ..config.files.workflow_file import declared_alias
-from ..config.shared_settings import DefaultHttpSettings
+from ..config.shared_settings import DefaultHttpSettings, DominoSettings
 
 LoadTarget = Literal["rag", "rerank", "embeddings"]
 LOAD_TARGETS: tuple[LoadTarget, ...] = ("rag", "rerank", "embeddings")
 ENV_PREFIX = "QP_LOADTEST_"
 # The shared http block's fields, whose defaults the recorder's retries reuse.
 _HTTP_DEFAULTS = DefaultHttpSettings.model_fields
+# Read before key sources; now refused unless a key block is set beside it.
+_OLD_BEARER_TOKEN = "QP_LOADTEST_BEARER_TOKEN"
 
 
 def _variable(name: str, field: str) -> AliasChoices:
@@ -68,7 +77,12 @@ class LoadTestSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX, env_file=".env", extra="ignore"
+        env_prefix=ENV_PREFIX,
+        env_file=".env",
+        env_nested_delimiter="__",
+        extra="ignore",
+        # An error quotes no value it was given: one may be a key or a token.
+        hide_input_in_errors=True,
     )
 
     # --- what to drive, and how hard ------------------------------------------------
@@ -131,10 +145,24 @@ class LoadTestSettings(BaseSettings):
         default="",
         validation_alias=_variable("QP_COMPONENTS__EMBEDDER__ALIAS", "embedder_alias"),
     )
-    # --- Domino auth: a bearer token wins over an API key ----------------------------
-    bearer_token: str = ""
+    # --- the API key a request carries: a key block wins over DOMINO_API_KEY ---------
+    # Where the key comes from, as an endpoint's key block says it; None = none.
+    key: KeySettings | None = None
+    # The domino source's token URL and lifetime: the workflow app's variables.
+    domino: DominoSettings = Field(
+        default_factory=DominoSettings,
+        validation_alias=_variable("QP_DOMINO", "domino"),
+    )
     domino_api_key: str = Field(
-        default="", validation_alias=_variable("DOMINO_API_KEY", "domino_api_key")
+        default="",
+        repr=False,
+        validation_alias=_variable("DOMINO_API_KEY", "domino_api_key"),
+    )
+    # Read only to be refused without a key block; never sent.
+    old_bearer_token: str = Field(
+        default="",
+        repr=False,
+        validation_alias=_variable(_OLD_BEARER_TOKEN, "old_bearer_token"),
     )
 
     @classmethod
@@ -168,15 +196,6 @@ class LoadTestSettings(BaseSettings):
         Only the rerank target sends one, and it requires both sizes.
         """
         return self.top_k_retrieve or 0, self.top_k_rerank or 0
-
-    @property
-    def auth_headers(self) -> dict[str, str]:
-        """The Domino auth header: a bearer token wins over an API key, else none."""
-        if self.bearer_token:
-            return {"Authorization": f"Bearer {self.bearer_token}"}
-        if self.domino_api_key:
-            return {"X-Domino-Api-Key": self.domino_api_key}
-        return {}
 
     @field_validator("target", mode="before")
     @classmethod
@@ -248,6 +267,7 @@ class LoadTestSettings(BaseSettings):
                 f"QP_LOADTEST_WAIT_MIN_S={self.wait_min_s}; expected max >= min"
             )
         _check_rerank_sizes(self.target, self.top_k_retrieve, self.top_k_rerank)
+        _refuse_a_bearer_token_alone(self.old_bearer_token, self.key)
         return self
 
     @model_validator(mode="after")
@@ -278,6 +298,18 @@ def _check_rerank_sizes(
         raise ValueError(
             f"QP_TOP_K_RERANK={top_n} exceeds QP_TOP_K_RETRIEVE={candidates}; "
             "expected at most it"
+        )
+
+
+def _refuse_a_bearer_token_alone(token: str, block: KeySettings | None) -> None:
+    # One line naming the block that replaces it, and never the token.
+    if token and block is None:
+        raise ValueError(
+            f"{_OLD_BEARER_TOKEN} is no longer read: name the load test's key "
+            "source in its key block instead, QP_LOADTEST_KEY__SOURCE=domino for "
+            "the run token, asked for again as it expires, or "
+            "QP_LOADTEST_KEY__SOURCE=env with QP_LOADTEST_KEY__VARIABLE=<the "
+            "variable that holds the key>"
         )
 
 

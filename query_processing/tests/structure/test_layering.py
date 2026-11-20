@@ -66,15 +66,15 @@ MAY_IMPORT: dict[str, set[str]] = {
         "loadtest",
     },
 }
-# A port: adapters/<component>/base_<component>.py. The application depends on
-# the ports and on nothing else of the adapters; a port imports only the domain.
+# A port: adapters/<component>/base_<component>.py, which imports only the domain.
+# The application and target_client import ports and nothing else of the adapters.
 PORT_MODULE = re.compile(r"query_processing\.adapters\.(\w+)\.base_\1")
-MAY_IMPORT_PORTS = {"application"}
+MAY_IMPORT_PORTS = {"application", "query_processing.loadtest.target_client"}
 # The named exceptions: one module each, allowed more than its package.
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
-    # For the defaults of the four QP_* values a load test sends, and of the
-    # retries qp-record-answers makes (the shared http block's), nothing else.
+    # The defaults of a load test's QP_* values and retries; its key and domino blocks.
     "query_processing.loadtest.loadtest_settings": {"config"},
+    "query_processing.loadtest.target_client": {"composition"},  # its key source
     # The deploy tool reads the workflow settings (ADR 0003), checks the overrides,
     # and asks the composition's two start-up checks what an App would refuse;
     # the rest of deploy reads them through it.
@@ -186,7 +186,7 @@ def forbidden_imports(module: str, source: str) -> list[str]:
     """
     package = module.split(".")[1]
     allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
-    may_import_ports = package in MAY_IMPORT_PORTS
+    may_import_ports = bool({package, module} & MAY_IMPORT_PORTS)
     return [
         f"{module}:{line} imports {imported}"
         for line, imported in imported_product_modules(module, source)

@@ -639,7 +639,7 @@ and no package imports it either, `extension_api` included.
    | `composition` | itself, `adapters`, `application`, `config`, `domain` and `infrastructure`: the one package that builds the adapters from the settings |
    | `entrypoints` | `composition`, `application`, `config`, `domain`, `infrastructure`; never `adapters`: a command gets its ports from the composition root |
    | `deploy` | `deploy` and `domain`; `qp_deploy.py` alone may also import the fake Domino, and `workflow_components.py` alone may also import `config`, to read the components of the workflow file a topology alias names and to check the overrides against the workflow settings (ADR 0003), and of `composition` the two start-up checks (`check_registered_names`, `check_workflow_graph`), to ask of the settings an App will read what its start-up would refuse; they open nothing |
-   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends |
+   | `loadtest` | `loadtest` and `domain`; `loadtest_settings.py` alone may also import `config`, for the defaults of the two aliases a load test sends and for its `key` and `domino` blocks; `target_client.py` alone may also import `composition`, whose `opened_standalone_key_source` opens the key source of the load test's `key` block (only `composition` builds an adapter from settings), and of `adapters` the key source's port, `base_key_source.py`, to name its type |
    | `testing` | every package: the tests the toolkit ships serve a user's component as the toolkit does; no package imports it, `extension_api` included, and a use case's tests import it as `query_processing.testing` |
 
 2. **Commands.** A command lives in its own application, in a module named
@@ -997,6 +997,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       resource_scope.py  ResourceScope: each resource opened once, all closed together
       http_resources.py  HttpResources: the shared HTTP client, its policy, the key sources (one per key block, the process's one domino source), served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
+      standalone_key_source.py  opened_standalone_key_source: the key source of a key block, for a command that reads no workflow file (the load-test client), refused as start-up refuses it and closed with its block
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
@@ -1068,13 +1069,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         opening_list.py  OpeningItem, OpeningList, run_opening_list: the list that opens in a terminal, drawn by Textual (the extra terminal), the only module importing it; an item's lines asked when first opened, / matching its name
         listing_commands.py  show_tiers, show_environments: ask Domino, then show the look, the list without Textual the table and how to install it; tier_items, environment_items, list_is_installed; the internal route asked only for an environment named or opened
     loadtest/         the load-test client, with locustfile.py
-      loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), Domino auth
+      loadtest_settings.py  LoadTestSettings: every QP_LOADTEST_* variable, the four values a model-server request carries (two sizes, required by the rerank target, and two aliases, the workflow file's), the key block with the domino block's token URL and lifetime, DOMINO_API_KEY
       request_plans.py  what to send: the request pool (synthetic questions or a questions file) and one plan per request
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
       answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers
-      target_client.py  TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings
+      target_client.py  TargetKey, opened_target_key: the API key each request carries, from the key source composition opens, told of a 401; TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings, a 401 sent again once its source is told
       qp_record_answers.py  qp-record-answers: each request of the request pool sent once, its answer recorded
       answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answers' text with a metric on demand
       rouge_l.py      ROUGE-L between two answers an LLM wrote, the one module importing rouge-score (the loadtest extra), with a tokenizer that keeps accented letters
@@ -1181,8 +1182,18 @@ second; the failure count in `_stats.csv` and the HTML report have it.
 | `QP_LOADTEST_QUESTIONS` | distinct synthetic questions the users ask, default `50` |
 | `QP_LOADTEST_ANSWER_ROUGE_L` | `qp-compare-answers` holds the answers an LLM wrote with ROUGE-L, default `false`: their text is not compared |
 | `QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD` | the lowest ROUGE-L F-measure at which an answer is the baseline's, default `0.9`; a number between 0 and 1 |
-| `QP_LOADTEST_BEARER_TOKEN` | sent as `Authorization: Bearer ...` (Domino run token) |
-| `DOMINO_API_KEY` | sent as `X-Domino-Api-Key` (from outside Domino) |
+| `QP_LOADTEST_KEY__SOURCE` | the key source of the API key each request carries, as `Authorization: Bearer ...`, the `key` block of an endpoint of the workflow app: `domino` for the run token, asked for at `QP_DOMINO__TOKEN_URL`, held for `QP_DOMINO__TOKEN_TTL_S` and asked for again after it (the workflow app's variables and defaults); `env` for a fixed key, from a target outside Domino; unset sends no key block. An unknown source is refused before the first request, as start-up refuses it |
+| `QP_LOADTEST_KEY__VARIABLE` | the variable an `env` source reads the key from, in the environment and then in `.env`; refused beside `domino`, and required by `env`, whose variable unset or empty is refused |
+| `DOMINO_API_KEY` | without a `key` block, sent as `X-Domino-Api-Key` (from outside Domino); a `key` block wins over it |
+
+Each request asks its key source for the key, so a run token that expires is
+asked for again and a run longer than a token lives goes to its end. A 401 is
+recorded as the failure it is and not sent again, so no retry bends the
+timings; the source is told, and the next request carries a new key. Asking the
+token URL takes `QP_LOADTEST_REQUEST_TIMEOUT_S`, `QP_LOADTEST_RETRIES` and
+`QP_LOADTEST_BACKOFF_S`, the load test's own, since it reads no `http` block.
+`QP_LOADTEST_BEARER_TOKEN`, the pasted token of before, is refused without a
+`key` block, in one line that names the block.
 
 A request counts as a success only when the response is HTTP 200 with a JSON
 object body. Any other status fails as `HTTP <status>: <first 200 characters of
@@ -1285,10 +1296,12 @@ make record-answers-domino RUN_NAME=split-all   # the workflow App on Domino
 
 `qp-record-answers --host <url> --out <prefix>` sends each request of the load
 test's request pool once, in the pool's order, one after the other: each body
-to `/retrieve` and then to `/query`. The pool, the credentials and the wait for
-one answer are the load test's (`QP_LOADTEST_QUESTIONS`,
-`QP_LOADTEST_BEARER_TOKEN` or `DOMINO_API_KEY`,
-`QP_LOADTEST_REQUEST_TIMEOUT_S`). `QP_LOADTEST_QUESTIONS_FILE` replaces the
+to `/retrieve` and then to `/query`. The pool, the API key and the wait for
+one answer are the load test's (`QP_LOADTEST_QUESTIONS`, the key source of
+`QP_LOADTEST_KEY__SOURCE` or `DOMINO_API_KEY`,
+`QP_LOADTEST_REQUEST_TIMEOUT_S`). A 401 tells the key source and is sent again
+within the retries below; when they run out, the 401 is recorded as any
+other status. `QP_LOADTEST_QUESTIONS_FILE` replaces the
 synthetic questions with the reader's own file, already on the machine; `make
 record-answers` sets none. An endpoint whose load-test weight is 0 is
 not sent: `QP_LOADTEST_QUERY_WEIGHT=0` records `/retrieve` alone (a deployment
@@ -2013,7 +2026,7 @@ before the app serves, with one line in the server's log.
 | `QP_LOADTEST_TARGET` | `rag` | Locust side: what a run drives: the workflow app (`rag`), or a model server directly (`rerank`, `embeddings`) |
 | `QP_LOADTEST_MODEL_SERVER_PATH` | empty | Locust side: the path a `rerank` or `embeddings` target posts to; empty = `/v3/rerank` or `/v3/embeddings`; `/v1/rerank` or `/v1/embeddings` for a vLLM App; a path starts with `/` |
 | `QP_TOP_K_RETRIEVE`, `QP_TOP_K_RERANK` | none: required by the `rerank` target | Locust side only: a `rerank` target is sent this many documents and this `top_n`; the use case's sizes, which its `.env.example` states (the RAG's: `20`, `10`, its stages' `top_k`), and the workflow app does not read either. The aliases a model-server target sends default to the workflow file's, which only that target reads |
-| `QP_LOADTEST_BEARER_TOKEN`, `DOMINO_API_KEY` | | Locust side: auth header, see the load-test table |
+| `QP_LOADTEST_KEY__SOURCE`, `QP_LOADTEST_KEY__VARIABLE`, `DOMINO_API_KEY` | unset | Locust side: the API key each request carries, from a key source (`domino` reads `QP_DOMINO__TOKEN_URL` and `QP_DOMINO__TOKEN_TTL_S`), see the load-test table |
 | `QP_LOADTEST_QUERY_WEIGHT`, `QP_LOADTEST_RETRIEVE_WEIGHT`, `QP_LOADTEST_SHAPE` | `1`, `3`, unset | Locust side: task weights (0 or more) and the step shape (`step` or unset) |
 | `QP_LOADTEST_WAIT_MIN_S`, `QP_LOADTEST_WAIT_MAX_S` | `0.2`, `1.0` | Locust side: the range each user waits between requests, in seconds |
 | `QP_LOADTEST_STEP_USERS`, `QP_LOADTEST_STEP_SECONDS` | `5,10,20,40`, `60` | Locust side: the users of each step and the seconds per step of `QP_LOADTEST_SHAPE=step` |
@@ -3009,21 +3022,25 @@ per-request overhead).
 **Running Locust.** From a Workspace in the same project (`rag` environment):
 
 ```bash
-export QP_LOADTEST_BEARER_TOKEN=$(curl -s http://localhost:8899/access-token)
+export QP_LOADTEST_KEY__SOURCE=domino   # each request carries the run token
 make loadtest RUN_NAME=monolith        HOST=https://<domino-host><path of the monolith app>
 make loadtest RUN_NAME=split-reranker  HOST=https://<domino-host><path of workflow app B>
 make loadtest RUN_NAME=split-all       HOST=https://<domino-host><path of workflow app B, split-all project>
 make compare                           # results/comparison.md
 ```
 
-The run token expires after about 5 minutes and Locust reads it once per user at
-start, so for longer runs (`RUN_TIME=10m`, `QP_LOADTEST_SHAPE=step`) or from a laptop
-use an API key instead: `export DOMINO_API_KEY=<Account settings → API Key>` (sent as
-`X-Domino-Api-Key`). Keep `USERS`, `SPAWN_RATE`, `RUN_TIME` and the tiers identical across topologies.
+The run token expires after about 5 minutes; the `domino` key source holds it
+for `QP_DOMINO__TOKEN_TTL_S` and asks for it again after that, or after a 401,
+so a longer run (`RUN_TIME=10m`, `QP_LOADTEST_SHAPE=step`) goes to its end with
+nothing pasted. From a laptop, where no run serves a token, leave the `key`
+block unset and use an API key: `export DOMINO_API_KEY=<Account settings → API
+Key>` (sent as `X-Domino-Api-Key`). Keep `USERS`, `SPAWN_RATE`, `RUN_TIME` and
+the tiers identical across topologies.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `401`/`403` from Locust | missing or expired `QP_LOADTEST_BEARER_TOKEN` / `DOMINO_API_KEY`, or the app is not shared with that user |
+| `401`/`403` from Locust | no `QP_LOADTEST_KEY__SOURCE` and no `DOMINO_API_KEY`, a key the target does not accept, or the app is not shared with that user; a 401 with the `domino` source counts as one failure, and the next request carries a new token |
+| `QP_LOADTEST_BEARER_TOKEN is no longer read: ...` | the pasted token of before: set `QP_LOADTEST_KEY__SOURCE=domino` instead, and unset it |
 | `404` on `/query` | `HOST` lacks the App path prefix, or has a trailing slash |
 | `503 reranker_unavailable` / `embedder_unavailable` | model server app not ready (Dataset missing, wrong `QP_COMPONENTS__RERANKER__SERVED__URL` / `QP_COMPONENTS__EMBEDDER__SERVED__URL`, token rejected); check its logs and `GET <OVMS App URL>/v2/health/ready` |
 | `503 vector_store_unavailable` / `/readyz` not ready | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` unreachable or wrong credentials, or `make ingest` never ran against that cluster |
@@ -3856,10 +3873,11 @@ A `404` on the first call means Domino forwards the path prefix to OVMS: set
 dependency is missing when it answers `503`.
 
 **7. Load test (Workspace in `rag-monolith`, `rag` environment, from the use case's directory).** The run token
-expires after about 5 minutes, so export it right before each run:
+expires after about 5 minutes; the `domino` key source asks for it again as it
+expires, so nothing is pasted:
 
 ```bash
-export QP_LOADTEST_BEARER_TOKEN=$(curl -s http://localhost:8899/access-token)
+export QP_LOADTEST_KEY__SOURCE=domino
 make loadtest RUN_NAME=monolith        HOST=<URL of the monolith app>
 make loadtest RUN_NAME=split-reranker  HOST=<URL of the workflow app>      # the reranker on served
 make loadtest RUN_NAME=split-all       HOST=<URL of the workflow app>      # after switching it to split-all

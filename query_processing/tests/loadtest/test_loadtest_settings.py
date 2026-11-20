@@ -28,7 +28,7 @@ def test_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (settings.wait_min_s, settings.wait_max_s) == (0.2, 1.0)
     assert (settings.question_count, settings.questions_file) == (50, None)
     assert settings.model_server_path == ""  # the target's /v3 path
-    assert settings.auth_headers == {}
+    assert (settings.key, settings.domino_api_key) == (None, "")
 
 
 def test_the_workflow_apps_target_reads_no_model_value_and_no_workflow_file(
@@ -131,7 +131,7 @@ def test_every_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (settings.top_k_retrieve, settings.top_k_rerank) == (7, 3)
     assert settings.reranker_alias == "my-reranker"
     assert settings.embedder_alias == "my-embedder"
-    assert settings.auth_headers == {"X-Domino-Api-Key": "key"}
+    assert settings.domino_api_key == "key"
 
 
 def test_an_empty_shape_or_questions_file_is_unset(
@@ -144,20 +144,71 @@ def test_an_empty_shape_or_questions_file_is_unset(
 
 
 @pytest.mark.parametrize(
-    ("variables", "expected"),
+    ("variables", "source", "keys"),
     [
-        ({BEARER: "tok", API_KEY: "key"}, {"Authorization": "Bearer tok"}),
-        ({API_KEY: "key"}, {"X-Domino-Api-Key": "key"}),
-        ({BEARER: "", API_KEY: ""}, {}),
-        ({}, {}),
+        ({"QP_LOADTEST_KEY__SOURCE": "domino"}, "domino", {}),
+        (
+            {"QP_LOADTEST_KEY__SOURCE": "env", "QP_LOADTEST_KEY__VARIABLE": "X"},
+            "env",
+            {"variable": "X"},
+        ),
     ],
+    ids=["domino", "env"],
 )
-def test_auth_headers_a_bearer_token_wins(
+def test_the_key_block_is_read_from_the_variables_its_path_names(
     monkeypatch: pytest.MonkeyPatch,
     variables: dict[str, str],
-    expected: dict[str, str],
+    source: str,
+    keys: dict[str, str],
 ) -> None:
-    assert settings_from(monkeypatch, variables).auth_headers == expected
+    block = settings_from(monkeypatch, variables).key
+
+    assert block is not None
+    assert (block.source, block.read_keys()) == (source, keys)
+
+
+def test_the_domino_source_reads_the_workflow_apps_variables_and_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    defaults = settings_from(monkeypatch, {}).domino
+    told = settings_from(
+        monkeypatch,
+        {"QP_DOMINO__TOKEN_URL": "http://token.test/t", "QP_DOMINO__TOKEN_TTL_S": "9"},
+    ).domino
+
+    # The workflow app's own defaults: README, "Variables".
+    assert (defaults.token_url, defaults.token_ttl_s) == (
+        "http://localhost:8899/access-token",
+        240.0,
+    )
+    assert (told.token_url, told.token_ttl_s) == ("http://token.test/t", 9.0)
+
+
+def test_without_a_key_block_none_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = settings_from(monkeypatch, {API_KEY: "key"})
+
+    assert (settings.key, settings.domino_api_key) == (None, "key")
+
+
+def test_a_bearer_token_without_a_key_block_is_refused_naming_the_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ValueError, match=BEARER) as caught:
+        settings_from(monkeypatch, {BEARER: "secret-run-token"})
+
+    [line] = [ln for ln in str(caught.value).splitlines() if BEARER in ln]
+    assert "QP_LOADTEST_KEY__SOURCE=domino" in line
+    assert "secret-run-token" not in str(caught.value)
+
+
+def test_a_bearer_token_beside_a_key_block_is_not_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variables = {BEARER: "secret-run-token", "QP_LOADTEST_KEY__SOURCE": "domino"}
+    settings = settings_from(monkeypatch, variables)
+
+    assert settings.key is not None
+    assert "secret-run-token" not in repr(settings)
 
 
 WHOLE = "expected a whole number of"
