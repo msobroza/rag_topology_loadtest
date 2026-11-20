@@ -46,7 +46,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     Example:
         >>> store = await ChromaVectorStore.open(
-        ...     url="", path="chroma", collection="rag_passages")
+        ...     url="", path="chroma", collection="rag_records")
         >>> hits = await store.query(vector, top_k=20)
     """
 
@@ -62,7 +62,7 @@ class ChromaVectorStore(BaseVectorStore):
         Args:
             url: A Chroma server; "" opens the embedded store at ``path``.
             path: The embedded store's folder.
-            collection: The collection the passages live in, created (cosine
+            collection: The collection the records live in, created (cosine
                 distance) when missing.
 
         Returns:
@@ -83,11 +83,11 @@ class ChromaVectorStore(BaseVectorStore):
         records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages with their vectors; a known id is replaced whole.
+        """Store records with their vectors; a known id is replaced whole.
 
         Args:
-            records: The passages to store; none is a no-op.
-            embeddings: One vector per passage, in the same order.
+            records: The records to store; none is a no-op.
+            embeddings: One vector per record, in the same order.
         """
         if not records:
             return
@@ -96,7 +96,7 @@ class ChromaVectorStore(BaseVectorStore):
 
         def replace() -> None:
             # Chroma's own upsert merges new metadata into the old, so a key a
-            # re-ingested passage dropped would survive: delete, then add.
+            # re-ingested record dropped would survive: delete, then add.
             self._collection.delete(ids=ids)
             self._collection.add(
                 ids=ids,
@@ -113,17 +113,17 @@ class ChromaVectorStore(BaseVectorStore):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages nearest to a vector among those the filter keeps.
+        """Find the records nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet, sent as the
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet, sent as the
                 query's ``where``, which Chroma applies before its vector
                 search; none sends no ``where``.
 
         Returns:
-            The nearest passages, nearest first, with the cosine similarity
+            The nearest records, nearest first, with the cosine similarity
             (``1 - cosine distance``, higher is nearer) as ``retrieval_score``.
         """
         if top_k <= 0:
@@ -145,18 +145,18 @@ class ChromaVectorStore(BaseVectorStore):
         return [_scored(pid, text, meta, 1.0 - dist) for pid, text, meta, dist in rows]
 
     async def count(self) -> int:
-        """Count the stored passages.
+        """Count the stored records.
 
         Returns:
-            The number of passages in the collection.
+            The number of records in the collection.
         """
         return int(await self._call(self._collection.count))
 
     async def ready(self) -> tuple[bool, str]:
-        """Report whether the collection holds any passage.
+        """Report whether the collection holds any record.
 
         Returns:
-            Whether the collection is non-empty, and how many passages it holds.
+            Whether the collection is non-empty, and how many records it holds.
         """
         count = await self.count()
         return count > 0, f"{count} records in {self._name}"

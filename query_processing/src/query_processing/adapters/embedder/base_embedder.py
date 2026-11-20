@@ -1,4 +1,4 @@
-"""The embedder port: turns a query, or passages, into vectors.
+"""The embedder port: turns a query, or the texts to store, into vectors.
 
 Each port is an abstract base class: an implementation states which port it
 implements by subclassing it, and one that forgets a method fails when it is
@@ -9,9 +9,9 @@ application depends on it, and on nothing else of the adapters.
 
 The two methods are named as LangChain's ``Embeddings`` names them, without its
 ``a`` for async: every method of a port is async. Some embedding models expect
-a prefix in front of a query and none in front of a passage; the prefix belongs
-to the model, so an implementation applies it in ``embed_query`` and nowhere
-else.
+a prefix in front of a query and none in front of a text to store; the prefix
+belongs to the model, so an implementation applies it in ``embed_query`` and
+nowhere else.
 
 Example:
     >>> class MyEmbedder(BaseEmbedder):
@@ -30,7 +30,7 @@ from ...domain.components.component_requests import EmbedAnswer, EmbedRequest
 
 
 class BaseEmbedder(BaseComponent[EmbedRequest, EmbedAnswer], component_type="embedder"):
-    """Turns a query, or passages, into vectors.
+    """Turns a query, or the texts to store, into vectors.
 
     As a component it answers an ``EmbedRequest`` with the query's vector, from
     ``embed_query``; ingestion keeps calling ``embed_documents``.
@@ -40,7 +40,7 @@ class BaseEmbedder(BaseComponent[EmbedRequest, EmbedAnswer], component_type="emb
 
     @abstractmethod
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embed texts as they are, with no query prefix: passages to store.
+        """Embed texts as they are, with no query prefix: the texts to store.
 
         Args:
             texts: The texts to embed.

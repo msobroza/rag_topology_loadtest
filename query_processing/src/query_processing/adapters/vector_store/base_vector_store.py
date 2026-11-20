@@ -1,4 +1,4 @@
-"""The vector store ports: storing and finding passages by vector, and by words.
+"""The vector store ports: storing and finding records by vector, and by words.
 
 Each port is an abstract base class: an implementation states which port it
 implements by subclassing it, and one that forgets a method fails when it is
@@ -48,10 +48,10 @@ from ...domain.retrieval.rank_fusion import reciprocal_rank_fusion
 class BaseVectorStore(
     BaseComponent[SearchRequest, SearchAnswer], component_type="vector_store"
 ):
-    """Stores passages with their vectors and finds them by vector.
+    """Stores records with their vectors and finds them by vector.
 
     ``prefilter`` holds the conditions the store adds to every search, in front
-    of a request's own: which passages a workflow can read at all. Its opener
+    of a request's own: which records a workflow can read at all. Its opener
     sets it from the store's settings; none by default.
     """
 
@@ -61,12 +61,12 @@ class BaseVectorStore(
         """Search the store by the request's retrieval mode, under its prefilter.
 
         Args:
-            request: The vector, the words or both, how many passages to return,
+            request: The vector, the words or both, how many records to return,
                 the retrieval mode, the metadata filter and, for ``hybrid``, the
                 fusion's rank constant.
 
         Returns:
-            At most ``top_k`` passages, best first, each meeting the prefilter
+            At most ``top_k`` records, best first, each meeting the prefilter
             and the request's metadata filter.
 
         Raises:
@@ -104,13 +104,13 @@ class BaseVectorStore(
         records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages with their vectors, each under its record's id.
+        """Store records with their vectors, each under its record's id.
 
         The metadata is stored as it is, the id with it.
 
         Args:
-            records: The passages to store, each with an ``id`` in its metadata.
-            embeddings: One vector per passage, in the same order.
+            records: The records to store, each with an ``id`` in its metadata.
+            embeddings: One vector per record, in the same order.
         """
 
     @abstractmethod
@@ -120,25 +120,25 @@ class BaseVectorStore(
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages nearest to a vector among those the filter keeps.
+        """Find the records nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet; none filters
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet; none filters
                 nothing.
 
         Returns:
-            The nearest passages, nearest first, with their ``retrieval_score``,
+            The nearest records, nearest first, with their ``retrieval_score``,
             each with the id the store holds it under (``record_as_read``).
         """
 
     @abstractmethod
     async def count(self) -> int:
-        """Count the stored passages.
+        """Count the stored records.
 
         Returns:
-            The number of passages in the store.
+            The number of records in the store.
         """
 
     @abstractmethod
@@ -147,12 +147,12 @@ class BaseVectorStore(
 
         Returns:
             Whether it is ready, and a short human-readable status such as how many
-            passages it holds.
+            records it holds.
         """
 
 
 class BaseLexicalSearch(ABC):
-    """Ranks stored passages by how well their words match a text.
+    """Ranks stored records by how well their words match a text.
 
     A port of its own, apart from ``BaseVectorStore``, because not every store
     ranks text: open-source Chroma does not, Elasticsearch does.
@@ -165,17 +165,17 @@ class BaseLexicalSearch(ABC):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages whose words best match a text, among those kept.
+        """Find the records whose words best match a text, among those kept.
 
         Args:
             text: The text searched for.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet; none filters
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet; none filters
                 nothing.
 
         Returns:
-            The best-matching passages, best first, ranked by the store's own
-            text ranking, with its score as ``retrieval_score``; a passage
+            The best-matching records, best first, ranked by the store's own
+            text ranking, with its score as ``retrieval_score``; a record
             sharing no word with ``text`` is left out. Each has the id the
             store holds it under (``record_as_read``).
         """

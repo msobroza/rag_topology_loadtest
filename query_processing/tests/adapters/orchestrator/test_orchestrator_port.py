@@ -281,7 +281,7 @@ async def test_the_loop_runs_its_stages_again_on_langgraph() -> None:
 
 
 async def failing_stage(state: dict[str, Any]) -> dict[str, Any]:
-    raise LookupError("no passage")
+    raise LookupError("no record")
 
 
 @pytest.mark.parametrize("orchestrator", registered_orchestrators())
@@ -294,7 +294,7 @@ async def test_a_stage_s_lookup_error_reaches_the_workflow_s_run_as_itself(
         ORCHESTRATORS.get(orchestrator)(failing), stage_names=list(failing.stages)
     )
 
-    with pytest.raises(LookupError, match="no passage"):
+    with pytest.raises(LookupError, match="no record"):
         await workflow.run("q?")
 
 

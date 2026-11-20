@@ -1,7 +1,7 @@
-"""The ``fake`` reranker: Jaccard overlap of query and passage tokens.
+"""The ``fake`` reranker: Jaccard overlap of query and record tokens.
 
 Example:
-    >>> await FakeReranker().rerank("refund", passages, top_n=5)
+    >>> await FakeReranker().rerank("refund", records, top_n=5)
 """
 
 from __future__ import annotations
@@ -16,20 +16,20 @@ from ..base_reranker import BaseReranker
 
 
 class FakeReranker(BaseReranker):
-    """Scores by Jaccard overlap between query and passage tokens (0..1)."""
+    """Scores by Jaccard overlap between query and record tokens (0..1)."""
 
     async def rerank(
         self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
-        """Score each passage by token overlap with the query and keep the best.
+        """Score each record by token overlap with the query and keep the best.
 
         Args:
-            query: The question the passages are scored against.
+            query: The question the records are scored against.
             records: The retrieval candidates.
-            top_n: How many passages to keep.
+            top_n: How many records to keep.
 
         Returns:
-            At most ``top_n`` passages, best first, with their Jaccard score.
+            At most ``top_n`` records, best first, with their Jaccard score.
         """
         query_tokens = set(tokenize(query))
         scores = [_jaccard(query_tokens, set(tokenize(p.text))) for p in records]

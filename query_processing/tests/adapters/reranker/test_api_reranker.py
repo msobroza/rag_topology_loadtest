@@ -73,7 +73,7 @@ async def test_keeps_top_n_even_if_the_server_sends_more(clients: HttpClients) -
     assert [p.id for p in ranked] == ["p1"]
 
 
-async def test_empty_passages_make_no_request(clients: HttpClients) -> None:
+async def test_empty_records_make_no_request(clients: HttpClients) -> None:
     reranker, route = make(clients, rerank_body())
     assert await reranker.rerank("q", [], top_n=3) == []
     assert route.requests == []

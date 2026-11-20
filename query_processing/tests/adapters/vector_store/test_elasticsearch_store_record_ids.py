@@ -16,12 +16,12 @@ from test_elasticsearch_store import FakeLangChainStore, es_hit, plain_store
 
 async def test_es_upsert_passes_text_vector_pairs_metadatas_and_ids() -> None:
     fake = FakeLangChainStore()
-    passages = [
+    records = [
         VectorStoreRecord(text="alpha", metadata={"id": "p1", "topic": "hr"}),
         VectorStoreRecord(text="beta", metadata={"id": "p2"}),
     ]
     store = plain_store(fake)
-    await store.upsert(passages, [(0.1, 0.2), [0.3, 0.4]])
+    await store.upsert(records, [(0.1, 0.2), [0.3, 0.4]])
     await store.upsert([], [])  # nothing to write: no call at all
     assert fake.add_calls == [
         {

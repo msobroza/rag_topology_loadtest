@@ -1,10 +1,10 @@
 """Elasticsearch's filter translator: a metadata filter as query clauses.
 
-LangChain's store keeps a passage's metadata under ``metadata``, so a condition
+LangChain's store keeps a record's metadata under ``metadata``, so a condition
 on ``source`` filters ``metadata.source``. Dynamic mapping makes a string a
 ``text`` field with a ``keyword`` sub-field, and only the sub-field matches a
 whole value, so a string is matched on ``metadata.<attribute>.keyword``. A
-passage that lacks a condition's attribute is dropped, whatever the comparator,
+record that lacks a condition's attribute is dropped, whatever the comparator,
 as on the in-memory store.
 
 The clauses are a filter: they score nothing. The vector search gets them as its
@@ -66,7 +66,7 @@ def _clause(condition: MetadataCondition) -> EsClause:
     match = {term: {field: condition.value}}
     if comparator not in _NEGATED:
         return match
-    # must_not alone keeps a passage that lacks the field; spec 7 and the
+    # must_not alone keeps a record that lacks the field; spec 7 and the
     # in-memory store drop it, so the field must exist.
     exists = {"exists": {"field": f"metadata.{condition.attribute}"}}
     return {"bool": {"filter": [exists], "must_not": [match]}}

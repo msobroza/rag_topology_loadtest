@@ -4,7 +4,7 @@ It loads nothing and calls nothing, so it is not an in-process model adapter: it
 sits at the root of the adapters, beside the module that picks it.
 
 Example:
-    >>> await NoReranker().rerank("q", passages, top_n=5)  # the first five
+    >>> await NoReranker().rerank("q", records, top_n=5)  # the first five
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class NoReranker(BaseReranker):
     async def rerank(
         self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
-        """Keep the first passages, in retrieval order.
+        """Keep the first records, in retrieval order.
 
         Args:
             query: Unused: retrieval order does not depend on it.
@@ -30,7 +30,7 @@ class NoReranker(BaseReranker):
             top_n: How many to keep.
 
         Returns:
-            The first ``top_n`` passages, as given.
+            The first ``top_n`` records, as given.
         """
         del query  # the port's signature; retrieval order needs no query
         return list(records[:top_n])

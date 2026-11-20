@@ -44,7 +44,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         executor: The shared inference pool the encode calls run on.
         model_name: The name ``ready`` reports.
         scope: Caps the OpenMP threads of each encode call.
-        query_prefix: Put in front of a query, never of a passage; "" for a
+        query_prefix: Put in front of a query, never of a text to store; "" for a
             model that takes none.
         encode_options: The batch size and normalisation of each encode call.
 
@@ -94,7 +94,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
             executor: The shared inference pool the encode calls run on.
             batch_size: Texts per ``encode`` batch.
             threads: Threads one encode call may use.
-            query_prefix: Put in front of a query, never of a passage.
+            query_prefix: Put in front of a query, never of a text to store.
             normalize_embeddings: Scale each vector to unit length.
 
         Returns:

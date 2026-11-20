@@ -9,7 +9,7 @@ application depends on it, and on nothing else of the adapters.
 
 Example:
     >>> class MyReranker(BaseReranker):
-    ...     async def rerank(self, query, passages, top_n): ...
+    ...     async def rerank(self, query, records, top_n): ...
     ...     async def ready(self): return True, "mine"
 """
 
@@ -36,12 +36,12 @@ class BaseReranker(
         """Re-score retrieval candidates against the query and keep the best.
 
         Args:
-            query: The question the passages are scored against.
+            query: The question the records are scored against.
             records: The retrieval candidates.
-            top_n: How many passages to keep.
+            top_n: How many records to keep.
 
         Returns:
-            At most ``top_n`` passages, best first.
+            At most ``top_n`` records, best first.
         """
 
     async def ainvoke(self, request: RerankRequest) -> RerankAnswer:
@@ -51,7 +51,7 @@ class BaseReranker(
             request: The query, the candidates and how many to keep.
 
         Returns:
-            At most ``top_k`` passages, best first.
+            At most ``top_k`` records, best first.
 
         Example:
             >>> await reranker.ainvoke(RerankRequest(

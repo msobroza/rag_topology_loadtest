@@ -16,12 +16,12 @@ def _scored(
 
 
 async def test_fake_reranker_scores_by_overlap_and_truncates() -> None:
-    passages = [
+    records = [
         _scored("off", "gardening tips for spring"),
         _scored("hit", "the elasticsearch cluster shards"),
         _scored("near", "cluster of stars"),
     ]
-    kept = await FakeReranker().rerank("elasticsearch cluster", passages, top_n=2)
+    kept = await FakeReranker().rerank("elasticsearch cluster", records, top_n=2)
 
     assert [p.id for p in kept] == ["hit", "near"]
     assert kept[0].rerank_score is not None

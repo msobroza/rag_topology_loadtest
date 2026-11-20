@@ -96,8 +96,8 @@ async def test_each_port_answers_ainvoke_from_its_own_method() -> None:
 
     assert (await embedder.ainvoke(EmbedRequest(text="q"))).embedding == [1.0, 0.0]
     assert embedder.queries == ["q"]
-    passages = [scored("a"), scored("b")]
-    kept = await reranker.ainvoke(RerankRequest(query="q", records=passages, top_k=1))
+    records = [scored("a"), scored("b")]
+    kept = await reranker.ainvoke(RerankRequest(query="q", records=records, top_k=1))
     assert [p.id for p in kept.records] == ["a"]
     assert reranker.calls == [("q", 2, 1)]
     request = GenerateRequest(messages=[{"role": "user", "content": "hi"}])

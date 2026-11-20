@@ -19,9 +19,9 @@ async def test_fake_embedder_is_deterministic_unit_norm_and_topical() -> None:
     assert cosine(pie, tart) > cosine(pie, physics)
 
 
-async def test_a_query_embeds_as_the_same_text_stored_as_a_passage() -> None:
+async def test_a_query_embeds_as_the_same_text_stored_as_a_record() -> None:
     embedder = FakeEmbedder()
 
-    [as_a_passage] = await embedder.embed_documents(["vacation days"])
+    [as_a_record] = await embedder.embed_documents(["vacation days"])
 
-    assert await embedder.embed_query("vacation days") == as_a_passage
+    assert await embedder.embed_query("vacation days") == as_a_record

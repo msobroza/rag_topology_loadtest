@@ -1,9 +1,9 @@
 """In-memory vector store: the ``fake`` backend.
 
 Vectors are searched by brute-force cosine. Words are ranked by a stand-in, not
-BM25: a passage scores the number of distinct query words its text contains.
+BM25: a record scores the number of distinct query words its text contains.
 That is enough to exercise the lexical and hybrid paths without Elasticsearch.
-A metadata filter is a predicate over each passage (``InMemoryFilterTranslator``),
+A metadata filter is a predicate over each record (``InMemoryFilterTranslator``),
 applied before either ranking.
 
 Example:
@@ -46,10 +46,10 @@ def distinct_words(text: str) -> set[str]:
 
 
 class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
-    """Passages and vectors in a dict, searched by cosine or by shared words.
+    """Records and vectors in a dict, searched by cosine or by shared words.
 
     The lexical ranking is a stand-in for a real text ranking such as BM25: the
-    score is how many distinct query words the passage text contains.
+    score is how many distinct query words the record's text contains.
     """
 
     def __init__(self) -> None:
@@ -61,14 +61,14 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages whole with their vectors; a known id is overwritten.
+        """Store records whole with their vectors; a known id is overwritten.
 
         Args:
-            records: The passages to store.
-            embeddings: One vector per passage, in the same order.
+            records: The records to store.
+            embeddings: One vector per record, in the same order.
         """
-        for passage, embedding in zip(records, embeddings, strict=True):
-            self._rows[passage.id] = (passage, list(embedding))
+        for record, embedding in zip(records, embeddings, strict=True):
+            self._rows[record.id] = (record, list(embedding))
 
     async def query(
         self,
@@ -76,15 +76,15 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages nearest to a vector by cosine, among those kept.
+        """Find the records nearest to a vector by cosine, among those kept.
 
         Args:
             embedding: The query vector.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet.
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet.
 
         Returns:
-            The nearest passages, nearest first, with the cosine as
+            The nearest records, nearest first, with the cosine as
             ``retrieval_score``.
         """
         scored = sorted(
@@ -103,16 +103,16 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages sharing the most distinct words with a text, of those kept.
+        """Find the records sharing the most distinct words with a text, of those kept.
 
         Args:
             text: The text searched for.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet.
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet.
 
         Returns:
-            The passages, most shared words first (ties in insertion order),
-            with that count as ``retrieval_score``; a passage sharing no word
+            The records, most shared words first (ties in insertion order),
+            with that count as ``retrieval_score``; a record sharing no word
             is left out.
         """
         wanted = distinct_words(text)
@@ -134,17 +134,17 @@ class InMemoryVectorStore(BaseVectorStore, BaseLexicalSearch):
         return [row for row in self._rows.values() if keep(row[0])]
 
     async def count(self) -> int:
-        """Count the stored passages.
+        """Count the stored records.
 
         Returns:
-            The number of passages in memory.
+            The number of records in memory.
         """
         return len(self._rows)
 
     async def ready(self) -> tuple[bool, str]:
-        """Report whether any passage is stored.
+        """Report whether any record is stored.
 
         Returns:
-            Whether the store is non-empty, and how many passages it holds.
+            Whether the store is non-empty, and how many records it holds.
         """
         return bool(self._rows), f"{len(self._rows)} records in memory"

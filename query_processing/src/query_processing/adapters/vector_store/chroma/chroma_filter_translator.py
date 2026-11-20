@@ -5,7 +5,7 @@ of its own; Chroma refuses an ``$and`` of fewer than two, so only several are
 joined under it. No condition gives no ``where`` at all, as Chroma refuses an
 empty one. Chroma applies the ``where`` before its vector search.
 
-Unlike the in-memory store, Chroma keeps a passage that lacks the attribute of
+Unlike the in-memory store, Chroma keeps a record that lacks the attribute of
 an ``ne`` or ``nin`` condition: it has no operator that asks for a field.
 
 Example:

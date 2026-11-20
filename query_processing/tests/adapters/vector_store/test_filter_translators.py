@@ -34,7 +34,7 @@ def cond(
     return MetadataCondition(attribute=attribute, comparator=comparator, value=value)
 
 
-PASSAGE = VectorStoreRecord(
+RECORD = VectorStoreRecord(
     text="t", metadata={"id": "p", "source": "AMF", "sequence": 2, "active": True}
 )
 
@@ -61,36 +61,35 @@ PASSAGE = VectorStoreRecord(
         (cond("active", "eq", True), True),
     ],
 )
-def test_the_in_memory_predicate_keeps_a_passage_that_meets_the_condition(
+def test_the_in_memory_predicate_keeps_a_record_that_meets_the_condition(
     condition: MetadataCondition, kept: bool
 ) -> None:
-    assert InMemoryFilterTranslator().translate([condition])(PASSAGE) is kept
+    assert InMemoryFilterTranslator().translate([condition])(RECORD) is kept
 
 
 @pytest.mark.parametrize(
     "condition",
     [cond("topic", "eq", "x"), cond("topic", "ne", "x"), cond("topic", "nin", ["x"])],
 )
-def test_the_in_memory_predicate_drops_a_passage_that_lacks_the_field(
+def test_the_in_memory_predicate_drops_a_record_that_lacks_the_field(
     condition: MetadataCondition,
 ) -> None:
-    assert InMemoryFilterTranslator().translate([condition])(PASSAGE) is False
+    assert InMemoryFilterTranslator().translate([condition])(RECORD) is False
 
 
 def test_the_in_memory_predicate_drops_a_value_it_cannot_order() -> None:
     assert (
-        InMemoryFilterTranslator().translate([cond("source", "gt", 1)])(PASSAGE)
-        is False
+        InMemoryFilterTranslator().translate([cond("source", "gt", 1)])(RECORD) is False
     )
 
 
 def test_the_in_memory_predicate_needs_every_condition() -> None:
     translate = InMemoryFilterTranslator().translate
 
-    assert translate([])(PASSAGE) is True
-    assert translate([cond("source", "eq", "AMF"), cond("sequence", "lt", 3)])(PASSAGE)
+    assert translate([])(RECORD) is True
+    assert translate([cond("source", "eq", "AMF"), cond("sequence", "lt", 3)])(RECORD)
     assert not translate([cond("source", "eq", "AMF"), cond("sequence", "lt", 2)])(
-        PASSAGE
+        RECORD
     )
 
 

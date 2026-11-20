@@ -32,7 +32,7 @@ class CrossEncoderReranker(BaseReranker):
         model: A ``CrossEncoder``, or a fake with the same ``predict``.
         executor: The shared inference pool the predict calls run on.
         model_name: The name ``ready`` reports.
-        batch_size: Query-passage pairs per ``predict`` batch.
+        batch_size: Query-record pairs per ``predict`` batch.
         scope: Caps the OpenMP threads of each predict call.
 
     Example:
@@ -70,7 +70,7 @@ class CrossEncoderReranker(BaseReranker):
         Args:
             model: The model to load, and the runtime it loads under.
             executor: The shared inference pool the predict calls run on.
-            batch_size: Query-passage pairs per ``predict`` batch.
+            batch_size: Query-record pairs per ``predict`` batch.
             threads: Threads one predict call may use.
 
         Returns:
@@ -90,16 +90,16 @@ class CrossEncoderReranker(BaseReranker):
     async def rerank(
         self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
     ) -> list[ScoredVectorStoreRecord]:
-        """Score each (query, passage) pair on the pool and keep the best.
+        """Score each (query, record) pair on the pool and keep the best.
 
         Args:
-            query: The question the passages are scored against.
+            query: The question the records are scored against.
             records: The retrieval candidates; none returns ``[]`` without a model
                 call.
-            top_n: How many passages to keep.
+            top_n: How many records to keep.
 
         Returns:
-            At most ``top_n`` passages, best first, with the cross-encoder score.
+            At most ``top_n`` records, best first, with the cross-encoder score.
         """
         if not records:
             return []
@@ -121,7 +121,7 @@ class CrossEncoderReranker(BaseReranker):
         is the expensive part.
 
         Args:
-            batch_size: Query-passage pairs per ``predict`` batch.
+            batch_size: Query-record pairs per ``predict`` batch.
 
         Returns:
             A new adapter sharing the model, the pool, the model name and the

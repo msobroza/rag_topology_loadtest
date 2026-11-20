@@ -21,7 +21,7 @@ from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store im
 from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
 
-INDEX = "passages_under_test"  # any name: the adapter must use the one it is given
+INDEX = "records_under_test"  # any name: the adapter must use the one it is given
 
 
 def record(record_id: str, text: str = "t") -> VectorStoreRecord:
@@ -32,8 +32,8 @@ def record(record_id: str, text: str = "t") -> VectorStoreRecord:
 # --- ElasticsearchVectorStore ----------------------------------------------
 
 
-def es_hit(passage_id: str, text: str, metadata: dict[str, Any]) -> dict[str, Any]:
-    return {"_id": passage_id, "_source": {"text": text, "metadata": metadata}}
+def es_hit(record_id: str, text: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    return {"_id": record_id, "_source": {"text": text, "metadata": metadata}}
 
 
 class FakeLangChainStore:
@@ -148,7 +148,7 @@ def plain_store(fake: FakeLangChainStore) -> ElasticsearchVectorStore:
     return ElasticsearchVectorStore(fake, INDEX, index_strategy=dense_strategy())
 
 
-async def test_es_query_builds_scored_passages_from_hits() -> None:
+async def test_es_query_builds_scored_records_from_hits() -> None:
     fake = FakeLangChainStore(
         [
             (es_hit("p9", "nine", {"topic": "it"}), np.float32(0.75)),
@@ -256,7 +256,7 @@ async def test_es_count_is_zero_without_index(exists: bool, expected: int) -> No
         (True, (True, f"17 records in {INDEX}")),
     ],
 )
-async def test_es_ready_reports_the_passage_count_and_index(
+async def test_es_ready_reports_the_record_count_and_index(
     exists: bool, expected: tuple[bool, str]
 ) -> None:
     fake = FakeLangChainStore(exists=exists, count=17)
@@ -297,7 +297,7 @@ async def test_es_failures_surface_as_vector_store_errors(
     assert info.value.__cause__ is boom
 
 
-# --- the analyzer of the passages' text ------------------------------------
+# --- the analyzer of the records' text -------------------------------------
 
 
 def french_store(fake: FakeLangChainStore) -> ElasticsearchVectorStore:

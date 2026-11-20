@@ -60,16 +60,16 @@ class ApiReranker(BaseReranker):
         """Re-score the candidates on the endpoint and keep the best.
 
         Args:
-            query: The question the passages are scored against.
+            query: The question the records are scored against.
             records: The retrieval candidates; none sends no request.
-            top_n: How many passages to keep.
+            top_n: How many records to keep.
 
         Returns:
-            At most ``top_n`` passages, best first, with the endpoint's score.
+            At most ``top_n`` records, best first, with the endpoint's score.
 
         Raises:
             RagDependencyError: If the request fails, or the answer is not the
-                format's shape or names an index outside the passages sent.
+                format's shape or names an index outside the records sent.
         """
         if not records:
             return []
@@ -99,9 +99,9 @@ class ApiReranker(BaseReranker):
         top_n: int,
         send: _Send,
     ) -> list[ScoredVectorStoreRecord]:
-        # One request; the answer's indexes name the passages sent, in order.
+        # One request; the answer's indexes name the records sent, in order.
         model = self._endpoint_client.endpoint.model
-        documents = [passage.text for passage in records]
+        documents = [record.text for record in records]
         answer = await send(
             self._api_format.request_body(model, query, documents, top_n)
         )

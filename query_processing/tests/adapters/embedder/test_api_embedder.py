@@ -24,7 +24,7 @@ from query_processing.domain.errors import RagDependencyError
 
 URL = "http://models.test:8002/v3/embeddings"
 MODEL = "bge-small-en-v1.5"
-PREFIX = "query: "  # every embedder here has one: a passage must never get it
+PREFIX = "query: "  # every embedder here has one: a text to store must never get it
 
 
 @pytest.fixture

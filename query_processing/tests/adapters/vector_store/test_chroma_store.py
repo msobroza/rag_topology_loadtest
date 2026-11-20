@@ -18,14 +18,14 @@ from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVec
 from query_processing.domain.components.component_requests import SearchRequest
 from query_processing.domain.errors import RagDependencyError
 
-COLLECTION = "passages_under_test"  # any name: the adapter must use the one given
+COLLECTION = "records_under_test"  # any name: the adapter must use the one given
 
 
 async def open_store(path: Path) -> Any:
     return await ChromaVectorStore.open(url="", path=str(path), collection=COLLECTION)
 
 
-PASSAGES = [
+RECORDS = [
     VectorStoreRecord(
         text="vacation days accrue monthly", metadata={"id": "p1", "topic": "hr"}
     ),
@@ -43,7 +43,7 @@ VECTORS = [[1.0, 0.0], [0.0, 1.0], [0.6, 0.8]]
 async def test_chroma_upsert_stores_and_overwrites_by_id(tmp_path: Path) -> None:
     store = await open_store(tmp_path)
     await store.upsert([], [])  # nothing to write: no error
-    await store.upsert(PASSAGES, VECTORS)
+    await store.upsert(RECORDS, VECTORS)
     await store.upsert(
         [VectorStoreRecord(text="laptops last four years", metadata={"id": "p2"})],
         [[0, 1]],
@@ -59,7 +59,7 @@ async def test_chroma_upsert_replaces_metadata_rather_than_merging(
     tmp_path: Path,
 ) -> None:
     store = await open_store(tmp_path)
-    await store.upsert(PASSAGES, VECTORS)
+    await store.upsert(RECORDS, VECTORS)
     await store.upsert(
         [VectorStoreRecord(text="vacation days", metadata={"id": "p1"})], [[1, 0]]
     )
@@ -71,7 +71,7 @@ async def test_chroma_query_is_nearest_first_with_cosine_similarity(
     tmp_path: Path,
 ) -> None:
     store = await open_store(tmp_path)
-    await store.upsert(PASSAGES, VECTORS)
+    await store.upsert(RECORDS, VECTORS)
     hits = await store.query([1.0, 0.0], top_k=3)
     assert [h.id for h in hits] == ["p1", "p3", "p2"]
     scores = [h.retrieval_score for h in hits]
@@ -123,7 +123,7 @@ async def test_chroma_stores_a_records_metadata_as_it_is_the_id_with_it(
     tmp_path: Path,
 ) -> None:
     store = await open_store(tmp_path)
-    await store.upsert(PASSAGES[:1], VECTORS[:1])
+    await store.upsert(RECORDS[:1], VECTORS[:1])
     import chromadb
 
     client = chromadb.PersistentClient(
@@ -168,10 +168,10 @@ TAGGED_VECTORS = [[1.0, 0.0], [0.8, 0.6], [0.6, 0.8]]  # amf nearest, chad last
         ([cond("source", "in", ["AMF", "CHAD"])], ["amf", "chad"]),
         ([cond("source", "nin", ["AMF", "CHAD"])], ["gaa"]),
         ([cond("source", "ne", "AMF"), cond("sequence", "lt", 3)], ["gaa"]),
-        ([cond("topic", "eq", "hr")], []),  # no passage has the field
+        ([cond("topic", "eq", "hr")], []),  # no record has the field
     ],
 )
-async def test_chroma_query_returns_only_the_passages_the_filter_keeps(
+async def test_chroma_query_returns_only_the_records_the_filter_keeps(
     tmp_path: Path, conditions: list[MetadataCondition], kept: list[str]
 ) -> None:
     store = await open_store(tmp_path)
@@ -200,7 +200,7 @@ async def test_chroma_a_search_keeps_only_what_the_prefilter_and_request_keep(
 async def test_chroma_ready_reports_count_and_collection(tmp_path: Path) -> None:
     store = await open_store(tmp_path)
     assert await store.ready() == (False, f"0 records in {COLLECTION}")
-    await store.upsert(PASSAGES, VECTORS)
+    await store.upsert(RECORDS, VECTORS)
     assert await store.ready() == (True, f"3 records in {COLLECTION}")
 
 
@@ -208,7 +208,7 @@ async def test_chroma_failures_surface_as_vector_store_errors(
     tmp_path: Path,
 ) -> None:
     store = await open_store(tmp_path)
-    await store.upsert(PASSAGES, VECTORS)
+    await store.upsert(RECORDS, VECTORS)
     with pytest.raises(RagDependencyError) as info:
         await store.query([1.0, 0.0, 0.0], top_k=1)  # wrong dimension
     assert info.value.component == "vector_store"

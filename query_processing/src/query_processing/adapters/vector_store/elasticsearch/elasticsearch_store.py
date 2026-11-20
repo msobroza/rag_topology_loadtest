@@ -45,8 +45,8 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
 
     Args:
         store: An ``AsyncElasticsearchStore`` already bound to ``index``.
-        index: The Elasticsearch index the passages live in.
-        text_analyzer: The analyzer of the passages' text; "" or ``standard``
+        index: The Elasticsearch index the records live in.
+        text_analyzer: The analyzer of the records' text; "" or ``standard``
             leaves Elasticsearch's default.
         index_strategy: The retrieval strategy ``store`` was built with; a new
             index gets its mapping.
@@ -78,9 +78,9 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
 
         Args:
             url: The Elasticsearch URL.
-            index: The index the passages live in (``elasticsearch.index``).
+            index: The index the records live in (``elasticsearch.index``).
             api_key: An Elasticsearch API key; "" connects without one.
-            text_analyzer: The analyzer of the passages' text; "" or ``standard``
+            text_analyzer: The analyzer of the records' text; "" or ``standard``
                 leaves Elasticsearch's default.
 
         Returns:
@@ -107,11 +107,11 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         records: Sequence[VectorStoreRecord],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages with their vectors, keyed by passage id.
+        """Store records with their vectors, keyed by record id.
 
         Args:
-            records: The passages to store; none is a no-op.
-            embeddings: One vector per passage, in the same order.
+            records: The records to store; none is a no-op.
+            embeddings: One vector per record, in the same order.
         """
         if not records:
             return
@@ -130,17 +130,17 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages nearest to a vector among those the filter keeps.
+        """Find the records nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet, sent as the
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet, sent as the
                 ``knn`` clause's filter, which the server applies during the
                 search; none filters nothing.
 
         Returns:
-            The nearest passages with Elasticsearch's relevance score as
+            The nearest records with Elasticsearch's relevance score as
             ``retrieval_score``.
         """
         hits = await self._call(
@@ -161,17 +161,17 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
     ) -> list[ScoredVectorStoreRecord]:
-        """Find the passages whose words best match a text (Elasticsearch BM25).
+        """Find the records whose words best match a text (Elasticsearch BM25).
 
         Args:
             text: The text searched for.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet, sent in the
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet, sent in the
                 ``filter`` of a ``bool`` query, where they score nothing; none
                 filters nothing.
 
         Returns:
-            The best-matching passages, best first, with Elasticsearch's BM25
+            The best-matching records, best first, with Elasticsearch's BM25
             ``_score`` as ``retrieval_score``.
         """
         found = await self._call(
@@ -193,13 +193,13 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
     def _text_query(
         self, text: str, metadata_filter: Sequence[MetadataCondition]
     ) -> dict[str, Any]:
-        # LangChain's store keeps the passage text in the ``text`` field.
+        # LangChain's store keeps the record's text in the ``text`` field.
         match = {"match": {"text": text}}
         clauses = self._filter_translator.translate(metadata_filter)
         return {"bool": {"must": match, "filter": clauses}} if clauses else match
 
     async def count(self) -> int:
-        """Count the passages in the index.
+        """Count the records in the index.
 
         Returns:
             The number of documents in the index; 0 when it does not exist yet.
@@ -210,10 +210,10 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         return int((await self._call(client.count, index=self.index))["count"])
 
     async def ready(self) -> tuple[bool, str]:
-        """Report whether the index holds any passage.
+        """Report whether the index holds any record.
 
         Returns:
-            Whether the index is non-empty, and how many passages it holds; when
+            Whether the index is non-empty, and how many records it holds; when
             its text analyzer differs from the configured one, also that.
         """
         count = await self.count()
@@ -287,7 +287,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
 
 
 def _document_with_id(hit: dict[str, Any]) -> Any:
-    # The default builder drops Elasticsearch's _id, which is our passage id.
+    # The default builder drops Elasticsearch's _id, which is our record id.
     from langchain_core.documents import Document
 
     source = hit["_source"]
