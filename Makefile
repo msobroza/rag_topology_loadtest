@@ -3,7 +3,8 @@
 # (ADR 0014); the toolkit in query_processing/, which installs it; and the RAG use
 # case in query_processing_rag_usecase/, which installs the toolkit (ADR 0005). A
 # fourth is not the product: experiment_charts/ draws experiments-explained/ from
-# experiments/. install installs the three in one command, install-dev all four;
+# experiments/. install installs the three in one command, install-dev all four,
+# each after doclang's core, from its clone (DOCLANG_CLONE, below);
 # check runs the core's gates, then the toolkit's, then the use case's, then the
 # charts package's; each gate is run over the core's source with the toolkit's
 # configuration where it can be (lint, typecheck, complexity, deps), handed to the

@@ -2,6 +2,7 @@
 
 A distribution of its own, which every toolkit installs and which installs
 none: data only, with no port, no settings and no I/O, importing the standard
-library and Pydantic alone. Its modules are laid out by the glossary's areas:
-``retrieval`` holds the metadata filter.
+library, Pydantic and, in one module, doclang's core. What a client sends sits
+at the top, the conversational history and the body of a request; ``retrieval``
+holds the metadata filter and the vector-store record with its scores.
 """

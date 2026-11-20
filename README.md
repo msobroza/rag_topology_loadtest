@@ -609,9 +609,10 @@ each a directory of its own at its root:
   in one module, doclang's core (see [Install](#install)), and no toolkit
   and no use case (its own `tests/test_core_imports.py` checks it). The
   toolkit depends on it, so every install names its directory before the
-  toolkit's. Its
-  modules are laid out by the glossary's areas (`retrieval/`), and rules 3 and
-  9 below apply to it.
+  toolkit's. What a client sends sits at the top of its package (the
+  conversational history, the body of a request), the rest in a sub-package
+  named after its area of the glossary (`retrieval/`), and rules 3 and 9 below
+  apply to it.
 - **The toolkit**, in `query_processing/`: what any use case can assemble.
   Every path of this section and of the tree below it is relative to that
   directory, except the core's, the use case's and the repository's own
