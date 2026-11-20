@@ -15,8 +15,11 @@ from __future__ import annotations
 
 from typing import Final, NamedTuple
 
-# The value of an endpoint's ``api_key`` setting that means "send the Domino
-# run's token": the composition root gives that endpoint the ``domino`` key source.
+# The value that once meant "send the Domino run's token" in an endpoint's
+# ``api_key``, which the ``key`` block has replaced. Nothing of the workflow app
+# reads it: the deploy tool's rule on a setting ending in ``_API_KEY`` still lets
+# it through (deploy_refusals.py, overrides.py) until that rule changes with
+# ticket 05 of "an API key comes from a key source".
 DOMINO_RUN_TOKEN = "domino"
 # The backend that calls a model server of ours, which every component type
 # has: named here for the composition and the deploy tool, which share no other

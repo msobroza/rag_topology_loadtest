@@ -38,7 +38,7 @@ async def open_embedder_on_api(
         >>> embedder = await open_embedder_on_api(embedder_settings, shared)
     """
     api = component.api
-    key_source = await shared.http.key_source_of(api.api_key)
+    key_source = await shared.http.key_source_of(api.key)
     endpoint = api.endpoint(component.alias)
     return await open_embedder_at(endpoint, key_source, api, component, shared)
 

@@ -121,6 +121,33 @@ async def test_an_answer_of_another_shape_is_a_dependency_error(
     assert "malformed response" in failed.value.detail
 
 
+@pytest.mark.parametrize(
+    ("on_domino", "authorization"),
+    [(True, "Bearer run-token"), (False, None)],
+    ids=["on-domino", "elsewhere"],
+)
+async def test_the_served_class_gets_the_run_token_on_domino_and_no_key_elsewhere(
+    settings_factory: SettingsFactory, on_domino: bool, authorization: str | None
+) -> None:
+    # No key block: a served component's key follows where the app runs.
+    sent: list[httpx.Request] = []
+
+    def server(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == settings.domino.token_url:
+            return httpx.Response(200, text="run-token")
+        sent.append(request)
+        return httpx.Response(200, json={"text": "A"})
+
+    settings = served_settings(settings_factory, "shouter", SHOUTER_URL)
+    transport = httpx.MockTransport(server)
+    root = CompositionRoot(settings, transport=transport, on_domino=on_domino)
+    async with root as composition:
+        shouter = (await composition.workflow_dependencies()).components()["shouter"]
+        await shouter.ainvoke(ShoutRequest(text="a"))
+
+    assert [request.headers.get("Authorization") for request in sent] == [authorization]
+
+
 @pytest.mark.parametrize(("retries", "attempts"), [(0, 1), (2, 3)])
 async def test_the_served_class_is_called_with_the_components_http_settings(
     settings_factory: SettingsFactory, retries: int, attempts: int

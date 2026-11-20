@@ -1,7 +1,7 @@
 """The ``Authorization`` header of a model endpoint, from the key source it is given.
 
 The key source is a port among the adapters, which this layer may not import:
-``KeySupplier`` states the two methods it is called through. A key the source
+``KeySupplier`` states the three methods it is called through. A key the source
 already holds is taken on the event loop; a source that must ask is called off
 it, in a thread, since its methods block. The key a refused call carried is
 read back from that call's own headers, so a refusal names the key it was for
@@ -49,6 +49,14 @@ class KeySupplier(Protocol):
         """
         ...
 
+    def described(self) -> str:
+        """Say where the key comes from and how it is changed, without the key.
+
+        Returns:
+            One clause, for the error of a call refused for its key.
+        """
+        ...
+
 
 class BearerKey:
     """Builds every call's ``Authorization`` header from one key source.
@@ -91,3 +99,15 @@ class BearerKey:
         authorization = sent.get("Authorization", "")
         if authorization.startswith(_BEARER):
             self._source.refused(authorization.removeprefix(_BEARER))
+
+    def described(self) -> str:
+        """Say where the key comes from, for the error of a refused call.
+
+        Returns:
+            What the key source says of itself, never the key.
+
+        Example:
+            >>> bearer.described()
+            'its key is read from the environment variable OPENAI_API_KEY ...'
+        """
+        return self._source.described()

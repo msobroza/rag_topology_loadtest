@@ -34,7 +34,7 @@ async def open_reranker_on_api(
         >>> reranker = await open_reranker_on_api(reranker_settings, shared)
     """
     endpoint = component.api.endpoint(component.alias)
-    key_source = await shared.http.key_source_of(component.api.api_key)
+    key_source = await shared.http.key_source_of(component.api.key)
     return await open_reranker_at(endpoint, key_source, component, shared)
 
 

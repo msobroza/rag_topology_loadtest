@@ -1,12 +1,14 @@
 """An API key reaches each call through a key source, seen from outside the workflow app.
 
 A served component on Domino is called with the run token of the process's one
-``domino`` source; an ``api`` component with its fixed key or with none. When a
-call is refused for its key (401), its source is told and the call is made
-again within the retries of the ``http`` block; a 403 and a 401 with no key
+``domino`` source; an ``api`` component with the source its ``key`` block names,
+or with no key without one (``test_qp_serve_key_blocks.py`` shows each block).
+When a call is refused for its key (401), its source is told and the call is
+made again within the retries of the ``http`` block; a 403 and a 401 with no key
 fail at once. The endpoints and Domino's token URL are one HTTP transport that
 answers in their place, numbers the run tokens it serves, refuses the keys it is
-told to refuse, and records what each call carried.
+told to refuse, echoes the key of a call it refuses, and records what each call
+carried.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from fastapi.testclient import TestClient
 from model_api_fakes import standard_answer
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
+from query_processing.domain.errors import RagDependencyError
 from query_processing.entrypoints.qp_serve import create_app
 
 SettingsFactory = Callable[..., WorkflowSettings]
@@ -29,7 +32,9 @@ EMBED_URL = "http://embedder-app.test/v3/embeddings"
 RERANK_URL = "http://reranker-app.test/v3/rerank"
 VENDOR_RERANK_URL = "https://rerank.vendor.test/v2/rerank"
 TOKEN_URL = "http://domino.test/access-token"
-FIXED_KEY = "co-secret-key-4711"
+VENDOR_KEY = "co-secret-key-4711"
+# The variable the vendor reranker's env source reads its key from.
+KEY_VARIABLE = "VENDOR_RERANK_KEY"
 # Every component on its fake but the reranker, called at RERANK_URL; no wait
 # between retries, two retries.
 SERVED_RERANKER: dict[str, object] = {
@@ -48,6 +53,12 @@ VENDOR_RERANKER: dict[str, object] = {
     "components__reranker__api__api_format": "cohere",
     "components__reranker__api__model": "rerank-v3.5",
 }
+# The vendor reranker's key block, by the source it names.
+KEY_BLOCKS: dict[str, dict[str, str] | None] = {
+    "no-block": None,
+    "env": {"source": "env", "variable": KEY_VARIABLE},
+    "domino": {"source": "domino"},
+}
 
 
 def run_token(number: int) -> str:
@@ -60,7 +71,8 @@ class KeyedEndpoints:
 
     The token URL answers its scripted failures first, then numbered run tokens.
     An endpoint answers ``refusal`` to a call whose ``Authorization`` is in
-    ``refused`` (``None`` for a call with no key), else its standard answer.
+    ``refused`` (``None`` for a call with no key), quoting that header back as
+    some endpoints do, else its standard answer.
     """
 
     def __init__(
@@ -82,7 +94,7 @@ class KeyedEndpoints:
         auth = request.headers.get("Authorization")
         self.calls.append((str(request.url), auth))
         if auth in self.refused:
-            return httpx.Response(self.refusal, text="key refused")
+            return httpx.Response(self.refusal, text=f"key refused: {auth}")
         return httpx.Response(200, json=standard_answer(json.loads(request.content)))
 
     def _token(self) -> httpx.Response:
@@ -112,6 +124,21 @@ def app_over(
     transport = httpx.MockTransport(endpoints)
     composition = CompositionRoot(settings, transport=transport, on_domino=on_domino)
     return TestClient(create_app(composition))
+
+
+def vendor_app(
+    endpoints: KeyedEndpoints,
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    block: str,
+) -> TestClient:
+    """The app off Domino, the vendor reranker keyed by ``KEY_BLOCKS[block]``."""
+    monkeypatch.setenv(KEY_VARIABLE, VENDOR_KEY)
+    key = KEY_BLOCKS[block]
+    keyed = {"components__reranker__api__key": key} if key else {}
+    return app_over(
+        endpoints, settings_factory, on_domino=False, **VENDOR_RERANKER, **keyed
+    )
 
 
 def retrieve(client: TestClient) -> httpx.Response:
@@ -199,17 +226,22 @@ def test_asking_for_the_run_token_is_retried_within_the_http_block(
 
 
 @pytest.mark.parametrize(
-    "failure",
+    ("failure", "asks"),
     [
-        httpx.Response(500, text="nope"),
-        httpx.Response(200, text="   "),
-        httpx.ConnectError("refused"),
+        (httpx.Response(500, text="nope"), 3),
+        (httpx.Response(429, text="slow down"), 3),
+        (httpx.ConnectError("refused"), 3),
+        (httpx.Response(404, text="no such route"), 1),
+        (httpx.Response(403, text="not yours"), 1),
+        (httpx.Response(200, text="   "), 1),
     ],
-    ids=["non-200", "empty-body", "transport-error"],
+    ids=["5xx", "429", "transport-error", "404", "403", "empty-body"],
 )
 def test_a_run_token_that_cannot_be_had_fails_the_request_naming_its_url(
-    settings_factory: SettingsFactory, failure: httpx.Response | Exception
+    settings_factory: SettingsFactory, failure: httpx.Response | Exception, asks: int
 ) -> None:
+    # What the retrying post retries is asked again (the first ask and the
+    # http block's 2 retries); any other answer fails at once.
     endpoints = KeyedEndpoints(token_failures=(failure,) * 3)
     app = app_over(endpoints, settings_factory, on_domino=True)
 
@@ -222,64 +254,57 @@ def test_a_run_token_that_cannot_be_had_fails_the_request_naming_its_url(
         "domino_access_token_unavailable",
         TOKEN_URL,
     )
-    assert endpoints.token_asks == 3  # the first ask and the http block's 2 retries
+    assert endpoints.token_asks == asks
     assert endpoints.calls == []
 
 
-# --- a fixed key, no key, and a 403 ------------------------------------------------------
+class AsyncOnlyTransport(httpx.AsyncBaseTransport):
+    """A transport that serves an async client alone, as a test's stand-in may.
+
+    It is refused before it would answer anything.
+    """
 
 
-def test_a_refused_fixed_key_runs_out_its_retries_then_fails(
+def test_a_transport_that_serves_no_blocking_client_is_refused_when_domino_opens(
     settings_factory: SettingsFactory,
 ) -> None:
-    # Changed on purpose: a fixed key's 401 failed at once before.
-    endpoints = KeyedEndpoints(refused=(f"Bearer {FIXED_KEY}",))
-    app = app_over(
-        endpoints,
-        settings_factory,
-        on_domino=True,
-        **VENDOR_RERANKER,
-        components__reranker__api__api_key=FIXED_KEY,
-    )
+    # Handed down as no transport, it would let the token's ask reach the network.
+    settings = settings_factory(**SERVED_RERANKER)
+    transport = AsyncOnlyTransport()
+    composition = CompositionRoot(settings, transport=transport, on_domino=True)
 
-    with app as client:
-        response = retrieve(client)
+    with (
+        pytest.raises(RagDependencyError) as refused,
+        TestClient(create_app(composition)),
+    ):
+        pass
 
-    assert response.status_code == 503
-    body = response.json()
-    assert (body["error"], body["target"]) == (
-        "reranker_unavailable",
-        VENDOR_RERANK_URL,
-    )
-    assert "HTTP 401" in body["detail"]
-    assert endpoints.sent_to(VENDOR_RERANK_URL) == [f"Bearer {FIXED_KEY}"] * 3
-    assert endpoints.token_asks == 0
+    [line] = str(refused.value).splitlines()
+    assert "AsyncOnlyTransport" in line
+
+
+# --- a key from env, no key, and a 403 ---------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("api_key", "refusal", "authorization"),
+    ("block", "refusal", "authorization"),
     [
-        ("", 401, None),
-        ("", 403, None),
-        (FIXED_KEY, 403, f"Bearer {FIXED_KEY}"),
+        ("no-block", 401, None),
+        ("no-block", 403, None),
+        ("env", 403, f"Bearer {VENDOR_KEY}"),
         ("domino", 403, f"Bearer {run_token(1)}"),
     ],
-    ids=["401-no-key", "403-no-key", "403-fixed-key", "403-run-token"],
+    ids=["401-no-key", "403-no-key", "403-env", "403-run-token"],
 )
 def test_a_403_and_a_401_without_a_key_fail_at_once(
     settings_factory: SettingsFactory,
-    api_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+    block: str,
     refusal: int,
     authorization: str | None,
 ) -> None:
     endpoints = KeyedEndpoints(refused=(authorization,), refusal=refusal)
-    app = app_over(
-        endpoints,
-        settings_factory,
-        on_domino=False,
-        **VENDOR_RERANKER,
-        components__reranker__api__api_key=api_key,
-    )
+    app = vendor_app(endpoints, settings_factory, monkeypatch, block)
 
     with app as client:
         response = retrieve(client)
@@ -289,17 +314,16 @@ def test_a_403_and_a_401_without_a_key_fail_at_once(
     assert endpoints.sent_to(VENDOR_RERANK_URL) == [authorization]
 
 
+@pytest.mark.parametrize("refusal", [401, 403])
 def test_no_refusal_and_no_log_line_holds_the_key(
-    settings_factory: SettingsFactory, capsys: pytest.CaptureFixture[str]
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    refusal: int,
 ) -> None:
-    endpoints = KeyedEndpoints(refused=(f"Bearer {FIXED_KEY}",))
-    app = app_over(
-        endpoints,
-        settings_factory,
-        on_domino=False,
-        **VENDOR_RERANKER,
-        components__reranker__api__api_key=FIXED_KEY,
-    )
+    # The stand-in quotes the key it refuses back in its body.
+    endpoints = KeyedEndpoints(refused=(f"Bearer {VENDOR_KEY}",), refusal=refusal)
+    app = vendor_app(endpoints, settings_factory, monkeypatch, "env")
 
     with app as client:
         refused = retrieve(client)
@@ -307,9 +331,10 @@ def test_no_refusal_and_no_log_line_holds_the_key(
 
     assert refused.status_code == 503
     assert probed.status_code == 503
+    assert "key refused" in refused.json()["detail"]
     captured = capsys.readouterr()
     for text in (refused.text, probed.text, captured.out, captured.err):
-        assert FIXED_KEY not in text
+        assert VENDOR_KEY not in text
 
 
 # --- the readiness probe: one attempt, a refused key forgotten --------------------------

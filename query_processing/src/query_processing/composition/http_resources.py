@@ -4,9 +4,11 @@ The client is created on first need and closed with the scope. The default
 policy is a plain value, read from the settings once. How patiently a
 component on ``served`` or ``api`` is called is resolved here: its own ``http``
 block, each value it leaves out taken from the default. Which key source an
-endpoint is called with is resolved here too: the process's one ``domino``
-source, opened on first need with a blocking client of its own and shared by
-every endpoint that sends the run token. A component on the ``served`` backend
+endpoint is called with is resolved here too, from its ``key`` block: each
+source opened once and shared by every endpoint that names the same block, and
+the process's one ``domino`` source, opened on first need with a blocking
+client of its own, by every endpoint that sends the run token. An ``env``
+source reads the ``.env`` file the settings read. A component on the ``served`` backend
 gets it on Domino, where a model server of ours is another App behind a proxy
 that wants the run's token, and none elsewhere. The client's pool and its HTTP
 version are the top-level ``http`` block's alone.
@@ -21,18 +23,20 @@ from __future__ import annotations
 import dataclasses
 import importlib.util
 from collections.abc import Callable
+from functools import partial
+from pathlib import Path
 
 import httpx
 
-from ..adapters.key_source.base_key_source import BaseKeySource
+from ..adapters.key_source.base_key_source import KEY_SOURCES, BaseKeySource
 from ..adapters.key_source.domino.domino_key_source import DominoKeySource
-from ..adapters.key_source.fixed_key import FixedKey
 from ..config.components.component_settings import ModelComponent
+from ..config.components.key_settings import KeySettings
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from ..domain.endpoints.api_endpoint import ApiEndpoint
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ..infrastructure.http.http_policy import HttpPolicy
 from .resource_scope import OWNED, ResourceScope
@@ -63,7 +67,8 @@ class HttpResources:
         scope: Opens the client once and closes it.
         transport: The client's transport; None for the real network (tests
             pass an ``httpx.MockTransport``, which the ``domino`` source's
-            blocking client takes too).
+            blocking client takes too: one that serves no blocking client is
+            refused when that source opens).
         on_domino: Whether the process runs as a Domino App, where a served
             component is called with the run token (``qp-serve --domino``).
         client_factory: Builds the shared client from its keywords; tests
@@ -106,6 +111,7 @@ class HttpResources:
         self._on_domino = on_domino
         self._scope = scope
         self._transport = transport
+        self._env_file = _env_file_of(settings)
 
     def policy_of(
         self, component: ModelComponent | RegisteredComponentSettings
@@ -180,24 +186,32 @@ class HttpResources:
         """
         return await self._domino_source() if self._on_domino else None
 
-    async def key_source_of(self, api_key: str) -> BaseKeySource | None:
-        """Return the key source an ``api`` endpoint's ``api_key`` setting stands for.
+    async def key_source_of(self, block: KeySettings | None) -> BaseKeySource | None:
+        """Return the key source an ``api`` endpoint's ``key`` block names.
 
         Args:
-            api_key: The setting: "" for no key, ``domino`` for the run token,
-                anything else a fixed key.
+            block: Its ``key`` block; None sends no key.
 
         Returns:
-            None, the process's one ``domino`` source, or a fixed key's holder.
+            None, the process's one ``domino`` source, or the source of the
+            block, opened once and shared by every endpoint naming that block.
+
+        Raises:
+            MissingKeyError: If the source finds no key, such as an ``env``
+                variable unset or empty.
 
         Example:
-            >>> await http.key_source_of("")
+            >>> await http.key_source_of(None)
         """
-        if not api_key:
+        if block is None:
             return None
-        if api_key == DOMINO_RUN_TOKEN:
+        source = KEY_SOURCES.get(block.source)
+        if source is DominoKeySource:
             return await self._domino_source()
-        return FixedKey(api_key)
+        keys = block.read_keys()
+        name = f"key_source {block.source} {sorted(keys.items())}"
+        opened = partial(self._open_source, source, keys)
+        return await self._scope.once(name, OWNED, opened)
 
     async def client(self) -> httpx.AsyncClient:
         """Return the shared HTTP client, created on the first request.
@@ -213,12 +227,23 @@ class HttpResources:
     async def _domino_source(self) -> DominoKeySource:
         return await self._scope.once("domino_key_source", OWNED, self._start_domino)
 
+    async def _open_source(
+        self, source: type[BaseKeySource], keys: dict[str, str]
+    ) -> BaseKeySource:
+        return source.from_block(keys, env_file=self._env_file)
+
     async def _start_domino(self) -> DominoKeySource:
         # Its asks block, off the event loop, so its client is a blocking one.
-        # Only a transport that serves blocking clients too is handed down.
+        # A transport given that serves no blocking client is refused: handed
+        # down as none, it would let a test's ask reach the network.
         transport = self._transport
-        blocking = transport if isinstance(transport, httpx.BaseTransport) else None
-        client = httpx.Client(timeout=self.policy.timeout_s, transport=blocking)
+        if transport is not None and not isinstance(transport, httpx.BaseTransport):
+            raise TypeError(
+                f"the domino key source asks with a blocking client, and the "
+                f"transport {type(transport).__name__} serves none (expected an "
+                "httpx.BaseTransport too, such as httpx.MockTransport)"
+            )
+        client = httpx.Client(timeout=self.policy.timeout_s, transport=transport)
         self._scope.exit_stack("domino_key_source").callback(client.close)
         domino = self._domino
         return DominoKeySource(
@@ -243,3 +268,9 @@ class HttpResources:
         )
         self._scope.exit_stack("http_client").push_async_callback(client.aclose)
         return client
+
+
+def _env_file_of(settings: WorkflowSettings) -> Path | None:
+    # The .env file the settings class reads, found the way it finds it.
+    env_file = type(settings).model_config.get("env_file")
+    return Path(env_file) if isinstance(env_file, str | Path) else None

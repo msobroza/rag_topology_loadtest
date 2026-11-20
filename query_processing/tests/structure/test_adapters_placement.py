@@ -45,10 +45,6 @@ OTHER_PORTS: dict[str, set[str]] = {
 # router's, the worked example of one, for its served backend, which is built
 # and so has no directory.
 HAND_WRITTEN_FORMATS: dict[str, set[str]] = {"router": {"router_api_format.py"}}
-# Port package -> an implementation registered under no name, beside its port:
-# the holder of a fixed key, which leaves with ticket 02 of "an API key comes
-# from a key source", when the env source replaces it.
-UNNAMED_IMPLEMENTATIONS: dict[str, set[str]] = {"key_source": {"fixed_key.py"}}
 # Component package -> its port classes, and the Backend values that name its
 # implementation directories: those registered for each component type. The
 # router's are those its classes name, fake; its served class is built.
@@ -122,7 +118,6 @@ def component_problems(
         f"base_{name}.py",
         *OTHER_PORTS.get(name, ()),
         *HAND_WRITTEN_FORMATS.get(name, ()),
-        *UNNAMED_IMPLEMENTATIONS.get(name, ()),
     }
     problems += [
         f"{name}/{path.name} is neither the port nor a Backend directory"

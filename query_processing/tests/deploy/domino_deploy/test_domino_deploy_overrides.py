@@ -272,40 +272,25 @@ def test_an_empty_value_is_refused() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("overrides", "place", "variable"),
-    [
-        (
-            {"components": {"llm": {"api": {"api_key": "sk-1"}}}},
-            "components.llm.api.api_key",
-            "QP_COMPONENTS__LLM__API__API_KEY",
-        ),
-        (
-            {"components": {"vector_store": {"elasticsearch": {"api_key": "es-1"}}}},
-            "components.vector_store.elasticsearch.api_key",
-            "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY",
-        ),
-    ],
-)
-def test_a_secret_is_refused_as_in_a_free_list(
-    overrides: dict[str, object], place: str, variable: str
-) -> None:
+def test_a_secret_is_refused_as_in_a_free_list() -> None:
+    overrides = {"components": {"vector_store": {"elasticsearch": {"api_key": "es-1"}}}}
     assert refusal(make_settings(overrides=overrides)) == (
-        f"overrides.{place} is set in deploy.yaml, whose values are written into "
-        f"the Apps' launch scripts: set {variable} as a Domino project or user "
-        "environment variable instead"
+        "overrides.components.vector_store.elasticsearch.api_key is set in "
+        "deploy.yaml, whose values are written into the Apps' launch scripts: set "
+        "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY as a Domino project or "
+        "user environment variable instead"
     )
 
 
-@pytest.mark.parametrize("value", ["", "domino"])
-def test_an_empty_or_domino_api_key_passes_through(value: str) -> None:
+@pytest.mark.parametrize("value", ["", "domino", "sk-1"])
+def test_an_endpoints_old_api_key_is_an_unknown_key(value: str) -> None:
+    # An endpoint names its key source in a key block: api_key is no setting.
     overrides = {"components": {"reranker": {"api": {"api_key": value}}}}
-    apps = FakeDominoApps(["Running"])
-    run_deploy(apps, make_settings(overrides=overrides))
-    workflow = scripts(apps)["rag-workflow"]
-    assert exported(workflow, "QP_COMPONENTS__RERANKER__API__API_KEY") == (
-        value or "''"
+    said = refusal(make_settings(overrides=overrides))
+    assert said.startswith(
+        "overrides.components.reranker.api in deploy.yaml has no key 'api_key'"
     )
+    assert "'key'" in said
 
 
 def test_an_example_placeholder_is_refused() -> None:

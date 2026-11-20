@@ -16,6 +16,8 @@ wheels/
 venv/
 env/
 ENV/
+# Not a virtual environment: the env key source's package.
+!query_processing/src/query_processing/adapters/key_source/env/
 
 # Test / coverage
 .pytest_cache/

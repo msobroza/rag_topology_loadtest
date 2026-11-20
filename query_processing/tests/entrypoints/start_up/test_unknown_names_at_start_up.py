@@ -1,5 +1,5 @@
-"""Every command that opens components refuses an unknown backend, API format or
-orchestrator first, as a usage error, before any component opens.
+"""Every command that opens components refuses an unknown backend, API format, key
+source or orchestrator first, as a usage error, before any component opens.
 
 The API formats and the backends are registered, so the settings refuse neither
 an unknown format nor an unknown backend, and an opener would refuse it only when
@@ -43,6 +43,15 @@ UNKNOWN_NAMES = {
         {"QP_COMPONENTS__RERANKER__BACKEND": "gpu"},
         "QP_COMPONENTS__RERANKER__BACKEND: unknown reranker backend 'gpu' "
         "(expected one of: 'api', 'fake', 'local', 'none', 'served')",
+    ),
+    # Every key block is read, whatever its component's backend (fake here).
+    "a key source": (
+        {
+            "QP_COMPONENTS__LLM__API__KEY__SOURCE": "vault",
+            "QP_COMPONENTS__LLM__BACKEND": "fake",
+        },
+        "QP_COMPONENTS__LLM__API__KEY__SOURCE: unknown key source 'vault' "
+        "(expected one of: 'domino', 'env')",
     ),
     "an orchestrator": (
         {"QP_ORCHESTRATOR": "pydantic"},

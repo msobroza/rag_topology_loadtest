@@ -125,13 +125,14 @@ async def test_each_generation_backend_opens_its_adapter(
 
 
 async def test_the_api_embedder_calls_its_endpoint(
-    settings_factory: SettingsFactory,
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("EMBEDDER_KEY", "emb-key")
     routes = RecordingModelRoutes()
     settings = settings_factory(
         **(FAKE_BACKENDS | {"components__embedder__backend": "api"}),
         components__embedder__api__url=EMBED_URL,
-        components__embedder__api__api_key="emb-key",
+        components__embedder__api__key={"source": "env", "variable": "EMBEDDER_KEY"},
         components__embedder__api__model="bge-small",
         components__embedder__api__batch_size=2,
         http__timeout_s=4.5,
@@ -151,13 +152,14 @@ async def test_the_api_embedder_calls_its_endpoint(
 
 
 async def test_the_api_reranker_calls_its_endpoint(
-    settings_factory: SettingsFactory,
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("RERANKER_KEY", "co-key")
     routes = RecordingModelRoutes()
     settings = settings_factory(
         **(FAKE_BACKENDS | {"components__reranker__backend": "api"}),
         components__reranker__api__url=RERANK_URL,
-        components__reranker__api__api_key="co-key",
+        components__reranker__api__key={"source": "env", "variable": "RERANKER_KEY"},
         components__reranker__api__model="rerank-v3.5",
         http__timeout_s=4.5,
     )
@@ -178,13 +180,14 @@ async def test_the_api_reranker_calls_its_endpoint(
 
 
 async def test_the_api_llm_calls_its_endpoint_with_its_own_timeout(
-    settings_factory: SettingsFactory,
+    settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("LLM_KEY", "sk-key")
     routes = RecordingModelRoutes()
     settings = settings_factory(
         **(FAKE_BACKENDS | {"components__llm__backend": "api"}),
         components__llm__api__url=CHAT_URL,
-        components__llm__api__api_key="sk-key",
+        components__llm__api__key={"source": "env", "variable": "LLM_KEY"},
         components__llm__api__model="llama-3",
         components__llm__api__temperature=0.7,
         components__llm__http__timeout_s=90.0,

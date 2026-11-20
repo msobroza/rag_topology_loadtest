@@ -26,7 +26,8 @@ class StartupRefusalInOneLine:
 
     Args:
         app: The app whose start-up this watches.
-        refused: The exception a settings mistake raises at start-up.
+        refused: The exception, or the exceptions, a settings mistake raises
+            at start-up.
         prog: The command's name, which begins the line.
 
     Example:
@@ -35,7 +36,13 @@ class StartupRefusalInOneLine:
         ... )
     """
 
-    def __init__(self, app: ASGIApp, *, refused: type[Exception], prog: str) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        refused: type[Exception] | tuple[type[Exception], ...],
+        prog: str,
+    ) -> None:
         self.app, self._refused, self._prog = app, refused, prog
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -47,7 +54,7 @@ class StartupRefusalInOneLine:
             send: The server's send channel.
 
         Raises:
-            Exception: The ``refused`` exception raised at start-up, re-raised
+            Exception: A ``refused`` exception raised at start-up, re-raised
                 once the server has its one-line message.
         """
         if scope["type"] != "lifespan":

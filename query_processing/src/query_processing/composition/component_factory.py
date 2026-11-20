@@ -23,6 +23,7 @@ from ..config.components.registered_component_settings import (
 )
 from ..domain.components.base_component import BaseComponent
 from ..domain.components.component_resources import ComponentResources
+from ..domain.errors import MissingKeyError
 from .openers.component_openers import (
     ComponentOpeners,
     P,
@@ -66,6 +67,7 @@ class ComponentFactory:
         Raises:
             RagDependencyError: If the backend has no opener, naming the known
                 ones, or if the opener fails.
+            MissingKeyError: If its key source finds no key, naming the component.
 
         Example:
             >>> reranker = await factory.open(RERANKER_OPENERS, "reranker", settings)
@@ -75,11 +77,15 @@ class ComponentFactory:
             # The caller asks for the port of the component's type.
             return cast(P, supplied)
         backend = component.backend
-        return await self._shared.scope.once(
-            _resource_name(name, backend),
-            backend,
-            lambda: self._open_backend(openers, component),
-        )
+        try:
+            return await self._shared.scope.once(
+                _resource_name(name, backend),
+                backend,
+                lambda: self._open_backend(openers, component),
+            )
+        except MissingKeyError as exc:
+            # The source knows its variable, not which component named it.
+            raise MissingKeyError(f"the {name!r} component's API key: {exc}") from exc
 
     async def open_registered(
         self,

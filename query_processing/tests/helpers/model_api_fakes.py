@@ -97,6 +97,9 @@ class FakeKeySource(BaseKeySource):
         if key == self._keys[0] and len(self._keys) > 1:
             self._keys.pop(0)
 
+    def described(self) -> str:
+        return "its key is the fake source's"
+
 
 def endpoint_client(
     client: httpx.AsyncClient,

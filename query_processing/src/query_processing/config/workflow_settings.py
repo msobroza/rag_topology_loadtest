@@ -9,8 +9,8 @@ vector store as well as a model, is named, has a type that defaults to its
 name, states its backend and has one block of settings per backend
 (``components/component_settings.py``). The shared settings are four blocks
 named after what they are about, ``local_models``, ``calibration``, ``http``
-and ``domino`` (``shared_settings.py``). An API key is read from the
-environment, by its path, such as ``QP_COMPONENTS__LLM__API__API_KEY``.
+and ``domino`` (``shared_settings.py``). An endpoint's API key is never a
+setting: its ``key`` block names the key source it comes from.
 
 Each component runs on the backend its settings give, and nothing else decides
 it: the deploy tool writes the backend and URL of each component a topology
@@ -63,6 +63,7 @@ from .components.component_settings import (
     typed_by_name,
 )
 from .components.endpoint_urls import component_endpoint_url, missing_url_message
+from .components.key_settings import OldApiKeysRefused
 from .components.router_settings import check_router_embedders, check_router_routes
 from .extensions import load_extensions
 from .files.prompts_file import prompts_file, prompts_file_source
@@ -175,7 +176,10 @@ class WorkflowSettings(BaseSettings):
         """
         # Pydantic passes every source by keyword, so the names stay.
         del file_secret_settings
-        workflow = workflow_file_source(settings_cls, workflow_file())
+        # Read after the init kwargs, the environment and .env, so it sees them.
+        workflow = OldApiKeysRefused(
+            workflow_file_source(settings_cls, workflow_file()), cls.variable_of
+        )
         prompts = prompts_file_source(settings_cls, prompts_file())
         routes = routes_file_source(settings_cls, routes_file())
         return init_settings, env_settings, dotenv_settings, workflow, prompts, routes

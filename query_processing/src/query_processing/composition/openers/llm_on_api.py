@@ -32,7 +32,7 @@ async def open_llm_on_api(component: LlmSettings, shared: SharedResources) -> Ba
         >>> llm = await open_llm_on_api(llm_settings, shared)
     """
     api = component.api
-    key_source = await shared.http.key_source_of(api.api_key)
+    key_source = await shared.http.key_source_of(api.key)
     endpoint = api.endpoint(component.alias)
     return await open_llm_at(endpoint, key_source, api, component, shared)
 

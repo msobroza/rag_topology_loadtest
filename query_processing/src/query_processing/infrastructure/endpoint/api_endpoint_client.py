@@ -3,7 +3,9 @@
 Calls follow one :class:`HttpPolicy`: each attempt times out after
 ``timeout_s``; transport errors, 5xx and 429 (rate limited) are retried, and so
 is 401 when the endpoint is given a key source, after the source is told which
-key was refused. A 401 with no key, a 403 and any other 4xx fail at once.
+key was refused. A 401 with no key, a 403 and any other 4xx fail at once. When
+the retries run out on a 401, the error says where the key comes from and how
+it is changed, as its source says it; no error quotes a key sent.
 
 Example:
     >>> endpoint_client = ApiEndpointClient(client, endpoint, component="reranker",
@@ -79,6 +81,7 @@ class ApiEndpointClient:
             headers=self._key.headers,
             retry_statuses=_ALWAYS_RETRIED | {HTTPStatus.UNAUTHORIZED},
             on_retry_status=self._tell_refused_key,
+            note_on_status=self._where_a_refused_key_comes_from,
         )
 
     @property
@@ -157,6 +160,12 @@ class ApiEndpointClient:
         # Only reached with a key source: a 401 says the key sent was refused.
         if status == HTTPStatus.UNAUTHORIZED and self._key is not None:
             self._key.refused_in(sent)
+
+    def _where_a_refused_key_comes_from(self, status: int) -> str:
+        # Only reached with a key source; the error of a 401 says what to do.
+        if status != HTTPStatus.UNAUTHORIZED or self._key is None:
+            return ""
+        return f" (the key was refused: {self._key.described()})"
 
 
 async def _no_key() -> dict[str, str]:
