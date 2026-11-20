@@ -8,10 +8,10 @@ endpoint is called with is resolved here too, from its ``key`` block: each
 source opened once and shared by every endpoint that names the same block, and
 the process's one ``domino`` source, opened on first need with a blocking
 client of its own, by every endpoint that sends the run token. An ``env``
-source reads the ``.env`` file the settings read. A component on the ``served`` backend
-gets it on Domino, where a model server of ours is another App behind a proxy
-that wants the run's token, and none elsewhere. The client's pool and its HTTP
-version are the top-level ``http`` block's alone.
+source reads the ``.env`` file the settings were built with. A component on
+the ``served`` backend gets it on Domino, where a model server of ours is
+another App behind a proxy that wants the run's token, and none elsewhere.
+The client's pool and its HTTP version are the top-level ``http`` block's alone.
 
 Example:
     >>> http = HttpResources(settings, scope)
@@ -24,7 +24,6 @@ import dataclasses
 import importlib.util
 from collections.abc import Callable
 from functools import partial
-from pathlib import Path
 
 import httpx
 
@@ -40,6 +39,7 @@ from ..domain.endpoints.api_endpoint import ApiEndpoint
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ..infrastructure.http.http_policy import HttpPolicy
 from .resource_scope import OWNED, ResourceScope
+from .standalone_key_source import domino_key_source
 
 ClientFactory = Callable[..., httpx.AsyncClient]
 
@@ -111,7 +111,7 @@ class HttpResources:
         self._on_domino = on_domino
         self._scope = scope
         self._transport = transport
-        self._env_file = _env_file_of(settings)
+        self._env_file = settings.dotenv_file()
 
     def policy_of(
         self, component: ModelComponent | RegisteredComponentSettings
@@ -246,13 +246,7 @@ class HttpResources:
             )
         client = httpx.Client(timeout=self.policy.timeout_s, transport=transport)
         self._scope.exit_stack("domino_key_source").callback(client.close)
-        domino = self._domino
-        return DominoKeySource(
-            client,
-            token_url=domino.token_url,
-            ttl_s=domino.token_ttl_s,
-            policy=self.policy,
-        )
+        return domino_key_source(client, self._domino, self.policy)
 
     async def _start_client(self) -> httpx.AsyncClient:
         http = self._http
@@ -269,9 +263,3 @@ class HttpResources:
         )
         self._scope.exit_stack("http_client").push_async_callback(client.aclose)
         return client
-
-
-def _env_file_of(settings: WorkflowSettings) -> Path | None:
-    # The .env file the settings class reads, found the way it finds it.
-    env_file = type(settings).model_config.get("env_file")
-    return Path(env_file) if isinstance(env_file, str | Path) else None

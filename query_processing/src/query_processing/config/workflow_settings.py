@@ -19,30 +19,31 @@ a component is moved by setting its backend and its URL. ``QP_TOPOLOGY_ALIAS``
 is only a label, the topology alias the deploy tool deployed, echoed as the
 ``X-RAG-Topology`` header. A component on ``served`` or ``api`` without a URL,
 or a run label or topology alias no header can carry, fails construction, so at
-start-up. Domino's own run variables are read under the names Domino gives
-them.
+start-up. Domino's own run variables are read under Domino's names.
 
 Example:
     >>> settings = WorkflowSettings()  # from the env and the workflow file
     >>> settings = WorkflowSettings(  # in tests: merged into the file's components
     ...     _env_file=None, components={"reranker": {"backend": "fake"}})
 
-Every tunable is a field here, a setting of a component, a shared setting or a
-setting of a stage in the graph, so one ``QP_*`` variable changes it; adapters
-receive the values from the ``composition`` package and never read this module.
+Every tunable is a field here (a component's, a shared or a stage's setting),
+so one ``QP_*`` variable changes it; adapters receive the values from the
+``composition`` package and never read this module.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+from pydantic_settings.sources import ENV_FILE_SENTINEL
 
 from ..domain.components.routes import Route
 from ..domain.graph_description import GraphDescription
@@ -63,12 +64,13 @@ from .components.component_settings import (
     typed_by_name,
 )
 from .components.endpoint_urls import component_endpoint_url, missing_url_message
-from .components.key_settings import OldApiKeysRefused
+from .components.key_blocks import KeyBlocksChecked
 from .components.router_settings import check_router_embedders, check_router_routes
 from .extensions import load_extensions
 from .files.prompts_file import prompts_file, prompts_file_source
 from .files.routes_file import routes_file, routes_file_name, routes_file_source
 from .files.workflow_file import workflow_file, workflow_file_source
+from .ingestion_components import ingestion_embedder, ingestion_store
 from .searched_embedder import searched_embedder
 from .shared_settings import (
     CalibrationSettings,
@@ -84,6 +86,9 @@ class WorkflowSettings(BaseSettings):
     Construction fills the default run label and checks the endpoints and the
     labels, so a bad configuration fails at start-up. The settings of a stage
     are checked by its stage type, when the graph is built at start-up.
+
+    Args:
+        **values: The settings given, and the library's options (``_env_file``).
 
     Example:
         >>> WorkflowSettings(components={"reranker": {"backend": "served",
@@ -149,6 +154,27 @@ class WorkflowSettings(BaseSettings):
         ),
     )
 
+    _dotenv_file: Path | None = PrivateAttr(default=None)  # what an env source reads
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(**values)
+        given = values.get("_env_file", ENV_FILE_SENTINEL)
+        default = given == ENV_FILE_SENTINEL
+        read = self.model_config.get("env_file") if default else given
+        self._dotenv_file = Path(read) if isinstance(read, str | Path) else None
+
+    def dotenv_file(self) -> Path | None:
+        """Return the ``.env`` file these settings were built with, if one.
+
+        Returns:
+            The ``_env_file`` given, else the class's ``.env``; None for none.
+
+        Example:
+            >>> WorkflowSettings(_env_file=None).dotenv_file() is None
+            True
+        """
+        return self._dotenv_file
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -162,7 +188,8 @@ class WorkflowSettings(BaseSettings):
 
         The class defaults come last. The sources are merged key by key, so a
         variable such as ``QP_GRAPH__STAGES__RERANK__TOP_K`` overrides one value
-        of the file and keeps the others.
+        of the file and keeps the others; a ``key`` block given above the file
+        with a ``source`` replaces the file's whole (``key_blocks.py``).
 
         Args:
             settings_cls: The settings class being built.
@@ -176,13 +203,13 @@ class WorkflowSettings(BaseSettings):
         """
         # Pydantic passes every source by keyword, so the names stay.
         del file_secret_settings
-        # Read after the init kwargs, the environment and .env, so it sees them.
-        workflow = OldApiKeysRefused(
-            workflow_file_source(settings_cls, workflow_file()), cls.variable_of
-        )
+        workflow = workflow_file_source(settings_cls, workflow_file())
         prompts = prompts_file_source(settings_cls, prompts_file())
         routes = routes_file_source(settings_cls, routes_file())
-        return init_settings, env_settings, dotenv_settings, workflow, prompts, routes
+        # Last: checks the key blocks of every source before pydantic reads them.
+        checked = KeyBlocksChecked(settings_cls, cls.variable_of)
+        above = (init_settings, env_settings, dotenv_settings)
+        return (*above, workflow, prompts, routes, checked)
 
     @model_validator(mode="before")
     @classmethod
@@ -437,20 +464,10 @@ class WorkflowSettings(BaseSettings):
             >>> WorkflowSettings().ingestion_store()
             'vector_store'
         """
-        stores = list(self.vector_stores())
-        if len(stores) != 1:
-            known = ", ".join(map(repr, stores)) or "none"
-            raise ValueError(
-                "ingestion fills one vector store component, and the workflow "
-                f"file declares {len(stores)} (its vector stores: {known})"
-            )
-        return stores[0]
+        return ingestion_store(list(self.vector_stores()))
 
     def ingestion_embedder(self, name: str | None = None) -> str:
         """Return the embedder that fills the store: the one named, else the only one.
-
-        Ingestion embeds passages with one embedder of the workflow file;
-        with several, it must be named.
 
         Args:
             name: The embedder asked for; None for the only one declared.
@@ -459,27 +476,15 @@ class WorkflowSettings(BaseSettings):
             The component's name.
 
         Raises:
-            ValueError: If ``name`` is not an embedder component, or none is
-                given and the file declares no embedder or several.
+            ValueError: If ``name`` is no embedder, or none is named and the
+                file declares none or several.
 
         Example:
             >>> WorkflowSettings().ingestion_embedder()
             'embedder'
         """
         embedders = [n for n, c in self.components.items() if c.type == "embedder"]
-        known = ", ".join(map(repr, embedders)) or "none"
-        if name is not None and name not in embedders:
-            raise ValueError(
-                f"{name!r} is not an embedder component of the workflow file "
-                f"(its embedders: {known})"
-            )
-        if name is None and len(embedders) != 1:
-            raise ValueError(
-                "ingestion embeds with one embedder component, and the workflow "
-                f"file declares {len(embedders)} (its embedders: {known}): name "
-                "one, with qp-ingest --embedder"
-            )
-        return name or embedders[0]
+        return ingestion_embedder(embedders, name)
 
     def searched_embedder(self) -> str | None:
         """Return the embedder whose vectors the store is searched with, if one.

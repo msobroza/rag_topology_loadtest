@@ -77,6 +77,9 @@ class KeyedEndpoints:
 
     def __init__(self, *, refused: tuple[str, ...] = ()) -> None:
         self.refused = set(refused)
+        self.json_escaped = (
+            False  # a refusal quotes its key as JSON writing '/' as '\\/'
+        )
         self.tokens_served = 0
         self.calls: list[tuple[str, str | None]] = []
 
@@ -86,6 +89,9 @@ class KeyedEndpoints:
             return httpx.Response(200, text=f"run-token-{self.tokens_served}")
         auth = request.headers.get("Authorization")
         self.calls.append((str(request.url), auth))
+        if auth in self.refused and self.json_escaped:
+            quoted = json.dumps({"refused": auth}).replace("/", "\\/")
+            return httpx.Response(401, text=quoted)
         if auth in self.refused:
             return httpx.Response(401, text=f"key refused: {auth}")
         return httpx.Response(200, json=standard_answer(json.loads(request.content)))
@@ -244,6 +250,37 @@ def test_an_env_key_is_read_from_the_environment_then_from_dotenv(
     assert endpoints.sent_to(VENDOR_RERANK_URL) == [f"Bearer {sent}"]
 
 
+@pytest.mark.parametrize(
+    ("env_file", "sent"),
+    [(None, None), ("other.env", "from-other"), (".env", "from-dotenv")],
+    ids=["none", "another", "the-default"],
+)
+def test_an_env_key_is_read_from_the_dotenv_file_the_settings_were_built_with(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    qp_serve_apps: list[FastAPI],
+    endpoints: KeyedEndpoints,
+    env_file: str | None,
+    sent: str | None,
+) -> None:
+    (tmp_path / ".env").write_text(f"{KEY_VARIABLE}=from-dotenv\n", encoding="utf-8")
+    other = f"{KEY_VARIABLE}=from-other\n"
+    (tmp_path / "other.env").write_text(other, encoding="utf-8")
+    set_environment(monkeypatch, VENDOR_RERANKER | key_variables("reranker", ENV_BLOCK))
+    settings = WorkflowSettings(_env_file=env_file)
+    app = qp_serve.create_app(
+        CompositionRoot(settings, transport=httpx.MockTransport(endpoints))
+    )
+
+    if sent is None:
+        with pytest.raises(MissingKeyError, match=KEY_VARIABLE), TestClient(app):
+            pass
+        return
+    with TestClient(app) as client:
+        assert client.post("/retrieve", json={"question": QUESTION}).status_code == 200
+    assert endpoints.sent_to(VENDOR_RERANK_URL) == [f"Bearer {sent}"]
+
+
 # --- one source a block, and the source the settings name ------------------------------
 
 
@@ -331,6 +368,31 @@ def test_a_refused_env_key_runs_out_its_retries_and_names_its_variable(
     assert VENDOR_KEY not in response.text
     assert endpoints.sent_to(VENDOR_RERANK_URL) == [f"Bearer {VENDOR_KEY}"] * 3
     assert endpoints.tokens_served == 0
+
+
+def test_a_key_echoed_json_escaped_is_masked_and_the_log_line_says_restart(
+    monkeypatch: pytest.MonkeyPatch,
+    qp_serve_apps: list[FastAPI],
+    endpoints: KeyedEndpoints,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A base64 key holds '/', which many JSON encoders write as '\/'.
+    key = f'{VENDOR_KEY}/x"y'
+    endpoints.refused.add(f"Bearer {key}")
+    endpoints.json_escaped = True
+    set_environment(monkeypatch, VENDOR_RERANKER | key_variables("reranker", ENV_BLOCK))
+    monkeypatch.setenv(KEY_VARIABLE, key)
+
+    with caplog.at_level(logging.INFO, logger="query_processing"):
+        response = served_once(qp_serve_apps)
+
+    assert response.status_code == 503
+    assert VENDOR_KEY not in response.text
+    messages = [record.getMessage() for record in caplog.records]
+    logged = [json.loads(m) for m in messages if '"rag_request"' in m]
+    [failed] = [entry for entry in logged if entry["status"] == 503]
+    assert "restart the App" in failed["detail"]
+    assert VENDOR_KEY not in caplog.text
 
 
 @pytest.mark.parametrize("value", [None, ""], ids=["unset", "empty"])

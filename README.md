@@ -869,6 +869,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       ingest.py       embed passages in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the orchestrator, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
+      ingestion_components.py  ingestion_store, ingestion_embedder: the one vector store qp-ingest fills, and the embedder it fills it with
       searched_embedder.py  searched_embedder: the embedder a vector store's searches use, the one called by the stage that writes what a retrieve stage reads (it seeds a fake store)
       extensions.py   load_extensions: the toolkit's own component types, then every module of each package the workflow file names under extensions, imported before its components are read
       shared_settings.py  LocalModelsSettings, CalibrationSettings, DefaultHttpSettings, DominoSettings: what the components share, four top-level blocks of the workflow file
@@ -884,12 +885,13 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       components/     each component's settings
         settings_blocks.py  SettingsBlock, ServedSettings, ComponentHttpSettings, ComponentSettings: the blocks every component's settings are made of
         component_settings.py  ComponentSettings and each type's (EmbedderSettings, ..., VectorStoreSettings): a component's type, backend, source id and alias, its settings, one block per backend (local, served, api; elasticsearch, chroma, fake)
-        key_settings.py  KeySettings: the key block of an api block or of the store's elasticsearch block, a key source's name and the keys it reads; OldApiKeysRefused: the workflow file's source, refusing the old api_key of either from any source in one line
+        key_settings.py  KeySettings: the key block of an api block or of the store's elasticsearch block, a key source's name and the keys it reads
+        key_blocks.py  check_key_block: the one check of a key block as read, before the settings library sees it, a refusal naming the place and the variable, never a value; refuse_key_mistakes: that check on every component's key blocks, and the old api_key anywhere under a component; KeyBlocksChecked: the last settings source, running them; file_key_blocks_given_above_left_out: a key block given above the workflow file with a source replaces the file's
         registered_component_settings.py  RegisteredComponentSettings: a component of a type registered in COMPONENT_TYPES (an extension's), its type's keys and each backend's block read with the class its implementation names
         router_settings.py  RouterSettings: a router's embedder and routes, two at least; a route the routes file lacks refused
         endpoint_urls.py  model_endpoint_url and missing_url_message: the URL a model component on served or api is called at, and the refusal of a missing one
       files/          the three files a use case writes, and the settings sources that read them
-        workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it, declared_alias
+        workflow_file.py  workflow_file (QP_WORKFLOW_FILE, else ./workflow.yaml, a use case's, else a refusal naming both), the settings source that reads it (WorkflowFileSource, less each key block a place above it gives with a source), declared_alias
         prompts_file.py  prompts_file (QP_PROMPTS_FILE, else ./prompts.yaml, else none), the settings source that gives it as the prompts setting; a prompts key in the workflow file refused
         routes_file.py  routes_file (QP_ROUTES_FILE, else ./routes.yaml, else none), the settings source that gives its catalogue as the routes setting; a routes key in the workflow file refused
     adapters/         the ports and their implementations, nothing else (rule 4)
@@ -998,11 +1000,11 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       resource_scope.py  ResourceScope: each resource opened once, all closed together
       http_resources.py  HttpResources: the shared HTTP client, its policy, the key sources (one per key block, the process's one domino source), served_endpoint (the run token on Domino)
       local_model_resources.py  LocalModelResources: the thread budget, the model pool, a local model's files
-      standalone_key_source.py  opened_standalone_key_source: the key source of a key block, for a command that reads no workflow file (the load-test client), refused as start-up refuses it (checked_key_source, the one declaration of that refusal) and closed with its block; run_token_source: the domino source qp-deploy status asks the run token of
+      standalone_key_source.py  opened_standalone_key_source: the key source of a key block, for a command that reads no workflow file (the load-test client), refused as start-up refuses it (checked_key_source, the one declaration of that refusal) and closed with its block; run_token_source: the domino source qp-deploy status asks the run token of; domino_key_source: the one place the domino source is built
       calibrated_stages.py  CalibratedRerankStage, CalibratedEmbedStage: the CPU-bound stages calibration times, and their candidates
       ovms_stages.py  OvmsRerankStage, OvmsEmbedStage: the stages OVMS serves, as calibration times them
       ovms_calibration.py  OvmsCalibration: an OVMS App's streams and threads, at start-up or on demand, and its serving folder; require_asked_weight_format: an export of another weight format than the settings ask, refused
-      component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once
+      component_factory.py  ComponentFactory: the port supplied under a component's name, else what the opener of its type and Backend opens, once; open_key_source: the key source of the block its Backend reads, opened before any component
       registered_names.py  check_registered_names: an unknown Backend, API format, key source or orchestrator, and a key block holding what its source does not read, refused before a command opens anything; key_source_variables: the variables the key blocks' sources read keys from
       registered_components.py  open_registered: a component of a type registered in COMPONENT_TYPES, built by the implementation its Backend names; component_resources, what it is given besides its block; component_type_settings, each component's type keys
       chosen_orchestrator.py  chosen_orchestrator: the orchestrator's class the settings name; check_orchestrator_runs_graph: its refusal of the graph, after its name
@@ -1036,7 +1038,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     deploy/           the deploy tool: qp-deploy on Domino 6.2
       deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
       deploy_refusals.py  what is refused in the deploy settings before anything is published: a name ending in _API_KEY in a settings block, whatever its value, a value still holding an example placeholder
-      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks, and the old api_key with start-up's line), and the variables its key sources read keys from
+      workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks, and its lines for a key block not shaped as one and for the old api_key), and the variables its key sources read keys from
       overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list, and a variable a key source of the settings with them reads), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
       topology_alias.py  resolve_topology: the chosen topology alias against the workflow file, its Apps, each served component's model-server kind and route, and run label, or a refusal (a backend a component's type lacks included)
@@ -1601,7 +1603,7 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `api.url` | the LLM's: OpenAI's chat route | the full route of an endpoint we do not run, e.g. `https://api.cohere.com/v2/rerank`; required with the `api` backend |
 | every model | `api.api_format` | not written: `openai`, `cohere`, `openai` | the request and response shapes the route speaks |
 | every model | `api.model` | the LLM's: `gpt-4o-mini` | the model name sent; empty = the component's alias |
-| every model | `api.key` | the LLM's: `{source: env, variable: OPENAI_API_KEY}`; not written for the others: none | where the endpoint's API key comes from, never the key: `{source: env, variable: <name>}` reads that variable from the environment, then `.env`, when the App starts (start-up refuses it unset or empty); `{source: domino}` sends the Domino run's token from `domino.token_url`; no block sends no `Authorization` header. An unknown `source`, a key its source does not read, and the old `api_key` are refused at start-up |
+| every model | `api.key` | the LLM's: `{source: env, variable: OPENAI_API_KEY}`; not written for the others: none | where the endpoint's API key comes from, never the key: `{source: env, variable: <name>}` reads that variable from the environment, then `.env`, when the App starts (start-up refuses it unset or empty); `{source: domino}` sends the Domino run's token from `domino.token_url`; no block sends no `Authorization` header. An unknown `source`, a key its source does not read, a block that is not a mapping or names no `source`, a value beside `source` that is not text, a `source` or a `variable` not shaped like a name (letters, digits and underscores, not starting with a digit), and the old `api_key` anywhere under a component are refused at start-up, in one line that names the place and never shows the value |
 | `embedder` | `api.batch_size` | not written: `64` | texts per endpoint request (>= 1) |
 | `llm` | `api.temperature` | not written: `0` | sampling temperature, 0 to 2 |
 | every model | `http.timeout_s` | the LLM's: `120`; not written for the others: the top-level `http.timeout_s` (`30`) | timeout of one request to the component's endpoint on `served` or `api` (> 0), and of the Domino token fetched for it; the LLM's is longer, since an answer takes longer than a model-server call |
@@ -1734,7 +1736,14 @@ key comes from in a `key` block, such as `key: {source: env, variable:
 OPENAI_API_KEY}` (read from the environment or `.env`) or `key: {source:
 domino}`, so the workflow file, which is versioned, never holds one. The block
 is set by the variables its path names too, such as
-`QP_COMPONENTS__LLM__API__KEY__SOURCE` and `QP_COMPONENTS__LLM__API__KEY__VARIABLE`.
+`QP_COMPONENTS__LLM__API__KEY__SOURCE` and `QP_COMPONENTS__LLM__API__KEY__VARIABLE`,
+or as a whole, `QP_COMPONENTS__LLM__API__KEY='{"source": "domino"}'`. A block
+given above the workflow file (by a variable, in `.env` or by a deploy
+override) that names `source` replaces the file's block whole, so
+`QP_COMPONENTS__LLM__API__KEY__SOURCE=domino` over the file's `{source: env,
+variable: OPENAI_API_KEY}` gives `{source: domino}`: a site changes where a key
+comes from without editing the file. One that names another key alone, such as
+`..._KEY__VARIABLE`, changes that key and keeps the file's `source`.
 The vector store's `elasticsearch` block takes the same `key` block for its
 Elasticsearch API key (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE`, ...).
 
@@ -3291,7 +3300,10 @@ and the `key` block that reads it), and any name ending in `_API_KEY` (such as
 `key` block hold no key, so the overrides may set one, another source or
 another variable than the workflow file's (`components.llm.api.key: {source:
 env, variable: LLM_KEY}`), exported as the variables its path names
-(`QP_COMPONENTS__LLM__API__KEY__SOURCE`, `..._KEY__VARIABLE`); a block an App's
+(`QP_COMPONENTS__LLM__API__KEY__SOURCE`, `..._KEY__VARIABLE`): a block that
+names `source` replaces the file's whole, as an App's start-up reads it, so
+`{source: domino}` over the file's `env` block leaves no `variable` beside it,
+and one that names `variable` alone changes the file's variable; a block an App's
 start-up would refuse (an unknown source, a key its source does not read) is
 refused with start-up's line, and so is an old `api_key` of either under
 `overrides` or in the workflow file. `qp-deploy status` asks for the run token

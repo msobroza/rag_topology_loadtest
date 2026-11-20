@@ -4,7 +4,9 @@ Elasticsearch's client takes its key when it is built, as an Elasticsearch API
 key (``ApiKey <key>``), not a bearer header. So a key its source rotated is
 taken by building a new client: told of Elasticsearch's 401, this tells the
 source which key was refused and builds the client again with the key the
-source then gives; the store closes the client it replaced only when it
+source then gives. A source that still holds the refused key, such as ``env``
+until its App restarts, gets no new client: the call fails at once with what
+the source says of itself. The store closes the client it replaced only when it
 closes itself, so a call in flight on it ends. Without a source the client is
 built with no key, and basic authentication written in the URL is the
 client's own. Every key sent is masked in an error.
@@ -58,17 +60,23 @@ class ElasticsearchClientKey:
             self._sent.append(key)
         return self._connect(key or None)
 
-    async def reconnected(self) -> Any:
+    async def reconnected(self) -> Any | None:
         """Tell the source its key was refused and build the store with its next one.
 
         Returns:
-            The new store; the caller keeps the one it replaces until it closes.
+            The new store, which the caller keeps the replaced one beside until
+            it closes; None when the source still holds the refused key, such
+            as an ``env`` source, so that a new client would be refused too.
 
         Raises:
             RagDependencyError: If the source could not get its key.
         """
-        if self._source is not None and self._sent:
-            self._source.refused(self._sent[-1])
+        if self._source is None or not self._sent:
+            return await self.connected()
+        refused = self._sent[-1]
+        self._source.refused(refused)
+        if self._source.key(may_ask=False) == refused:
+            return None
         return await self.connected()
 
     def rotates_on(self, failure: BaseException) -> bool:

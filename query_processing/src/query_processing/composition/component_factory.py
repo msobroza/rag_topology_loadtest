@@ -15,12 +15,14 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, cast
+from collections.abc import Awaitable, Mapping
+from typing import Any, TypeVar, cast
 
+from ..config.components.key_settings import KeySettings
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
 )
+from ..config.components.settings_blocks import ComponentSettings
 from ..domain.components.base_component import BaseComponent
 from ..domain.components.component_resources import ComponentResources
 from ..domain.errors import MissingKeyError
@@ -31,6 +33,8 @@ from .openers.component_openers import (
     SharedResources,
 )
 from .registered_components import LOCAL, SERVED, open_registered, open_served
+
+T = TypeVar("T")
 
 
 class ComponentFactory:
@@ -77,15 +81,35 @@ class ComponentFactory:
             # The caller asks for the port of the component's type.
             return cast(P, supplied)
         backend = component.backend
-        try:
-            return await self._shared.scope.once(
-                _resource_name(name, backend),
-                backend,
-                lambda: self._open_backend(openers, component),
-            )
-        except MissingKeyError as exc:
-            # The source knows its variable, not which component named it.
-            raise MissingKeyError(f"the {name!r} component's API key: {exc}") from exc
+        opening = self._shared.scope.once(
+            _resource_name(name, backend),
+            backend,
+            lambda: self._open_backend(openers, component),
+        )
+        return await _naming_the_component(name, opening)
+
+    async def open_key_source(self, name: str, component: ComponentSettings) -> None:
+        """Open the key source of the block the component's backend reads, if one.
+
+        Called for each component a command calls before any of them opens, so
+        a key nowhere to be read is refused before a local model loads. The
+        source is opened once and shared: the component's opener gets it again.
+
+        Args:
+            name: The component's name, which a refusal names.
+            component: The component's settings; the block named after its
+                backend holds the ``key`` block, if it has one.
+
+        Raises:
+            MissingKeyError: If its key source finds no key, naming the component.
+
+        Example:
+            >>> await factory.open_key_source("llm", llm_settings)
+        """
+        block = _key_block_in_use(component)
+        if name in self._supplied or block is None:
+            return
+        await _naming_the_component(name, self._shared.http.key_source_of(block))
 
     async def open_registered(
         self,
@@ -161,6 +185,21 @@ class ComponentFactory:
 
     async def _open_backend(self, openers: ComponentOpeners[S, P], component: S) -> P:
         return await openers.get(component.backend)(component, self._shared)
+
+
+async def _naming_the_component(name: str, opening: Awaitable[T]) -> T:
+    # The source knows its variable, not which component named it.
+    try:
+        return await opening
+    except MissingKeyError as exc:
+        raise MissingKeyError(f"the {name!r} component's API key: {exc}") from exc
+
+
+def _key_block_in_use(component: ComponentSettings) -> KeySettings | None:
+    # The key block of the block named after the backend: an api endpoint's or
+    # the store's elasticsearch block; none for any other backend.
+    key = getattr(getattr(component, component.backend, None), "key", None)
+    return key if isinstance(key, KeySettings) else None
 
 
 def _resource_name(name: str, backend: str) -> str:

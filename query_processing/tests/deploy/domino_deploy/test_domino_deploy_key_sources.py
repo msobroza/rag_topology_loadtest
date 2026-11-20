@@ -160,6 +160,59 @@ def test_a_key_block_in_the_overrides_reaches_every_apps_launch_script() -> None
         assert exported(script, "QP_COMPONENTS__RERANKER__API__KEY__SOURCE") == "domino"
 
 
+def test_an_override_that_names_a_source_replaces_the_files_whole_key_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The file's env block names a variable a domino source does not read: the
+    # override's block replaces it, as a variable does at an App's start-up.
+    data = yaml.safe_load(FIXTURE_WORKFLOW.read_text(encoding="utf-8"))
+    data["components"]["llm"]["api"]["key"] = LLM_KEY
+    data["components"]["vector_store"]["elasticsearch"]["key"] = STORE_KEY
+    workflow_file = tmp_path / "workflow.yaml"
+    workflow_file.write_text(yaml.safe_dump(data), encoding="utf-8")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow_file))
+    domino = {"key": {"source": "domino"}}
+    overrides = {"components": {"llm": {"api": domino}}}
+    overrides["components"]["vector_store"] = {"elasticsearch": domino}
+    apps = FakeDominoApps(["Running"])
+
+    deploy(
+        make_client(apps),
+        make_settings(overrides=overrides),
+        "all",
+        launch=LAUNCH,
+        sleep=no_sleep,
+    )
+
+    for create in apps.creates:
+        script = str(create.version.entryScript)
+        assert exported(script, "QP_COMPONENTS__LLM__API__KEY__SOURCE") == "domino"
+        store = "QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__KEY__SOURCE"
+        assert exported(script, store) == "domino"
+
+
+@pytest.mark.parametrize(
+    ("block", "said"),
+    [
+        (SECRET, "QP_COMPONENTS__LLM__API__KEY (components.llm.api.key) is not a key"),
+        ({"value": SECRET}, "QP_COMPONENTS__LLM__API__KEY__SOURCE is unset"),
+        ({"source": SECRET}, "(components.llm.api.key.source) is not a name"),
+        (
+            {"source": "env", "variable": SECRET},
+            "(components.llm.api.key.variable) is not a name",
+        ),
+        ({"source": "env", "variable": {"name": SECRET}}, "is a dict: expected text"),
+    ],
+    ids=["the-key-for-the-block", "no-source", "source", "variable", "not-text"],
+)
+def test_a_key_typed_in_a_key_block_override_is_refused_and_never_printed(
+    block: object, said: str
+) -> None:
+    overrides = {"components": {"llm": {"api": {"key": block}}}}
+
+    assert said in refusal(make_settings(overrides=overrides))
+
+
 def test_a_dry_run_shows_a_key_block_of_the_overrides(run_main: RunMain) -> None:
     key = "overrides: {components: {llm: {api: {key: {source: domino}}}}}\n"
     Path("deploy.yaml").write_text(ENV_1 + key)

@@ -31,7 +31,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from functools import partial
 from typing import Any
 
-from ....domain.errors import RagDependencyError, describe_error
+from ....domain.errors import MissingKeyError, RagDependencyError, describe_error
 from ....domain.retrieval.metadata_filter import MetadataCondition
 from ....domain.retrieval.passages import Passage, ScoredPassage
 from ...key_source.base_key_source import BaseKeySource
@@ -115,7 +115,7 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
             The vector store on that index.
 
         Raises:
-            RagDependencyError: If the key source could not get its key.
+            MissingKeyError: If the key source could not give its key.
 
         Example:
             >>> store = await ElasticsearchVectorStore.open(url, index="rag")
@@ -164,13 +164,23 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         Returns:
             The vector store, opened again with a new key when one is refused.
 
+        Raises:
+            MissingKeyError: If the key source could not give its key, such as
+                a ``domino`` source whose token URL does not answer.
+
         Example:
             >>> store = await ElasticsearchVectorStore.open_with(
             ...     connect, "rag", index_strategy=strategy, key_source=source)
         """
         key = ElasticsearchClientKey(connect, key_source)
+        try:
+            store = await key.connected()
+        except RagDependencyError as exc:  # at start-up, a settings matter: one line
+            raise MissingKeyError(
+                f"its key source could not give its key when the store opened: {exc}"
+            ) from exc
         return cls(
-            await key.connected(),
+            store,
             index,
             text_analyzer,
             index_strategy=index_strategy,
@@ -367,21 +377,27 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         try:
             return await request(store)
         except Exception as exc:
-            if self._key is None or not self._key.rotates_on(exc):
+            if not await self._reconnected(exc, refused_on=store):
                 raise self._failure(exc) from exc
-        await self._reconnect(refused_on=store)
         try:
             return await request(self._store)
         except Exception as exc:
             raise self._failure(exc) from exc
 
-    async def _reconnect(self, *, refused_on: Any) -> None:
-        # A client another call replaced already is not replaced again.
+    async def _reconnected(self, failure: Exception, *, refused_on: Any) -> bool:
+        # Whether a client with another key serves the next attempt: one another
+        # call built already, or a new one; none when the source keeps its key.
+        if self._key is None or not self._key.rotates_on(failure):
+            return False
         async with self._reconnecting:
-            if self._store is not refused_on or self._key is None:
-                return
-            self._store = await self._key.reconnected()
+            if self._store is not refused_on:
+                return True
+            store = await self._key.reconnected()
+            if store is None:
+                return False
+            self._store = store
             self._replaced.append(refused_on)
+            return True
 
     def _failure(self, exc: Exception) -> RagDependencyError:
         detail = self._key.described(exc) if self._key else describe_error(exc)

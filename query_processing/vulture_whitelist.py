@@ -15,6 +15,8 @@ pytest_addoption
 
 # pydantic-settings: calls this classmethod hook to order the settings sources.
 settings_customise_sources
+# pydantic-settings: the abstract method every settings source defines.
+get_field_value
 
 # httpx: a BaseTransport subclass answers through handle_request (fake_domino).
 handle_request

@@ -20,6 +20,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from http import HTTPStatus
 from typing import NamedTuple
@@ -37,6 +38,8 @@ StatusHook = Callable[[int, Mapping[str, str]], None]
 StatusNote = Callable[[int], str]
 # What stands in a quoted body for a credential the request sent.
 _MASK = "***"
+# How many JSON encoders write a "/" in a string.
+_ESCAPED_SLASH = "\\/"
 
 
 def _ignore_status(status: int, sent: Mapping[str, str]) -> None:
@@ -58,16 +61,25 @@ def keys_masked(text: str, keys: Iterable[str]) -> str:
         keys: The keys a call sent; an empty one masks nothing.
 
     Returns:
-        The text, holding none of the keys.
+        The text, holding none of the keys, as sent nor as a JSON string
+        writes them (a quote or a backslash escaped, a slash escaped or not).
 
     Example:
         >>> keys_masked("key sk-1 refused", ["sk-1"])
         'key *** refused'
     """
     for key in keys:
-        if key:
-            text = text.replace(key, _MASK)
+        for written in _written_forms(key):
+            text = text.replace(written, _MASK)
     return text
+
+
+def _written_forms(key: str) -> list[str]:
+    # The key as sent, then as a JSON string holds it, its '/' escaped or not.
+    if not key:
+        return []
+    escaped = json.dumps(key)[1:-1]
+    return list(dict.fromkeys((key, escaped, escaped.replace("/", _ESCAPED_SLASH))))
 
 
 def _masked(text: str, sent: Mapping[str, str]) -> str:

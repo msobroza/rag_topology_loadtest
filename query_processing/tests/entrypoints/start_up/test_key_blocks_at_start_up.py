@@ -161,3 +161,110 @@ def test_a_key_block_holding_what_its_source_does_not_read_is_refused(
     line = refusal_of_qp_serve(capsys, f"{keyed.variable}__KEY")
 
     assert f"{keyed.variable}__KEY: {said}" in line
+
+
+# --- one place checks a key block before the settings library sees it ----------------
+# The library quotes the value of what it refuses: a key typed where a block's
+# source or variable goes, or where a block goes, would be printed.
+LLM_KEY = "QP_COMPONENTS__LLM__API__KEY"
+
+
+def key_block_in_the_workflow_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, block: object
+) -> None:
+    workflow = yaml.safe_load(FIXTURE_WORKFLOW.read_text(encoding="utf-8"))
+    workflow["components"]["llm"].setdefault("api", {})["key"] = block
+    path = tmp_path / "keyed.yaml"
+    path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(path))
+
+
+@pytest.mark.parametrize(
+    ("variables", "said"),
+    [
+        ({f"{LLM_KEY}__VALUE": SECRET}, f"{LLM_KEY}__SOURCE is unset"),
+        ({LLM_KEY: '{"value": "' + SECRET + '"}'}, f"{LLM_KEY}__SOURCE is unset"),
+        ({LLM_KEY: SECRET}, f"{LLM_KEY} (components.llm.api.key) is not a key block"),
+        (
+            {f"{LLM_KEY}__SOURCE": SECRET},
+            f"{LLM_KEY}__SOURCE (components.llm.api.key.source) is not a name",
+        ),
+        (
+            {f"{LLM_KEY}__SOURCE": "env", f"{LLM_KEY}__VARIABLE": SECRET},
+            f"{LLM_KEY}__VARIABLE (components.llm.api.key.variable) is not a name",
+        ),
+    ],
+    ids=["no-source", "no-source-as-json", "a-key-for-a-block", "source", "variable"],
+)
+def test_a_key_typed_in_a_key_block_by_a_variable_is_refused_and_never_printed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    variables: dict[str, str],
+    said: str,
+) -> None:
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+
+    line = refusal_of_qp_serve(capsys, said.split(" ")[0])
+
+    assert said in line
+
+
+@pytest.mark.parametrize(
+    ("value", "kind"),
+    [(123, "int"), ({"name": SECRET}, "dict"), ([SECRET], "list"), (None, "NoneType")],
+    ids=["number", "mapping", "list", "null"],
+)
+def test_a_value_beside_source_that_is_not_text_is_refused_and_never_printed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    value: object,
+    kind: str,
+) -> None:
+    block = {"source": "env", "variable": value}
+    key_block_in_the_workflow_file(monkeypatch, tmp_path, block)
+
+    line = refusal_of_qp_serve(capsys, f"{LLM_KEY}__VARIABLE")
+
+    assert f"(components.llm.api.key.variable) is a {kind}: expected text" in line
+
+
+@pytest.mark.parametrize(
+    ("variable", "place"),
+    [
+        ("QP_COMPONENTS__RERANKER__SERVED__API_KEY", "components.reranker.served"),
+        (
+            "QP_COMPONENTS__VECTOR_STORE__CHROMA__API_KEY",
+            "components.vector_store.chroma",
+        ),
+        ("QP_COMPONENTS__LLM__API_KEY", "components.llm"),
+    ],
+    ids=["served", "chroma", "the-component-itself"],
+)
+def test_an_old_api_key_under_any_block_of_a_component_gets_the_old_keys_line(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    variable: str,
+    place: str,
+) -> None:
+    monkeypatch.setenv(variable, SECRET)
+
+    line = refusal_of_qp_serve(capsys, variable)
+
+    assert f"{variable} ({place}.api_key in a workflow file) is no longer read" in line
+
+
+def test_the_old_keys_line_names_the_variable_the_key_block_already_names(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    block = {"source": "env", "variable": "OPENAI_API_KEY"}
+    key_block_in_the_workflow_file(monkeypatch, tmp_path, block)
+    monkeypatch.setenv("QP_COMPONENTS__LLM__API__API_KEY", SECRET)
+
+    line = refusal_of_qp_serve(capsys, "QP_COMPONENTS__LLM__API__API_KEY")
+
+    assert "components.llm.api.key" in line
+    assert "set OPENAI_API_KEY to the API key" in line

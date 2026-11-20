@@ -42,7 +42,7 @@ from ..config.components.component_settings import (
     Component,
     typed_by_name,
 )
-from ..config.components.key_settings import OldApiKeysRefused, refuse_old_api_keys
+from ..config.components.key_blocks import KeyBlocksChecked, refuse_key_mistakes
 from ..config.extensions import load_extensions
 from ..config.files.prompts_file import prompts_file, prompts_file_source
 from ..config.files.routes_file import routes_file, routes_file_source
@@ -236,7 +236,7 @@ def refuse_unknown_override_keys(overrides: Mapping[str, object], path: Path) ->
         DominoDeployError: overrides in deploy.yaml has no key 'htpp': ...
     """
     try:  # its own line, which names the key block, not "no key 'api_key'"
-        refuse_old_api_keys(overrides.get("components"), WorkflowSettings.variable_of)
+        refuse_key_mistakes(overrides.get("components"), WorkflowSettings.variable_of)
     except ValueError as exc:
         raise DominoDeployError(f"overrides in {deploy_file()}: {exc}") from exc
     _refuse_unknown_keys(overrides, WorkflowSettings, _workflow_data(path), (), path)
@@ -465,14 +465,13 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
             file_secret_settings: PydanticBaseSettingsSource,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
             del env_settings, dotenv_settings, file_secret_settings
-            # The old api_key refused as start-up refuses it, never quoting it.
-            source = workflow_file_source(settings_cls, path)
-            workflow = OldApiKeysRefused(source, WorkflowSettings.variable_of)
+            # The key blocks checked as start-up checks them, never quoting one.
             return (
                 init_settings,
-                workflow,
+                workflow_file_source(settings_cls, path),
                 prompts_file_source(settings_cls, prompts_file()),
                 routes_file_source(settings_cls, routes_file()),
+                KeyBlocksChecked(settings_cls, WorkflowSettings.variable_of),
             )
 
     return FileWithOverrides

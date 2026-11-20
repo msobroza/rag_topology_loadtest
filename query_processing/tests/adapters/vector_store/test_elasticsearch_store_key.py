@@ -23,7 +23,7 @@ from model_api_fakes import FakeKeySource
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
-from query_processing.domain.errors import RagDependencyError
+from query_processing.domain.errors import MissingKeyError, RagDependencyError
 from query_processing.domain.retrieval.passages import Passage
 
 OLD_KEY, MID_KEY, NEW_KEY = "es-key-old-4711", "es-key-mid-2342", "es-key-new-0815"
@@ -217,6 +217,37 @@ async def test_es_a_second_refusal_is_the_stores_error_naming_the_source_not_the
     assert "AuthenticationException" in str(info.value)
     assert OLD_KEY not in str(info.value)
     assert NEW_KEY not in str(info.value)
+
+
+async def test_es_a_source_that_keeps_its_key_gets_no_new_client_and_fails_at_once() -> (
+    None
+):
+    # As an env source: told of a refusal, it still gives the key refused.
+    source, connect = FakeKeySource(OLD_KEY), FakeConnector(OLD_KEY)
+    store = await store_over(connect, source)
+
+    for _ in range(50):
+        with pytest.raises(RagDependencyError) as info:
+            await store.query([0.1], top_k=1)
+        assert source.described() in str(info.value)
+        assert OLD_KEY not in str(info.value)
+
+    assert connect.keys == [OLD_KEY]  # one client, whatever the refusals
+    assert source.refusals == [OLD_KEY] * 50
+
+
+async def test_es_a_key_source_that_cannot_give_its_key_when_the_store_opens_is_one_line() -> (
+    None
+):
+    class Unreachable(FakeKeySource):
+        def key(self, *, may_ask: bool) -> str | None:
+            raise RagDependencyError("domino_access_token", "HTTP 503", target="t")
+
+    with pytest.raises(MissingKeyError) as info:
+        await store_over(FakeConnector(), Unreachable())
+
+    [line] = str(info.value).splitlines()
+    assert "domino_access_token unavailable: HTTP 503" in line
 
 
 async def test_es_a_403_fails_at_once_and_keeps_its_key() -> None:

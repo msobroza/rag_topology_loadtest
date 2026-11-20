@@ -249,6 +249,8 @@ async def _dependency_error(request: Request, exc: RagDependencyError) -> JSONRe
         request_id=request.state.request_id,
         status=status.value,
         error=error,
+        # What the client is sent too: the keys masked, a refused key's source said.
+        detail=str(exc),
     )
     body = {"error": error, "detail": str(exc), "target": exc.target}
     return JSONResponse(status_code=status, content=body)

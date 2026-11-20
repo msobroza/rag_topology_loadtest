@@ -161,12 +161,34 @@ def run_token_source(
         'eyJ...'
     """
     policy = HttpPolicy(timeout_s, retries, DefaultHttpSettings().backoff_s)
-    ttl_s = DominoSettings().token_ttl_s
-    return DominoKeySource(client, token_url=token_url, ttl_s=ttl_s, policy=policy)
+    return domino_key_source(client, DominoSettings(token_url=token_url), policy)
+
+
+def domino_key_source(
+    client: httpx.Client, domino: DominoSettings, policy: HttpPolicy
+) -> DominoKeySource:
+    """Build the ``domino`` key source: the one place the composition builds it.
+
+    The workflow app's (``HttpResources``), a command's with a ``key`` block
+    and ``qp-deploy status``'s are each built here, from a ``domino`` block.
+
+    Args:
+        client: The blocking client the token is asked for through.
+        domino: The token's URL and the time a token is held.
+        policy: The timeout, retries and backoff of asking.
+
+    Returns:
+        The source, which asks at its first ``key(may_ask=True)``.
+
+    Example:
+        >>> domino_key_source(httpx.Client(), DominoSettings(), policy)
+    """
+    return DominoKeySource(
+        client, token_url=domino.token_url, ttl_s=domino.token_ttl_s, policy=policy
+    )
 
 
 def _domino_source(client: httpx.Client, needs: StandaloneKeyNeeds) -> DominoKeySource:
     policy = HttpPolicy(needs.timeout_s, needs.retries, needs.backoff_s)
-    return DominoKeySource(
-        client, token_url=needs.token_url, ttl_s=needs.token_ttl_s, policy=policy
-    )
+    domino = DominoSettings(token_url=needs.token_url, token_ttl_s=needs.token_ttl_s)
+    return domino_key_source(client, domino, policy)
