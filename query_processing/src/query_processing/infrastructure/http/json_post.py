@@ -16,7 +16,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
 from typing import NamedTuple
 
@@ -27,12 +27,13 @@ from ...domain.errors import RagDependencyError, describe_error
 from .http_policy import HttpPolicy
 
 HeaderSupplier = Callable[[], Awaitable[dict[str, str]]]
-StatusHook = Callable[[int], None]
+# Called with a retried status and the headers of the attempt that got it.
+StatusHook = Callable[[int, Mapping[str, str]], None]
 
 
-def _ignore_status(status: int) -> None:
+def _ignore_status(status: int, sent: Mapping[str, str]) -> None:
     # Default hook: most callers have nothing to reset before a retry.
-    del status
+    del status, sent
 
 
 class _RetryableFailure(NamedTuple):
@@ -49,8 +50,9 @@ class RetryingJsonPost:
         policy: Timeout, retries and backoff of every call.
         headers: Supplies the headers of each attempt, called once per attempt.
         retry_statuses: 4xx statuses retried like a 5xx (e.g. 429).
-        on_retry_status: Called with each retryable status before the retry, so
-            a caller can drop a stale token.
+        on_retry_status: Called with each retryable status and the headers of
+            the attempt that got it, before the retry, so a caller can tell a
+            key source which key was refused.
 
     Example:
         >>> post = RetryingJsonPost(client, policy, headers=token.headers,
@@ -113,7 +115,7 @@ class RetryingJsonPost:
             return response.json()
         detail = f"HTTP {status}: {response.text[:200]}"
         if status >= HTTPStatus.INTERNAL_SERVER_ERROR or status in self._retry_statuses:
-            self._on_retry_status(status)
+            self._on_retry_status(status, headers)
             return _RetryableFailure(detail, "unavailable")
         raise RagDependencyError(component, detail, target=url)
 

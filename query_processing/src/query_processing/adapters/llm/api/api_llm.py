@@ -23,12 +23,10 @@ from ....domain.components.component_requests import GenerateAnswer
 from ....domain.endpoints.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
-from ....infrastructure.endpoint.open_endpoint_client import (
-    RunTokenSource,
-    open_endpoint_client,
-)
+from ....infrastructure.endpoint.open_endpoint_client import open_endpoint_client
 from ....infrastructure.http.http_policy import HttpPolicy
 from ....infrastructure.http.json_post import describe_malformed
+from ...key_source.base_key_source import BaseKeySource
 from ..base_llm import BaseLLM
 from .base_generation_api_format import GENERATION_API_FORMATS, BaseGenerationApiFormat
 from .base_structured_output_method import (
@@ -192,7 +190,7 @@ def open_api_llm(
     client: httpx.AsyncClient,
     endpoint: ApiEndpoint,
     *,
-    tokens: RunTokenSource,
+    key_source: BaseKeySource | None,
     policy: HttpPolicy,
     temperature: float,
     structured_output: str,
@@ -201,8 +199,8 @@ def open_api_llm(
 
     Args:
         client: The shared HTTP client.
-        endpoint: The generation route, its API format, its key and its model.
-        tokens: Where the Domino run token comes from, for the ``domino`` key.
+        endpoint: The generation route, its API format and its model.
+        key_source: Where the endpoint's API key comes from; None sends no key.
         policy: Timeout, retries and backoff of every call; its retries also
             bound how many times an answer off its schema is asked again.
         temperature: The sampling temperature sent with every request.
@@ -218,13 +216,13 @@ def open_api_llm(
             lists the known names.
 
     Example:
-        >>> open_api_llm(client, endpoint, tokens=tokens, policy=policy,
+        >>> open_api_llm(client, endpoint, key_source=key_source, policy=policy,
         ...              temperature=0.0, structured_output="json_schema")
     """
     api_format = GENERATION_API_FORMATS.get(endpoint.api_format)()
     method = STRUCTURED_OUTPUT_METHODS.get(structured_output)()
     endpoint_client = open_endpoint_client(
-        client, endpoint, component="llm", tokens=tokens, policy=policy
+        client, endpoint, component="llm", key_source=key_source, policy=policy
     )
     return ApiLLM(
         endpoint_client,

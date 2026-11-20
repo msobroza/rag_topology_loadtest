@@ -88,13 +88,14 @@ class EndpointSettings(ServedSettings):
             alias: The component's alias, sent when the block names no model.
 
         Returns:
-            Its URL, API format, key and model name.
+            Its URL, API format and model name; its key is the composition
+            root's to turn into a key source.
 
         Example:
             >>> components["llm"].api.endpoint("").url
             'https://api.openai.com/v1/chat/completions'
         """
-        return ApiEndpoint(self.url, self.api_format, self.api_key, self.model or alias)
+        return ApiEndpoint(self.url, self.api_format, self.model or alias)
 
 
 class EmbedderServedSettings(ServedSettings):

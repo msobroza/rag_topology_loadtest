@@ -1,13 +1,15 @@
-"""What every call out shares: one HTTP client, the default policy and the run tokens.
+"""What every call out shares: one HTTP client, the default policy and the key sources.
 
 The client is created on first need and closed with the scope. The default
-policy and the run token source are plain values, read from the settings once.
-How patiently a component on ``served`` or ``api`` is called is resolved here:
-its own ``http`` block, each value it leaves out taken from the default. Where
-a component on the ``served`` backend is called is resolved here too, since its
-key depends on where the process runs: on Domino a model server of ours is
-another App, behind a proxy that wants the run's token. The client's pool
-and its HTTP version are the top-level ``http`` block's alone.
+policy is a plain value, read from the settings once. How patiently a
+component on ``served`` or ``api`` is called is resolved here: its own ``http``
+block, each value it leaves out taken from the default. Which key source an
+endpoint is called with is resolved here too: the process's one ``domino``
+source, opened on first need with a blocking client of its own and shared by
+every endpoint that sends the run token. A component on the ``served`` backend
+gets it on Domino, where a model server of ours is another App behind a proxy
+that wants the run's token, and none elsewhere. The client's pool and its HTTP
+version are the top-level ``http`` block's alone.
 
 Example:
     >>> http = HttpResources(settings, scope)
@@ -22,6 +24,9 @@ from collections.abc import Callable
 
 import httpx
 
+from ..adapters.key_source.base_key_source import BaseKeySource
+from ..adapters.key_source.domino.domino_key_source import DominoKeySource
+from ..adapters.key_source.fixed_key import FixedKey
 from ..config.components.component_settings import ModelComponent
 from ..config.components.registered_component_settings import (
     RegisteredComponentSettings,
@@ -29,7 +34,6 @@ from ..config.components.registered_component_settings import (
 from ..config.workflow_settings import WorkflowSettings
 from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
-from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
 from ..infrastructure.http.http_policy import HttpPolicy
 from .resource_scope import OWNED, ResourceScope
 
@@ -50,7 +54,7 @@ def h2_is_installed() -> bool:
 
 
 class HttpResources:
-    """The shared HTTP client, the default HTTP policy and where run tokens come from.
+    """The shared HTTP client, the default HTTP policy and the key sources.
 
     Args:
         settings: The default timeout, retries and backoff and the client's
@@ -58,7 +62,8 @@ class HttpResources:
             (its ``domino`` block).
         scope: Opens the client once and closes it.
         transport: The client's transport; None for the real network (tests
-            pass an ``httpx.MockTransport``).
+            pass an ``httpx.MockTransport``, which the ``domino`` source's
+            blocking client takes too).
         on_domino: Whether the process runs as a Domino App, where a served
             component is called with the run token (``qp-serve --domino``).
         client_factory: Builds the shared client from its keywords; tests
@@ -97,9 +102,8 @@ class HttpResources:
         self._http = http
         self._client_factory = client_factory
         self.policy = HttpPolicy(http.timeout_s, http.retries, http.backoff_s)
-        self.run_tokens = RunTokenSource(domino.token_url, domino.token_ttl_s)
-        # Off Domino a model server of ours takes no key.
-        self._served_key = DOMINO_RUN_TOKEN if on_domino else ""
+        self._domino = domino
+        self._on_domino = on_domino
         self._scope = scope
         self._transport = transport
 
@@ -129,18 +133,18 @@ class HttpResources:
             component: The component, its ``served`` block giving the route.
 
         Returns:
-            The route, the standard format of the component's type, the run
-            token on Domino and no key elsewhere, and the alias as the model
-            name: a model server of ours serves a model under its alias.
+            The route, the standard format of the component's type, and the
+            alias as the model name: a model server of ours serves a model
+            under its alias.
 
         Example:
             >>> http.served_endpoint(settings.components["reranker"])
             ApiEndpoint(url='http://reranker-app/v3/rerank', api_format='cohere',
-                        api_key='domino', model='crossencoder-camembert-base-mmarcoFR')
+                        model='crossencoder-camembert-base-mmarcoFR')
         """
         api_format = STANDARD_API_FORMATS[component.type]
         url = component.served.url
-        return ApiEndpoint(url, api_format, self._served_key, component.alias)
+        return ApiEndpoint(url, api_format, component.alias)
 
     def call_endpoint(
         self, name: str, component: RegisteredComponentSettings
@@ -153,16 +157,47 @@ class HttpResources:
             component: The component, its ``served`` block giving the call route.
 
         Returns:
-            The call route, its component type as the API format's name, the
-            run token on Domino and no key elsewhere, and its name as the model.
+            The call route, its component type as the API format's name, and
+            its name as the model.
 
         Example:
             >>> http.call_endpoint("shouter", settings.components["shouter"])
             ApiEndpoint(url='http://shouter-app/call/shouter', api_format='shouter',
-                        api_key='', model='shouter')
+                        model='shouter')
         """
         url, api_format = component.served.url, component.type
-        return ApiEndpoint(url, api_format, self._served_key, name)
+        return ApiEndpoint(url, api_format, name)
+
+    async def served_key_source(self) -> BaseKeySource | None:
+        """Return the key source a component on the ``served`` backend is called with.
+
+        Returns:
+            The process's ``domino`` source on Domino; None elsewhere, where a
+            model server of ours takes no key.
+
+        Example:
+            >>> await http.served_key_source()  # off Domino
+        """
+        return await self._domino_source() if self._on_domino else None
+
+    async def key_source_of(self, api_key: str) -> BaseKeySource | None:
+        """Return the key source an ``api`` endpoint's ``api_key`` setting stands for.
+
+        Args:
+            api_key: The setting: "" for no key, ``domino`` for the run token,
+                anything else a fixed key.
+
+        Returns:
+            None, the process's one ``domino`` source, or a fixed key's holder.
+
+        Example:
+            >>> await http.key_source_of("")
+        """
+        if not api_key:
+            return None
+        if api_key == DOMINO_RUN_TOKEN:
+            return await self._domino_source()
+        return FixedKey(api_key)
 
     async def client(self) -> httpx.AsyncClient:
         """Return the shared HTTP client, created on the first request.
@@ -174,6 +209,24 @@ class HttpResources:
             >>> client = await http.client()
         """
         return await self._scope.once("http_client", OWNED, self._start_client)
+
+    async def _domino_source(self) -> DominoKeySource:
+        return await self._scope.once("domino_key_source", OWNED, self._start_domino)
+
+    async def _start_domino(self) -> DominoKeySource:
+        # Its asks block, off the event loop, so its client is a blocking one.
+        # Only a transport that serves blocking clients too is handed down.
+        transport = self._transport
+        blocking = transport if isinstance(transport, httpx.BaseTransport) else None
+        client = httpx.Client(timeout=self.policy.timeout_s, transport=blocking)
+        self._scope.exit_stack("domino_key_source").callback(client.close)
+        domino = self._domino
+        return DominoKeySource(
+            client,
+            token_url=domino.token_url,
+            ttl_s=domino.token_ttl_s,
+            policy=self.policy,
+        )
 
     async def _start_client(self) -> httpx.AsyncClient:
         http = self._http

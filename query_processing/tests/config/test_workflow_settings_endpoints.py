@@ -109,9 +109,9 @@ def test_unprefixed_provider_variables_are_not_read(
     assert llm.api.endpoint(llm.alias) == ApiEndpoint(
         "https://llm.fixture.test/v1/chat/completions",
         "openai",
-        "",
         "fixture-chat-model",
     )
+    assert llm.api.api_key == ""
 
 
 # --- the endpoints ---------------------------------------------------------------
@@ -138,8 +138,9 @@ def test_an_api_block_gives_its_endpoint(
 
     model = s.components[component]
     assert model.api.endpoint(model.alias) == ApiEndpoint(
-        url, api_format, "key", "served-name"
+        url, api_format, "served-name"
     )
+    assert model.api.api_key == "key"
 
 
 def test_an_api_block_without_a_model_sends_the_alias(

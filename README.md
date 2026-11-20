@@ -945,10 +945,15 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           langgraph_orchestrator.py  LangGraphOrchestrator: LangGraph's StateGraph of the opened graph, refusing only a stage name LangGraph does not take for a node, the one module importing LangGraph; state_type, langgraph_name, path_map
         pydantic_graph/  orchestrator: pydantic_graph, pydantic-graph (Pydantic AI's graph library)
           pydantic_graph_orchestrator.py  PydanticGraphOrchestrator: pydantic-graph's graph of the opened graph, a step per stage that merges its update, a step per conditional edge named <source>:<edge condition> then a decision named after it; refuses a stage named as one of those nodes, more than one way out at once, a loop, and what its library does not build; the one module importing pydantic-graph
+      key_source/     where an API key comes from (ADR 0012); importing it imports every module under it, so each source registers itself
+        base_key_source.py  BaseKeySource, the port: key gives the key held, asking its source only when it must and may; refused forgets a refused key if still held; KEY_SOURCES
+        fixed_key.py  FixedKey: a fixed key, the api_key setting's, registered under no name; leaves with ticket 02, for the env source
+        domino/       key source: domino
+          domino_key_source.py  DominoKeySource: the run token, asked at the token URL under the shared http block, held for token_ttl_s
     infrastructure/   technical code that implements no port; imports itself and domain only
       endpoint/       what every api implementation shares, on the served and api backends
         api_endpoint_client.py  ApiEndpointClient: auth, timeout, retries and the error shape of every endpoint call
-        bearer_token.py  BearerToken: no Authorization header, a static key, or the Domino run token
+        bearer_key.py  BearerKey: the Authorization header of every call from a key source, which is called off the event loop only when it must ask; KeySupplier, the source's two methods as this layer calls them
         open_endpoint_client.py  open_endpoint_client: the client of one endpoint, with a bearer token of its own
         served_call.py  ServedCallMixin: a registered component answered by a model server of ours, on its call route
       local_models/   what the local implementations share

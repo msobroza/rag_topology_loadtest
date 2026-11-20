@@ -279,11 +279,9 @@ def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None
         url=RERANK_URL, api_format="cohere", api_key="key", model="rerank-v3.5"
     )
 
-    assert block.endpoint("rr") == ApiEndpoint(
-        RERANK_URL, "cohere", "key", "rerank-v3.5"
-    )
+    assert block.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "rerank-v3.5")
     unnamed = block.model_copy(update={"model": ""})
-    assert unnamed.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "key", "rr")
+    assert unnamed.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "rr")
 
 
 # --- the vector store ------------------------------------------------------------------

@@ -17,11 +17,10 @@ from query_processing.domain.endpoints.api_endpoint import (
 
 
 def test_api_endpoint_fields_in_order() -> None:
-    endpoint = ApiEndpoint("http://h/v3/embeddings", "openai", "", "bge")
+    endpoint = ApiEndpoint("http://h/v3/embeddings", "openai", "bge")
     assert endpoint._asdict() == {
         "url": "http://h/v3/embeddings",
         "api_format": "openai",
-        "api_key": "",
         "model": "bge",
     }
 

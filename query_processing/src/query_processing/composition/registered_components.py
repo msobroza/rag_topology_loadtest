@@ -82,7 +82,7 @@ async def open_served(
             serves it under it.
         component: Its settings: the ``served`` block's URL, which the
             settings refuse when it is no URL, and its ``http`` block.
-        http: The shared HTTP client, the default policy and the run tokens.
+        http: The shared HTTP client, the default policy and the key sources.
 
     Returns:
         The type's own ``served`` class if it names one, else the built one,
@@ -97,7 +97,7 @@ async def open_served(
         await http.client(),
         http.call_endpoint(name, component),
         component=name,
-        tokens=http.run_tokens,
+        key_source=await http.served_key_source(),
         policy=http.policy_of(component),
     )
     return served_class_of(port)(endpoint_client, api_format_of(port))

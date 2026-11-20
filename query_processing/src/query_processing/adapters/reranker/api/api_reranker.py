@@ -16,11 +16,9 @@ from ....domain.endpoints.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError, describe_error
 from ....domain.retrieval.passages import ScoredPassage, top_by_score
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
-from ....infrastructure.endpoint.open_endpoint_client import (
-    RunTokenSource,
-    open_endpoint_client,
-)
+from ....infrastructure.endpoint.open_endpoint_client import open_endpoint_client
 from ....infrastructure.http.http_policy import HttpPolicy
+from ...key_source.base_key_source import BaseKeySource
 from ..base_reranker import BaseReranker
 from .base_rerank_api_format import RERANK_API_FORMATS, BaseRerankApiFormat
 
@@ -118,15 +116,15 @@ def open_api_reranker(
     client: httpx.AsyncClient,
     endpoint: ApiEndpoint,
     *,
-    tokens: RunTokenSource,
+    key_source: BaseKeySource | None,
     policy: HttpPolicy,
 ) -> ApiReranker:
     """Build the reranker of one rerank endpoint.
 
     Args:
         client: The shared HTTP client.
-        endpoint: The rerank route, its API format, its key and its model.
-        tokens: Where the Domino run token comes from, for the ``domino`` key.
+        endpoint: The rerank route, its API format and its model.
+        key_source: Where the endpoint's API key comes from; None sends no key.
         policy: Timeout, retries and backoff of every call.
 
     Returns:
@@ -136,10 +134,10 @@ def open_api_reranker(
         ValueError: If ``endpoint.api_format`` names no rerank API format.
 
     Example:
-        >>> open_api_reranker(client, endpoint, tokens=tokens, policy=policy)
+        >>> open_api_reranker(client, endpoint, key_source=key_source, policy=policy)
     """
     api_format = RERANK_API_FORMATS.get(endpoint.api_format)()
     endpoint_client = open_endpoint_client(
-        client, endpoint, component="reranker", tokens=tokens, policy=policy
+        client, endpoint, component="reranker", key_source=key_source, policy=policy
     )
     return ApiReranker(endpoint_client, api_format)
