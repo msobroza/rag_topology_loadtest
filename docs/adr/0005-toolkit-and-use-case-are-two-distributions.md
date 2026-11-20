@@ -4,6 +4,8 @@ The RAG became the first use case of a toolkit, `query_processing`. A use case i
 
 Amended by [ADR 0006](0006-a-use-case-holds-the-implementations-that-are-its-own.md): a use case also holds the implementations that are its own.
 
+Amended by [ADR 0014](0014-a-core-holds-what-toolkits-exchange-and-the-workflow-handles-the-vector-store-record.md): a third distribution, the core, holds what toolkits exchange.
+
 ## Considered options
 
 - **One package.** Rejected: the toolkit's settings would keep the RAG's models, prompts and sizes as defaults, and the owner wants the use case installable on its own.
