@@ -1276,7 +1276,7 @@ the counts are words of the echo, not tokens of a model, so its token figures
 say nothing of a server. The settings of a run that measures the LLM: "The
 waits on the path of an answer" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
 
-### Answer records: the same requests, the same passages
+### Answer records: the same requests, the same vector-store records
 
 The load test says how fast a target answers; an answer record says what it
 answered. The two commands are the check that a refactor, or a move to
@@ -1318,20 +1318,35 @@ after `QP_LOADTEST_BACKOFF_S` doubled before each next retry (default 2 and
 0.2 s, the defaults of the workflow file's shared `http` block); then the command
 stops with status 3 and writes nothing, since half a record would pass for a
 whole one. Any response the target gives is recorded, an error status
-included; a 200 whose JSON object is not of the answer's shape (a passage
-without an `id`, say) stops it with status 4, naming the endpoint and the
-field, and nothing is written either.
+included; a 200 whose JSON object is not of the answer's shape (a
+vector-store record without an id, say) stops it with status 4, naming the
+endpoint and the field, and nothing is written either.
 
 It writes `<prefix>_answers.json`, the answer record. For each request it
 holds the endpoint, the body sent and the status, and from a 200's JSON object
-the `mode`, the `metadata_filter` applied, the `answer`, and each passage in
-order with its `id`, the SHA-256 of its `text`, its `metadata`, its
-`retrieval_score` and its `rerank_score`; a response that is not a 200 with a
-JSON object is recorded with its status alone. It also holds, under `seen`,
-each topology alias and run label the responses reported, as the target
-record does. It keeps none of `timings_ms`, `tokens`, `request_id`,
-`run_label` or the passages' text: they change from run to run, or a hash
-says as much.
+the `mode`, the `metadata_filter` applied, the `answer`, and under `records`
+each vector-store record in order with the SHA-256 of its `text`, its
+`metadata` holding its `id`, its `retrieval_score` and its `rerank_score`; a
+response that is not a 200 with a JSON object is recorded with its status
+alone. It also holds, under `seen`, each topology alias and run label the
+responses reported, as the target record does. It keeps none of `timings_ms`,
+`tokens`, `request_id`, `run_label` or the vector-store records' text: they
+change from run to run, or a hash says as much.
+
+The record is of that form whichever shape the target answered in. The
+workflow app answered in an old shape, and answer records were written in an
+old form: the vector-store records under `passages`, each with its `id` beside
+its `metadata`, the handbook's window index under the metadata key `chunk`.
+One mapping of the load-test client reads the old into the new, for a
+response's body and for a record's file alike: `passages` is read as
+`records`, the `id` into the metadata, and a whole number under `chunk` as
+`sequence`, in either shape, since an index ingested before keeps that key (a
+text under `chunk` is a chunk's own payload and stays, and a boolean is no
+whole number). So `qp-compare-answers` reads a record of either form, finds
+an old one and a new one alike when the answers are the same, and names a
+difference in the new form's words (`records[0].rerank_score`). The old form
+is read with no end date: the registry's records in `experiments/` are of
+it and are never rewritten, and so, today, are the pinned records below.
 
 `qp-compare-answers <prefix> <prefix>... [--out <file>]` compares each run's
 record with the first, the baseline, and names a run by the last component of
@@ -1339,7 +1354,7 @@ its prefix, as `qp-compare` does:
 
 | What | How |
 | --- | --- |
-| status, mode, metadata filter, the passages' ids in order, their text hashes and metadata | exactly; an absent metadata filter equals an empty one, since both apply no condition (an app from before the field records none) |
+| status, mode, metadata filter, the vector-store records' ids in order, their text hashes and metadata | exactly; an absent metadata filter equals an empty one, since both apply no condition (an app from before the field records none) |
 | the retrieval and rerank scores | within `QP_LOADTEST_SCORE_TOLERANCE` (default `0.0001`, 0 or more); an absent score equals only an absent one |
 | the answer the LLM wrote | only with `QP_LOADTEST_ANSWER_ROUGE_L=true`, with ROUGE-L's F-measure against the baseline's at or above `QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD` (default `0.9`); two equal texts are the same, two empty ones included, as are two absent ones (on `/retrieve`), and a text on one side only is different |
 
@@ -1371,7 +1386,7 @@ check` and CI run its own tests and the pinned answer records below, on
 fakes. What to expect: the same code on two topologies answers the same, since
 a component served over HTTP returns what it returns in process. Two model-server
 kinds (FastAPI, OVMS, vLLM) or two weight formats may not: their scores move,
-and a passage can change places. Compare each with a baseline of its own.
+and a vector-store record can change places. Compare each with a baseline of its own.
 
 #### Pinned answer records: the answers on fake backends, in the gate
 
@@ -1437,7 +1452,7 @@ make compare-answers BASELINE=langgraph   # results/answers-comparison.md
 ```
 
 The report shows the run label each record saw beside its run, so it says
-which orchestrator answered. The passages, their order and their scores are
+which orchestrator answered. The vector-store records, their order and their scores are
 compared as for two topologies; the LLM's text only with
 `QP_LOADTEST_ANSWER_ROUGE_L=true`.
 

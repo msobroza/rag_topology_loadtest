@@ -56,27 +56,27 @@ def compared(baseline: Path, run: Path) -> tuple[int, str]:
     return status, out.read_text(encoding="utf-8") if out.exists() else ""
 
 
-def passages(document: dict[str, Any]) -> list[dict[str, Any]]:
-    """The passages of the first question's ``/query`` answer."""
-    return document["answers"][QUERY]["passages"]
+def records_of(document: dict[str, Any]) -> list[dict[str, Any]]:
+    """The vector-store records of the first question's ``/query`` answer."""
+    return document["answers"][QUERY]["records"]
 
 
 def swap_first_two(document: dict[str, Any]) -> None:
-    found = passages(document)
+    found = records_of(document)
     found[0], found[1] = found[1], found[0]
 
 
 def rename_first(document: dict[str, Any]) -> None:
-    passages(document)[0]["id"] = "another-passage"
+    records_of(document)[0]["metadata"]["id"] = "another-record"
 
 
 def change_text(document: dict[str, Any]) -> None:
-    passages(document)[0]["text_sha256"] = "0" * 64
+    records_of(document)[0]["text_sha256"] = "0" * 64
 
 
 def move_score(by: float) -> Edit:
     def edit(document: dict[str, Any]) -> None:
-        passages(document)[0]["rerank_score"] += by
+        records_of(document)[0]["rerank_score"] += by
 
     return edit
 
@@ -84,14 +84,14 @@ def move_score(by: float) -> Edit:
 @pytest.mark.parametrize(
     ("edit", "field"),
     [
-        (swap_first_two, "passages.id"),
-        (rename_first, "passages.id"),
-        (change_text, "passages[0].text_sha256"),
-        (move_score(0.01), "passages[0].rerank_score"),
+        (swap_first_two, "records.metadata.id"),
+        (rename_first, "records.metadata.id"),
+        (change_text, "records[0].text_sha256"),
+        (move_score(0.01), "records[0].rerank_score"),
     ],
     ids=["out-of-order", "id-changed", "text-changed", "score-beyond-tolerance"],
 )
-def test_a_changed_passage_makes_the_run_different_naming_request_and_field(
+def test_a_changed_vector_store_record_makes_the_run_different_naming_request_and_field(
     baseline: Path, edit: Edit, field: str
 ) -> None:
     question = read_answer_record(baseline).answers[QUERY].body["question"]
@@ -111,12 +111,12 @@ def test_a_score_moved_within_the_tolerance_is_the_same(baseline: Path) -> None:
 
 def test_an_absent_score_equals_only_an_absent_one(baseline: Path) -> None:
     def drop_score(document: dict[str, Any]) -> None:
-        passages(document)[0]["rerank_score"] = None
+        records_of(document)[0]["rerank_score"] = None
 
     status, report = compared(baseline, run_edited(baseline, drop_score))
 
     assert status == 1
-    assert "passages[0].rerank_score" in report
+    assert "records[0].rerank_score" in report
 
 
 @pytest.mark.parametrize(

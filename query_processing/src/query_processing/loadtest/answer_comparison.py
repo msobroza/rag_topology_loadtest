@@ -6,14 +6,18 @@ they are refused, naming the first request that differs. Then each answer of
 a run is held against the baseline's:
 
 - exactly: the status, the mode, the metadata filter applied (an absent
-  filter equal to an empty one: both apply no condition), the passages' ids
-  in order, their text hashes and their metadata;
+  filter equal to an empty one: both apply no condition), the vector-store
+  records' ids in order, their text hashes and their metadata;
 - within ``score_tolerance``: the retrieval and the rerank scores, an absent
   score equal only to an absent one;
 - the answer an LLM wrote only when given an ``AnswerTextMetric``, and then
   with it, never text for text: an LLM can word an answer otherwise at
   temperature 0. Two equal texts are the same without asking it, two empty
   ones included; a text present on one side only is different.
+
+A record of the old form was read into the new one (``answer_record``), so a
+difference is named in the new form's words: ``records.metadata.id``,
+``records[0].rerank_score``.
 
 Example:
     >>> require_same_requests(("monolith", base), ("split-all", run))
@@ -26,11 +30,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .answer_record import AnswerRecord, RecordedAnswer, RecordedPassage
+from .answer_record import AnswerRecord, RecordedAnswer, RecordedVectorStoreRecord
 
 # The fields compared exactly, in the order a difference is reported.
 _EXACT_FIELDS = ("status", "mode")
-_EXACT_PASSAGE_FIELDS = ("text_sha256", "metadata")
+_EXACT_RECORD_FIELDS = ("text_sha256", "metadata")
 _SCORE_FIELDS = ("retrieval_score", "rerank_score")
 
 
@@ -210,7 +214,7 @@ def _differing_fields(
     # today records an empty list: both applied no condition.
     if (ours.metadata_filter or []) != (theirs.metadata_filter or []):
         found.append(("metadata_filter", ours.metadata_filter, theirs.metadata_filter))
-    return found + _differing_passages(ours.passages, theirs.passages, tolerance)
+    return found + _differing_records(ours.records, theirs.records, tolerance)
 
 
 def _text_difference(
@@ -232,35 +236,37 @@ def _text_score(base: str, value: str, metric: AnswerTextMetric) -> float:
     return 1.0 if base == value else metric.score(base, value)
 
 
-def _differing_passages(
-    ours: list[RecordedPassage] | None,
-    theirs: list[RecordedPassage] | None,
+def _differing_records(
+    ours: list[RecordedVectorStoreRecord] | None,
+    theirs: list[RecordedVectorStoreRecord] | None,
     tolerance: AnswerTolerance,
 ) -> Differing:
-    # Passages are held one by one only when the ids agree in order: a passage
-    # out of order or changed is the list of ids, said once.
+    # Vector-store records are held one by one only when the ids agree in
+    # order: one out of order or changed is the list of ids, said once.
     ids, their_ids = _ids(ours), _ids(theirs)
     if ids != their_ids:
-        return [("passages.id", ids, their_ids)]
+        return [("records.metadata.id", ids, their_ids)]
     found: Differing = []
     for index, (mine, other) in enumerate(zip(ours or [], theirs or [], strict=True)):
         found += [
-            (f"passages[{index}].{name}", base, value)
-            for name, base, value in _differing_passage_fields(mine, other, tolerance)
+            (f"records[{index}].{name}", base, value)
+            for name, base, value in _differing_record_fields(mine, other, tolerance)
         ]
     return found
 
 
-def _ids(passages: list[RecordedPassage] | None) -> list[str] | None:
-    return None if passages is None else [passage.id for passage in passages]
+def _ids(records: list[RecordedVectorStoreRecord] | None) -> list[str] | None:
+    return None if records is None else [entry.record_id for entry in records]
 
 
-def _differing_passage_fields(
-    ours: RecordedPassage, theirs: RecordedPassage, tolerance: AnswerTolerance
+def _differing_record_fields(
+    ours: RecordedVectorStoreRecord,
+    theirs: RecordedVectorStoreRecord,
+    tolerance: AnswerTolerance,
 ) -> Differing:
     exact: Differing = [
         (name, getattr(ours, name), getattr(theirs, name))
-        for name in _EXACT_PASSAGE_FIELDS
+        for name in _EXACT_RECORD_FIELDS
         if getattr(ours, name) != getattr(theirs, name)
     ]
     scores: Differing = [
