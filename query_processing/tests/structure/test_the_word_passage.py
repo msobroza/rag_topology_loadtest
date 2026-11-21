@@ -9,6 +9,10 @@ KEPT_FOLDERS list, each with its reason. It follows ``test_old_names.py``.
 
 A file that keeps one thing among others is listed by that thing's pattern,
 never whole: the pattern is taken out of each line before the word is searched.
+A pattern is the kept thing as it is written (a whole sentence, a quoted key, a
+name between its delimiters), so it cannot hide the word in a new sentence or
+in an identifier that merely starts with a kept name. A tracked file's own name
+is searched too.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
+import pytest
 from test_old_names import tracked_files
 
 from repo_paths import REPO_ROOT
@@ -45,12 +50,32 @@ class Kept(NamedTuple):
 
 USE_CASE = "query_processing_rag_usecase/"
 TOOLKIT_TESTS = "query_processing/tests/"
+SETTINGS_MODULE = (
+    "query_processing/src/query_processing/config/components/component_settings.py"
+)
+OLD_KEY = (
+    "the key of the old shape of a response and of an answer record: the "
+    "load-test client reads it as records, with no end date"
+)
+ANSWER_RECORD_FILES = frozenset(
+    {
+        "query_processing/src/query_processing/loadtest/answer_record.py",
+        "query_processing/src/query_processing/testing/pinned_answer_record.py",
+        f"{TOOLKIT_TESTS}helpers/answer_record_helpers.py",
+        f"{TOOLKIT_TESTS}loadtest/test_answer_records_compare_alike.py",
+        f"{TOOLKIT_TESTS}loadtest/test_qp_record_answers.py",
+    }
+)
+# Each pattern is the kept thing as it is written, a whole sentence, a quoted
+# key or a name between its delimiters, never a phrase that new prose could
+# begin with or hold: what it takes out of a line is that thing alone.
 KEPT = (
     Kept(
         "a prompt's sentence to the LLM: a model reads it and answers by it",
         re.compile(
-            r"numbered context passages|Cite passages as \[n\]"
-            r"|numbered fixture passages only"
+            r"You answer questions using only the numbered context passages\."
+            r"|Cite passages as \[n\]\. If the context is insufficient, say so\."
+            r"|Answer from the numbered fixture passages only\."
         ),
         frozenset(
             {
@@ -65,8 +90,9 @@ KEPT = (
     Kept(
         "a metadata field's description: it goes into a prompt a model reads",
         re.compile(
-            r"The reference the passage comes from"
-            r"|the handbook topic a passage belongs to"
+            r"(?:description[:=] ?\"?|- source: |topic: )"
+            r"(?:The reference the passage comes from\."
+            r"|the handbook topic a passage belongs to)"
         ),
         frozenset(
             {
@@ -93,7 +119,8 @@ KEPT = (
     Kept(
         "an index's or a collection's name: indexes and snapshots that exist "
         "are found by it",
-        re.compile(r"rag_passages"),
+        # The name where a setting, a path or a command gives it, whole.
+        re.compile(r"(?:(?<=[`/=\-\"])|\b(?:index:?|in|default|Label) )rag_passages\b"),
         frozenset(
             {
                 f"{USE_CASE}workflow.yaml",
@@ -109,7 +136,10 @@ KEPT = (
     Kept(
         "the key of the emulation's snapshot metadata: the cache bucket holds "
         "snapshots written with it",
-        re.compile(r'"passages": '),
+        re.compile(
+            r'"passages": (?:int\(records\)|\{INDEXED_RECORDS\})'
+            r'|its key "passages": the cache bucket'
+        ),
         frozenset(
             {
                 "emulation/machine/index_snapshot.sh",
@@ -118,31 +148,62 @@ KEPT = (
         ),
     ),
     Kept(
-        "the key of the old shape of a response and of an answer record: the "
-        "load-test client reads it as records, with no end date",
-        re.compile(r'(?:``|["`]|\| )passages\b'),
+        OLD_KEY,
+        # The key in a JSON object, a list of keys or a check that it is gone.
+        re.compile(r'"passages"(?:\??: \[|, "records"| in place of| not in answer)'),
         frozenset(
             {
                 "query_processing/src/query_processing/loadtest/answer_record.py",
-                "query_processing/src/query_processing/testing/pinned_answer_record.py",
                 f"{TOOLKIT_TESTS}helpers/answer_record_helpers.py",
                 f"{TOOLKIT_TESTS}loadtest/test_answer_records_compare_alike.py",
                 f"{TOOLKIT_TESTS}loadtest/test_qp_record_answers.py",
                 f"{TOOLKIT_TESTS}testing/test_pinned_answer_record.py",
                 f"{USE_CASE}tests/answer_records/test_pinned_answer_records.py",
-                "README.md",
             }
         ),
     ),
     Kept(
+        OLD_KEY,
+        # A docstring's: the records or the list under the key.
+        re.compile(
+            r"under ``passages``|^\s*``passages``, each with its ``id``", re.MULTILINE
+        ),
+        ANSWER_RECORD_FILES,
+    ),
+    Kept(
+        OLD_KEY,
+        re.compile(r'answer\["passages"\] = None if entries is None'),
+        frozenset({f"{TOOLKIT_TESTS}helpers/answer_record_helpers.py"}),
+    ),
+    Kept(
+        OLD_KEY,
+        # The comparison's report names no field under the old key.
+        re.compile(r'"\| passages\[" not in report'),
+        frozenset({f"{TOOLKIT_TESTS}loadtest/test_answer_records_compare_alike.py"}),
+    ),
+    Kept(
+        OLD_KEY,
+        # The README's two sentences that describe the old form.
+        re.compile(
+            r"^written in an old form: the vector-store records under `passages`, "
+            r"each with$|^response's body and for a record's file alike: "
+            r"`passages` is read as$",
+            re.MULTILINE,
+        ),
+        frozenset({"README.md"}),
+    ),
+    Kept(
         "the calibration setting's old name: start-up refuses it, and the "
         "README tells how to move from it",
-        re.compile(r"calibration_passages", re.IGNORECASE),
+        # The name quoted, as a key or as a variable's last part, whole.
+        re.compile(
+            r"(?:``|[`'\".]|__|got )calibration_passages(?:``|[`'\"=])",
+            re.IGNORECASE,
+        ),
         frozenset(
             {
-                "query_processing/src/query_processing/config/components/"
-                "component_settings.py",
-                f"{TOOLKIT_TESTS}config/components/test_component_settings.py",
+                SETTINGS_MODULE,
+                f"{TOOLKIT_TESTS}config/components/" "test_component_settings.py",
                 "README.md",
             }
         ),
@@ -170,6 +231,16 @@ def lines_with_the_word(name: str, text: str) -> list[str]:
     ]
 
 
+def names_with_the_word(names: list[str]) -> list[str]:
+    """Each of ``names``, a tracked file's path, that holds the word.
+
+    Example::
+
+        names_with_the_word(["a/passages.py", "b.md"])  # ["a/passages.py: its name"]
+    """
+    return [f"{name}: its name" for name in names if WORD.search(name)]
+
+
 def without_the_kept(line: str, kept: list[re.Pattern[str]]) -> str:
     """``line`` with every match of the ``kept`` patterns taken out."""
     for pattern in kept:
@@ -186,7 +257,7 @@ def text_of(name: str) -> str:
 
 def test_the_word_is_left_only_where_a_reason_keeps_it() -> None:
     searched = [n for n in tracked_files() if not n.startswith(tuple(KEPT_FOLDERS))]
-    found = [
+    found = names_with_the_word(searched) + [
         hit for name in searched for hit in lines_with_the_word(name, text_of(name))
     ]
 
@@ -220,3 +291,83 @@ def test_a_kept_pattern_does_not_hide_the_word_beside_it() -> None:
     line = "index rag_passages holds 3 passages"
 
     assert lines_with_the_word("README.md", line) == [f"README.md:1: {line}"]
+
+
+ANSWER_RECORD = "query_processing/src/query_processing/loadtest/answer_record.py"
+COMPARE_ALIKE = f"{TOOLKIT_TESTS}loadtest/test_answer_records_compare_alike.py"
+
+
+@pytest.mark.parametrize(
+    ("name", "line"),
+    [
+        (
+            "README.md",
+            "The rerank stage sends the numbered context passages to the LLM.",
+        ),
+        ("README.md", "Cite passages as [n], then list them."),
+        ("README.md", "`source` is the handbook topic a passage belongs to."),
+        ("README.md", "The rag_passages are then reranked."),
+        ("emulation/machine/index_snapshot.sh", 'summary = {"passages": len(kept)}'),
+        (ANSWER_RECORD, 'body["passages"] = kept'),
+        (ANSWER_RECORD, "Each of the ``passages`` is scored."),
+        ("README.md", "| `rerank` | `top_k` | `10` | passages kept after reranking |"),
+        ("README.md", "| passages per request | 20 |"),
+        ("README.md", "`/query` returns the answer and its `passages`."),
+        ("README.md", 'The response holds "passages", each with an id.'),
+        ("README.md", 'the list is "passages of the handbook"'),
+        ("README.md", "`passages are returned in order`"),
+        ("README.md", "the records under `passages` are scored"),
+        (SETTINGS_MODULE, "calibration_passages: int = 20"),
+    ],
+)
+def test_a_kept_phrase_in_a_new_sentence_is_found(name: str, line: str) -> None:
+    # A kept thing is kept as it is written, not as a phrase that new prose
+    # could begin with or hold.
+    assert lines_with_the_word(name, line) == [f"{name}:1: {line}"]
+
+
+@pytest.mark.parametrize(
+    ("name", "line"),
+    [
+        (f"{USE_CASE}tests/test_workflow_file.py", "rag_passages_kept = 3"),
+        ("README.md", "set `local.calibration_passages_old`"),
+        ("README.md", "index: rag_passages_v2"),
+    ],
+)
+def test_an_identifier_that_starts_with_a_kept_name_is_found(
+    name: str, line: str
+) -> None:
+    assert lines_with_the_word(name, line) == [f"{name}:1: {line}"]
+
+
+def test_a_table_cell_that_begins_with_the_word_is_kept_for_one_test_file() -> None:
+    line = 'assert "| passages[" not in report'
+
+    assert lines_with_the_word(COMPARE_ALIKE, line) == []
+    assert lines_with_the_word(ANSWER_RECORD, line) == [f"{ANSWER_RECORD}:1: {line}"]
+    assert lines_with_the_word("README.md", line) == [f"README.md:1: {line}"]
+
+
+def test_the_readme_keeps_the_old_key_in_its_two_sentences_alone() -> None:
+    old_key = [
+        e.pattern for e in KEPT if e.reason == OLD_KEY and "README.md" in e.files
+    ]
+    kept = [
+        line
+        for line in text_of("README.md").splitlines()
+        if WORD.search(line) and any(pattern.search(line) for pattern in old_key)
+    ]
+
+    assert kept == [
+        "written in an old form: the vector-store records under `passages`, each with",
+        "response's body and for a record's file alike: `passages` is read as",
+    ]
+
+
+def test_a_file_whose_name_holds_the_word_is_found() -> None:
+    names = ["src/domain/retrieval/passages.py", "docs/Passage.md", "README.md"]
+
+    assert names_with_the_word(names) == [
+        "src/domain/retrieval/passages.py: its name",
+        "docs/Passage.md: its name",
+    ]

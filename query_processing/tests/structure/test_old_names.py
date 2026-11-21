@@ -114,6 +114,10 @@ def test_the_readme_has_one_marked_section_that_moves_from_the_old_names() -> No
     assert {"rag_load_test", "rag-serve", "RAG_COMPONENTS__LLM__API__API_KEY"} <= set(
         old_names_in(section)
     )
+    # A filter or a prefilter on the handbook's old key finds nothing, and says
+    # nothing: the section's table gives the key that replaces it.
+    rows = [row for row in section.splitlines() if row.startswith("| the handbook")]
+    assert any("`chunk`" in row and "`sequence`" in row for row in rows), rows
 
 
 def test_the_search_finds_each_kind_of_old_name() -> None:

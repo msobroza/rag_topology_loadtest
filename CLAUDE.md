@@ -7,8 +7,8 @@ rules, and `docs/adr/0003` to `0010` and `0014` for the design.
 - `query_processing_core/`: the core, a distribution of its own (package
   `query_processing_core`, Pydantic and doclang's core) holding what one
   toolkit writes and another reads, today the metadata filter, the
-  conversational history, the body of a request and the vector-store record
-  with its scores. No port, no settings, no I/O; it
+  conversational history, the body of a request and of a response, and the
+  vector-store record with its scores. No port, no settings, no I/O; it
   imports no toolkit and no use case (its `tests/test_core_imports.py`). The
   toolkit depends on it, so every install names its directory before the toolkit's.
 - `query_processing/`: the toolkit, one distribution holding what any use case

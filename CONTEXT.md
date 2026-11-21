@@ -198,7 +198,7 @@ How the emulated Domino's proxy chooses the replica that answers a request: the 
 _Avoid_: load balancer (there is no separate one), routing policy
 
 **Cache bucket**:
-Where the emulation keeps what outlives its machines: the exported models, the index snapshots, the result archives.
+Where the emulation keeps what outlives its machines: the exported models, the index snapshots, the result archives, and the wheel of doclang's core, which a machine copies into the Dataset folder its Apps install from.
 _Avoid_: cache (alone), state bucket (that is Terraform's)
 
 ### Workflow

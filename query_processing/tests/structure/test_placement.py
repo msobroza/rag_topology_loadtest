@@ -97,8 +97,8 @@ def test_every_command_lives_in_a_module_named_after_it() -> None:
 # --- the README's module tree -------------------------------------------------------
 
 
-def readme_tree(readme: str) -> set[str]:
-    """The paths the README's tree lists under ``src/query_processing/``.
+def readme_tree(readme: str, root: str = TREE_ROOT) -> set[str]:
+    """The paths the README's tree lists under ``root``, the product's by default.
 
     A package is listed as ``name/``, a file by its name; each level is indented
     two spaces more than its parent. Lines that name no file or folder (wrapped
@@ -111,7 +111,7 @@ def readme_tree(readme: str) -> set[str]:
     """
     listed: set[str] = set()
     folders: list[str] = []
-    for indent, name in _tree_entries(readme):
+    for indent, name in _tree_entries(readme, root):
         depth = indent // TREE_INDENT
         where = f"README tree: {name!r} is indented {indent} spaces under {folders}"
         assert indent % TREE_INDENT == 0, where
@@ -123,11 +123,11 @@ def readme_tree(readme: str) -> set[str]:
     return listed
 
 
-def _tree_entries(readme: str) -> Iterable[tuple[int, str]]:
+def _tree_entries(readme: str, root: str) -> Iterable[tuple[int, str]]:
     # (indent, name) for each line of the product's tree that names a path, the
     # indent counted from the tree root's own: the root may sit in a folder.
     lines = readme.splitlines()
-    start = _tree_start(lines)
+    start = _tree_start(lines, root)
     base = _indent(lines[start])
     for line in lines[start + 1 :]:
         indent = _indent(line) - base
@@ -138,9 +138,9 @@ def _tree_entries(readme: str) -> Iterable[tuple[int, str]]:
             yield indent, name
 
 
-def _tree_start(lines: list[str]) -> int:
-    starts = [i for i, line in enumerate(lines) if line.split()[:1] == [TREE_ROOT]]
-    assert starts, f"README: no tree starting with a {TREE_ROOT!r} line"
+def _tree_start(lines: list[str], root: str) -> int:
+    starts = [i for i, line in enumerate(lines) if line.split()[:1] == [root]]
+    assert starts, f"README: no tree starting with a {root!r} line"
     return starts[0]
 
 
@@ -148,15 +148,15 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def tree_root_folder(readme: str) -> str:
-    """The folder the README's tree nests ``src/query_processing/`` in, "" for none.
+def tree_root_folder(readme: str, root: str = TREE_ROOT) -> str:
+    """The folder the README's tree nests ``root`` in, "" for none.
 
     Example::
 
         tree_root_folder("```text\\nqp/\\n  src/query_processing/\\n```")   # "qp/"
     """
     lines = readme.splitlines()
-    start = _tree_start(lines)
+    start = _tree_start(lines, root)
     base = _indent(lines[start])
     if base == 0:
         return ""

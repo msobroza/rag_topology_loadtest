@@ -612,15 +612,17 @@ each a directory of its own at its root:
 
 - **The core**, in `query_processing_core/`: what one toolkit writes and
   another reads, today the metadata filter, the conversational history, the
-  body of a request and the vector-store record with its scores. Data only:
+  body of a request and of a response, and the vector-store record with its
+  scores. Data only:
   no port, no settings, no I/O; it imports the standard library, Pydantic and,
   in one module, doclang's core (see [Install](#install)), and no toolkit
   and no use case (its own `tests/test_core_imports.py` checks it). The
   toolkit depends on it, so every install names its directory before the
-  toolkit's. What a client sends sits at the top of its package (the
-  conversational history, the body of a request), the rest in a sub-package
-  named after its area of the glossary (`retrieval/`), and rules 3 and 9 below
-  apply to it.
+  toolkit's. What a client sends and reads sits at the top of its package (the
+  conversational history, the body of a request and of a response), the rest
+  in a sub-package named after its area of the glossary (`retrieval/`), and
+  rules 3 and 9 below, the tree's listing and the code shape apply to it (the
+  toolkit's `tests/structure/test_core_rules.py` measures them on it).
 - **The toolkit**, in `query_processing/`: what any use case can assemble.
   Every path of this section and of the tree below it is relative to that
   directory, except the core's, the use case's and the repository's own
@@ -1091,7 +1093,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
-      answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers
+      answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers; answer_in_the_new_shape, the one mapping from the old shape of a response's body and of a record's file to the new one, read whichever was given
       target_client.py  TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings
       qp_record_answers.py  qp-record-answers: each request of the request pool sent once, its answer recorded
       answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answers' text with a metric on demand
@@ -1121,7 +1123,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
     testing/answer_records/   the pinned answer record of the fixture workflow on fake backends (make -C query_processing pin-answers)
     scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
-    structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9)
+    structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9), measured on the core too (test_core_rules.py)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
     helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the three roots (REPO_ROOT, TOOLKIT_ROOT, CORE_ROOT) shared by several test files (on pytest's path)
@@ -1720,7 +1722,7 @@ QP_LOCAL_MODELS__RUNTIME=torch QP_LOCAL_MODELS__CPUS=4 make serve
 | `retrieve` | `retrieval_mode` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` when the graph is built |
 | `retrieve` | `top_k` | `20` | candidates from the vector store (>= 1) |
 | `retrieve` | `rrf_k` | not written: `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
-| `rerank` | `top_k` | `10` | passages kept after reranking and sent to the LLM (>= 1) |
+| `rerank` | `top_k` | `10` | vector-store records kept after reranking and sent to the LLM (>= 1) |
 | `generate` | `prompt` | `rewrite_as_standalone`, `answer_from_context` | the prompt of `prompts.yaml` it renders; the fields of its `reads` are the prompt's variables, any number of them, and it writes one field, the text, unless it names an output schema |
 | `generate` | `output_schema` | the rewrite's: `standalone_query_with_filter`; not written for `generate` | a registered output schema the LLM answers in; the stage writes each of its fields to the field of `writes` of the same name, and `writes` lists them all ([Structured output](#structured-output)) |
 | `generate` | `metadata_fields_of` | the rewrite's: `vector_store` | a vector store whose declared fields narrow the output schema's conditions, and which the prompt gets as `metadata_field_info` |
@@ -2378,6 +2380,7 @@ any more by the workflow app:
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `QP_COMPONENTS__LLM__API__URL` (the full route), `QP_COMPONENTS__LLM__API__API_KEY` |
 | backends `ovms`, `openai`, `cohere` | backend `served` for a model server of ours (OVMS among them), `api` for an endpoint in an API format |
 | `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `api` block instead; the BM25 tunables have no replacement |
+| the handbook's window index under the metadata key `chunk`, in a vector store's `prefilter` or in a field it declares under `metadata_field_info` | `sequence`, the key `qp-ingest` writes: a condition on `chunk` is not refused (a prefilter's fields are not declared) and finds nothing in a store `qp-ingest` filled, silently; an index ingested before keeps `chunk`, and is ingested again to be filtered on `sequence` |
 | a reranker's `local.calibration_passages` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES`) | `local.calibration_records` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS`); start-up refuses the old name, in the workflow file or as a variable, in one line that gives the new one |
 
 <!-- old-names:end -->
@@ -2594,7 +2597,8 @@ showing the text. The fake LLM answers a valid instance.
 * The store is LangChain's `AsyncElasticsearchStore` over index `rag_passages`,
   created on the first `qp-ingest` with a dense-vector kNN mapping; documents
   hold `text`, `metadata` and the vector, and the `_id` is the vector-store record's id
-  (`<doc id>:<chunk>`), so re-ingesting overwrites in place.
+  (`<doc id>:<sequence>`, the window's index, which the handbook's records also
+  hold under the metadata key `sequence`), so re-ingesting overwrites in place.
 * Auth: basic credentials inside the `elasticsearch.url` of the vector store
   (`https://user:password@host:9200`) or its `elasticsearch.api_key`, from the
   environment only (`QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`). Any Elasticsearch 8 or 9 cluster works; the compose file
@@ -3961,15 +3965,17 @@ Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
 ## Development
 
 ```bash
-make check         # every gate below, in order, stopping at the first failure, then the use case's tests and the charts package's
+make check         # the core's gates and tests, then every gate below, in order, stopping at the first failure, then the use case's tests and the charts package's
 make test          # pytest: fakes + httpx.MockTransport only; no weights, no network, no Elasticsearch
 make format        # ruff --fix + black
 ```
 
 These run from the repository's root, whose `Makefile` hands them to
 `query_processing/`'s, or from `query_processing/` itself, over the toolkit alone
-(`make -C query_processing check`). At the root, `make check` then runs the RAG
-use case's own tests, from `query_processing_rag_usecase/`, linted with ruff and
+(`make -C query_processing check`). At the root, `make check` first runs lint,
+typecheck, complexity and deps over the core (`query_processing_core/`) under the
+toolkit's configuration, then the core's own tests; then the toolkit's gates; then
+the RAG use case's own tests, from `query_processing_rag_usecase/`, linted with ruff and
 black under the toolkit's configuration: its workflow file answers through the
 workflow app's HTTP API, and a dry run of each topology alias of its
 `deploy.example.yaml` publishes the expected Apps on the fake Domino. Last, it
@@ -4036,5 +4042,5 @@ for the fake's own tests. A crowded folder holds one sub-folder per sub-package,
 module or command (`tests/entrypoints/qp_serve/`, rule 9 of
 [Where a file goes](#where-a-file-goes)). The folders are not packages, so a test file's name is
 unique across the tree. What several files share (named fakes, fixtures,
-`REPO_ROOT` and `TOOLKIT_ROOT`) is in `tests/helpers`, on pytest's path and
+`REPO_ROOT`, `TOOLKIT_ROOT` and `CORE_ROOT`) is in `tests/helpers`, on pytest's path and
 imported by plain module name. The Chroma store's tests run a real embedded Chroma in a temporary folder.

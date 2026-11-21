@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "query-processing-core"
 version = "0.1.0"
-description = "What the query processing toolkits exchange: the request body, the metadata filter and the vector-store record."
+description = "What the query processing toolkits exchange: the conversational history, the body of a request and of a response, the metadata filter and the vector-store record."
 requires-python = ">=3.11"  # the version in .python-version, at the repository's root
 license = { text = "Apache-2.0" }
 dependencies = [
