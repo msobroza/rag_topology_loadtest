@@ -89,10 +89,10 @@ class CalibrationReport:
 
 @dataclass(frozen=True)
 class CalibrationSample:
-    """The request every candidate serves: one question and its records' texts."""
+    """The request every candidate serves: one question and the texts it ranks."""
 
     question: str
-    records: tuple[str, ...]
+    texts: tuple[str, ...]
 
 
 def halvings(top: int) -> tuple[int, ...]:
@@ -168,7 +168,7 @@ def calibration_sample(
 
     Example:
         >>> sample = calibration_sample(20)
-        >>> len(sample.records)
+        >>> len(sample.texts)
         20
     """
     if records < 1:

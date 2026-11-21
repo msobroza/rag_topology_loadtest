@@ -379,3 +379,11 @@ def test_rerank_response_for_rejects_an_unscored_record() -> None:
     )
     with pytest.raises(ValueError, match="'0' has no rerank_score"):
         rerank_response_for([unscored])
+
+
+def test_rerank_response_for_refuses_a_record_with_no_id_in_words() -> None:
+    no_id = ScoredVectorStoreRecord(
+        text="alpha", metadata={"topic": "hr"}, retrieval_score=0.0, rerank_score=1.0
+    )
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        rerank_response_for([no_id])

@@ -13,6 +13,8 @@ from collections.abc import Sequence
 
 from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
+from .rag_result import required_record_id
+
 
 def reciprocal_rank_fusion(
     rankings: Sequence[Sequence[ScoredVectorStoreRecord]], *, k: int, top_k: int
@@ -32,6 +34,9 @@ def reciprocal_rank_fusion(
         ``retrieval_score``. Records with equal scores keep the order in which
         the rankings first named them.
 
+    Raises:
+        ValueError: A record holds no id (``required_record_id``).
+
     Example:
         >>> [r.id for r in reciprocal_rank_fusion([[a, b], [b, c]], k=60, top_k=2)]
         ['b', 'a']
@@ -40,8 +45,9 @@ def reciprocal_rank_fusion(
     first_seen: dict[str, ScoredVectorStoreRecord] = {}
     for ranking in rankings:
         for rank, record in enumerate(ranking, start=1):
-            fused[record.id] = fused.get(record.id, 0.0) + 1.0 / (k + rank)
-            first_seen.setdefault(record.id, record)
+            key = required_record_id(record)
+            fused[key] = fused.get(key, 0.0) + 1.0 / (k + rank)
+            first_seen.setdefault(key, record)
     best = sorted(fused, key=lambda record_id: fused[record_id], reverse=True)
     return [
         first_seen[record_id].model_copy(update={"retrieval_score": fused[record_id]})

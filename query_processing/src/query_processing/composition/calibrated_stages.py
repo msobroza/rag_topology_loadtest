@@ -168,7 +168,7 @@ class CalibratedRerankStage(BaseCalibratedStage[CrossEncoderReranker]):
             ScoredVectorStoreRecord(
                 text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
             )
-            for i, text in enumerate(sample.records)
+            for i, text in enumerate(sample.texts)
         ]
 
     async def loaded(self, threads: int) -> CrossEncoderReranker:

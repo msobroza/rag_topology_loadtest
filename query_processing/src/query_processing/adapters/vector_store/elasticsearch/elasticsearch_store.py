@@ -28,6 +28,7 @@ from query_processing_core.retrieval.vector_store_record import (
 )
 
 from ....domain.errors import RagDependencyError
+from ....domain.retrieval.rag_result import required_record_id
 from ..base_vector_store import BaseLexicalSearch, BaseVectorStore, record_as_read
 from .elasticsearch_filter_translator import ElasticsearchFilterTranslator
 
@@ -112,16 +113,21 @@ class ElasticsearchVectorStore(BaseVectorStore, BaseLexicalSearch):
         Args:
             records: The records to store; none is a no-op.
             embeddings: One vector per record, in the same order.
+
+        Raises:
+            ValueError: A record holds no id; no index is created, nothing is
+                stored.
         """
         if not records:
             return
+        ids = [required_record_id(p) for p in records]
         await self._ensure_index(len(embeddings[0]))
         pairs = [(p.text, list(e)) for p, e in zip(records, embeddings, strict=True)]
         await self._call(
             self._store.aadd_embeddings,
             pairs,
             metadatas=[dict(p.metadata) for p in records],
-            ids=[p.id for p in records],
+            ids=ids,
         )
 
     async def query(

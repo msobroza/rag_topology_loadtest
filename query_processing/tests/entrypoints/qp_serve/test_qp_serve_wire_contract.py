@@ -14,8 +14,16 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from doclang_domain.core.adapters.implementations.vector_store import to_vector_store
+from doclang_domain.core.chunking import Chunk, ChunkBlock
+from doclang_domain.core.document.elements.text import Text
+from doclang_domain.core.shared import DocumentHash, DocumentVersionRef, chunk_id_for
 from fastapi.testclient import TestClient
-from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
+from query_processing_core.query_response import QueryResponse
+from query_processing_core.retrieval.vector_store_record import (
+    VectorStoreRecord,
+    from_vector_store,
+)
 
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
@@ -50,8 +58,8 @@ LEAVE = VectorStoreRecord(
     text="Leave is booked a week ahead.", metadata={"topic": "hr", "id": "leave-1"}
 )
 # A record made from a chunk holds it under "chunk", as one JSON text: the
-# toolkit never reads it, so any text stands for it here (the core's tests
-# show that doclang's own chunk comes back from such a text).
+# toolkit never reads it, so any text stands for it here (the last test of
+# this file seeds doclang's own chunk).
 CHUNK_PAYLOAD = '{"id": "doc-leave@v1#chunk-0", "sequence": 0}'
 LEAVE_FROM_A_CHUNK = VectorStoreRecord(
     text="Leave is booked a week ahead.",
@@ -160,3 +168,46 @@ def test_a_record_that_holds_a_chunk_comes_back_with_it_unchanged(
     assert record["metadata"] == LEAVE_FROM_A_CHUNK.metadata
     assert record["metadata"]["chunk"] == CHUNK_PAYLOAD
     assert record["text"] == LEAVE_FROM_A_CHUNK.text
+
+
+def handbook_chunk() -> Chunk:
+    """A chunk doclang built: one page, one block holding one sentence, with ACLs.
+
+    doclang's ingestion is not installed here: the chunk is built from doclang's
+    core, as the core's own test builds one.
+    """
+    version = DocumentVersionRef(
+        document_id="doc-handbook",
+        version_no=1,
+        document_hash=DocumentHash(value="ab12", hash_function="sha256sum"),
+    )
+    text = Text.model_validate(
+        {"id": "text-1", "content": [{"kind": "span", "text": QUESTION}]}
+    )
+    return Chunk(
+        id=chunk_id_for(version, 0),
+        version_ref=version,
+        sequence=0,
+        chunk_count=1,
+        blocks=(ChunkBlock(page_no=1, block_index=0, element=text),),
+        page_count=1,
+        metadata_core={"tenant": "acme", "acl": {"groups": ["hr", "all"]}},
+    )
+
+
+@pytest.mark.parametrize("path", ["/query", "/retrieve"])
+def test_a_chunk_doclang_built_is_rebuilt_from_the_body_a_client_receives(
+    settings_factory: Callable[..., WorkflowSettings], path: str
+) -> None:
+    chunk = handbook_chunk()
+    stored = to_vector_store(chunk)
+
+    body = _records_answered(settings_factory, path, stored)
+
+    [record] = body["records"]
+    assert record["metadata"] == stored.metadata
+    assert from_vector_store(record["metadata"]) == chunk
+    [typed] = QueryResponse.model_validate(body).records
+    assert from_vector_store(typed) == chunk
+    assert record["rerank_score"] is not None
+    assert (body["answer"] is not None) == (path == "/query")

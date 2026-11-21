@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
@@ -34,6 +36,41 @@ async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> No
     assert [(h.id, h.retrieval_score) for h in hits] == [("p1", 1.0), ("p3", 0.6)]
     # Stored whole and read whole: the id, the store's key, is in the metadata.
     assert hits[0].metadata == {"id": "p1", "page": 3, "src": "a.pdf"}
+
+
+async def test_in_memory_store_refuses_a_record_with_no_id_and_writes_none() -> None:
+    store = InMemoryVectorStore()
+    records = [
+        VectorStoreRecord(text="beta", metadata={"id": "p2"}),
+        VectorStoreRecord(text="alpha", metadata={"topic": "hr"}),
+    ]
+
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        await store.upsert(records, [[1.0, 0.0], [0.0, 1.0]])
+
+    assert await store.count() == 0  # not even the record before it
+
+
+# Rows as a store holds them before this process: one ingested before records
+# kept their id in their metadata, one whose metadata's id is not its key.
+ROWS_HELD_BEFORE = [
+    ({"topic": "hr"}, {"topic": "hr", "id": "held-under"}),
+    ({"id": "stale", "topic": "hr"}, {"id": "held-under", "topic": "hr"}),
+]
+
+
+@pytest.mark.parametrize(("stored", "read"), ROWS_HELD_BEFORE)
+async def test_in_memory_a_record_read_has_the_id_its_row_is_held_under(
+    stored: dict[str, Any], read: dict[str, Any]
+) -> None:
+    row = (VectorStoreRecord(text="stale row", metadata=stored), [1.0, 0.0])
+    store = InMemoryVectorStore(rows={"held-under": row})
+
+    [by_vector] = await store.query([1.0, 0.0], top_k=1)
+    [by_words] = await store.lexical_query("stale", top_k=1)
+
+    assert (by_vector.id, by_vector.metadata) == ("held-under", read)
+    assert (by_words.id, by_words.metadata) == ("held-under", read)
 
 
 async def test_in_memory_store_ranks_by_direction_not_length() -> None:

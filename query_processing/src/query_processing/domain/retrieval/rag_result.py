@@ -1,7 +1,9 @@
-"""The outcome of a RAG run, and the keeping of the best-scored records.
+"""The outcome of a RAG run, the keeping of the best-scored records, and their ids.
 
 The records themselves are the core's vector-store records, and the mode and
-the name of the total timing are the core's response body's (ADR 0014).
+the name of the total timing are the core's response body's (ADR 0014). A
+record keeps its id in its metadata, which may hold none: every place that
+needs the id asks ``required_record_id``, which refuses such a record in words.
 
 Nothing heavy is imported here, so the OVMS-only and fake topologies never pay
 for torch or elasticsearch.
@@ -16,6 +18,7 @@ from query_processing_core.query_response import RagMode
 from query_processing_core.retrieval.metadata_filter import MetadataCondition
 from query_processing_core.retrieval.vector_store_record import (
     ScoredVectorStoreRecord,
+    VectorStoreRecord,
 )
 
 
@@ -67,3 +70,33 @@ def top_by_score(
         records[i].model_copy(update={"rerank_score": float(scores[i])})
         for i in ranked[:top_n]
     ]
+
+
+def required_record_id(record: VectorStoreRecord) -> str:
+    """Return a record's id, ``metadata["id"]``, or refuse a record that holds none.
+
+    doclang's record accepts a metadata with no id and reads it only when asked,
+    so a store's write, rank fusion and the rerank route ask here first: a bare
+    ``KeyError: 'id'`` names neither the record nor what it lacks.
+
+    Args:
+        record: A vector-store record, scored or not.
+
+    Returns:
+        Its id, as text.
+
+    Raises:
+        ValueError: Its metadata holds no ``id``; the message quotes the start
+            of its text and the keys its metadata holds.
+
+    Example:
+        >>> required_record_id(VectorStoreRecord(text="t", metadata={"id": "p1"}))
+        'p1'
+    """
+    if "id" in record.metadata:
+        return record.id
+    raise ValueError(
+        f"the vector-store record {record.text[:40]!r} holds no id; expected a "
+        'text id under metadata["id"], but its metadata holds only '
+        f"{sorted(record.metadata)}"
+    )

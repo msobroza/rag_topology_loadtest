@@ -1,11 +1,18 @@
-"""The dependency-free core: ``top_by_score`` and the dependency error."""
+"""The dependency-free core: ``top_by_score``, a record's id and the dependency error."""
 
 from __future__ import annotations
 
-from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+import pytest
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
 from query_processing.domain.errors import RagDependencyError, describe_error
-from query_processing.domain.retrieval.rag_result import top_by_score
+from query_processing.domain.retrieval.rag_result import (
+    required_record_id,
+    top_by_score,
+)
 
 
 def _scored(
@@ -39,3 +46,22 @@ def test_describe_error_names_the_type_and_the_message_when_there_is_one() -> No
     described = describe_error(TimeoutError("read timed out"))
     assert described == "TimeoutError: read timed out"
     assert describe_error(TimeoutError()) == "TimeoutError"
+
+
+def test_a_record_with_an_id_in_its_metadata_gives_it_as_text() -> None:
+    record = VectorStoreRecord(text="t", metadata={"id": "handbook-7", "page": 3})
+    assert required_record_id(record) == "handbook-7"
+
+
+def test_a_record_with_no_id_is_refused_naming_its_text_and_the_shape() -> None:
+    long_text = "Leave is booked a week ahead. " * 10
+    record = VectorStoreRecord(text=long_text, metadata={"topic": "hr"})
+
+    with pytest.raises(ValueError, match="holds no id") as refused:
+        required_record_id(record)
+
+    message = str(refused.value)
+    assert "'Leave is booked a week ahead. Leave is " in message  # its start
+    assert long_text not in message  # not the whole text
+    assert 'a text id under metadata["id"]' in message
+    assert "['topic']" in message  # the keys it holds instead

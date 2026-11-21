@@ -67,6 +67,7 @@ from ..domain.endpoints.standard_formats import (
     OpenAIEmbeddingsRequest,
     OpenAIEmbeddingsResponse,
 )
+from ..domain.retrieval.rag_result import required_record_id
 from ..domain.roles import MODEL_SERVER_COMPONENT_VARIABLE
 from ..infrastructure.http.uvicorn_run import run_uvicorn
 from ..infrastructure.process_environment import restart_with
@@ -347,7 +348,8 @@ def rerank_response_for(
         One result per record, in the given order, ``index`` taken from its id.
 
     Raises:
-        ValueError: If a record has no ``rerank_score``.
+        ValueError: If a record has no ``rerank_score``, or no id
+            (``required_record_id``).
 
     Example:
         >>> rerank_response_for(await reranker.rerank(query, candidates, top_n))
@@ -356,12 +358,13 @@ def rerank_response_for(
 
 
 def _rerank_result(record: ScoredVectorStoreRecord) -> CohereRerankResult:
+    index = required_record_id(record)
     if record.rerank_score is None:
         raise ValueError(
-            f"vector-store record {record.id!r} has no rerank_score; expected a "
+            f"vector-store record {index!r} has no rerank_score; expected a "
             "reranked record from candidates_from_rerank"
         )
-    return CohereRerankResult(index=int(record.id), relevance_score=record.rerank_score)
+    return CohereRerankResult(index=int(index), relevance_score=record.rerank_score)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

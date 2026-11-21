@@ -32,6 +32,19 @@ async def test_es_upsert_passes_text_vector_pairs_metadatas_and_ids() -> None:
     ]
 
 
+async def test_es_refuses_a_record_with_no_id_before_creating_the_index() -> None:
+    fake = FakeLangChainStore(exists=False)
+    records = [
+        VectorStoreRecord(text="beta", metadata={"id": "p2"}),
+        VectorStoreRecord(text="alpha", metadata={"topic": "hr"}),
+    ]
+
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        await plain_store(fake).upsert(records, [[0.1, 0.2], [0.3, 0.4]])
+
+    assert (fake.created, fake.add_calls) == ([], [])
+
+
 # Stored metadata as an index ingested before holds it (no id), and as one
 # whose id is not the document's: a record read has Elasticsearch's _id.
 STORED_METADATA = [

@@ -80,3 +80,12 @@ def test_a_smaller_k_widens_the_gap_between_ranks() -> None:
         return first.retrieval_score - second.retrieval_score
 
     assert gap(1) > gap(60)
+
+
+def test_a_record_with_no_id_is_refused_in_words_not_by_a_key_error() -> None:
+    no_id = ScoredVectorStoreRecord(
+        text="alpha", metadata={"topic": "hr"}, retrieval_score=0.5
+    )
+
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        reciprocal_rank_fusion([[hit("a")], [no_id]], k=60, top_k=2)

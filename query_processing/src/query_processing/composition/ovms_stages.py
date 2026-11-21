@@ -303,7 +303,7 @@ class OvmsRerankStage(BaseOvmsStage[RerankerSettings, ApiReranker]):
             ScoredVectorStoreRecord(
                 text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
             )
-            for i, text in enumerate(sample.records)
+            for i, text in enumerate(sample.texts)
         ]
         return sample.question, records
 

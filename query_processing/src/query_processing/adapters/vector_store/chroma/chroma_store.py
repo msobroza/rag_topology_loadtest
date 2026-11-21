@@ -27,6 +27,7 @@ from query_processing_core.retrieval.vector_store_record import (
 )
 
 from ....domain.errors import RagDependencyError
+from ....domain.retrieval.rag_result import required_record_id
 from ..base_vector_store import BaseVectorStore, record_as_read
 from .chroma_filter_translator import ChromaFilterTranslator
 
@@ -88,10 +89,13 @@ class ChromaVectorStore(BaseVectorStore):
         Args:
             records: The records to store; none is a no-op.
             embeddings: One vector per record, in the same order.
+
+        Raises:
+            ValueError: A record holds no id; nothing is stored.
         """
         if not records:
             return
-        ids = [p.id for p in records]
+        ids = [required_record_id(p) for p in records]
         vectors = [list(e) for _, e in zip(records, embeddings, strict=True)]
 
         def replace() -> None:

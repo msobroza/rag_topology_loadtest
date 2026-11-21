@@ -99,5 +99,8 @@ def test_main_chunks_a_corpus_file(
 def test_main_refuses_the_fake_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QP_COMPONENTS__VECTOR_STORE__BACKEND", "fake")
 
-    with pytest.raises(SystemExit, match="seeded when the app starts"):
+    with pytest.raises(SystemExit, match="seeded when the app starts") as refused:
         main(["--synthetic", "1"])
+
+    # Chroma keeps what it stores too: the refusal names no one backend.
+    assert "a backend that keeps what it stores, any but 'fake'" in str(refused.value)

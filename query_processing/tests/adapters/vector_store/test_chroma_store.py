@@ -133,6 +133,18 @@ async def test_chroma_stores_a_records_metadata_as_it_is_the_id_with_it(
     assert row["metadatas"] == [{"id": "p1", "topic": "hr"}]
 
 
+async def test_chroma_refuses_a_record_with_no_id_and_writes_none(
+    tmp_path: Path,
+) -> None:
+    store = await open_store(tmp_path)
+    no_id = VectorStoreRecord(text="alpha", metadata={"topic": "hr"})
+
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        await store.upsert([RECORDS[0], no_id], VECTORS[:2])
+
+    assert await store.count() == 0  # not even the record before it
+
+
 def cond(
     attribute: str, comparator: Comparator, value: MetadataValue | list[MetadataValue]
 ) -> MetadataCondition:

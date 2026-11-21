@@ -223,7 +223,7 @@ async def test_the_rerank_sample_is_one_question_and_its_calibration_records(
 
     sample = calibration_sample(12)
     [pairs] = model.pairs
-    assert pairs == [(sample.question, text) for text in sample.records]
+    assert pairs == [(sample.question, text) for text in sample.texts]
 
 
 # --- embed ---------------------------------------------------------------------------

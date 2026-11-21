@@ -67,24 +67,24 @@ def test_the_sample_is_deterministic() -> None:
 
 
 @pytest.mark.parametrize("records", [1, 2, 20, 50])
-def test_the_sample_has_the_records_asked(records: int) -> None:
+def test_the_sample_has_the_texts_asked(records: int) -> None:
     sample = calibration_sample(records)
 
-    assert len(sample.records) == records
+    assert len(sample.texts) == records
     assert sample.question.endswith("?")
 
 
-def test_the_sample_records_spread_from_short_to_long() -> None:
-    lengths = sorted(len(p) for p in calibration_sample(20).records)
+def test_the_sample_texts_spread_from_short_to_long() -> None:
+    lengths = sorted(len(text) for text in calibration_sample(20).texts)
 
     assert 100 <= lengths[0] <= 200
     assert 700 <= lengths[-1] <= 800
     assert len(set(lengths)) == 20  # spread, not a few sizes repeated
 
 
-def test_the_sample_records_are_not_in_length_order() -> None:
+def test_the_sample_texts_are_not_in_length_order() -> None:
     # Retrieval returns candidates in score order, not length order.
-    lengths = [len(p) for p in calibration_sample(20).records]
+    lengths = [len(text) for text in calibration_sample(20).texts]
 
     assert lengths not in (sorted(lengths), sorted(lengths, reverse=True))
 

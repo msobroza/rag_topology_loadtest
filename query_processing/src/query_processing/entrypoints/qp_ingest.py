@@ -109,7 +109,8 @@ def _configured_composition(
         backend = WorkflowSettings.variable_of("components", store, "backend")
         raise SystemExit(
             f"qp-ingest: {backend}='fake' is seeded when the app starts and "
-            "keeps nothing between processes; ingest needs 'elasticsearch'"
+            "keeps nothing between processes; ingest needs a backend that keeps "
+            "what it stores, any but 'fake'"
         )
     return CompositionRoot(settings)
 
