@@ -13,7 +13,7 @@ from local_model_fakes import (
     RUNTIME_LOADS,
     FakeLoadingModule,
     RecordingScope,
-    scored_passages,
+    scored_records,
 )
 from query_processing.adapters.reranker.local.cross_encoder_reranker import (
     CrossEncoderReranker,
@@ -54,7 +54,7 @@ async def test_cross_encoder_orders_by_score_and_truncates(
     reranker = CrossEncoderReranker(
         model, executor, model_name="fake-ce", batch_size=4, scope=scope
     )
-    ranked = await reranker.rerank("q", scored_passages("a", "b", "c"), top_n=2)
+    ranked = await reranker.rerank("q", scored_records("a", "b", "c"), top_n=2)
     assert [t.startswith("rag-model") for t in scope.ran_on] == [True]
     assert [p.id for p in ranked] == ["b", "c"]
     assert [p.rerank_score for p in ranked] == [0.75, 0.5]
@@ -104,7 +104,7 @@ async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
     )
 
     rebatched = reranker.with_batch_size(2)
-    await rebatched.rerank("q", scored_passages("a", "b"), top_n=1)
+    await rebatched.rerank("q", scored_records("a", "b"), top_n=1)
 
     assert type(rebatched) is CrossEncoderReranker
     assert rebatched is not reranker
@@ -112,5 +112,5 @@ async def test_with_batch_size_shares_the_model_and_changes_only_the_batch(
     assert rebatched.scope is scope
     assert await rebatched.ready() == (True, "fake-ce")
     assert [t.startswith("rag-model") for t in scope.ran_on] == [True]  # its pool
-    await reranker.rerank("q", scored_passages("a"), top_n=1)
+    await reranker.rerank("q", scored_records("a"), top_n=1)
     assert [call["batch_size"] for call in model.calls] == [2, 20]  # unchanged

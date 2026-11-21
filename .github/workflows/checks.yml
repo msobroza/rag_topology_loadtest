@@ -1,5 +1,6 @@
-# The same gates as `make check` locally: lint, typecheck, complexity, deadcode,
-# deps and test over the toolkit in query_processing/, then the RAG use case's
+# The same gates as `make check` locally: lint, typecheck, complexity, deps and
+# test over the core in query_processing_core/, then lint, typecheck, complexity,
+# deadcode, deps and test over the toolkit in query_processing/, then the RAG use case's
 # gates and tests in query_processing_rag_usecase/, then the charts package's in
 # experiment_charts/, stopping at the first failure. They run
 # inside the image query_processing/domino/Dockerfile builds from (Domino's
@@ -42,6 +43,29 @@ jobs:
       AS_UBUNTU: runuser -u ubuntu -- env HOME=/home/ubuntu
     steps:
       - uses: actions/checkout@v4
+      # doclang's core (doclang-domain-core), which the core depends on, is
+      # private and on no index: the tip of document_doclang's default branch is
+      # cloned with a read-only deploy key, the secret DOCLANG_DEPLOY_KEY, which
+      # the owner creates. The clone sits beside the checkout, where the root
+      # Makefile looks for it too, and never inside it: a test reads this
+      # repository's untracked files. A pull request from a fork gets no secret:
+      # the step then stops in one line, before any ssh. GitHub's host key is
+      # pinned here (its published ed25519 key), not accepted on first use, and
+      # the key's file goes when the step ends, failed or not.
+      - name: Clone document_doclang beside the checkout
+        env:
+          DOCLANG_DEPLOY_KEY: ${{ secrets.DOCLANG_DEPLOY_KEY }}
+          GITHUB_HOST_KEY: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        run: |
+          test -n "$DOCLANG_DEPLOY_KEY" || { echo "the secret DOCLANG_DEPLOY_KEY is missing, so document_doclang cannot be cloned: a pull request from a fork gets no secret of this repository" >&2; exit 1; }
+          key=$(mktemp)
+          known_hosts=$(mktemp)
+          trap 'rm -f "$key" "$known_hosts"' EXIT
+          printf '%s\n' "$DOCLANG_DEPLOY_KEY" > "$key"
+          printf '%s\n' "$GITHUB_HOST_KEY" > "$known_hosts"
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
+            git clone --depth 1 git@github.com:msobroza/document_doclang.git ../document_doclang
+          chown -R ubuntu ../document_doclang
       - run: python -m pip install --quiet uv && chown -R ubuntu .
       # A virtualenv of its own, the repository's one at its root: the image's
       # packages (an old urllib3) break locust. uv reads the Python version from
@@ -49,10 +73,13 @@ jobs:
       - run: $AS_UBUNTU uv venv
       # CPU-only torch first, so sentence-transformers does not pull the CUDA wheels.
       - run: $AS_UBUNTU uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-      # The toolkit and the use case in one command, the toolkit first: no package
-      # index has the toolkit the use case depends on. The charts package with
-      # them, as make install-dev does: its tests need its matplotlib.
-      - run: $AS_UBUNTU uv pip install -e "./query_processing[dev]" -e ./query_processing_rag_usecase -e ./experiment_charts
-      # The root Makefile uses the .venv beside it, hands check to the toolkit's,
-      # then runs the use case's gates and tests, then the charts package's.
+      # doclang's core from its clone, the core, the toolkit and the use case in
+      # one command, in that order: no package index has doclang's core the core
+      # depends on, the core the toolkit depends on, nor the toolkit the use case
+      # depends on. The charts package with them, as make install-dev does: its
+      # tests need its matplotlib.
+      - run: $AS_UBUNTU uv pip install -e ../document_doclang/packages/core -e ./query_processing_core -e "./query_processing[dev]" -e ./query_processing_rag_usecase -e ./experiment_charts
+      # The root Makefile uses the .venv beside it, runs the core's gates and
+      # tests, hands check to the toolkit's, then runs the use case's gates and
+      # tests, then the charts package's.
       - run: $AS_UBUNTU make check

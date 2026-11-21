@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.embedder.base_embedder import BaseEmbedder
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -31,7 +32,6 @@ from query_processing.domain.components.component_requests import (
     RerankRequest,
     SearchRequest,
 )
-from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import (
     CapRecordingLLM,
     DenseOnlyStore,
@@ -64,8 +64,8 @@ def test_a_port_subclass_missing_a_method_cannot_be_instantiated() -> None:
         """Implements ``rerank`` but forgets ``ready``."""
 
         async def rerank(
-            self, query: str, passages: Sequence[ScoredPassage], top_n: int
-        ) -> list[ScoredPassage]:
+            self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
+        ) -> list[ScoredVectorStoreRecord]:
             return []
 
     with pytest.raises(TypeError, match=r"HalfReranker.*ready"):
@@ -96,9 +96,9 @@ async def test_each_port_answers_ainvoke_from_its_own_method() -> None:
 
     assert (await embedder.ainvoke(EmbedRequest(text="q"))).embedding == [1.0, 0.0]
     assert embedder.queries == ["q"]
-    passages = [scored("a"), scored("b")]
-    kept = await reranker.ainvoke(RerankRequest(query="q", passages=passages, top_k=1))
-    assert [p.id for p in kept.passages] == ["a"]
+    records = [scored("a"), scored("b")]
+    kept = await reranker.ainvoke(RerankRequest(query="q", records=records, top_k=1))
+    assert [p.id for p in kept.records] == ["a"]
     assert reranker.calls == [("q", 2, 1)]
     request = GenerateRequest(messages=[{"role": "user", "content": "hi"}])
     assert (await FakeLLM().ainvoke(request)).text == "[fake-llm] hi"
@@ -163,7 +163,7 @@ async def test_the_vector_store_searches_by_its_retrieval_mode(
         )
     )
 
-    assert [p.id for p in answer.passages] == expected
+    assert [p.id for p in answer.records] == expected
     assert store.calls == calls
 
 

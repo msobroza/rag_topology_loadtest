@@ -7,6 +7,10 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+)
 
 from output_schema_fakes import FIXTURE_SCHEMA, FixtureRewrite, ScriptedLLM
 from query_processing.adapters.llm.base_llm import BaseLLM
@@ -23,10 +27,6 @@ from query_processing.application.stages.generate_stage import (
 )
 from query_processing.domain.errors import RagDependencyError
 from query_processing.domain.prompts import PromptMessage
-from query_processing.domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-)
 
 # A schema of conditions names the store whose declared fields limit them.
 REWRITE = GenerateSettings(

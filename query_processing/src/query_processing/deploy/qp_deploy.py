@@ -150,7 +150,15 @@ def _run_command(
         # Run from the use case's directory: the Apps run the role's command there.
         launch = launch_paths(os.getcwd())
         ids = DominoIdsNotAsked() if args.dry_run else None  # a dry run asks nothing
-        deploy(client, settings, args.target, launch=launch, sleep=sleep, ids=ids)
+        deploy(
+            client,
+            settings,
+            args.target,
+            launch=launch,
+            sleep=sleep,
+            ids=ids,
+            look_for_wheels=not args.dry_run,  # a dry run may run off Domino
+        )
     if args.command == "status":
         print_status(client, settings)
     if args.command == "url":

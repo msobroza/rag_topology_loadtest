@@ -12,7 +12,9 @@
 # virtualenv of its own, as vLLM pins transformers and torch apart from the
 # project's. That wheel needs glibc 2.39 (Ubuntu 24.04): neither image of
 # domino/Dockerfile can install it. Intel OpenMP is preloaded when the
-# virtualenv holds it, as vLLM's CPU page asks for an install from wheels.
+# virtualenv holds it, as vLLM's CPU page asks for an install from wheels. When
+# serving will install the toolkit (below), the wheel of doclang's core is looked
+# for before anything else is installed.
 #
 # The App then exports the CPU variables `qp-vllm-config --environment` prints
 # (QP_VLLM_CPU_OMP_THREADS_BIND, QP_VLLM_CPU_RESERVED_CPUS) and runs
@@ -29,6 +31,11 @@ VLLM_SOURCES="use an environment with glibc 2.39 or later (Ubuntu 24.04) and uv,
 # bootstrap_model_server: the toolkit's vllm dependency group alone, into
 # $HOME/vllm-venv, unless the environment has the vllm command.
 bootstrap_model_server() {
+  # Without qp-vllm-config the toolkit is installed at serve time: its wheel is
+  # looked for first, before vLLM is installed.
+  if ! command -v qp-vllm-config >/dev/null 2>&1 && command -v uv >/dev/null 2>&1; then
+    require_doclang_wheel
+  fi
   if command -v vllm >/dev/null 2>&1; then return; fi
   command -v uv >/dev/null 2>&1 \
     || die "'vllm' is not on PATH and 'uv' is not there to install it; $VLLM_SOURCES"

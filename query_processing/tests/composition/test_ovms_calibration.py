@@ -249,7 +249,7 @@ async def test_on_demand_searches_both_even_when_pinned_and_cleans_up(
     assert calibration.cpus == 2.0
     assert (calibration.report.stage, calibration.report.requests) == ("rerank", 4)
     reranker = settings.components["reranker"]
-    assert chosen.batch_size == reranker.local.calibration_passages
+    assert chosen.batch_size == reranker.local.calibration_records
     served_from = Path(str(starts[0]["argv"][-1]))  # type: ignore[index]
     assert not served_from.exists()  # the temporary serving folder is gone
 

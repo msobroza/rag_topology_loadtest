@@ -2,38 +2,84 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
 
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
     InMemoryVectorStore,
     distinct_words,
 )
 from query_processing.domain.components.component_requests import SearchRequest
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
-from query_processing.domain.retrieval.passages import Passage
 from query_processing.domain.retrieval.retrieval_mode import RetrievalMode
 
 
 async def test_in_memory_store_upserts_idempotently_and_queries_in_order() -> None:
     store = InMemoryVectorStore()
-    doc = Passage(id="p1", text="one", metadata={"page": 3, "src": "a.pdf"})
+    doc = VectorStoreRecord(
+        text="one", metadata={"id": "p1", "page": 3, "src": "a.pdf"}
+    )
     await store.upsert([doc], [[1.0, 0.0]])
     await store.upsert([doc], [[1.0, 0.0]])  # same id twice -> one row
     await store.upsert(
-        [Passage(id="p2", text="two"), Passage(id="p3", text="three")],
+        [
+            VectorStoreRecord(text="two", metadata={"id": "p2"}),
+            VectorStoreRecord(text="three", metadata={"id": "p3"}),
+        ],
         [[0.0, 1.0], [0.6, 0.8]],
     )
 
     assert await store.count() == 3
     hits = await store.query([1.0, 0.0], top_k=2)
     assert [(h.id, h.retrieval_score) for h in hits] == [("p1", 1.0), ("p3", 0.6)]
-    assert hits[0].metadata == {"page": 3, "src": "a.pdf"}
+    # Stored whole and read whole: the id, the store's key, is in the metadata.
+    assert hits[0].metadata == {"id": "p1", "page": 3, "src": "a.pdf"}
+
+
+async def test_in_memory_store_refuses_a_record_with_no_id_and_writes_none() -> None:
+    store = InMemoryVectorStore()
+    records = [
+        VectorStoreRecord(text="beta", metadata={"id": "p2"}),
+        VectorStoreRecord(text="alpha", metadata={"topic": "hr"}),
+    ]
+
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        await store.upsert(records, [[1.0, 0.0], [0.0, 1.0]])
+
+    assert await store.count() == 0  # not even the record before it
+
+
+# Rows as a store holds them before this process: one ingested before records
+# kept their id in their metadata, one whose metadata's id is not its key.
+ROWS_HELD_BEFORE = [
+    ({"topic": "hr"}, {"topic": "hr", "id": "held-under"}),
+    ({"id": "stale", "topic": "hr"}, {"id": "held-under", "topic": "hr"}),
+]
+
+
+@pytest.mark.parametrize(("stored", "read"), ROWS_HELD_BEFORE)
+async def test_in_memory_a_record_read_has_the_id_its_row_is_held_under(
+    stored: dict[str, Any], read: dict[str, Any]
+) -> None:
+    row = (VectorStoreRecord(text="stale row", metadata=stored), [1.0, 0.0])
+    store = InMemoryVectorStore(rows={"held-under": row})
+
+    [by_vector] = await store.query([1.0, 0.0], top_k=1)
+    [by_words] = await store.lexical_query("stale", top_k=1)
+
+    assert (by_vector.id, by_vector.metadata) == ("held-under", read)
+    assert (by_words.id, by_words.metadata) == ("held-under", read)
 
 
 async def test_in_memory_store_ranks_by_direction_not_length() -> None:
     store = InMemoryVectorStore()
     await store.upsert(
-        [Passage(id="long-off", text="a"), Passage(id="short-on", text="b")],
+        [
+            VectorStoreRecord(text="a", metadata={"id": "long-off"}),
+            VectorStoreRecord(text="b", metadata={"id": "short-on"}),
+        ],
         [[10.0, 10.0], [0.3, 0.0]],
     )
 
@@ -44,13 +90,17 @@ async def test_in_memory_store_ranks_by_direction_not_length() -> None:
     assert hits[1].retrieval_score == pytest.approx(2**-0.5)
 
 
-async def test_in_memory_store_finds_passages_by_their_words() -> None:
+async def test_in_memory_store_finds_records_by_their_words() -> None:
     store = InMemoryVectorStore()
-    passages = [
-        Passage(id="vacation", text="Employees accrue vacation days monthly"),
-        Passage(id="expenses", text="Expense receipts are required"),
+    records = [
+        VectorStoreRecord(
+            text="Employees accrue vacation days monthly", metadata={"id": "vacation"}
+        ),
+        VectorStoreRecord(
+            text="Expense receipts are required", metadata={"id": "expenses"}
+        ),
     ]
-    await store.upsert(passages, [[1.0, 0.0], [0.0, 1.0]])
+    await store.upsert(records, [[1.0, 0.0], [0.0, 1.0]])
 
     hits = await store.lexical_query("vacation days", top_k=5)
 
@@ -68,8 +118,11 @@ async def test_in_memory_store_ranks_by_shared_words_ties_in_insertion_order() -
         "three": "VACATION days policy",
         "two-second": "days of vacation",
     }
-    passages = [Passage(id=pid, text=text) for pid, text in texts.items()]
-    await store.upsert(passages, [[1.0, 0.0]] * len(passages))
+    records = [
+        VectorStoreRecord(text=text, metadata={"id": pid})
+        for pid, text in texts.items()
+    ]
+    await store.upsert(records, [[1.0, 0.0]] * len(records))
 
     hits = await store.lexical_query("vacation vacation days policy", top_k=10)
 
@@ -85,10 +138,14 @@ async def test_in_memory_store_ranks_by_shared_words_ties_in_insertion_order() -
     ]
 
 
-async def test_in_memory_store_reindexes_the_words_of_an_overwritten_passage() -> None:
+async def test_in_memory_store_reindexes_the_words_of_an_overwritten_record() -> None:
     store = InMemoryVectorStore()
-    await store.upsert([Passage(id="p", text="vacation days")], [[1.0, 0.0]])
-    await store.upsert([Passage(id="p", text="expense receipts")], [[1.0, 0.0]])
+    await store.upsert(
+        [VectorStoreRecord(text="vacation days", metadata={"id": "p"})], [[1.0, 0.0]]
+    )
+    await store.upsert(
+        [VectorStoreRecord(text="expense receipts", metadata={"id": "p"})], [[1.0, 0.0]]
+    )
 
     assert await store.lexical_query("vacation", top_k=5) == []
     assert [hit.id for hit in await store.lexical_query("expense", top_k=5)] == ["p"]
@@ -99,18 +156,24 @@ def test_distinct_words_lower_cases_and_drops_repeats_and_punctuation() -> None:
     assert distinct_words("  ...  ") == set()
 
 
-async def test_in_memory_store_is_ready_once_it_holds_a_passage() -> None:
+async def test_in_memory_store_is_ready_once_it_holds_a_record() -> None:
     store = InMemoryVectorStore()
-    assert await store.ready() == (False, "0 passages in memory")
+    assert await store.ready() == (False, "0 records in memory")
 
-    await store.upsert([Passage(id="p1", text="one")], [[1.0, 0.0]])
-    assert await store.ready() == (True, "1 passages in memory")
+    await store.upsert(
+        [VectorStoreRecord(text="one", metadata={"id": "p1"})], [[1.0, 0.0]]
+    )
+    assert await store.ready() == (True, "1 records in memory")
 
 
 async def test_in_memory_store_rejects_mismatched_lengths() -> None:
     with pytest.raises(ValueError, match="shorter"):  # zip(strict=True)
         await InMemoryVectorStore().upsert(
-            [Passage(id="a", text="a"), Passage(id="b", text="b")], [[1.0]]
+            [
+                VectorStoreRecord(text="a", metadata={"id": "a"}),
+                VectorStoreRecord(text="b", metadata={"id": "b"}),
+            ],
+            [[1.0]],
         )
 
 
@@ -118,18 +181,21 @@ TOPICS = {"pay-1": "pay", "leave-1": "leave", "pay-2": "pay", "untagged": None}
 
 
 async def store_with_topics() -> InMemoryVectorStore:
-    """A store of four passages on vacation pay, three of them with a topic."""
+    """A store of four records on vacation pay, three of them with a topic."""
     store = InMemoryVectorStore()
-    passages = [
-        Passage(id=pid, text="vacation pay", metadata={"topic": topic} if topic else {})
+    records = [
+        VectorStoreRecord(
+            text="vacation pay",
+            metadata={"id": pid, **({"topic": topic} if topic else {})},
+        )
         for pid, topic in TOPICS.items()
     ]
-    await store.upsert(passages, [[1.0, 0.0]] * len(passages))
+    await store.upsert(records, [[1.0, 0.0]] * len(records))
     return store
 
 
 @pytest.mark.parametrize("retrieval_mode", ["dense", "lexical", "hybrid"])
-async def test_a_search_returns_only_the_passages_that_meet_every_condition(
+async def test_a_search_returns_only_the_records_that_meet_every_condition(
     retrieval_mode: RetrievalMode,
 ) -> None:
     store = await store_with_topics()
@@ -147,7 +213,7 @@ async def test_a_search_returns_only_the_passages_that_meet_every_condition(
         )
     )
 
-    assert sorted(p.id for p in answer.passages) == ["pay-1", "pay-2"]
+    assert sorted(p.id for p in answer.records) == ["pay-1", "pay-2"]
 
 
 async def test_the_filter_applies_before_top_k() -> None:
@@ -167,7 +233,7 @@ async def test_a_search_without_conditions_filters_nothing() -> None:
         SearchRequest(embedding=[1.0, 0.0], top_k=5, retrieval_mode="dense")
     )
 
-    assert len(answer.passages) == len(TOPICS)
+    assert len(answer.records) == len(TOPICS)
 
 
 def cond(attribute: str, comparator: str, value: object) -> MetadataCondition:
@@ -181,13 +247,15 @@ SOURCES = {"amf-on": ("AMF", True), "amf-off": ("AMF", False), "gaa-on": ("GAA",
 
 
 async def store_of_sources() -> InMemoryVectorStore:
-    """A store of three passages, by source and by whether they are active."""
+    """A store of three records, by source and by whether they are active."""
     store = InMemoryVectorStore()
-    passages = [
-        Passage(id=pid, text="vacation", metadata={"source": src, "active": on})
+    records = [
+        VectorStoreRecord(
+            text="vacation", metadata={"id": pid, "source": src, "active": on}
+        )
         for pid, (src, on) in SOURCES.items()
     ]
-    await store.upsert(passages, [[1.0, 0.0]] * len(passages))
+    await store.upsert(records, [[1.0, 0.0]] * len(records))
     return store
 
 
@@ -209,7 +277,7 @@ async def test_the_prefilter_and_the_requests_conditions_must_all_hold(
         )
     )
 
-    assert [p.id for p in answer.passages] == ["amf-on"]
+    assert [p.id for p in answer.records] == ["amf-on"]
 
 
 async def test_the_prefilter_applies_to_a_search_without_conditions() -> None:
@@ -220,7 +288,7 @@ async def test_the_prefilter_applies_to_a_search_without_conditions() -> None:
         SearchRequest(embedding=[1.0, 0.0], top_k=5, retrieval_mode="dense")
     )
 
-    assert sorted(p.id for p in answer.passages) == ["amf-on", "gaa-on"]
+    assert sorted(p.id for p in answer.records) == ["amf-on", "gaa-on"]
 
 
 def test_a_store_states_no_prefilter_by_default() -> None:

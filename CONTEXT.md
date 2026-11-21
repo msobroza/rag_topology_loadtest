@@ -1,14 +1,22 @@
 # query_processing
 
-A toolkit and its use cases. A use case declares its workflow and where its components run in two files; the toolkit serves the workflow, deploys it on Domino in the topology chosen, and drives it with a Locust suite so that topologies can be compared. They are two distributions: the toolkit, `query_processing`, holds what any use case can assemble, and each use case holds its settings and the implementations that are its own. The RAG is the first use case.
+A toolkit and its use cases. A use case declares its workflow and where its components run in two files; the toolkit serves the workflow, deploys it on Domino in the topology chosen, and drives it with a Locust suite so that topologies can be compared. They are three distributions: the core, `query_processing_core`, holds what one toolkit writes and another reads; the toolkit, `query_processing`, holds what any use case can assemble; and each use case holds its settings and the implementations that are its own. The RAG is the first use case.
 
 ## Language
 
 ### Packages
 
 **Toolkit**:
-What every use case is built from: the stage types, the components and their backends, the deploy tool and the load-test client. Its package is `query_processing`.
+One distribution of what any use case can assemble for one activity. Query processing's, `query_processing`, is the one that exists, and "the toolkit" said alone means it: the stage types, the components and their backends, the deploy tool and the load-test client. One for ingestion and one for evalops are planned.
 _Avoid_: framework, library, platform
+
+**Core**:
+What one toolkit writes and another reads: the vector-store record, the metadata filter, and the request and the response of a workflow. A distribution of its own, `query_processing_core`, which every toolkit installs and which installs none.
+_Avoid_: shared, common, kernel, and "domain" for it (a toolkit's domain is its own language)
+
+**Evalops**:
+Judging a workflow's answers: sending a set of questions to a target, scoring what was retrieved and what was answered, and comparing runs. The toolkit planned for it reads a target over HTTP only.
+_Avoid_: evaluation for a load test (that times a target), benchmark
 
 **Use case**:
 One application of the toolkit, in a package of its own that installs it: the settings of its workflow, components and topologies, and the implementations, trained models and data that are its own. RAG is the first, in `query_processing_rag_usecase`.
@@ -166,7 +174,7 @@ A folder of files Domino shares with the Apps and Workspaces of a project; the e
 _Avoid_: volume, shared drive, bucket
 
 **Log directory**:
-The folder of a Dataset where each App keeps what it prints, in files: a subfolder for each App, and no file older than the retention, a number of days. It holds no message, passage or answer.
+The folder of a Dataset where each App keeps what it prints, in files: a subfolder for each App, and no file older than the retention, a number of days. It holds no message, vector-store record or answer.
 _Avoid_: logging service (no process of its own gathers the logs), audit trail, log store
 
 **Project environment variable**:
@@ -206,7 +214,7 @@ How the emulated Domino's proxy chooses the replica that answers a request: the 
 _Avoid_: load balancer (there is no separate one), routing policy
 
 **Cache bucket**:
-Where the emulation keeps what outlives its machines: the exported models, the index snapshots, the result archives.
+Where the emulation keeps what outlives its machines: the exported models, the index snapshots, the result archives, and the wheel of doclang's core, which a machine copies into the Dataset folder its Apps install from.
 _Avoid_: cache (alone), state bucket (that is Terraform's)
 
 ### Workflow
@@ -256,7 +264,7 @@ The workflow a use case's clients call. Every other workflow of the use case is 
 _Avoid_: principal workflow, primary workflow, parent workflow (a sub-workflow can call another)
 
 **Sub-workflow**:
-A workflow that a stage of another workflow calls, as a client calls a workflow app: a message, the conversational history and a metadata filter in, an answer and its passages out. The graph names it: no LLM chooses it. It is a component: it runs in its caller's process or behind a workflow app of its own. The workflows of a use case share its components.
+A workflow that a stage of another workflow calls, as a client calls a workflow app: a message, the conversational history and a metadata filter in, an answer and its vector-store records out. The graph names it: no LLM chooses it. It is a component: it runs in its caller's process or behind a workflow app of its own. The workflows of a use case share its components.
 _Avoid_: subagent, agent (Domino's word for an App with tracing), subgraph, child workflow, tool
 
 **Router**:
@@ -275,16 +283,24 @@ _Avoid_: decision, prediction
 A message that exemplifies a route. A router learns its routes from their utterances.
 _Avoid_: example, sample, training query
 
+**Vector-store record**:
+What a vector store keeps and a search returns: a text and a flat map of metadata, its id among them. A search returns it with a retrieval score, and a reranker adds a rerank score. One made from a chunk holds the whole chunk in its metadata; one made from plain text holds none, and the workflow handles both.
+_Avoid_: passage, record (alone: an answer record and a target record are other things), document, hit
+
+**Chunk**:
+A contiguous run of blocks of one version of a document, which ingestion builds. The workflow handles the vector-store record made from it, never the chunk itself.
+_Avoid_: passage, and "chunk" for a vector-store record
+
 **Metadata filter**:
-The conditions a passage's metadata must meet for it to be retrieved. Each names one metadata field, and all must hold; the client can send some with a message, and a stage can add more.
+The conditions a vector-store record's metadata must meet for it to be retrieved. Each names one metadata field, and all must hold; the client can send some with a message, and a stage can add more.
 _Avoid_: filters (alone), where clause, facet
 
 **Prefilter**:
-The conditions a vector store adds to every search, before a request's own: which passages a workflow can read at all. Neither a client nor the LLM can name its fields.
+The conditions a vector store adds to every search, before a request's own: which vector-store records a workflow can read at all. Neither a client nor the LLM can name its fields.
 _Avoid_: default filter, base filter, and "prefilter" for a request's own conditions (those are its metadata filter)
 
 **Ingestion pipeline version**:
-Which run of ingestion wrote a passage, carried in its metadata. A vector store's prefilter keeps the passages of one.
+Which run of ingestion wrote a vector-store record, carried in its metadata. A vector store's prefilter keeps the records of one.
 _Avoid_: corpus version, index version, embedder version
 
 **Mode**:
@@ -295,7 +311,7 @@ How the retrieve stage finds candidates: `dense` (by vector), `lexical` (by word
 _Avoid_: search type, and plain "mode" for it (that is query or retrieve)
 
 **Trace**:
-What one request did in a workflow, as a tracer records it: a span for the request and one for each stage, a sub-workflow's under the stage that called it. Unlike the log directory it carries the message, the passages and the answer, unless its tracer is told to leave them out.
+What one request did in a workflow, as a tracer records it: a span for the request and one for each stage, a sub-workflow's under the stage that called it. Unlike the log directory it carries the message, the vector-store records and the answer, unless its tracer is told to leave them out.
 _Avoid_: log (that is what an App prints)
 
 **Tracer**:
@@ -321,7 +337,7 @@ _Avoid_: thread, session, dialogue
 
 **Conversational history**:
 The turns of the conversation before the current one. The client sends them with each request: the workflow keeps no conversation.
-_Avoid_: history (alone), memory, context (that is the passages given to the LLM)
+_Avoid_: history (alone), memory, context (that is the vector-store records given to the LLM)
 
 **Conversational query**:
 The user's message of the current turn, as sent. It may lean on the conversational history, and it is never part of it.
@@ -353,7 +369,7 @@ _Avoid_: deployment, topology label, run name
 What a run observed its target reporting about itself: each topology and run label seen, and how often, and, for each stage whose responses reported their token counts, named as its STAGE row is, how many did, their totals and the stage's time over those responses.
 
 **Answer record**:
-What a target answered to each request of the load test's request pool, sent once each by `qp-record-answers`, without what changes from run to run: the endpoint, the body and the status, then the mode, the metadata filter applied, the answer and each passage's id, text hash, metadata and scores, and the topology aliases and run labels reported. `qp-compare-answers` holds records of the same requests against the first, to check that a refactor or another topology answers the same: what the deterministic components give exactly, the answer an LLM wrote with ROUGE-L against a threshold when asked, never text for text.
+What a target answered to each request of the load test's request pool, sent once each by `qp-record-answers`, without what changes from run to run: the endpoint, the body and the status, then the mode, the metadata filter applied, the answer and each vector-store record's id, text hash, metadata and scores, and the topology aliases and run labels reported. `qp-compare-answers` holds records of the same requests against the first, to check that a refactor or another topology answers the same: what the deterministic components give exactly, the answer an LLM wrote with ROUGE-L against a threshold when asked, never text for text.
 _Avoid_: golden file, snapshot, fixture (a deployment's record is recorded on demand; the one a test holds the app to is a pinned answer record)
 
 **Pinned answer record**:

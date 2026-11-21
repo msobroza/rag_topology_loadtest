@@ -13,15 +13,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from .conversation import HistoryMessage
-from .retrieval.metadata_filter import MetadataCondition
 
 
 class QueryRequest(BaseModel):
     """The question to answer, 1 to 2000 characters, its history and its conditions.
 
     ``conversational_history`` is optional: the earlier turns, in order, for the
-    prompts to read. ``metadata_filter`` is optional: every passage retrieved
+    prompts to read. ``metadata_filter`` is optional: every record retrieved
     meets all its conditions. Each condition, a history message's included, is
     checked against the fields the vector stores declare, by the app, which
     knows them.

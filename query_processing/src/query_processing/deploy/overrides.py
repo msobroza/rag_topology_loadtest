@@ -90,7 +90,7 @@ def _refuse_secrets_in_overrides(settings: DeploySettings) -> None:
 def _refuse_key_variables_in_free_lists(settings: DeploySettings, path: Path) -> None:
     # As the Apps will read the key blocks: the file's with the overrides over it.
     named = key_variables_of(settings.overrides, path)
-    for block_name, variable in _free_list_variables(settings):
+    for block_name, variable, _value in _free_list_variables(settings):
         if variable not in named:
             continue
         raise DominoDeployError(
@@ -117,24 +117,52 @@ def refuse_workflow_settings_in_free_lists(settings: DeploySettings) -> None:
         ...     "settings": {"QP_HTTP__RETRIES": "0"}}))
         DominoDeployError: QP_HTTP__RETRIES is set ... write it under overrides ...
     """
-    for block_name, variable in _free_list_variables(settings):
+    for block_name, variable, value in _free_list_variables(settings):
         path = workflow_setting_path(variable)
         if path is None:
             continue
-        raise DominoDeployError(
+        where = (
             f"{variable} is set in {deploy_file()} under {block_name}.settings, "
             "the variables the launch scripts read, but it is a value of the "
-            f"workflow file: write it under overrides as {'.'.join(path)}, in "
+            "workflow file"
+        )
+        refused = _refusal_under_overrides(settings, path, value)
+        if refused:
+            raise DominoDeployError(
+                f"{where}, and under overrides it is refused too: {refused}"
+            )
+        raise DominoDeployError(
+            f"{where}: write it under overrides as {'.'.join(path)}, in "
             "the workflow file's shape, and every App gets it"
         )
 
 
-def _free_list_variables(settings: DeploySettings) -> list[tuple[str, str]]:
+def _refusal_under_overrides(
+    settings: DeploySettings, path: tuple[str, ...], value: str
+) -> str:
+    # Written under overrides, a key the workflow file's block refuses (an old
+    # name) would be refused there in turn: its line is given at once. "" when
+    # no workflow file is found here, as the place alone can then be said.
+    try:
+        file = workflow_file_for(settings.for_app(WORKFLOW_APP).settings)
+    except DominoDeployError:
+        return ""
+    override: dict[str, object] = {path[-1]: value}
+    for level in reversed(path[:-1]):
+        override = {level: override}
+    try:
+        refuse_unknown_override_keys(override, file)
+    except DominoDeployError as refusal:
+        return str(refusal)
+    return ""
+
+
+def _free_list_variables(settings: DeploySettings) -> list[tuple[str, str, str]]:
     blocks = {f"apps.{part}": block for part, block in settings.apps.items()}
     return [
-        (block_name, variable)
+        (block_name, variable, value)
         for block_name, block in {"defaults": settings.defaults, **blocks}.items()
-        for variable in block.settings
+        for variable, value in block.settings.items()
     ]
 
 

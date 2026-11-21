@@ -186,7 +186,7 @@ def test_the_served_blocks_take_what_each_request_carries(
         assert client.post("/query", json={"question": QUESTION}).status_code == 200
 
     batches = [len(body["input"]) for body, _ in endpoints.sent_to(EMBED_URL)]
-    assert max(batches) == 50  # the store is seeded 50 passages per request
+    assert max(batches) == 50  # the store is seeded 50 records per request
     [(chat, _)] = endpoints.sent_to(CHAT_URL)
     assert chat["temperature"] == 0.7
 

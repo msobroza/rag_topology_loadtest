@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from echo_components import BaseEcho
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.application.stage_binding import bind_call, stage_type_of
 from query_processing.application.stages.base_stage import STAGE_TYPES, StageFields
 from query_processing.domain.graph_description import StageDescription
-from query_processing.domain.retrieval.passages import ScoredPassage
 
 
 def test_keys_fill_named_attributes_and_reads_fill_the_rest_in_order() -> None:
@@ -22,13 +22,13 @@ def test_keys_fill_named_attributes_and_reads_fill_the_rest_in_order() -> None:
     )
 
     assert binding.from_keys == {"top_k": 10}
-    assert binding.from_reads == {"query": "standalone_query", "passages": "candidates"}
-    assert binding.to_writes == {"reranked": "passages"}
+    assert binding.from_reads == {"query": "standalone_query", "records": "candidates"}
+    assert binding.to_writes == {"reranked": "records"}
     assert binding.field_types.reads == {
         "standalone_query": str,
-        "candidates": list[ScoredPassage],
+        "candidates": list[ScoredVectorStoreRecord],
     }
-    assert binding.field_types.writes == {"reranked": list[ScoredPassage]}
+    assert binding.field_types.writes == {"reranked": list[ScoredVectorStoreRecord]}
 
 
 def test_writes_can_stop_early() -> None:
@@ -78,7 +78,7 @@ def test_a_key_must_fit_the_type_of_the_attribute_it_fills() -> None:
         "; key 'top_k' is 'ten' (expected int: Input should be a valid integer, "
         "unable to parse string as an integer)"
     )
-    # Its constraints too: a reranker keeps at least one passage.
+    # Its constraints too: a reranker keeps at least one record.
     with pytest.raises(ValueError, match=r"key 'top_k' is 0 \(expected int: .* 1\)"):
         bind_call(BaseReranker, {"top_k": 0}, fields)
     # A number as text, as a QP_* variable gives it, is a number, as in a request.

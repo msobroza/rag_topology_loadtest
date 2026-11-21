@@ -109,9 +109,35 @@ cp emulation/terraform/terraform.tfvars.example emulation/terraform/terraform.tf
 # project_env_secret = "rag-emu-project-env" if you created it
 make -C emulation init BUCKET=<bucket name>
 make -C emulation plan
-make -C emulation apply
+make -C emulation apply         # the machines and the cache bucket
+terraform -chdir=emulation/terraform output -raw cache_bucket   # the cache bucket's name, for the laptop
 make -C emulation ready         # repeat until every machine says done (about 2 min)
 ```
+
+The machines install the toolkit, whose core depends on doclang's core
+(`doclang-domain-core`): it is private, on no index, and no machine has a clone
+of `document_doclang`. So each machine copies, at boot, every wheel under
+`wheels/` in the cache bucket to its dataset folder (`<dataset_path>/wheels`),
+installs with it, and the Workspace's `deploy.yaml` names that folder for the
+Apps (`bootstrap_wheels`), as on Domino the Dataset holds it. Cloud Shell has
+Terraform and no clone to build the wheel from; the laptop has the clone and no
+Terraform. So the wheel is built and stored from the laptop, with `gcloud`
+signed in to the project there, naming the bucket Cloud Shell printed:
+
+```bash
+# On the laptop, at the repository's root:
+make doclang-wheel                  # wheels/doclang_domain_core-<version>-py3-none-any.whl
+make -C emulation wheel-save CACHE_BUCKET=<cache bucket>   # gcloud storage cp of that wheel to gs://<cache bucket>/wheels/
+```
+
+Without `CACHE_BUCKET`, `wheel-save` asks Terraform for the name, where Terraform
+is set up, and stops in one line when it has none. The bucket comes with the
+first `apply`, so `wheel-save` follows it. A machine
+that reached that step of its boot before the wheel was there says `failed`, its
+log ending in one line that names `wheel-save`: start it again (`gcloud compute
+instances reset <machine> --zone europe-west1-b`). The bucket outlives the
+machines' 8-hour self-deletion, so later sittings find the wheel there; run
+`wheel-save` again after a change to doclang's core.
 
 `ready` reads each machine's guest attribute `rag-emulation/startup`
 (`running`, `done` or `failed`). On `failed`, read the machine's log:
@@ -320,6 +346,9 @@ of exporting the models and embedding the corpus again. It holds:
   only valid for the embedder and the analyzer it was built with, so a change of
   either misses the cache and `corpus-restore` says to build and save it.
 - `results/<UTC time>.tar.gz`: the archives `results-save` uploads.
+- `wheels/`: the wheel of doclang's core, which `wheel-save` uploads. At boot every
+  machine copies each wheel there to `<dataset_path>/wheels`, replacing what the
+  folder held, and stops in one line when none is doclang's core.
 
 Models are keyed by folder name, not by how they were exported. `models-save` keeps
 an object the bucket already has. After a change to the export recipe of the same
@@ -340,7 +369,7 @@ boot (`make ready` says `failed`); an empty bucket is the first sitting's normal
 state. `make -C emulation destroy` deletes the bucket with everything in it.
 
 Measured on 14 November 2026, in two sittings on `split-all` with the French corpus
-(1,592 passages), Spot pool machines and a 4-CPU Workspace:
+(1,592 vector-store records), Spot pool machines and a 4-CPU Workspace:
 
 | | First sitting (empty bucket) | Second sitting (fresh machines) |
 |---|---|---|
@@ -440,7 +469,7 @@ servers, the French corpus. It showed:
   proxied every call. The workflow App fetched its token from `localhost:8899`
   through the forwarder and called the model servers through the proxy.
 - `qp-fetch-corpus` and `qp-ingest` with the French analyzer (1,223 documents,
-  1,592 passages).
+  1,592 vector-store records).
 - The three topologies, each deployed in turn on the same machines: `deploy` of
   `split-all` was done about 11 minutes after `apply` and the corpus ingested
   after 19, the two running side by side, then `monolith` and `split-reranker`.
@@ -536,6 +565,11 @@ Delete:
   folders not yet split that belong to the emulated Domino
   (`src/fake_domino/emulation` and `tests/fake_domino`), which fail as stale
   once it is gone, and their mention in rule 9 of the main `README.md`
+- in `query_processing/tests/structure/test_the_word_*.py`, the test that keeps
+  the vector-store record's retired name out, every file above from its `KEPT`
+  entries: the index's name lists two, which go, and the snapshot metadata's key
+  lists those two alone, so that entry goes whole; a kept file that is gone
+  fails it as stale
 
 `docs/adr/0001-emulation-platform-and-app-placement.md` and
 `docs/adr/0002-replicas-on-machines-and-an-assumed-balancing-rule.md` may be kept as

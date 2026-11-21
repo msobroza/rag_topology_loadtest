@@ -18,9 +18,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from query_processing_core.retrieval.vector_store_record import VectorStoreRecord
+
 from ..application.ingest import ingest
 from ..domain.retrieval.corpus import SourceDocument, chunk, synthetic_corpus
-from ..domain.retrieval.passages import Passage
 
 if TYPE_CHECKING:  # the composition root is imported lazily, in _configured_composition
     from ..composition.composition_root import CompositionRoot
@@ -78,14 +79,16 @@ def _parser() -> argparse.ArgumentParser:
 
 
 async def _ingest_through(
-    composition: CompositionRoot, passages: Sequence[Passage], args: argparse.Namespace
+    composition: CompositionRoot,
+    records: Sequence[VectorStoreRecord],
+    args: argparse.Namespace,
 ) -> dict[str, object]:
     batch_size = args.batch_size
     async with composition:
         embedder, store = await composition.ingest_ports(args.embedder)
-        count = await ingest(passages, embedder, store, batch_size=batch_size)
+        count = await ingest(records, embedder, store, batch_size=batch_size)
         _, stored = await store.ready()
-    return {"passages": count, "embedder": embedder.model_name, "store": stored}
+    return {"records": count, "embedder": embedder.model_name, "store": stored}
 
 
 def _configured_composition(
@@ -106,7 +109,8 @@ def _configured_composition(
         backend = WorkflowSettings.variable_of("components", store, "backend")
         raise SystemExit(
             f"qp-ingest: {backend}='fake' is seeded when the app starts and "
-            "keeps nothing between processes; ingest needs 'elasticsearch'"
+            "keeps nothing between processes; ingest needs a backend that keeps "
+            "what it stores, any but 'fake'"
         )
     return CompositionRoot(settings)
 
@@ -116,8 +120,9 @@ def main(
 ) -> int:
     """Run ``qp-ingest``: chunk, embed and upsert a corpus, then print one JSON line.
 
-    The summary line is the ``ingest_done`` event: the document count, the passage
-    count, the embedder's model name and what the store reports holding.
+    The summary line is the ``ingest_done`` event: the document count, the count
+    of vector-store records (``records``), the embedder's model name and what the
+    store reports holding.
 
     Args:
         argv: Command-line arguments; ``None`` reads ``sys.argv``.
@@ -142,13 +147,13 @@ def main(
         if args.corpus
         else synthetic_corpus(args.synthetic, args.seed)
     )
-    passages = [
-        p
+    records = [
+        r
         for d in docs
-        for p in chunk(
+        for r in chunk(
             d, chunk_words=args.chunk_words, overlap_words=args.overlap_words
         )
     ]
-    summary = asyncio.run(_ingest_through(composition, passages, args))
+    summary = asyncio.run(_ingest_through(composition, records, args))
     print(json.dumps({"event": "ingest_done", "documents": len(docs), **summary}))
     return 0

@@ -21,14 +21,14 @@ from fastapi.testclient import TestClient
 from query_processing.application.prompt_rendering import render_prompt
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.conversation import HistoryMessage
-from query_processing.domain.retrieval.metadata_filter import (
+from query_processing.entrypoints.qp_serve import create_app
+from query_processing.testing import registered_orchestrators
+from query_processing_core.conversation import HistoryMessage
+from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
 )
-from query_processing.domain.retrieval.passages import ScoredPassage
-from query_processing.entrypoints.qp_serve import create_app
-from query_processing.testing import registered_orchestrators
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing_rag_usecase.config.knn_router_settings import KnnRouterSettings
 from workflow_on_fakes import (
@@ -105,7 +105,7 @@ def test_the_workflow_file_builds_a_graph_that_answers(
     answered = response.json()
     # One timing per stage of the file, in its order, then the total.
     assert list(answered["timings_ms"]) == [*STAGES, "total"]
-    assert len(answered["passages"]) == 10  # what the rerank stage keeps
+    assert len(answered["records"]) == 10  # what the rerank stage keeps
     assert response.headers["X-RAG-Run-Label"] == FAKE_RUN_LABEL
     if path == "/query":  # the fake LLM echoes the file's user prompt, filled
         assert answered["answer"].startswith("[fake-llm] Context:\n[1] ")
@@ -292,9 +292,11 @@ def test_the_file_pins_the_rags_edges_and_its_three_conditional_edges(
     ]
 
 
-def old_messages(question: str, passages: list[ScoredPassage]) -> list[dict[str, str]]:
+def old_messages(
+    question: str, records: list[ScoredVectorStoreRecord]
+) -> list[dict[str, str]]:
     """What the generate stage's two settings gave before prompts.yaml."""
-    context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
+    context = "\n".join(f"[{i}] {r.text}" for i, r in enumerate(records, start=1))
     user = USER_PROMPT.format(context=context, question=question)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -307,16 +309,18 @@ def test_the_answer_prompt_renders_what_the_two_old_settings_gave(
     use_case_dir: Path, count: int
 ) -> None:
     prompt = settings_here().prompts["answer_from_context"]
-    passages = [
-        ScoredPassage(id=str(i), text=f"Passage {{x}} {i}.", retrieval_score=1.0)
+    records = [
+        ScoredVectorStoreRecord(
+            text=f"Text {{x}} {i}.", metadata={"id": str(i)}, retrieval_score=1.0
+        )
         for i in range(count)
     ]
 
     messages = render_prompt(
-        prompt, {"reranked": passages, "conversational_query": "Why {y}?"}
+        prompt, {"reranked": records, "conversational_query": "Why {y}?"}
     )
 
-    assert messages == old_messages("Why {y}?", passages)
+    assert messages == old_messages("Why {y}?", records)
 
 
 def test_the_rewrite_prompt_lists_the_stores_field_and_splices_the_earlier_turns(

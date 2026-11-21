@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from query_processing.domain.conversation import (
+from query_processing_core.conversation import (
     HistoryMessage,
     check_history_conditions,
 )
-from query_processing.domain.retrieval.metadata_filter import (
+from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
 )

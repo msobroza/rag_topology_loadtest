@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.reranker.base_reranker import BaseReranker
 from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
@@ -17,7 +18,6 @@ from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.apps.uvicorn_settings import UvicornSettings
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints import qp_serve as api
 from query_processing.entrypoints.qp_serve import create_app, main, traced
 from rag_components import FAKE_BACKENDS
@@ -35,7 +35,7 @@ RESPONSE_FIELDS = {
     "question",
     "mode",
     "answer",
-    "passages",
+    "records",
     "timings_ms",
     "tokens",
     "metadata_filter",
@@ -49,8 +49,8 @@ class FailingReranker(BaseReranker):
         self.kind = kind
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         raise RagDependencyError("reranker", "boom", target=RERANK_URL, kind=self.kind)
 
     async def ready(self) -> tuple[bool, str]:
@@ -61,9 +61,9 @@ class ExplodingProbeReranker(BaseReranker):
     """BaseReranker whose readiness probe itself raises."""
 
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
-        return list(passages[:top_n])
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
+        return list(records[:top_n])
 
     async def ready(self) -> tuple[bool, str]:
         raise RuntimeError("reranker probe exploded")
@@ -117,8 +117,8 @@ def test_query_returns_answer_and_headers(client: TestClient) -> None:
     assert body["question"] == QUESTION
     assert body["mode"] == "query"
     assert body["answer"].startswith("[fake-llm]")
-    assert body["passages"]
-    assert all(p["rerank_score"] is not None for p in body["passages"])
+    assert body["records"]
+    assert all(p["rerank_score"] is not None for p in body["records"])
     assert body["timings_ms"]["total"] > 0
     assert response.headers["X-RAG-Topology"] == TOPOLOGY_ALIAS
     assert response.headers["X-RAG-Run-Label"] == RUN_LABEL
@@ -184,7 +184,7 @@ def test_retrieve_skips_generation(client: TestClient) -> None:
     assert body["mode"] == "retrieve"
     assert body["answer"] is None
     assert body["timings_ms"]["generate"] == 0.0
-    assert body["passages"]
+    assert body["records"]
     assert body["tokens"] == {}
 
 
@@ -228,7 +228,7 @@ def test_readyz_all_checks_ok(client: TestClient) -> None:
     checks = _checks_by_name(body)
     assert set(checks) == {"vector_store", "embedder", "reranker"}
     assert all(check["ok"] for check in checks.values())
-    assert checks["vector_store"]["detail"] == "200 passages in memory"
+    assert checks["vector_store"]["detail"] == "200 records in memory"
 
 
 def test_readyz_empty_store_is_not_ready(

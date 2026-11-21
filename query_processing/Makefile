@@ -1,6 +1,7 @@
 # query_processing — the toolkit's developer tasks: its install and its gates (run from
-# this directory; the repository's root Makefile hands install, install-dev, check
-# and each gate here). The run targets read a use case's files and write its
+# this directory; the repository's root Makefile hands check, format and each gate
+# here, and installs doclang's core, the core, the toolkit and the use case itself,
+# in one command). The run targets read a use case's files and write its
 # output, so they are a use case's: make -C ../query_processing_rag_usecase help.
 .DEFAULT_GOAL := help
 .PHONY: help install install-dev check lint format typecheck complexity deadcode deps test pin-answers fake-domino
@@ -22,11 +23,18 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install the toolkit alone (runtime deps only); the root's make install adds the use case
-	$(PYTHON) -m pip install -e .
+# Where doclang's core is: its clone (DOCLANG_CLONE), as the root's Makefile
+# reads it too.
+include ../doclang.mk
 
-install-dev: ## Install the toolkit alone with locust + test tooling
-	$(PYTHON) -m pip install -e ".[dev]"
+# No package index has doclang's core, which the core depends on, nor the core
+# the toolkit depends on: doclang's core from its clone, then the core's
+# directory, beside this one, are named first in the same command.
+install: ## Install doclang's core from its clone, the core and the toolkit (runtime deps only); the root's make install adds the use case
+	$(PYTHON) -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ../query_processing_core -e .
+
+install-dev: ## Install doclang's core from its clone, the core and the toolkit with locust + test tooling
+	$(PYTHON) -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ../query_processing_core -e ".[dev]"
 
 check: lint typecheck complexity deadcode deps test ## Run every quality gate, stopping at the first failure
 

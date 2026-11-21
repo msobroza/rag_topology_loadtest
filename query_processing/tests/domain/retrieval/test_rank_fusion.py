@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.domain.retrieval.rank_fusion import reciprocal_rank_fusion
 
 
-def hit(passage_id: str, score: float = 0.5) -> ScoredPassage:
-    return ScoredPassage(id=passage_id, text=passage_id, retrieval_score=score)
+def hit(record_id: str, score: float = 0.5) -> ScoredVectorStoreRecord:
+    return ScoredVectorStoreRecord(
+        text=record_id, metadata={"id": record_id}, retrieval_score=score
+    )
 
 
-def ids(passages: list[ScoredPassage]) -> list[str]:
-    return [passage.id for passage in passages]
+def ids(records: list[ScoredVectorStoreRecord]) -> list[str]:
+    return [record.id for record in records]
 
 
-def test_a_passage_in_both_rankings_beats_one_ranked_first_in_one() -> None:
+def test_a_record_in_both_rankings_beats_one_ranked_first_in_one() -> None:
     dense = [hit("a"), hit("b"), hit("c")]
     lexical = [hit("b"), hit("d")]
 
@@ -28,7 +30,7 @@ def test_a_passage_in_both_rankings_beats_one_ranked_first_in_one() -> None:
 def test_the_fused_score_is_the_sum_of_reciprocal_ranks() -> None:
     fused = reciprocal_rank_fusion([[hit("a"), hit("b")], [hit("b")]], k=60, top_k=2)
 
-    scores = {passage.id: passage.retrieval_score for passage in fused}
+    scores = {record.id: record.retrieval_score for record in fused}
     assert scores["b"] == pytest.approx(1 / 62 + 1 / 61)
     assert scores["a"] == pytest.approx(1 / 61)
 
@@ -51,21 +53,21 @@ def test_fusion_truncates_to_top_k() -> None:
 
 
 def test_fusion_keeps_text_and_metadata_and_drops_nothing_else() -> None:
-    passage = ScoredPassage(
-        id="a", text="vacation", metadata={"doc": "handbook"}, retrieval_score=0.9
+    record = ScoredVectorStoreRecord(
+        text="vacation", metadata={"id": "a", "doc": "handbook"}, retrieval_score=0.9
     )
 
-    [fused] = reciprocal_rank_fusion([[passage]], k=60, top_k=1)
+    [fused] = reciprocal_rank_fusion([[record]], k=60, top_k=1)
 
     assert (fused.text, fused.metadata, fused.rerank_score) == (
         "vacation",
-        {"doc": "handbook"},
+        {"id": "a", "doc": "handbook"},
         None,
     )
-    assert passage.retrieval_score == 0.9  # the input is not modified
+    assert record.retrieval_score == 0.9  # the input is not modified
 
 
-def test_no_ranking_gives_no_passage() -> None:
+def test_no_ranking_gives_no_record() -> None:
     assert reciprocal_rank_fusion([], k=60, top_k=5) == []
     assert reciprocal_rank_fusion([[], []], k=60, top_k=5) == []
 
@@ -78,3 +80,12 @@ def test_a_smaller_k_widens_the_gap_between_ranks() -> None:
         return first.retrieval_score - second.retrieval_score
 
     assert gap(1) > gap(60)
+
+
+def test_a_record_with_no_id_is_refused_in_words_not_by_a_key_error() -> None:
+    no_id = ScoredVectorStoreRecord(
+        text="alpha", metadata={"topic": "hr"}, retrieval_score=0.5
+    )
+
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        reciprocal_rank_fusion([[hit("a")], [no_id]], k=60, top_k=2)

@@ -61,6 +61,17 @@ app_name_prefix: qp-rag
 # either a folder with bin/ovms and lib/ or the release .tar.gz, for example
 # /domino/datasets/local/<dataset>/ovms.tar.gz
 ovms_bundle: ""
+# Required: the directory, as the Apps see it on a Dataset, that holds the wheel
+# of doclang's core (doclang-domain-core), which the core depends on and no
+# package index has: every App finds it there when it installs at its start
+# (QP_BOOTSTRAP_WHEELS), everything else on the index. Build it at the
+# repository's root with `make doclang-wheel` (into wheels/, which git ignores)
+# and copy the .whl here, as the models are copied, the one wheel of doclang's
+# core there. A deploy refuses, before publishing, a relative path, a directory
+# the Workspace does not see (it mounts the Dataset as the Apps do) and one
+# without exactly one such wheel, in one line naming this setting; a dry run,
+# which also runs off Domino, refuses the relative path alone.
+bootstrap_wheels: /domino/datasets/local/<dataset>/wheels
 # Where Apps answer: {domino_host}/{owner}/{project}/r/notebookSession/{instance id}.
 # "" = the scheme and host of the App's own url.
 domino_host: ""
@@ -109,7 +120,8 @@ defaults:
   # overrides below: written here, it is refused, naming its place there.
   # qp-deploy itself sets QP_ROLE (workflow or model-server),
   # QP_MODEL_SERVER_COMPONENT and QP_MODEL_SERVER_KIND, QP_OVMS_BUNDLE,
-  # QP_USE_CASE_DIR (this directory) and QP_BOOTSTRAP (those win).
+  # QP_USE_CASE_DIR (this directory), QP_BOOTSTRAP and QP_BOOTSTRAP_WHEELS
+  # (those win).
   # settings:
   #   # The folder holding config_<component>.json of each component ovms serves:
   #   QP_OVMS_MODELS_DIR: /domino/datasets/local/<dataset>/ovms-models
@@ -192,8 +204,9 @@ overrides:
     vector_store:
       # Required: the Elasticsearch cluster every workflow App queries.
       elasticsearch: {url: "https://<elasticsearch host>:9200"}
-      # The passages this site's workflow can read at all: conditions every
-      # search applies before a request's own, on fields a client cannot name.
+      # The vector-store records this site's workflow can read at all:
+      # conditions every search applies before a request's own, on fields a
+      # client cannot name.
       # A value of the site, since which ingestion pipeline version is live
       # differs from one site to another; the workflow file states none, and an
       # index qp-ingest filled has neither field, so it would return nothing.

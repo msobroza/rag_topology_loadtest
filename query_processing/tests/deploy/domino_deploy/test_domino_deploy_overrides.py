@@ -38,6 +38,7 @@ from query_processing.deploy.deploy_settings import (
 )
 from query_processing.deploy.publish import deploy
 from rag_graphs import FIXTURE_WORKFLOW
+from repo_paths import REPO_ROOT
 
 pytest_plugins = ["domino_deploy_fixtures"]  # domino_env, no_real_http, run_main
 # A site's values, one of each kind: a number, a nested one, a text and a list.
@@ -344,6 +345,47 @@ def test_a_workflow_setting_in_a_free_list_is_refused_naming_its_place(
         "the launch scripts read, but it is a value of the workflow file: write it "
         f"under overrides as {path}, in the workflow file's shape, and every App "
         "gets it"
+    )
+
+
+def the_calibration_settings_old_name() -> tuple[str, str]:
+    """The old key and variable of ``calibration_records``, as the README's row of
+    "Moving from the old names" gives them: the move the deploy tool must tell."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    [(key, variable)] = re.findall(
+        r"\| a reranker's `local\.(\w+)` \(`(\w+)`\) \| `local\.calibration_records`",
+        readme,
+    )
+    return key, variable
+
+
+# Start-up's own words for the calibration setting's old name, which give the new.
+OLD_KEY, OLD_VARIABLE = the_calibration_settings_old_name()
+RENAMED = (
+    f"the setting '{OLD_KEY}' is now 'calibration_records' "
+    "(QP_COMPONENTS__<NAME>__LOCAL__CALIBRATION_RECORDS as a variable); rename "
+    f"it, got {OLD_KEY}="
+)
+
+
+def test_an_override_under_the_calibration_settings_old_name_is_told_the_new() -> None:
+    # It listed the block's keys, as for a misspelt one.
+    old = {"components": {"reranker": {"local": {OLD_KEY: 12}}}}
+
+    assert refusal(make_settings(topology="monolith", overrides=old)) == (
+        f"overrides.components.reranker.local.{OLD_KEY} in deploy.yaml: {RENAMED}12"
+    )
+
+
+def test_a_free_list_variable_under_the_old_name_is_told_the_new() -> None:
+    # It said to write it under overrides with the old name, which is refused.
+    defaults = {"environment_id": "env-1", "settings": {OLD_VARIABLE: "12"}}
+
+    assert refusal(make_settings(defaults=defaults)) == (
+        f"{OLD_VARIABLE} is set in deploy.yaml under defaults.settings, the "
+        "variables the launch scripts read, but it is a value of the workflow "
+        "file, and under overrides it is refused too: overrides.components."
+        f"reranker.local.{OLD_KEY} in deploy.yaml: {RENAMED}'12'"
     )
 
 

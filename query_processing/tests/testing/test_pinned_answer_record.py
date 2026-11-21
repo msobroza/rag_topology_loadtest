@@ -117,6 +117,20 @@ def test_on_every_orchestrator_the_timings_and_tokens_are_langgraph_s(
     assert on_langgraph[1][1]  # the fake LLM counts its tokens
 
 
+def test_the_committed_record_is_of_the_new_form() -> None:
+    answers = json.loads(FIXTURE_WORKFLOW.path.read_text(encoding="utf-8"))["answers"]
+
+    # Made again when the response took its new shape (ADR 0014): each
+    # answer's vector-store records under "records", each id in its metadata,
+    # the handbook's window index under "sequence".
+    assert all("records" in answer and "passages" not in answer for answer in answers)
+    records = [record for answer in answers for record in answer["records"]]
+    assert records
+    assert all("id" not in record and "id" in record["metadata"] for record in records)
+    assert all("chunk" not in record["metadata"] for record in records)
+    assert all("sequence" in record["metadata"] for record in records)
+
+
 def test_a_record_not_yet_pinned_fails_naming_the_pin_command(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

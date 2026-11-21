@@ -187,6 +187,7 @@ def test_without_a_file_every_value_but_the_prefix_is_its_default(
         "topology_alias": {},  # no alias in code: deploy.yaml defines them
         "project_id": "",
         "ovms_bundle": "",
+        "bootstrap_wheels": "",  # refused by a deploy: it names a site's Dataset
         "domino_host": "",
         "wait_timeout_s": 600.0,
         "poll_interval_s": 5.0,
@@ -306,6 +307,12 @@ def placeholder_message(key: str, block: str, value: str, path: Path) -> str:
             "ovms_bundle",
             "the top level",
             "/domino/datasets/local/<dataset>/ovms.tar.gz",
+        ),
+        (
+            "bootstrap_wheels: /domino/datasets/local/<dataset>/wheels",
+            "bootstrap_wheels",
+            "the top level",
+            "/domino/datasets/local/<dataset>/wheels",
         ),
         (
             "overrides: {components: {embedder: {source_id: /d/<dataset>/m}}}",

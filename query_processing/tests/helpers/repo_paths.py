@@ -6,3 +6,4 @@ from pathlib import Path
 
 TOOLKIT_ROOT = Path(__file__).resolve().parents[2]  # query_processing/
 REPO_ROOT = TOOLKIT_ROOT.parent  # README.md, emulation/
+CORE_ROOT = REPO_ROOT / "query_processing_core"  # the core, which the toolkit installs

@@ -41,6 +41,7 @@ from http import HTTPStatus
 import uvicorn
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ..composition.composition_root import CompositionRoot
 from ..composition.registered_names import check_registered_names
@@ -66,7 +67,7 @@ from ..domain.endpoints.standard_formats import (
     OpenAIEmbeddingsRequest,
     OpenAIEmbeddingsResponse,
 )
-from ..domain.retrieval.passages import ScoredPassage
+from ..domain.retrieval.rag_result import required_record_id
 from ..domain.roles import MODEL_SERVER_COMPONENT_VARIABLE
 from ..infrastructure.http.uvicorn_run import run_uvicorn
 from ..infrastructure.process_environment import restart_with
@@ -247,9 +248,9 @@ async def rerank(body: CohereRerankRequest, request: Request) -> JSONResponse:
     """
     if body.model != request.app.state.alias:
         return _unknown_model()
-    passages = candidates_from_rerank(body)
-    top_n = body.top_n or len(passages)
-    ranked = await request.app.state.reranker.rerank(body.query, passages, top_n)
+    records = candidates_from_rerank(body)
+    top_n = body.top_n or len(records)
+    ranked = await request.app.state.reranker.rerank(body.query, records, top_n)
     return JSONResponse(rerank_response_for(ranked).model_dump())
 
 
@@ -312,38 +313,43 @@ def embeddings_response_for(
     return OpenAIEmbeddingsResponse(model=alias, data=rows)
 
 
-def candidates_from_rerank(request: CohereRerankRequest) -> list[ScoredPassage]:
+def candidates_from_rerank(
+    request: CohereRerankRequest,
+) -> list[ScoredVectorStoreRecord]:
     """Turn the request's documents into rerank candidates.
 
     Args:
         request: The rerank request the server received.
 
     Returns:
-        One passage per document, whose ``id`` is its index in the request and
-        whose ``retrieval_score`` is 0.0.
+        One vector-store record per document, whose ``id`` is its index in the
+        request and whose ``retrieval_score`` is 0.0.
 
     Example:
         >>> candidates_from_rerank(request)[1].id
         '1'
     """
     return [
-        ScoredPassage(id=str(i), text=text, retrieval_score=0.0)
+        ScoredVectorStoreRecord(text=text, metadata={"id": str(i)}, retrieval_score=0.0)
         for i, text in enumerate(request.documents)
     ]
 
 
-def rerank_response_for(ranked: Sequence[ScoredPassage]) -> CohereRerankResponse:
+def rerank_response_for(
+    ranked: Sequence[ScoredVectorStoreRecord],
+) -> CohereRerankResponse:
     """Build the rerank answer.
 
     Args:
-        ranked: Reranked passages made by ``candidates_from_rerank``, best first;
+        ranked: Reranked records made by ``candidates_from_rerank``, best first;
             each must carry a ``rerank_score``.
 
     Returns:
-        One result per passage, in the given order, ``index`` taken from its id.
+        One result per record, in the given order, ``index`` taken from its id.
 
     Raises:
-        ValueError: If a passage has no ``rerank_score``.
+        ValueError: If a record has no ``rerank_score``, or no id
+            (``required_record_id``).
 
     Example:
         >>> rerank_response_for(await reranker.rerank(query, candidates, top_n))
@@ -351,15 +357,14 @@ def rerank_response_for(ranked: Sequence[ScoredPassage]) -> CohereRerankResponse
     return CohereRerankResponse(results=[_rerank_result(p) for p in ranked])
 
 
-def _rerank_result(passage: ScoredPassage) -> CohereRerankResult:
-    if passage.rerank_score is None:
+def _rerank_result(record: ScoredVectorStoreRecord) -> CohereRerankResult:
+    index = required_record_id(record)
+    if record.rerank_score is None:
         raise ValueError(
-            f"passage {passage.id!r} has no rerank_score; expected a reranked "
-            "passage from candidates_from_rerank"
+            f"vector-store record {index!r} has no rerank_score; expected a "
+            "reranked record from candidates_from_rerank"
         )
-    return CohereRerankResult(
-        index=int(passage.id), relevance_score=passage.rerank_score
-    )
+    return CohereRerankResult(index=int(index), relevance_score=record.rerank_score)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

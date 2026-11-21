@@ -54,8 +54,8 @@ on_tree_node_expanded
 display
 show_root
 
-# pydantic: RecordedPassage.text_sha256, written to an answer record and compared
-# by name (loadtest/answer_comparison.py's _EXACT_PASSAGE_FIELDS).
+# pydantic: RecordedVectorStoreRecord.text_sha256, written to an answer record and
+# compared by name (loadtest/answer_comparison.py's _EXACT_RECORD_FIELDS).
 text_sha256
 
 # pydantic: the named fields of OpenVinoCpuSettings, read by their names in

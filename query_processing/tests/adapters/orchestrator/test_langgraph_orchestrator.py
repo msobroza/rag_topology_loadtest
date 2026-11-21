@@ -12,6 +12,7 @@ from typing import Any, get_type_hints
 
 import pytest
 from langgraph.graph import END, START, StateGraph
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.adapters.orchestrator.langgraph.langgraph_orchestrator import (
     LangGraphOrchestrator,
@@ -31,7 +32,6 @@ from query_processing.application.workflow_state import (
     sum_tokens_by_stage,
 )
 from query_processing.domain.graph_description import ConditionalEdge, GraphDescription
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
 from rag_graphs import fixture_graph, rag_graph
 
 ON_PAY = MetadataCondition(attribute="topic", comparator="eq", value="pay")

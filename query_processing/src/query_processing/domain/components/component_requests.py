@@ -9,7 +9,7 @@ Example:
     >>> answer = await store.ainvoke(SearchRequest(
     ...     embedding=vector, text="vacation", top_k=20, retrieval_mode="hybrid",
     ...     rrf_k=60))
-    >>> [p.id for p in answer.passages]
+    >>> [p.id for p in answer.records]
     ['p3', 'p1', ...]
 """
 
@@ -18,9 +18,9 @@ from __future__ import annotations
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
-from ..retrieval.metadata_filter import MetadataCondition
-from ..retrieval.passages import ScoredPassage
 from ..retrieval.retrieval_mode import RetrievalMode
 
 
@@ -44,14 +44,14 @@ class RerankRequest(_FrozenStrictModel):
     """Retrieval candidates to re-score against a query, and how many to keep."""
 
     query: str
-    passages: list[ScoredPassage]
+    records: list[ScoredVectorStoreRecord]
     top_k: int = Field(ge=1)
 
 
 class RerankAnswer(_FrozenStrictModel):
-    """At most ``top_k`` passages, best first."""
+    """At most ``top_k`` vector-store records, best first."""
 
-    passages: list[ScoredPassage]
+    records: list[ScoredVectorStoreRecord]
 
 
 class GenerateRequest(_FrozenStrictModel):
@@ -84,7 +84,7 @@ class SearchRequest(_FrozenStrictModel):
 
     ``dense`` needs ``embedding``, ``lexical`` needs ``text``, and ``hybrid``
     needs both and ``rrf_k``, the rank constant of reciprocal rank fusion.
-    ``metadata_filter`` keeps only the passages that meet all its conditions;
+    ``metadata_filter`` keeps only the records that meet all its conditions;
     empty, it filters nothing.
     """
 
@@ -112,6 +112,6 @@ class SearchRequest(_FrozenStrictModel):
 
 
 class SearchAnswer(_FrozenStrictModel):
-    """The passages found, best first, each with its ``retrieval_score``."""
+    """The records found, best first, each with its ``retrieval_score``."""
 
-    passages: list[ScoredPassage]
+    records: list[ScoredVectorStoreRecord]

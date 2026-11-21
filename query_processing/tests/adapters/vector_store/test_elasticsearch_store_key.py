@@ -17,21 +17,26 @@ from typing import Any
 import pytest
 from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
 from elasticsearch import AuthenticationException, AuthorizationException
-from test_elasticsearch_store import INDEX, FakeLangChainStore, dense_strategy, es_hit
+from test_elasticsearch_store import (
+    INDEX,
+    FakeLangChainStore,
+    dense_strategy,
+    es_hit,
+    record,
+)
 
 from model_api_fakes import FakeKeySource
 from query_processing.adapters.vector_store.elasticsearch.elasticsearch_store import (
     ElasticsearchVectorStore,
 )
 from query_processing.domain.errors import MissingKeyError, RagDependencyError
-from query_processing.domain.retrieval.passages import Passage
 
 OLD_KEY, MID_KEY, NEW_KEY = "es-key-old-4711", "es-key-mid-2342", "es-key-new-0815"
 StoreOperation = Callable[[ElasticsearchVectorStore], Awaitable[Any]]
 OPERATIONS = pytest.mark.parametrize(
     "operation",
     [
-        lambda store: store.upsert([Passage(id="p1", text="alpha")], [[0.1]]),
+        lambda store: store.upsert([record("p1", "alpha")], [[0.1]]),
         lambda store: store.query([0.1], top_k=1),
         lambda store: store.lexical_query("alpha", top_k=1),
         lambda store: store.ready(),

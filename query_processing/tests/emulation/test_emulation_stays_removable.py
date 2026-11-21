@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,10 @@ SHARED_FILES_THAT_NAME_IT = {
     "docs/adr/0001-emulation-platform-and-app-placement.md",
     ".gitignore",
 }
+# The structure test that keeps the vector-store record's retired name out lists
+# two things of the emulation's that keep it, each naming one of its files. Named
+# by a pattern, so that this file does not hold the word that test searches for.
+THE_WORD_TEST = "test_the_word_*.py"
 # The use case the emulation deploys: its files are the project's own settings too.
 USE_CASE = "query_processing_rag_usecase/"
 # The project's own settings: what the owner reads to configure a real Domino.
@@ -142,6 +147,37 @@ def test_the_removal_list_names_every_home_of_the_emulation() -> None:
         f"`{TOOLKIT}pyproject.toml`",
         "CONTEXT.md",
         "README.md",
+        f"`{TOOLKIT}tests/structure/{THE_WORD_TEST}`",
+        "every file above from its `KEPT`",
     )
 
     assert [item for item in expected if item not in removal] == []
+
+
+def test_the_word_search_holds_once_the_emulation_and_its_kept_files_are_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The removal played in memory, as its list says: the emulation's files gone,
+    # and gone from the word test's KEPT, an entry left with no file whole.
+    [path] = (TOOLKIT_ROOT / "tests" / "structure").glob(THE_WORD_TEST)
+    monkeypatch.syspath_prepend(str(path.parent))  # it imports its sibling
+    word = import_module(path.stem)
+    named = {name for entry in word.KEPT for name in entry.files}
+    kept = [
+        (entry.pattern, name)
+        for entry in word.KEPT
+        for name in sorted(entry.files)
+        if not is_emulation_home(name)
+    ]
+    left = [n for n in tracked_files() if not is_emulation_home(n)]
+    searched = [n for n in left if not n.startswith(tuple(word.KEPT_FOLDERS))]
+
+    # The patterns KEPT gives a file left are those it gives it today.
+    found = word.names_with_the_word(searched) + [
+        hit
+        for name in searched
+        for hit in word.lines_with_the_word(name, text_of(name))
+    ]
+    assert {n for n in named if is_emulation_home(n)}, "KEPT names no emulation file"
+    assert [name for pattern, name in kept if not pattern.search(text_of(name))] == []
+    assert found == []

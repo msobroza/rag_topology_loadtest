@@ -27,10 +27,11 @@ from launch_script_stand_ins import (
     stand_in_env,
     started_env,
     started_in,
+    wheels_env,
     write_fake,
 )
 from query_processing.domain.roles import Role
-from repo_paths import TOOLKIT_ROOT
+from repo_paths import CORE_ROOT, TOOLKIT_ROOT
 
 
 @pytest.fixture
@@ -270,12 +271,14 @@ def test_without_bootstrap_nothing_is_installed(tmp_path: Path, bin_dir: Path) -
 def test_bootstrap_installs_the_toolkit_in_a_venv_before_serving(
     tmp_path: Path, bin_dir: Path, env: dict[str, str], server: str, argv: str
 ) -> None:
-    result = run_app(tmp_path, bin_dir, **env, QP_BOOTSTRAP="1")
+    wheels = wheels_env(tmp_path)
+    result = run_app(tmp_path, bin_dir, **env, QP_BOOTSTRAP="1", **wheels)
     assert result.returncode == 0, result.stderr
-    venv = tmp_path / "home" / "qp-venv"
+    venv, found = tmp_path / "home" / "qp-venv", wheels["QP_BOOTSTRAP_WHEELS"]
     assert log(tmp_path, "uv").splitlines() == [
         f"venv {venv} --python 3.11",  # the project's Python, from .python-version
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}",
+        f"pip install --python {venv}/bin/python --find-links {found} "
+        f"{CORE_ROOT} {TOOLKIT_ROOT}",
     ]
     assert log(tmp_path, f"venv-{server}").strip() == argv
     assert log(tmp_path, server) == ""  # not the one already on PATH
@@ -292,6 +295,7 @@ def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
     # met only when both are named in the same install.
     use_case = tmp_path / "use case"
     use_case.mkdir()
+    wheels = wheels_env(tmp_path)
     result = run_app(
         tmp_path,
         bin_dir,
@@ -299,11 +303,13 @@ def test_bootstrap_installs_the_toolkit_then_the_use_case_in_one_command(
         QP_BOOTSTRAP="1",
         QP_BOOTSTRAP_EXTRAS="domino",
         QP_USE_CASE_DIR=str(use_case),
+        **wheels,
     )
     assert result.returncode == 0, result.stderr
-    venv = tmp_path / "home" / "qp-venv"
+    venv, found = tmp_path / "home" / "qp-venv", wheels["QP_BOOTSTRAP_WHEELS"]
     assert log(tmp_path, "uv").splitlines()[1] == (
-        f"pip install --python {venv}/bin/python {TOOLKIT_ROOT}[domino] {use_case}"
+        f"pip install --python {venv}/bin/python --find-links {found} "
+        f"{CORE_ROOT} {TOOLKIT_ROOT}[domino] {use_case}"
     )
 
 

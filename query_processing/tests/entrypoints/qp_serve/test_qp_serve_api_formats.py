@@ -117,7 +117,7 @@ settings = WorkflowSettings(
 composition = CompositionRoot(settings, transport=httpx.MockTransport(flat_endpoint))
 with TestClient(create_app(composition)) as client:
     answer = client.post("/retrieve", json={"question": "vacation days"}).json()
-scores = [passage["rerank_score"] for passage in answer["passages"]]
+scores = [record["rerank_score"] for record in answer["records"]]
 print(json.dumps({"package": query_processing.__file__, "scores": scores}))
 """
 

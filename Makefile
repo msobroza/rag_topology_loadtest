@@ -1,22 +1,27 @@
-# rag_topology_loadtest — the repository's tasks. Two distributions of the product
-# live here: the toolkit in query_processing/ and the RAG use case in
-# query_processing_rag_usecase/, which installs it (ADR 0005). A third is not the
-# product: experiment_charts/ draws experiments-explained/ from experiments/.
-# install installs the first two in one command, install-dev all three; check runs
-# the toolkit's gates, then the use case's, then the charts package's; each gate is
-# handed to the toolkit's Makefile, then run over the source of the two others with
-# the toolkit's configuration where it can be (lint, typecheck, complexity, deps).
+# rag_topology_loadtest — the repository's tasks. Three distributions of the
+# product live here: the core in query_processing_core/, what toolkits exchange
+# (ADR 0014); the toolkit in query_processing/, which installs it; and the RAG use
+# case in query_processing_rag_usecase/, which installs the toolkit (ADR 0005). A
+# fourth is not the product: experiment_charts/ draws experiments-explained/ from
+# experiments/. install installs the three in one command, install-dev all four,
+# each after doclang's core, from its clone (DOCLANG_CLONE, in doclang.mk);
+# doclang-wheel builds the wheel of doclang's core an App and the image install;
+# check runs the core's gates, then the toolkit's, then the use case's, then the
+# charts package's; each gate is run over the core's source with the toolkit's
+# configuration where it can be (lint, typecheck, complexity, deps), handed to the
+# toolkit's Makefile, then run over the source of the two others in the same way.
 # The run targets (serve, ingest, loadtest, deploy, ...) are the use case's:
 # cd query_processing_rag_usecase && make help.
 .DEFAULT_GOAL := help
+CORE := query_processing_core
 TOOLKIT := query_processing
 USE_CASE := query_processing_rag_usecase
 CHARTS := experiment_charts
 HANDED := deadcode test
-# The gates also run over the use case's source and the charts package's, after
-# the toolkit's.
+# The gates also run over the core's source, before the toolkit's, and over the
+# use case's and the charts package's, after it.
 SHARED := lint typecheck complexity deps
-.PHONY: help install install-dev check format experiment-charts $(HANDED) $(SHARED)
+.PHONY: help install install-dev doclang-wheel check format experiment-charts $(HANDED) $(SHARED)
 
 # The repository's one .venv, in this directory, is used without activating it;
 # without one, commands come from the PATH as usual. The toolkit's Makefile is
@@ -43,16 +48,36 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 	@echo "  The run targets are the use case's: make -C $(USE_CASE) help"
 
-# No package index has the toolkit: the use case's dependency on it is met only
-# when both directories are named in one command, the toolkit first.
-install: ## Install the toolkit and the RAG use case (runtime deps only)
-	$(BIN)python -m pip install -e ./$(TOOLKIT) -e ./$(USE_CASE)
+# Where doclang's core is: its clone (DOCLANG_CLONE), as the toolkit's Makefile
+# reads it too.
+include doclang.mk
+# Where doclang-wheel writes the wheel of doclang's core: ignored by git, so the
+# private wheel never enters the repository.
+WHEELS := wheels
 
-install-dev: ## Install the toolkit with locust + test tooling, the RAG use case and the charts package
-	$(BIN)python -m pip install -e "./$(TOOLKIT)[dev]" -e ./$(USE_CASE) -e ./$(CHARTS)
+# No package index has doclang's core, the core or the toolkit: the core's
+# dependency on doclang's, the toolkit's on the core, and the use case's on the
+# toolkit are met only when the directories are named in one command, in that
+# order.
+install: ## Install doclang's core from its clone, the core, the toolkit and the RAG use case (runtime deps only)
+	$(BIN)python -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ./$(CORE) -e ./$(TOOLKIT) -e ./$(USE_CASE)
+
+install-dev: ## Install doclang's core from its clone, the core, the toolkit with locust + test tooling, the RAG use case and the charts package
+	$(BIN)python -m pip install -e $(DOCLANG_CORE_OR_STOP) -e ./$(CORE) -e "./$(TOOLKIT)[dev]" -e ./$(USE_CASE) -e ./$(CHARTS)
+
+# An App that installs at its start, and the image, have no clone: they take
+# doclang's core from this wheel, built from the clone as it stands. Without its
+# dependencies, which are on the index the install reads. Copying it to the
+# Dataset (the deploy setting bootstrap_wheels names the directory) is the owner's.
+# The earlier wheels of doclang's core go first, so that wheels/ holds the one
+# built: the image copies every wheel there, and an App stops on several.
+doclang-wheel: ## Build the wheel of doclang's core from its clone into wheels/ (git-ignored), replacing an earlier one, for an App's install and the image
+	rm -f $(WHEELS)/doclang_domain_core-*.whl
+	$(BIN)python -m pip wheel --no-deps --wheel-dir $(WHEELS) $(DOCLANG_CORE_OR_STOP)
 
 # The gates over a distribution beside the toolkit, $(1) its directory, each run
-# after the toolkit's own, and its formatting.
+# before the toolkit's own for the core and after it for the others, and its
+# formatting.
 define BESIDE_lint
 	cd $(1) && $(BIN)ruff check $(TOOLKIT_CONFIG) src tests
 	cd $(1) && $(BIN)black --check $(TOOLKIT_CONFIG) src tests
@@ -81,20 +106,22 @@ $(call BESIDE_deps,$(1))
 	cd $(1) && $(BIN)pytest
 endef
 
-check: ## Every quality gate over the toolkit, then over the use case and its tests, then over the charts package and its tests, stopping at the first failure
+check: ## Every quality gate over the core and its tests, then the toolkit, then the use case and its tests, then the charts package and its tests, stopping at the first failure
+	$(call BESIDE_check,$(CORE))
 	$(MAKE) -C $(TOOLKIT) check BIN="$(BIN)"
 	$(call BESIDE_check,$(USE_CASE))
 	$(call BESIDE_check,$(CHARTS))
 
-format: ## Auto-format the toolkit, the use case and the charts package with ruff --fix + black
+format: ## Auto-format the core, the toolkit, the use case and the charts package with ruff --fix + black
+	$(call BESIDE_format,$(CORE))
 	$(MAKE) -C $(TOOLKIT) format BIN="$(BIN)"
 	$(call BESIDE_format,$(USE_CASE))
 	$(call BESIDE_format,$(CHARTS))
 
-lint: ## ruff, black --check, pydoclint over the toolkit, then the use case, then the charts package
-typecheck: ## mypy and ty over the toolkit's source tree, then the use case's and the charts package's
-complexity: ## complexipy: cognitive complexity <= 10 per function, in all three
-deps: ## deptry: no missing, unused or transitive dependency, in all three
+lint: ## ruff, black --check, pydoclint over the core, then the toolkit, the use case and the charts package
+typecheck: ## mypy and ty over the core's source tree, then the toolkit's, the use case's and the charts package's
+complexity: ## complexipy: cognitive complexity <= 10 per function, in all four
+deps: ## deptry: no missing, unused or transitive dependency, in all four
 deadcode: ## vulture: nothing unused outside the toolkit's vulture_whitelist.py
 test: ## The toolkit's test suite (no model weights, no network)
 
@@ -102,6 +129,7 @@ $(HANDED):
 	$(MAKE) -C $(TOOLKIT) $@ BIN="$(BIN)"
 
 $(SHARED):
+	$(call BESIDE_$@,$(CORE))
 	$(MAKE) -C $(TOOLKIT) $@ BIN="$(BIN)"
 	$(call BESIDE_$@,$(USE_CASE))
 	$(call BESIDE_$@,$(CHARTS))

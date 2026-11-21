@@ -28,6 +28,13 @@ DATASET_OVMS=ovms-models
 CACHE_MODELS_PREFIX=models/
 CACHE_OPENVINO_PREFIX="$CACHE_MODELS_PREFIX$DATASET_OPENVINO/"
 CACHE_OVMS_OBJECT="$CACHE_MODELS_PREFIX$DATASET_OVMS.tar"
+# The wheel of doclang's core (doclang-domain-core), which no package index has and
+# no machine can build (it has no clone of document_doclang): `make -C emulation
+# wheel-save` stores it under CACHE_WHEELS_PREFIX, and restore_wheels copies every
+# wheel there into the dataset folder DATASET_WHEELS, which workspace.sh.tftpl's
+# deploy.yaml names for the Apps (bootstrap_wheels).
+DATASET_WHEELS=wheels
+CACHE_WHEELS_PREFIX=wheels/
 # What exported_model_dir names a model's folder: the model id's last segment.
 MODEL_FOLDER_PATTERN='[A-Za-z0-9_][A-Za-z0-9._-]*'
 # Written at boot by write_cache_config (under the emulation's config folder);
@@ -314,6 +321,34 @@ restore_cached_models() {
   for object in $objects; do
     restore_cached_model "$1" "$object" "$3"
   done
+}
+
+# restore_wheels <bucket> <dataset folder>: every wheel under CACHE_WHEELS_PREFIX into
+# its DATASET_WHEELS folder, which then holds what the bucket holds (a wheel built
+# again replaces the old one), and QP_BOOTSTRAP_WHEELS exported naming that folder,
+# as domino/app.sh reads it. Ends the script when none of them is doclang's core.
+restore_wheels() {
+  local bucket=$1 folder="$2/$DATASET_WHEELS" objects object
+  objects=$(bucket_list "$bucket" "$CACHE_WHEELS_PREFIX" 20) || exit 1
+  owned_folder "$folder"
+  rm -f "$folder"/*.whl
+  for object in $objects; do
+    case $object in
+      *.whl) bucket_fetch "$bucket" "$object" "$folder/${object##*/}" || die "gs://$bucket/$object was listed, then not found" ;;
+    esac
+  done
+  doclang_wheel_in "$folder" \
+    || die "no wheel of doclang's core (doclang_domain_core-*.whl) under gs://$bucket/$CACHE_WHEELS_PREFIX: build it with make doclang-wheel at the repository's root, store it with make -C emulation wheel-save, then start this machine again"
+  export QP_BOOTSTRAP_WHEELS=$folder
+}
+
+# doclang_wheel_in <folder>: 0 when <folder> holds a wheel of doclang's core.
+doclang_wheel_in() {
+  local wheel
+  for wheel in "$1"/doclang_domain_core-*.whl; do
+    if [ -f "$wheel" ]; then return 0; fi
+  done
+  return 1
 }
 
 # A startup script reports its progress. A script that sources this file for its

@@ -12,6 +12,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from model_api_fakes import endpoint_client
 from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
@@ -29,7 +30,6 @@ from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.domain.endpoints.standard_formats import CohereRerankRequest
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.entrypoints.qp_model_server import (
     UNKNOWN_MODEL_ERROR,
     candidates_from_rerank,
@@ -157,11 +157,15 @@ async def test_api_adapters_work_against_the_fastapi_server(
         )
         reranker = api_reranker(rerank_client, "fixture-reranker")
         embedder = api_embedder(embed_client, "fixture-embedder")
-        passages = [
-            ScoredPassage(id="x", text="cafeteria lunch", retrieval_score=0.9),
-            ScoredPassage(id="y", text="vacation days policy", retrieval_score=0.8),
+        records = [
+            ScoredVectorStoreRecord(
+                text="cafeteria lunch", metadata={"id": "x"}, retrieval_score=0.9
+            ),
+            ScoredVectorStoreRecord(
+                text="vacation days policy", metadata={"id": "y"}, retrieval_score=0.8
+            ),
         ]
-        ranked = await reranker.rerank("vacation days", passages, 1)
+        ranked = await reranker.rerank("vacation days", records, 1)
         assert [p.id for p in ranked] == ["y"]
         assert ranked[0].rerank_score is not None
         vectors = await embedder.embed_documents(["a", "b"])
@@ -207,8 +211,10 @@ async def test_api_adapters_with_a_wrong_alias_fail_fast_on_404(
 
 async def _rerank_with_alias(client: httpx.AsyncClient, alias: str) -> None:
     reranker = api_reranker(client, alias)
-    passages = [ScoredPassage(id="x", text="a", retrieval_score=0.9)]
-    await reranker.rerank("q", passages, 1)
+    records = [
+        ScoredVectorStoreRecord(text="a", metadata={"id": "x"}, retrieval_score=0.9)
+    ]
+    await reranker.rerank("q", records, 1)
 
 
 async def _embed_with_alias(client: httpx.AsyncClient, alias: str) -> None:
@@ -367,9 +373,17 @@ def test_rerank_round_trip_maps_back_to_the_documents_sent() -> None:
     assert api_format.scores(answer) == {1: 0.8}
 
 
-def test_rerank_response_for_rejects_an_unscored_passage() -> None:
+def test_rerank_response_for_rejects_an_unscored_record() -> None:
     [unscored] = candidates_from_rerank(
         CohereRerankRequest(model="r", query="q", documents=["a"])
     )
     with pytest.raises(ValueError, match="'0' has no rerank_score"):
         rerank_response_for([unscored])
+
+
+def test_rerank_response_for_refuses_a_record_with_no_id_in_words() -> None:
+    no_id = ScoredVectorStoreRecord(
+        text="alpha", metadata={"topic": "hr"}, retrieval_score=0.0, rerank_score=1.0
+    )
+    with pytest.raises(ValueError, match=r"'alpha' holds no id; expected a text id"):
+        rerank_response_for([no_id])

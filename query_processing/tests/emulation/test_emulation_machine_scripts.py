@@ -20,7 +20,7 @@ from emulation_machine_fakes import (
     EMBEDDER,
     ES_URL,
     INDEX_SNAPSHOT_SH,
-    PASSAGES,
+    INDEXED_RECORDS,
     RERANKER,
     SERVED_MODEL_LINES,
     TOKEN,
@@ -274,7 +274,7 @@ def test_snapshot_save_replaces_the_snapshot_named_after_the_embedder(
         f"DELETE {REPOSITORY}/{SNAPSHOT}",
     ]
     assert calls[3].startswith(f"PUT {REPOSITORY}/{SNAPSHOT}?wait_for_completion=true ")
-    assert f'"passages": {PASSAGES}' in calls[3]
+    assert f'"passages": {INDEXED_RECORDS}' in calls[3]
     assert '"include_global_state": false' in calls[3]
 
 
@@ -293,7 +293,7 @@ def test_snapshot_restore_replaces_the_index(machine: FakeMachine) -> None:
         f"POST {restore_path}",
         "GET /rag_passages/_count",
     ]
-    assert f"holds {PASSAGES} passages" in result.stdout
+    assert f"holds {INDEXED_RECORDS} vector-store records" in result.stdout
 
 
 def test_snapshot_restore_of_a_missing_snapshot_names_it(machine: FakeMachine) -> None:

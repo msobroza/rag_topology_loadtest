@@ -30,6 +30,13 @@ import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from query_processing_core.conversation import check_history_conditions
+from query_processing_core.query_request import QueryRequest
+from query_processing_core.query_response import QueryResponse, RagMode
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataFieldInfo,
+    check_conditions,
+)
 
 from ..application.graph_check import WorkflowGraphError
 from ..application.rag_dependencies import RagDependencies
@@ -43,15 +50,7 @@ from ..composition.registered_names import check_registered_names
 from ..config.apps.process_environment_settings import ProcessEnvironmentSettings
 from ..config.apps.uvicorn_settings import UvicornSettings
 from ..config.workflow_settings import WorkflowSettings
-from ..domain.conversation import check_history_conditions
 from ..domain.errors import MissingKeyError, RagDependencyError
-from ..domain.query_request import QueryRequest
-from ..domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-    check_conditions,
-)
-from ..domain.retrieval.passages import RagMode, ScoredPassage
 from ..infrastructure.http.startup_refusal_in_one_line import (
     StartupRefusalInOneLine,
 )
@@ -62,28 +61,6 @@ from ..infrastructure.process_environment import restart_with
 logger = logging.getLogger("query_processing")
 # --domino, "1" or "0", for a worker of several, which never sees the arguments.
 DOMINO_VARIABLE = "QP_SERVE_DOMINO"
-
-
-class QueryResponse(BaseModel):
-    """The workflow's answer, its passages, the time and tokens of each stage.
-
-    ``tokens`` holds, under each stage whose LLM reported both counts, the
-    ``prompt`` and ``completion`` tokens; ``{}`` when no stage did, as on a
-    ``/retrieve`` that asks the LLM nothing.
-    """
-
-    request_id: str
-    # The topology alias, as X-RAG-Topology; None when none was given.
-    topology: str | None
-    run_label: str
-    question: str
-    mode: RagMode
-    answer: str | None
-    passages: list[ScoredPassage]
-    timings_ms: dict[str, float]
-    tokens: dict[str, dict[str, int]]
-    # The conditions applied: the client's, then those the stages added.
-    metadata_filter: list[MetadataCondition]
 
 
 class ReadyCheck(BaseModel):
@@ -341,7 +318,8 @@ async def _answer(request: Request, body: QueryRequest, mode: RagMode) -> QueryR
         request_id=request.state.request_id,
         topology=settings.topology_alias,
         run_label=settings.run_label,
-        **result.model_dump(),
+        records=result.records,
+        **result.model_dump(exclude={"records"}),
     )
 
 
@@ -354,22 +332,22 @@ async def query(body: QueryRequest, request: Request) -> QueryResponse:
         request: The HTTP request, for its request id and the app's state.
 
     Returns:
-        The answer, the passages it used, the time each stage took and the
-        tokens of each stage whose LLM reported its counts.
+        The answer, the vector-store records it used, the time each stage
+        took and the tokens of each stage whose LLM reported its counts.
     """
     return await _answer(request, body, "query")
 
 
 @routes.post("/retrieve", response_model=QueryResponse)
 async def retrieve(body: QueryRequest, request: Request) -> QueryResponse:
-    """Retrieve and rerank the passages for the question, without the LLM call.
+    """Retrieve and rerank the records for the question, without the LLM call.
 
     Args:
         body: The question.
         request: The HTTP request, for its request id and the app's state.
 
     Returns:
-        The passages, no answer, and the time each stage took.
+        The vector-store records, no answer, and the time each stage took.
     """
     return await _answer(request, body, "retrieve")
 

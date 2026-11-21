@@ -19,11 +19,18 @@
 # Unset, the command runs in the directory app.sh was started in.
 #
 # QP_BOOTSTRAP=1 (set by qp-deploy) first installs what the App needs, for a
-# generic environment with only uv: the workflow app uv-installs the toolkit, with
+# generic environment with only uv: the workflow app uv-installs the core, the toolkit, with
 # the extras named by QP_BOOTSTRAP_EXTRAS (e.g. "domino") when set, and the use
 # case of QP_USE_CASE_DIR, in one command, into a virtualenv under $HOME; a
 # model server runs its kind's bootstrap. Unset, nothing is installed: the
 # prebuilt `rag` / `ovms` images already have it all.
+#
+# QP_BOOTSTRAP_WHEELS (set by qp-deploy, from its setting bootstrap_wheels: a
+# directory on the Dataset) is where every install of the project finds
+# doclang's core (doclang-domain-core), which the core depends on and no package
+# index has; everything else comes from the index. An install without one wheel
+# of it there (none, or several) stops before anything is installed, in one line
+# (ADR 0014): a kind whose bootstrap installs something first looks for it then.
 #
 # The workflow app reads everything else from its own variables: each component's
 # backend and served URL, and QP_TOPOLOGY_ALIAS, only a label (qp-deploy sets
@@ -39,6 +46,9 @@ set -euo pipefail
 # project's .python-version is one level up, at the repository's root.
 TOOLKIT=$(cd "$(dirname "$0")/.." && pwd)
 PYTHON_VERSION_FILE=$TOOLKIT/../.python-version
+# The core's directory, beside the toolkit's: what the toolkit depends on and no
+# package index has, so it is named first in the same install (ADR 0014).
+CORE=${TOOLKIT%/*}/query_processing_core
 
 ROLE=${QP_ROLE:-workflow}
 WHO=$ROLE                                   # what die names: the role, or the kind and component
@@ -50,29 +60,51 @@ die() {
 }
 
 # install_project <venv> <requirement>...: uv-install the requirements in one
-# command, then put the venv on PATH.
+# command, doclang's core found in QP_BOOTSTRAP_WHEELS, then put the venv on PATH.
 install_project() {
   local venv=$1
   shift
+  require_doclang_wheel
   # Its own virtualenv, on the project's Python (.python-version), which uv
   # fetches when the environment lacks it: the environment's own packages
   # (an old urllib3 in Domino's standard image) break ours.
   uv venv "$venv" --python "$(cat "$PYTHON_VERSION_FILE")"
-  uv pip install --python "$venv/bin/python" "$@"
+  uv pip install --python "$venv/bin/python" --find-links "$QP_BOOTSTRAP_WHEELS" "$@"
   export PATH="$venv/bin:$PATH"
 }
 
-# install_this_project: the toolkit, with the extras an Agent asks for (its
-# launch script sets QP_BOOTSTRAP_EXTRAS=domino, for tracing), then the use case
-# of QP_USE_CASE_DIR when there is one, into $HOME/qp-venv in one command: the
-# use case depends on the toolkit, which no package index has.
+# require_doclang_wheel: QP_BOOTSTRAP_WHEELS names a directory holding one wheel
+# of doclang's core, or the App stops: with none, uv would fail on the index,
+# which reads as a network failure; with several, it would take the highest
+# version, not the one last built. A kind's bootstrap calls it before installing
+# anything when the toolkit will be installed.
+require_doclang_wheel() {
+  local wheels=${QP_BOOTSTRAP_WHEELS:-} wheel names="" count=0
+  if [ -n "$wheels" ]; then
+    for wheel in "$wheels"/doclang_domain_core-*.whl; do
+      [ -f "$wheel" ] || continue
+      count=$((count + 1))
+      names="$names ${wheel##*/}"
+    done
+  fi
+  [ "$count" != 1 ] || return 0
+  [ "$count" = 0 ] \
+    || die "QP_BOOTSTRAP_WHEELS='$wheels' holds $count wheels of doclang's core:$names; leave one there, the one make doclang-wheel built last, or the install takes the highest version"
+  die "QP_BOOTSTRAP_WHEELS='$wheels' names no directory holding a wheel of doclang's core (doclang_domain_core-*.whl); set the deploy setting bootstrap_wheels to the directory on the Dataset holding that wheel, which make doclang-wheel builds"
+}
+
+# install_this_project: the core, then the toolkit, with the extras an Agent
+# asks for (its launch script sets QP_BOOTSTRAP_EXTRAS=domino, for tracing), then
+# the use case of QP_USE_CASE_DIR when there is one, into $HOME/qp-venv in one
+# command: the toolkit depends on the core, the use case on the toolkit, and no
+# package index has either.
 install_this_project() {
   local toolkit=$TOOLKIT
   if [ -n "${QP_BOOTSTRAP_EXTRAS:-}" ]; then toolkit="${TOOLKIT}[$QP_BOOTSTRAP_EXTRAS]"; fi
   if [ -n "${QP_USE_CASE_DIR:-}" ]; then
-    install_project "$HOME/qp-venv" "$toolkit" "$QP_USE_CASE_DIR"
+    install_project "$HOME/qp-venv" "$CORE" "$toolkit" "$QP_USE_CASE_DIR"
   else
-    install_project "$HOME/qp-venv" "$toolkit"
+    install_project "$HOME/qp-venv" "$CORE" "$toolkit"
   fi
 }
 

@@ -99,7 +99,7 @@ def test_two_stages_call_two_components_of_one_type(
         "rerank_coarse",
         "total",
     ]
-    assert len(response.json()["passages"]) == 10  # the rerank stage's top_k
+    assert len(response.json()["records"]) == 10  # the rerank stage's top_k
 
 
 def test_the_fixture_file_builds_a_graph_from_its_three_model_components(
@@ -121,8 +121,8 @@ def test_the_fixture_file_builds_a_graph_from_its_three_model_components(
     assert sorted(checks) == ["embedder", "reranker", "vector_store"]
 
 
-def passages_of(documents: int) -> int:
-    """How many passages the fake store holds once seeded with ``documents``."""
+def seeded_records(documents: int) -> int:
+    """How many records the fake store holds once seeded with ``documents``."""
     return sum(len(chunk(document)) for document in synthetic_corpus(documents))
 
 
@@ -156,23 +156,25 @@ def test_the_vector_store_is_built_from_its_entry_in_the_workflow_file(
 
     assert response.status_code == 200, response.text
     [check] = [c for c in ready["checks"] if c["name"] == "vector_store"]
-    assert check["detail"] == f"{passages_of(3)} passages in memory"
+    assert check["detail"] == f"{seeded_records(3)} records in memory"
 
 
 def test_a_store_of_any_name_is_called_by_that_name_and_read_by_its_path(
     settings_factory: SettingsFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     store = {"type": "vector_store", "backend": "fake", "fake": {"seed_documents": 3}}
-    write_file_with_store(tmp_path / "workflow.yaml", monkeypatch, "passages", store)
-    monkeypatch.setenv("QP_COMPONENTS__PASSAGES__FAKE__SEED_DOCUMENTS", "5")
+    write_file_with_store(
+        tmp_path / "workflow.yaml", monkeypatch, "second_store", store
+    )
+    monkeypatch.setenv("QP_COMPONENTS__SECOND_STORE__FAKE__SEED_DOCUMENTS", "5")
 
     with TestClient(create_app(CompositionRoot(settings_factory()))) as app:
         response = app.post("/retrieve", json={"question": QUESTION})
         ready = app.get("/readyz").json()
 
     assert response.status_code == 200, response.text
-    [check] = [c for c in ready["checks"] if c["name"] == "passages"]
-    assert check["detail"] == f"{passages_of(5)} passages in memory"
+    [check] = [c for c in ready["checks"] if c["name"] == "second_store"]
+    assert check["detail"] == f"{seeded_records(5)} records in memory"
 
 
 def api_keys_in(node: object) -> list[str]:

@@ -9,7 +9,7 @@ application depends on it, and on nothing else of the adapters.
 
 Example:
     >>> class MyReranker(BaseReranker):
-    ...     async def rerank(self, query, passages, top_n): ...
+    ...     async def rerank(self, query, records, top_n): ...
     ...     async def ready(self): return True, "mine"
 """
 
@@ -18,9 +18,10 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Sequence
 
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
+
 from ...domain.components.base_component import BaseComponent
 from ...domain.components.component_requests import RerankAnswer, RerankRequest
-from ...domain.retrieval.passages import ScoredPassage
 
 
 class BaseReranker(
@@ -30,17 +31,17 @@ class BaseReranker(
 
     @abstractmethod
     async def rerank(
-        self, query: str, passages: Sequence[ScoredPassage], top_n: int
-    ) -> list[ScoredPassage]:
+        self, query: str, records: Sequence[ScoredVectorStoreRecord], top_n: int
+    ) -> list[ScoredVectorStoreRecord]:
         """Re-score retrieval candidates against the query and keep the best.
 
         Args:
-            query: The question the passages are scored against.
-            passages: The retrieval candidates.
-            top_n: How many passages to keep.
+            query: The question the records are scored against.
+            records: The retrieval candidates.
+            top_n: How many records to keep.
 
         Returns:
-            At most ``top_n`` passages, best first.
+            At most ``top_n`` records, best first.
         """
 
     async def ainvoke(self, request: RerankRequest) -> RerankAnswer:
@@ -50,15 +51,15 @@ class BaseReranker(
             request: The query, the candidates and how many to keep.
 
         Returns:
-            At most ``top_k`` passages, best first.
+            At most ``top_k`` records, best first.
 
         Example:
             >>> await reranker.ainvoke(RerankRequest(
-            ...     query="vacation", passages=candidates, top_k=5))
-            RerankAnswer(passages=[...])
+            ...     query="vacation", records=candidates, top_k=5))
+            RerankAnswer(records=[...])
         """
-        kept = await self.rerank(request.query, request.passages, request.top_k)
-        return RerankAnswer(passages=kept)
+        kept = await self.rerank(request.query, request.records, request.top_k)
+        return RerankAnswer(records=kept)
 
     @abstractmethod
     async def ready(self) -> tuple[bool, str]:

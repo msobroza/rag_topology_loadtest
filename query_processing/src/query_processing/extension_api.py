@@ -60,6 +60,8 @@ Example:
 
 from __future__ import annotations
 
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from .adapters.llm.base_llm import BaseLLM
 from .adapters.router.base_router import BaseRouter
 from .application.edge_conditions.edge_condition import EDGE_CONDITIONS
@@ -87,7 +89,6 @@ from .domain.components.component_resources import ComponentResources
 from .domain.components.routes import Route, RouteChoice, RouteRequest
 from .domain.endpoints.api_format import COMPONENT_API_FORMATS, BaseApiFormat
 from .domain.errors import RagDependencyError
-from .domain.retrieval.metadata_filter import MetadataCondition
 from .infrastructure.endpoint.served_call import ServedCallMixin
 
 __all__ = [

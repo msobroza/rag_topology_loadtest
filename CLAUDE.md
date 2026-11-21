@@ -2,8 +2,15 @@
 
 The toolkit `query_processing` and its first use case, a RAG. Read `CONTEXT.md`
 for the vocabulary, the README's "Where a file goes" for the layout and its
-rules, and `docs/adr/0003` to `0010` and `docs/adr/0012` for the design.
+rules, and `docs/adr/0003` to `0010`, `0012` and `0014` for the design.
 
+- `query_processing_core/`: the core, a distribution of its own (package
+  `query_processing_core`, Pydantic and doclang's core) holding what one
+  toolkit writes and another reads, today the metadata filter, the
+  conversational history, the body of a request and of a response, and the
+  vector-store record with its scores. No port, no settings, no I/O; it
+  imports no toolkit and no use case (its `tests/test_core_imports.py`). The
+  toolkit depends on it, so every install names its directory before the toolkit's.
 - `query_processing/`: the toolkit, one distribution holding what any use case
   can assemble (package `query_processing`, commands `qp-*`, variables `QP_*`):
   the component types with their requests and answers, the stage types, the
@@ -41,10 +48,19 @@ repository's root (one for the repository), and those on the PATH otherwise.
 
 From the repository's root:
 
-- `make install-dev`: install the toolkit with its test and gate tools, the use
-  case and the charts package, in one command (no package index has the toolkit).
-- `make check`: the gate, every target of the Health Stack below in that order over
-  the toolkit, stopping at the first failure, then lint, typecheck, complexity
+- `make install-dev`: install the core, the toolkit with its test and gate
+  tools, the use case and the charts package, in one command (no package index
+  has the core or the toolkit). It needs a clone of `document_doclang`, whose
+  core it installs first (private, on no index): beside the main checkout, or
+  where `DOCLANG_CLONE` names (`doclang.mk`, read by this Makefile and the
+  toolkit's).
+- `make doclang-wheel`: build the wheel of doclang's core from that clone into
+  `wheels/` (git-ignored). An App, a Workspace and the image have no clone:
+  they install doclang's core from that wheel, which the owner copies to a
+  Dataset directory named by the deploy setting `bootstrap_wheels`.
+- `make check`: the gate, lint, typecheck, complexity and deps over the core
+  with the toolkit's configuration and its tests, then every target of the
+  Health Stack below in that order over the toolkit, then lint, typecheck, complexity
   and deps over the use case with the toolkit's configuration and its tests,
   then the same over the charts package and its tests.
 - `make -C query_processing check`: the same gates over the toolkit alone.
@@ -99,12 +115,12 @@ owner asks for one.
 ## The tests /verify runs
 
 `.gstack/pregate.json` names the command for the tests a change selects. The
-repository has three tests folders, so the command sorts the selected files by
-the folder that holds them (`query_processing/`, `query_processing_rag_usecase/`,
-`experiment_charts/`) and runs pytest inside each, where its `pyproject.toml`
+repository has four tests folders, so the command sorts the selected files by
+the folder that holds them (`query_processing_core/`, `query_processing/`,
+`query_processing_rag_usecase/`, `experiment_charts/`) and runs pytest inside each, where its `pyproject.toml`
 is: pytest from `.venv/bin` when a `.venv` exists here, as every `make` target
 does.
 
 A green `/verify` is not a green suite. For a changed file under `src/` it selects
 the tests that name the file's path, not the tests that import it: a change to
-`domain/retrieval/passages.py` alone ran one test file. `make check` is the gate.
+one module of `domain/retrieval/` alone ran one test file. `make check` is the gate.

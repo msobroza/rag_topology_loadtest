@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.key_source.base_key_source import BaseKeySource
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.infrastructure.endpoint.api_endpoint_client import (
     ApiEndpointClient,
 )
@@ -133,8 +133,10 @@ def standard_answer(body: dict[str, Any]) -> dict[str, Any]:
     return {"choices": [{"message": {"content": "Twenty-five days."}}]}
 
 
-def passages(count: int) -> list[ScoredPassage]:
+def records(count: int) -> list[ScoredVectorStoreRecord]:
     return [
-        ScoredPassage(id=f"p{i}", text=f"text {i}", retrieval_score=1.0 - i / 10)
+        ScoredVectorStoreRecord(
+            text=f"text {i}", metadata={"id": f"p{i}"}, retrieval_score=1.0 - i / 10
+        )
         for i in range(count)
     ]

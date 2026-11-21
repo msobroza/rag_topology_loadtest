@@ -16,9 +16,9 @@ from pathlib import PurePosixPath
 from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
+from query_processing_core.retrieval.metadata_filter import MetadataValue
 
 from ...domain.retrieval.corpus import SourceDocument
-from ...domain.retrieval.passages import MetadataValue
 
 
 class CorpusFormatError(ValueError):
@@ -40,7 +40,7 @@ class CorpusFormatError(ValueError):
 
 
 class _ReferenceLine(BaseModel):
-    # A reference passage; other keys a future release adds are ignored.
+    # A reference text; other keys a future release adds are ignored.
     model_config = ConfigDict(extra="ignore")
     text: str
     url: str | None = None

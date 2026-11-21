@@ -10,6 +10,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.adapters.embedder.api.api_embedder import ApiEmbedder
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -24,7 +25,6 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import MissingKeyError, RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_components import FAKE_BACKENDS
 
 SettingsFactory = Callable[..., WorkflowSettings]
@@ -63,10 +63,14 @@ class RecordingModelRoutes:
         ]
 
 
-def candidates() -> list[ScoredPassage]:
+def candidates() -> list[ScoredVectorStoreRecord]:
     return [
-        ScoredPassage(id="a", text="vacation days", retrieval_score=0.5),
-        ScoredPassage(id="b", text="expense receipts", retrieval_score=0.4),
+        ScoredVectorStoreRecord(
+            text="vacation days", metadata={"id": "a"}, retrieval_score=0.5
+        ),
+        ScoredVectorStoreRecord(
+            text="expense receipts", metadata={"id": "b"}, retrieval_score=0.4
+        ),
     ]
 
 

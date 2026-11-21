@@ -1,9 +1,16 @@
 # Domino 6.2 compute environments for query_processing: two build targets, one file.
 #
 # Build from the repository's root, the context: it holds .python-version, the
-# toolkit's directory query_processing/ (pyproject.toml, src/, ovms/) and the use
+# core's directory query_processing_core/ (pyproject.toml, src/), the toolkit's
+# directory query_processing/ (pyproject.toml, src/, ovms/), the use
 # case's (USE_CASE, the RAG's by default: its pyproject.toml, its package under
-# src/, and the workflow, prompts and routes files its settings read):
+# src/, and the workflow, prompts and routes files its settings read) and
+# wheels/, which git ignores: the wheel of doclang's core (doclang-domain-core),
+# which the core depends on and no package index has, that `make doclang-wheel`
+# at the root builds from its clone. The rag stage copies wheels/ and installs
+# doclang's core from it; without it the build stops at that COPY. Build the
+# wheel first:
+#   make doclang-wheel
 #   docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/query-processing-rag  .
 #   docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/query-processing-ovms .
 #
@@ -54,18 +61,25 @@ USER root
 # lines and read its settings from what they copy, so that a file it gains is
 # not forgotten here.
 COPY .python-version /opt/qp/
+COPY query_processing_core/pyproject.toml /opt/qp/query_processing_core/
+COPY query_processing_core/src /opt/qp/query_processing_core/src
 COPY query_processing/pyproject.toml /opt/qp/query_processing/
 COPY query_processing/src /opt/qp/query_processing/src
 COPY ${USE_CASE}/pyproject.toml ${USE_CASE}/workflow.yaml ${USE_CASE}/prompts.yaml ${USE_CASE}/routes.yaml /opt/qp/${USE_CASE}/
 COPY ${USE_CASE}/src /opt/qp/${USE_CASE}/src
-# The toolkit and the use case in one command, the toolkit first: no package index
-# has the toolkit. [loadtest] adds locust and rouge-score, for the Workspaces
-# that run the load test and compare answers (an App runs neither);
+# The wheel of doclang's core, which `make doclang-wheel` writes into wheels/.
+COPY wheels /opt/qp/wheels/
+# The core, the toolkit and the use case in one command, in that order, doclang's
+# core found among the wheels: no package index has any of them. [loadtest] adds locust and
+# rouge-score, for the Workspaces that run the load test and compare answers (an
+# App runs neither);
 # [domino] adds dominodatalab[agents] for QP_DOMINO__TRACING=true.
 RUN pip install --no-cache-dir uv \
     && UV_PYTHON_INSTALL_DIR=/opt/uv-python uv venv /opt/qp-venv \
         --python "$(cat /opt/qp/.python-version)" \
     && uv pip install --no-cache --python /opt/qp-venv/bin/python \
+        --find-links /opt/qp/wheels \
+        /opt/qp/query_processing_core \
         "/opt/qp/query_processing[loadtest,domino]" \
         "/opt/qp/${USE_CASE}"
 ENV PATH=/opt/qp-venv/bin:$PATH

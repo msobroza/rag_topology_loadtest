@@ -1,12 +1,16 @@
-"""``qp-record-answers``: what it sends, what it keeps, and when it writes nothing."""
+"""``qp-record-answers``: what it sends, what it keeps, and when it writes nothing.
+
+It writes the answer record's new form whichever shape its target answered
+in: the vector-store records under ``passages`` or under ``records``.
+"""
 
 from __future__ import annotations
 
 import builtins
+import hashlib
 import io
 import json
 import socket
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
@@ -14,7 +18,15 @@ from typing import IO, Any
 import httpx
 import pytest
 
-from answer_record_helpers import record, use_loadtest_variables, workflow_client
+from answer_record_helpers import (
+    NEW_BODY,
+    OLD_BODY,
+    SCORES,
+    old_entry,
+    record,
+    use_loadtest_variables,
+    workflow_client,
+)
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.retrieval.corpus import synthetic_questions
 from query_processing.loadtest.answer_record import read_answer_record
@@ -48,12 +60,13 @@ def test_the_record_holds_no_timing_no_tokens_no_request_id_and_no_text(
     answer = json.loads(text)["answers"][1]
 
     assert answer["status"] == 200
-    assert answer["passages"]
+    assert answer["records"]
     for left_out in ("timings_ms", "tokens", "request_id", "run_label", "question"):
         assert left_out not in answer
-    assert set(answer["passages"][0]) == {
-        "id", "text_sha256", "metadata", "retrieval_score", "rerank_score"
+    assert set(answer["records"][0]) == {
+        "text_sha256", "metadata", "retrieval_score", "rerank_score"
     }  # fmt: skip
+    assert isinstance(answer["records"][0]["metadata"]["id"], str)
     assert read_answer_record(prefix).seen[0].responses == 6
 
 
@@ -143,295 +156,39 @@ def test_a_response_that_is_no_json_object_is_recorded_with_its_status_alone(
 
     recorded = read_answer_record(tmp_path / "run").answers
     assert status == 0
-    assert [(a.status, a.mode, a.passages) for a in recorded] == [
+    assert [(a.status, a.mode, a.records) for a in recorded] == [
         (200, None, None),
         (502, None, None),
     ]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"mode": "retrieve", "passages": [{"text": "no id"}]},
+        {"mode": "retrieve", "records": [{"text": "no id", "metadata": {}}]},
+    ],
+    ids=["passages", "records"],
+)
 def test_a_200_not_of_the_answers_shape_stops_the_command_naming_it(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    body: dict[str, Any],
 ) -> None:
     use_loadtest_variables(monkeypatch, tmp_path, {"QP_LOADTEST_QUESTIONS": "1"})
-    body = {"mode": "retrieve", "passages": [{"text": "no id"}]}
-    client = httpx.Client(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
-    )
 
-    status = record_answers_main(["--host", HOST, "--out", "run"], client=client)
+    status = record_answers_main(
+        ["--host", HOST, "--out", "run"], client=answering(body)
+    )
 
     error = capsys.readouterr().err
     assert status == 4
-    assert "/retrieve: passages.0.id: " in error
+    assert "/retrieve: records.0.metadata: " in error
+    assert '"records"?: [' in error  # the shape expected, in both its forms
+    assert '"passages"?: [' in error
     assert "nothing written" in error
     assert not list(tmp_path.glob("*_answers.json"))
-
-
-ENV_KEY = {"QP_LOADTEST_KEY__SOURCE": "env", "QP_LOADTEST_KEY__VARIABLE": "TARGET_KEY"}
-DOMINO_KEY = {"QP_LOADTEST_KEY__SOURCE": "domino", "QP_DOMINO__TOKEN_URL": TOKEN_URL}
-
-
-@pytest.mark.parametrize(
-    ("variables", "header", "value"),
-    [
-        ({**ENV_KEY, "TARGET_KEY": "k-1"}, "Authorization", "Bearer k-1"),
-        ({"DOMINO_API_KEY": "dk"}, "X-Domino-Api-Key", "dk"),
-        (
-            {**ENV_KEY, "TARGET_KEY": "k-1", "DOMINO_API_KEY": "dk"},
-            "Authorization",
-            "Bearer k-1",
-        ),
-        ({}, "Authorization", None),
-    ],
-    ids=["env", "domino-api-key", "a-key-block-wins", "none"],
-)
-def test_each_request_carries_the_key_the_settings_name(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    variables: dict[str, str],
-    header: str,
-    value: str | None,
-) -> None:
-    use_loadtest_variables(monkeypatch, tmp_path, {"QP_LOADTEST_QUESTIONS": "1"})
-    for name, given in variables.items():
-        monkeypatch.setenv(name, given)
-    target = KeyedTarget()
-
-    assert target.record() == 0
-    assert target.carried(header) == [value] * 2
-    if "DOMINO_API_KEY" in variables and value != "dk":
-        assert target.carried("X-Domino-Api-Key") == [None] * 2
-
-
-def test_the_domino_source_sends_the_run_token_held_for_its_lifetime(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    use_loadtest_variables(
-        monkeypatch, tmp_path, {**DOMINO_KEY, "QP_LOADTEST_QUESTIONS": "3"}
-    )
-    target = KeyedTarget()
-
-    assert target.record() == 0
-    assert target.tokens_served == 1  # within QP_DOMINO__TOKEN_TTL_S's 240 s
-    assert target.carried("Authorization") == ["Bearer run-token-1"] * 6
-
-
-def test_the_run_token_is_asked_for_again_once_its_lifetime_is_over(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    variables = {**DOMINO_KEY, "QP_DOMINO__TOKEN_TTL_S": "0.001"}
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    # Each answer takes longer than a token is held.
-    target = KeyedTarget(answer_s=0.002)
-
-    assert target.record() == 0
-    assert target.tokens_served == 6
-    assert target.carried("Authorization") == [
-        f"Bearer run-token-{n}" for n in range(1, 7)
-    ]
-
-
-def test_a_401_tells_the_source_and_is_sent_again_with_the_new_token(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    use_loadtest_variables(
-        monkeypatch,
-        tmp_path,
-        {**DOMINO_KEY, "QP_LOADTEST_QUESTIONS": "1", "QP_LOADTEST_BACKOFF_S": "0.5"},
-    )
-    target = KeyedTarget(refused={"Bearer run-token-1"})
-
-    assert target.record() == 0
-    assert target.carried("Authorization") == [
-        "Bearer run-token-1",  # refused: the source is told
-        "Bearer run-token-2",
-        "Bearer run-token-2",
-    ]
-    assert target.waits == [0.5]  # within the retries, after their backoff
-    assert [a.status for a in read_answer_record(tmp_path / "run").answers] == [200] * 2
-
-
-def test_when_the_retries_run_out_on_401s_the_last_response_is_recorded(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    variables = {**ENV_KEY, "TARGET_KEY": "rotated", "QP_LOADTEST_QUESTIONS": "1"}
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    target = KeyedTarget(refused={"Bearer rotated"})
-
-    assert target.record() == 0
-    assert len(target.carried("Authorization")) == 2 * 3  # QP_LOADTEST_RETRIES=2
-    assert [a.status for a in read_answer_record(tmp_path / "run").answers] == [401] * 2
-
-
-def test_a_401_without_a_key_source_is_recorded_at_once(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    variables = {"DOMINO_API_KEY": "dk", "QP_LOADTEST_QUESTIONS": "1"}
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    target = KeyedTarget(refused={None})
-
-    assert target.record() == 0
-    assert target.carried("X-Domino-Api-Key") == ["dk"] * 2
-    assert target.waits == []
-
-
-@pytest.mark.parametrize(
-    ("variables", "line"),
-    [
-        (
-            {"QP_LOADTEST_KEY__SOURCE": "vault"},
-            "QP_LOADTEST_KEY__SOURCE: unknown key source 'vault'",
-        ),
-        (
-            {"QP_LOADTEST_KEY__SOURCE": "env"},
-            "QP_LOADTEST_KEY: the 'env' key source reads 'variable' beside "
-            "'source'; got none",
-        ),
-        (
-            {**DOMINO_KEY, "QP_LOADTEST_KEY__VARIABLE": "X"},
-            "QP_LOADTEST_KEY: the 'domino' key source reads no key beside "
-            "'source'; got 'variable'",
-        ),
-        (ENV_KEY, "the environment variable TARGET_KEY is unset or empty"),
-    ],
-    ids=["unknown-source", "missing-key", "unread-key", "unset-variable"],
-)
-def test_a_key_block_start_up_would_refuse_is_refused_before_a_request(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    variables: dict[str, str],
-    line: str,
-) -> None:
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    never = httpx.MockTransport(pytest.fail)
-
-    argv = ["--host", HOST, "--out", "run"]
-    status = record_answers_main(
-        argv, client=httpx.Client(transport=never), key_transport=never
-    )
-
-    [error] = capsys.readouterr().err.splitlines()
-    assert status == 2
-    assert error.startswith(f"qp-record-answers: {line}")
-    assert not list(tmp_path.glob("*_answers.json"))
-
-
-def test_a_setting_the_load_test_refuses_is_a_usage_error_naming_the_command(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    # The old bearer token alone: the settings refuse it as they are built.
-    variables = {"QP_LOADTEST_BEARER_TOKEN": "secret-run-token"}
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    never = httpx.MockTransport(pytest.fail)
-
-    argv = ["--host", HOST, "--out", "run"]
-    status = record_answers_main(
-        argv, client=httpx.Client(transport=never), key_transport=never
-    )
-
-    [error] = capsys.readouterr().err.splitlines()
-    assert status == 2
-    assert error.startswith(
-        "qp-record-answers: QP_LOADTEST_BEARER_TOKEN is no longer read"
-    )
-    assert "secret-run-token" not in error
-    assert not list(tmp_path.glob("*_answers.json"))
-
-
-MARKER = "sk-MARKER-0123456789"
-
-
-@pytest.mark.parametrize(
-    "variables",
-    [
-        {"QP_LOADTEST_KEY": MARKER},
-        {"QP_LOADTEST_KEY__SOURCE": MARKER},
-        {"QP_LOADTEST_KEY__SOURCE": "env", "QP_LOADTEST_KEY__VARIABLE": MARKER},
-    ],
-    ids=["as-the-block", "as-its-source", "as-its-variable"],
-)
-def test_a_key_typed_in_the_key_block_is_a_usage_error_that_prints_it_not(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    variables: dict[str, str],
-) -> None:
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    never = httpx.MockTransport(pytest.fail)
-
-    argv = ["--host", HOST, "--out", "run"]
-    status = record_answers_main(
-        argv, client=httpx.Client(transport=never), key_transport=never
-    )
-
-    printed = capsys.readouterr()
-    [error] = printed.err.splitlines()
-    assert status == 2
-    assert error.startswith("qp-record-answers: QP_LOADTEST_KEY")
-    assert MARKER not in printed.out + printed.err
-
-
-def test_a_token_url_that_never_answers_is_asked_within_the_load_tests_retries(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    variables = {**DOMINO_KEY, "QP_LOADTEST_RETRIES": "1", "QP_LOADTEST_BACKOFF_S": "0"}
-    use_loadtest_variables(monkeypatch, tmp_path, variables)
-    asked: list[str] = []
-
-    def down(request: httpx.Request) -> httpx.Response:
-        asked.append(str(request.url))
-        return httpx.Response(503, text="token service down")
-
-    transport = httpx.MockTransport(down)
-    argv = ["--host", HOST, "--out", "run"]
-    status = record_answers_main(
-        argv, client=httpx.Client(transport=transport), key_transport=transport
-    )
-
-    assert status == 3
-    assert asked == [TOKEN_URL] * 2  # QP_LOADTEST_RETRIES=1: two asks
-    assert TOKEN_URL in capsys.readouterr().err
-    assert not list(tmp_path.glob("*_answers.json"))
-
-
-class KeyedTarget:
-    """A target and a Domino token URL in one stand-in transport, no network.
-
-    The token URL serves ``run-token-1``, then ``run-token-2``, ...; the target
-    answers 401 to a request whose ``Authorization`` is in ``refused`` and 200
-    to any other, taking at least ``answer_s`` to answer.
-    """
-
-    def __init__(
-        self, refused: set[str | None] | None = None, answer_s: float = 0.0
-    ) -> None:
-        self.tokens_served, self.waits = 0, []
-        self.requests: list[httpx.Request] = []
-        self._refused, self._answer_s = refused or set(), answer_s
-        self.transport = httpx.MockTransport(self._answer)
-
-    def record(self) -> int:
-        """Run ``qp-record-answers`` against this target; return its status."""
-        argv = ["--host", HOST, "--out", "run"]
-        client = httpx.Client(transport=self.transport)
-        return record_answers_main(
-            argv, client=client, sleep=self.waits.append, key_transport=self.transport
-        )
-
-    def carried(self, header: str) -> list[str | None]:
-        """What each request to the target carried in ``header``, in order."""
-        return [request.headers.get(header) for request in self.requests]
-
-    def _answer(self, request: httpx.Request) -> httpx.Response:
-        if str(request.url) == TOKEN_URL:
-            self.tokens_served += 1
-            return httpx.Response(200, text=f"run-token-{self.tokens_served}")
-        self.requests.append(request)
-        time.sleep(self._answer_s)
-        if request.headers.get("Authorization") in self._refused:
-            return httpx.Response(401, text="expired")
-        return httpx.Response(200, json={})
 
 
 def test_without_a_questions_file_it_reads_no_file_and_calls_its_target_alone(
@@ -466,3 +223,144 @@ def test_without_a_questions_file_it_reads_no_file_and_calls_its_target_alone(
     assert status == 0
     assert read == []
     assert called == [f"{HOST}/retrieve", f"{HOST}/query"] * 2
+
+
+def answering(body: dict[str, Any]) -> httpx.Client:
+    """A client of a target that answers ``body`` to every request."""
+    return httpx.Client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    )
+
+
+def recorded_answer_of(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: dict[str, Any]
+) -> dict[str, Any]:
+    """The JSON of the one answer recorded of a target answering ``body``."""
+    use_loadtest_variables(
+        monkeypatch,
+        tmp_path,
+        {"QP_LOADTEST_QUESTIONS": "1", "QP_LOADTEST_QUERY_WEIGHT": "0"},
+    )
+    argv = ["--host", HOST, "--out", "run"]
+    assert record_answers_main(argv, client=answering(body)) == 0
+    text = Path(f"{tmp_path / 'run'}_answers.json").read_text(encoding="utf-8")
+    return json.loads(text)["answers"][0]
+
+
+# The new shape from an index ingested before: its metadata keeps ``chunk``.
+OLD_INDEX_BODY = {
+    **NEW_BODY,
+    "records": [
+        {
+            **entry,
+            "metadata": {"doc_id": "doc-1", "chunk": index, "id": f"doc-1#{index}"},
+        }
+        for index, entry in enumerate(NEW_BODY["records"])
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [OLD_BODY, NEW_BODY, OLD_INDEX_BODY],
+    ids=["passages", "records", "records-of-an-index-ingested-before"],
+)
+def test_a_response_of_either_shape_is_written_in_the_new_form(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: dict[str, Any]
+) -> None:
+    answer = recorded_answer_of(monkeypatch, tmp_path, body)
+
+    assert "passages" not in answer
+    assert answer["records"] == [
+        {
+            "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "metadata": {"doc_id": "doc-1", "sequence": index, "id": f"doc-1#{index}"},
+            **SCORES,
+        }
+        for index, text in enumerate(["first", "second"])
+    ]
+
+
+def sha256_of(text: str) -> str:
+    """The hash an answer record keeps in place of ``text``."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("chunk", "kept"),
+    [
+        ("a chunk's own payload", {"chunk_sha256": sha256_of("a chunk's own payload")}),
+        (True, {"chunk": True}),
+    ],
+    ids=["a-text-is-a-chunk-kept-as-its-hash", "a-boolean-is-no-whole-number"],
+)
+def test_only_a_whole_number_under_chunk_is_read_as_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    chunk: object,
+    kept: dict[str, object],
+) -> None:
+    body = {"mode": "retrieve", "passages": [old_entry("doc-1#0", "first", chunk)]}
+
+    answer = recorded_answer_of(monkeypatch, tmp_path, body)
+
+    assert answer["records"][0]["metadata"] == {
+        "doc_id": "doc-1", **kept, "id": "doc-1#0"
+    }  # fmt: skip
+
+
+CORPUS_SENTENCE = "Employees accrue twenty paid vacation days each year."
+CONTEXT_SENTENCE = "This part of the handbook is about leave."
+# A vector-store record made from a chunk: the whole chunk as a text under
+# "chunk", its context of Contextual Retrieval under "chunk__context__text".
+CHUNK_BODY: dict[str, Any] = {
+    "mode": "retrieve",
+    "records": [
+        {
+            "text": CORPUS_SENTENCE,
+            "metadata": {
+                "id": "doc-handbook#0",
+                "chunk": json.dumps({"id": "doc-handbook#0", "text": CORPUS_SENTENCE}),
+                "chunk__context__text": CONTEXT_SENTENCE,
+                "sequence": 0,
+            },
+            **SCORES,
+        }
+    ],
+}
+
+
+def test_a_record_made_from_a_chunk_keeps_a_hash_of_its_texts_not_the_corpus(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    answer = recorded_answer_of(monkeypatch, tmp_path, CHUNK_BODY)
+
+    metadata = CHUNK_BODY["records"][0]["metadata"]
+    assert answer["records"][0]["metadata"] == {
+        "id": "doc-handbook#0",
+        "chunk_sha256": sha256_of(metadata["chunk"]),
+        "chunk__context__text_sha256": sha256_of(CONTEXT_SENTENCE),
+        "sequence": 0,
+    }
+    written = Path(f"{tmp_path / 'run'}_answers.json").read_text(encoding="utf-8")
+    assert CORPUS_SENTENCE not in written
+    assert CONTEXT_SENTENCE not in written
+
+
+@pytest.mark.parametrize(
+    ("body", "read_id"),
+    [
+        ({"passages": [{"id": "beside", "metadata": {"id": "inside"}}]}, "beside"),
+        ({"records": [{"id": "beside", "metadata": {"id": "inside"}}]}, "inside"),
+    ],
+    ids=["old-shape-its-id-is-moved", "new-shape-a-stray-id-is-left-out"],
+)
+def test_an_id_beside_the_metadata_is_read_into_it_only_in_the_old_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    body: dict[str, Any],
+    read_id: str,
+) -> None:
+    answer = recorded_answer_of(monkeypatch, tmp_path, {"mode": "retrieve", **body})
+
+    assert answer["records"][0]["metadata"] == {"id": read_id}

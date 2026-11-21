@@ -16,7 +16,8 @@
 # Usage: ovms/export_models.sh [MODELS_DIR]   (default: ovms/models in the working
 # directory, the use case's, as every output of a command)
 # Needs: HF Hub access to download the source models; a Python with pip; this
-# package installed (`make install`) so `qp-served-models` is on PATH, run where it
+# package installed so `qp-served-models` is on PATH (INSTALL below: `make install`
+# needs a clone of document_doclang, which a Workspace has not), run where it
 # finds the use case's workflow file (its directory, or QP_WORKFLOW_FILE).
 set -euo pipefail
 
@@ -25,10 +26,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=versions.env
 source "$HERE/versions.env"
 
+# How to install this package, where a clone of document_doclang is and where
+# none is (a Workspace: doclang's core from its wheel, as an App takes it).
+INSTALL="make install at the repository's root where a clone of document_doclang is; elsewhere, as in a Workspace, pip install --find-links <the directory of the wheel of doclang's core> the core, the toolkit and the use case"
+
 # The served models are pinned by the workflow file, not here. Asked of the
 # command, not "$PYTHON -m", because $PYTHON may be a separate exporter virtualenv.
 if ! command -v qp-served-models >/dev/null 2>&1; then
-  echo "export_models.sh: qp-served-models not found on PATH; install this package (make install) so the command is available" >&2
+  echo "export_models.sh: qp-served-models not found on PATH; install this package so the command is available: $INSTALL" >&2
   exit 1
 fi
 # Assigned first so a failing command stops the script (a pipe would hide it).
@@ -45,7 +50,7 @@ asked_weight_format() {
 WEIGHT_FORMAT=$(asked_weight_format)
 # A qp-served-models older than the setting prints no weight format.
 if [ -n "$SERVED_MODELS" ] && [ -z "$WEIGHT_FORMAT" ]; then
-  echo "export_models.sh: qp-served-models printed no weight format; reinstall this package (make install) so the command is current" >&2
+  echo "export_models.sh: qp-served-models printed no weight format; reinstall this package so the command is current: $INSTALL" >&2
   exit 1
 fi
 

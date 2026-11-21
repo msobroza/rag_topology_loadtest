@@ -261,6 +261,10 @@ class DeploySettings(BaseSettings):
     topology_alias: dict[str, dict[str, Placement]] = {}
     project_id: str = ""  # "" = DOMINO_PROJECT_ID, which Domino sets in a Workspace
     ovms_bundle: str = ""  # required by an ovms App: bin/ovms + lib/, or its .tar.gz
+    # Required: the directory on the Dataset holding the wheel of doclang's core,
+    # which no index has, for every App that installs (app.sh's
+    # QP_BOOTSTRAP_WHEELS). "" is refused before anything is published.
+    bootstrap_wheels: str = ""
     domino_host: str = ""  # "" = the scheme and host of each App's own url
     wait_timeout_s: float = 600.0
     poll_interval_s: float = 5.0

@@ -330,7 +330,7 @@ class WorkflowSettings(BaseSettings):
     def check_store_names(self) -> WorkflowSettings:
         """Fail at start-up when a store names no index or collection to keep.
 
-        Where the passages are kept is the use case's choice, so the toolkit
+        Where the records are kept is the use case's choice, so the toolkit
         has no default for it: the block of the store's backend states it.
 
         Returns:
@@ -350,8 +350,8 @@ class WorkflowSettings(BaseSettings):
             variable = self.variable_of("components", name, backend, key)
             raise ValueError(
                 f"{backend_variable}={backend!r} needs {variable}, the {key} the "
-                f"passages are kept in (components.{name}.{backend}.{key} in the "
-                "workflow file); got ''"
+                "vector-store records are kept in "
+                f"(components.{name}.{backend}.{key} in the workflow file); got ''"
             )
         return self
 

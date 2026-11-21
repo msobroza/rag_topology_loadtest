@@ -16,8 +16,9 @@ description = "The RAG use case of the query_processing toolkit: its workflow fi
 requires-python = ">=3.11"  # the version in .python-version, at the repository's root
 license = { text = "Apache-2.0" }
 # The toolkit, whose distribution is query-processing. No package index has it:
-# every install names both directories in one command, the toolkit first
-# (the root Makefile, the CI, the image, domino/app.sh).
+# every install names its directory and this one in one command, the toolkit
+# first, after the core it depends on (the root Makefile, the CI, the image,
+# domino/app.sh).
 dependencies = [
     "query-processing",
     # Pinned exactly: the committed pipeline file is refused by any other

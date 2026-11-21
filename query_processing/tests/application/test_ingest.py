@@ -1,4 +1,4 @@
-"""Tests for ``application.ingest``: every passage is embedded and upserted, in batches."""
+"""Tests for ``application.ingest``: every record is embedded and upserted, in batches."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _record(**fields: object) -> str:
 
 
 class SpyEmbedder(FakeEmbedder):
-    """FakeEmbedder recording every batch of passages and every query."""
+    """FakeEmbedder recording every batch of records and every query."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -56,13 +56,13 @@ class SpyEmbedder(FakeEmbedder):
         return await super().embed_query(text)
 
 
-async def test_ingest_upserts_every_passage_in_batches() -> None:
-    passages = [p for doc in synthetic_corpus(7) for p in chunk(doc)]
-    assert len(passages) == 7  # each synthetic document fits one chunk
+async def test_ingest_upserts_every_record_in_batches() -> None:
+    records = [r for doc in synthetic_corpus(7) for r in chunk(doc)]
+    assert len(records) == 7  # each synthetic document fits one chunk
     embedder, store = SpyEmbedder(), InMemoryVectorStore()
-    assert await ingest(passages, embedder, store, batch_size=3) == 7
+    assert await ingest(records, embedder, store, batch_size=3) == 7
     assert await store.count() == 7
     assert embedder.batch_sizes == [3, 3, 1]
-    assert embedder.queries == []  # passages, never embedded as a query
-    hits = await store.query(embedder.embed_text(passages[4].text), top_k=1)
-    assert hits[0].id == passages[4].id
+    assert embedder.queries == []  # records, never embedded as a query
+    hits = await store.query(embedder.embed_text(records[4].text), top_k=1)
+    assert hits[0].id == records[4].id

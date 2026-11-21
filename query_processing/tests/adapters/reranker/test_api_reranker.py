@@ -12,7 +12,7 @@ from model_api_fakes import (
     HttpClients,
     ScriptedRoute,
     endpoint_client,
-    passages,
+    records,
 )
 from query_processing.adapters.reranker.api.api_reranker import ApiReranker
 from query_processing.adapters.reranker.api.cohere_rerank_format import (
@@ -55,7 +55,7 @@ async def test_posts_the_cohere_shape_and_orders_by_relevance(
 ) -> None:
     reranker, route = make(clients, rerank_body((2, 0.9), (0, 0.4)), api_key="k1")
     assert isinstance(reranker, BaseReranker)
-    ranked = await reranker.rerank("vacation", passages(3), top_n=2)
+    ranked = await reranker.rerank("vacation", records(3), top_n=2)
     assert [(p.id, p.rerank_score) for p in ranked] == [("p2", 0.9), ("p0", 0.4)]
     assert [p.retrieval_score for p in ranked] == [0.8, 1.0]
     [request] = route.requests
@@ -71,11 +71,11 @@ async def test_posts_the_cohere_shape_and_orders_by_relevance(
 
 async def test_keeps_top_n_even_if_the_server_sends_more(clients: HttpClients) -> None:
     reranker, _ = make(clients, rerank_body((0, 0.1), (1, 0.7), (2, 0.5)))
-    ranked = await reranker.rerank("q", passages(3), top_n=1)
+    ranked = await reranker.rerank("q", records(3), top_n=1)
     assert [p.id for p in ranked] == ["p1"]
 
 
-async def test_empty_passages_make_no_request(clients: HttpClients) -> None:
+async def test_empty_records_make_no_request(clients: HttpClients) -> None:
     reranker, route = make(clients, rerank_body())
     assert await reranker.rerank("q", [], top_n=3) == []
     assert route.requests == []
@@ -85,7 +85,7 @@ async def test_retries_a_429_then_succeeds(clients: HttpClients) -> None:
     reranker, route = make(
         clients, httpx.Response(429, text="slow down"), rerank_body((0, 0.7))
     )
-    ranked = await reranker.rerank("q", passages(1), top_n=1)
+    ranked = await reranker.rerank("q", records(1), top_n=1)
     assert [p.rerank_score for p in ranked] == [0.7]
     assert len(route.requests) == 2
 
@@ -104,7 +104,7 @@ async def test_malformed_body_raises(
 ) -> None:
     reranker, route = make(clients, response)
     with pytest.raises(RagDependencyError, match="malformed response") as info:
-        await reranker.rerank("q", passages(2), top_n=2)
+        await reranker.rerank("q", records(2), top_n=2)
     assert (info.value.component, info.value.target) == ("reranker", URL)
     assert len(route.requests) == 1  # a malformed body is not retried
 
@@ -113,14 +113,14 @@ async def test_malformed_body_raises(
 async def test_out_of_range_index_raises(clients: HttpClients, index: int) -> None:
     reranker, _ = make(clients, rerank_body((index, 0.9)))
     with pytest.raises(RagDependencyError, match=f"index {index} is outside") as info:
-        await reranker.rerank("q", passages(2), top_n=2)
+        await reranker.rerank("q", records(2), top_n=2)
     assert info.value.detail.startswith("malformed response: IndexError")
 
 
 async def test_timeouts_map_to_kind_timeout(clients: HttpClients) -> None:
     reranker, route = make(clients, httpx.ReadTimeout("slow"))
     with pytest.raises(RagDependencyError) as info:
-        await reranker.rerank("q", passages(1), top_n=1)
+        await reranker.rerank("q", records(1), top_n=1)
     assert (info.value.component, info.value.kind) == ("reranker", "timeout")
     assert len(route.requests) == 3
 

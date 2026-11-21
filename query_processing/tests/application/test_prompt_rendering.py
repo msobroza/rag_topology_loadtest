@@ -5,16 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from query_processing_core.conversation import HistoryMessage
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from query_processing.application.prompt_rendering import (
     prompt_variables,
     render_prompt,
 )
 from query_processing.config.workflow_settings import WorkflowSettings
-from query_processing.domain.conversation import HistoryMessage
 from query_processing.domain.prompts import Prompt, PromptMessage, PromptPlaceholder
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
-from query_processing.domain.retrieval.passages import ScoredPassage
 from workflow_fakes import scored
 
 ANSWER: Prompt = [
@@ -24,20 +24,22 @@ ANSWER: Prompt = [
     PromptMessage(
         role="user",
         content=(
-            "Context:\n{% for passage in reranked %}\n[{{ loop.index }}] {{ passage.text }}\n"
+            "Context:\n{% for record in reranked %}\n[{{ loop.index }}] {{ record.text }}\n"
             "{% endfor %}\n\nQuestion: {{ conversational_query }}"
         ),
     ),
 ]
 # The fixture's generate stage before prompts.yaml: its two settings, and how
-# they were filled (the passages numbered one per line into {context}).
+# they were filled (the records' texts numbered one per line into {context}).
 OLD_SYSTEM_PROMPT = "Answer from the numbered fixture passages only."
 OLD_USER_PROMPT = "Context:\n{context}\n\nQuestion: {question}"
 
 
-def old_messages(question: str, passages: list[ScoredPassage]) -> list[dict[str, str]]:
-    """What the two removed settings gave for ``question`` and ``passages``."""
-    context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(passages, start=1))
+def old_messages(
+    question: str, records: list[ScoredVectorStoreRecord]
+) -> list[dict[str, str]]:
+    """What the two removed settings gave for ``question`` and ``records``."""
+    context = "\n".join(f"[{i}] {p.text}" for i, p in enumerate(records, start=1))
     user = OLD_USER_PROMPT.format(context=context, question=question)
     return [
         {"role": "system", "content": OLD_SYSTEM_PROMPT},
@@ -62,13 +64,13 @@ def test_the_fixtures_answer_prompt_renders_what_its_two_old_settings_gave(
     settings_factory: Callable[..., WorkflowSettings], count: int
 ) -> None:
     prompt = settings_factory().prompts["answer_from_context"]
-    passages = [scored(str(i), f"text {{x}} {i}") for i in range(count)]
+    records = [scored(str(i), f"text {{x}} {i}") for i in range(count)]
 
     messages = render_prompt(
-        prompt, {"reranked": passages, "conversational_query": "why {y}?"}
+        prompt, {"reranked": records, "conversational_query": "why {y}?"}
     )
 
-    assert messages == old_messages("why {y}?", passages)
+    assert messages == old_messages("why {y}?", records)
 
 
 def test_a_placeholder_splices_messages_with_their_role_and_content_only() -> None:

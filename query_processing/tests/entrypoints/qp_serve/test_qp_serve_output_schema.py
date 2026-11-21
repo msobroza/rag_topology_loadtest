@@ -141,7 +141,7 @@ def test_a_stage_with_a_schema_writes_the_fields_the_stages_after_it_read(
         None,
     ]
     assert body["answer"].startswith("[fake-llm] ")
-    assert body["passages"]
+    assert body["records"]
     assert body["metadata_filter"] == []  # the fake LLM's instance has none
     assert "rewrite" in body["timings_ms"]
 
@@ -174,8 +174,8 @@ def test_the_conditions_a_rewrite_writes_are_added_to_the_clients(
     assert '"const": "topic"' in json.dumps(asked.model_json_schema())
     # Both conditions held in the search: onboarding met the client's alone.
     assert answer["metadata_filter"] == [EITHER, NOT_ONBOARDING]
-    assert answer["passages"]
-    assert {p["metadata"]["topic"] for p in answer["passages"]} == {"remote-work"}
+    assert answer["records"]
+    assert {p["metadata"]["topic"] for p in answer["records"]} == {"remote-work"}
 
 
 def chat_completion(content: str, prompt: int, completion: int) -> httpx.Response:

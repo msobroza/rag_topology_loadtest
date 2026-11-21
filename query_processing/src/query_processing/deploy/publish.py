@@ -34,7 +34,7 @@ from .apps_client import (
     DominoDeployError,
     wait_until_running,
 )
-from .deploy_refusals import refuse_placeholders, refuse_secrets
+from .deploy_refusals import refuse_no_wheels, refuse_placeholders, refuse_secrets
 from .deploy_settings import (
     SERVED,
     AppKind,
@@ -157,14 +157,15 @@ def entry_script(
         computed = _model_server_exports(app.part, settings, topology)
     if app.kind == "agent":
         computed |= {k: v for k, v in AGENT_EXPORTS.items() if k not in given}
-    # The generic environment has nothing installed: app.sh installs it first,
-    # the toolkit and the use case, then runs the role's command in the latter.
+    # The generic environment has nothing installed: app.sh installs doclang's core
+    # (its wheel), the toolkit and the use case, then runs the role's command there.
     exports = [
         *app.settings.items(),
         *overrides.items(),
         *computed.items(),
         (USE_CASE_DIR_VARIABLE, launch.use_case_dir),
         ("QP_BOOTSTRAP", "1"),
+        ("QP_BOOTSTRAP_WHEELS", settings.bootstrap_wheels),
     ]
     lines = [f"export {name}={shlex.quote(value)}" for name, value in exports]
     return "\n".join([*lines, f"exec bash {shlex.quote(launch.script)}"])
@@ -322,7 +323,7 @@ def _refuse_another_kind(app: DominoApp, wanted: AppSettings) -> None:
     )
 
 
-def deploy(
+def deploy(  # noqa: PLR0913 - three of them are the seams of tests and dry runs
     client: DominoAppsClient,
     settings: DeploySettings,
     target: AppPart | Literal["all"],
@@ -330,19 +331,18 @@ def deploy(
     launch: LaunchPaths,
     sleep: Callable[[float], None] = time.sleep,
     ids: BaseDominoIds | None = None,
+    look_for_wheels: bool = True,
 ) -> None:
     """Publish ``target``, or every App the topology alias needs, in order.
 
-    Settings holding secrets, a value of the workflow file in a free list,
-    overrides the workflow settings refuse, or settings with them an App's
-    start-up refuses (``check_overrides``), a topology
-    alias that does not resolve against the workflow file
-    (``resolve_topology``), placeholders, no environment id, a default
-    environment revision without the default environment, or settings a
-    model-server kind of the Apps cannot start with (a missing OVMS bundle) are
-    refused first, with ``DominoDeployError``. Then the id of every tier name and
-    revision number of those Apps is found and printed. Redeploying a model server
-    prints a note that the workflow App still calls its old instance.
+    Refused first, with ``DominoDeployError``: secrets, a workflow file's value
+    in a free list, overrides the workflow settings or an App's start-up refuse
+    (``check_overrides``), a topology alias the workflow file does not resolve,
+    placeholders, no environment id, a default revision without its environment,
+    what a model-server kind cannot start with (a missing OVMS bundle), and no
+    wheels' directory. Then every tier name's and revision number's id is found
+    and printed. Redeploying a model server notes that the workflow App still
+    calls its old instance.
 
     Args:
         client: Apps API client for the project.
@@ -351,6 +351,7 @@ def deploy(
         launch: The launch script every App runs, and the use case's directory.
         sleep: Waits between polls; tests and dry runs pass a no-op.
         ids: Finds the ids of a tier name and a revision number; None asks Domino.
+        look_for_wheels: False in a dry run, which may run where no Dataset is.
 
     Raises:
         DominoDeployError: If the topology does not use ``target``, or a tier
@@ -369,6 +370,7 @@ def deploy(
     parts = needed if target == "all" else [target]
     refuse_placeholders(settings, parts)
     _check_deploy_settings(settings, topology, parts)
+    refuse_no_wheels(settings, on_this_machine=look_for_wheels)
     ids = ids if ids is not None else DominoIdsAsked(client.http)
     find_every_id(ids, map(settings.for_app, parts))
     for part in parts:

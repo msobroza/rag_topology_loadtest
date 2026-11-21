@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
+from query_processing_core.query_request import QueryRequest
 
 from ..domain.endpoints.api_endpoint import (
     MODEL_SERVER_EMBEDDINGS_PATH,
@@ -35,7 +36,6 @@ from ..domain.endpoints.standard_formats import (
     CohereRerankRequest,
     OpenAIEmbeddingsRequest,
 )
-from ..domain.query_request import QueryRequest
 from ..domain.retrieval.corpus import chunk, synthetic_corpus, synthetic_questions
 
 QUESTIONS_FILE_VAR = "QP_LOADTEST_QUESTIONS_FILE"  # named in the reader's errors
@@ -74,31 +74,31 @@ def build_request_pool(
     *,
     questions_file: Path | None = None,
 ) -> RequestPool:
-    """Build the pool: the questions, and the first ``candidates`` passages.
+    """Build the pool: the questions, and the first ``candidates`` synthetic texts.
 
     The questions are every one of ``questions_file`` when it is given, else
     ``question_count`` synthetic ones, each a body with its question alone. The
     rerank and embeddings targets draw their queries from the same questions;
-    the rerank candidates stay synthetic passages whatever the questions, so a
+    the rerank candidates stay synthetic texts whatever the questions, so a
     file changes what is asked, not what is ranked.
 
     Args:
         question_count: Distinct synthetic questions to draw from; ignored with
             a ``questions_file``.
-        candidates: Synthetic passages each rerank request carries, as the
+        candidates: Synthetic texts each rerank request carries, as the
             workflow retrieves (``QP_TOP_K_RETRIEVE``).
         top_n: The ``top_n`` each rerank request asks for (``QP_TOP_K_RERANK``).
         questions_file: A file read by ``load_questions``; ``None`` for the
             synthetic questions.
 
     Returns:
-        The pool, its questions and passages as tuples.
+        The pool, its questions and texts as tuples.
 
     Example:
         >>> build_request_pool(50, *settings.rerank_sizes,
         ...                    questions_file=Path("data/quebec/questions.jsonl"))
     """
-    passages = [p.text for d in synthetic_corpus(candidates) for p in chunk(d)]
+    texts = [r.text for d in synthetic_corpus(candidates) for r in chunk(d)]
     questions: tuple[dict[str, object], ...] = (
         load_questions(questions_file)
         if questions_file
@@ -106,7 +106,7 @@ def build_request_pool(
     )
     return RequestPool(
         questions=questions,
-        rerank_documents=tuple(passages[:candidates]),
+        rerank_documents=tuple(texts[:candidates]),
         top_n=top_n,
     )
 

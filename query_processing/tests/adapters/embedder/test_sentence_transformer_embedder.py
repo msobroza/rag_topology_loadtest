@@ -75,7 +75,7 @@ def st_embedder(
         executor,
         model_name="fake-st",
         scope=st_scope,
-        query_prefix="query: ",  # a passage must never get it
+        query_prefix="query: ",  # a text to store must never get it
         encode_options=EncodeOptions(batch_size=8, normalize_embeddings=False),
     )
 

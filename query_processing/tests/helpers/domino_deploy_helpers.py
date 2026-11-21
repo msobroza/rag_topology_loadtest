@@ -7,6 +7,7 @@ CLI tests' fixtures are in ``domino_deploy_fixtures.py``.
 from __future__ import annotations
 
 import shlex
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from fake_domino.api_shapes import (
 from fake_domino.server import FAKE_DOMINO_URL, create_fake_domino, fake_domino_http
 from fake_domino.stand_ins import fake_environment
 from fake_domino.state import FakeDominoApps
+from launch_script_stand_ins import DOCLANG_WHEEL
 from query_processing.deploy.app_id_cache import AppIdCache
 from query_processing.deploy.apps_client import DominoAppsClient
 from query_processing.deploy.deploy_settings import DeploySettings
@@ -35,10 +37,37 @@ LAUNCH = LaunchPaths(
     "/repos/rag topology/query_processing/domino/app.sh",
     "/repos/rag topology/my_use_case",
 )
-# How every entry script ends: the use case's directory, the bootstrap, the script.
+
+
+def a_wheels_directory_on_the_dataset() -> str:
+    """The directory of wheels every deploy file of the tests names, made here.
+
+    A deploy refuses a directory that does not exist on the Workspace or holds
+    not exactly one wheel of doclang's core, so it is a real one, holding a
+    stand-in wheel (an empty file under the name a build gives it). It sits in
+    the system's temporary folder under a fixed name, so that every constant
+    below can name it at import; making it again changes nothing.
+
+    Example::
+
+        WHEELS = a_wheels_directory_on_the_dataset()  # ".../qp-deploy-tests/wheels"
+    """
+    wheels = Path(tempfile.gettempdir()) / "qp-deploy-tests" / "wheels"
+    wheels.mkdir(parents=True, exist_ok=True)
+    (wheels / DOCLANG_WHEEL).touch()
+    return str(wheels)
+
+
+# Where the Apps that install find doclang's core: a directory on the Dataset,
+# which every deploy file the tests write names.
+WHEELS = a_wheels_directory_on_the_dataset()
+WHEELS_YAML = f"bootstrap_wheels: '{WHEELS}'\n"
+# How every entry script ends: the use case's directory, the bootstrap and its
+# wheels, the script.
 BOOTSTRAP_AND_EXEC = (
     "export QP_USE_CASE_DIR='/repos/rag topology/my_use_case'\n"
     "export QP_BOOTSTRAP=1\n"
+    f"export QP_BOOTSTRAP_WHEELS={shlex.quote(WHEELS)}\n"
     "exec bash '/repos/rag topology/query_processing/domino/app.sh'"
 )
 # What an Agent (the workflow App by default) exports before QP_BOOTSTRAP.
@@ -133,6 +162,7 @@ def make_settings(**given: object) -> DeploySettings:
         "topology_alias": TOPOLOGY_ALIASES,
         "project_id": "proj-1",
         "ovms_bundle": "",
+        "bootstrap_wheels": WHEELS,
         "domino_host": "",
         "defaults": {"environment_id": "env-1"},
         "apps": {},
@@ -161,7 +191,8 @@ topology_alias:
 # The owner's example, with a split-reranker topology so it deploys two Apps. The
 # free lists hold variables that are no value of the workflow file; the model
 # paths are overrides, for every App.
-DEPLOY_YAML = "topology: split-reranker\n" + PREFIX_YAML + TOPOLOGY_ALIAS_YAML + """\
+DEPLOY_YAML = "topology: split-reranker\n" + PREFIX_YAML + WHEELS_YAML
+DEPLOY_YAML += TOPOLOGY_ALIAS_YAML + """\
 project_id: ""
 
 defaults:
@@ -201,10 +232,11 @@ DEPLOY_YAML_OVERRIDES = (
 # --- qp-deploy end to end: main over the fake Domino (fixtures and helpers) ---
 
 PROXY = "http://proxy.test:8899"
-# The CLI tests' deploy.yaml: the prefix, the three topology aliases and every App
-# on env-1, nothing else set. It ends inside defaults, so a test can add a default
-# to it.
-ENV_1 = PREFIX_YAML + TOPOLOGY_ALIAS_YAML + "defaults:\n  environment_id: env-1\n"
+# The CLI tests' deploy.yaml: the prefix, the wheels' directory, the three topology
+# aliases and every App on env-1, nothing else set. It ends inside defaults, so a
+# test can add a default to it.
+ENV_1 = PREFIX_YAML + WHEELS_YAML + TOPOLOGY_ALIAS_YAML
+ENV_1 += "defaults:\n  environment_id: env-1\n"
 CACHE_FILE = ".qp-deploy-cache.json"  # in the working directory
 NO_ENVIRONMENT = (
     "qp-deploy: error: No environment_id for App rag-embedder: set "
@@ -217,14 +249,15 @@ def launched() -> str:
     """The tail of every entry script when qp-deploy runs from this directory.
 
     This directory is the use case's, beside the toolkit's in the repository,
-    as ``domino_env`` lays them out: its path, the bootstrap, then the
-    toolkit's launch script.
+    as ``domino_env`` lays them out: its path, the bootstrap and its wheels,
+    then the toolkit's launch script.
     """
     use_case = Path.cwd()
     script = use_case.parent / "query_processing" / "domino" / "app.sh"
     return (
         f"export QP_USE_CASE_DIR={shlex.quote(str(use_case))}\n"
         "export QP_BOOTSTRAP=1\n"
+        f"export QP_BOOTSTRAP_WHEELS={shlex.quote(WHEELS)}\n"
         f"exec bash {shlex.quote(str(script))}"
     )
 

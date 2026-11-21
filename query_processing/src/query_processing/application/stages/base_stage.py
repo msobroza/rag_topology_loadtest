@@ -25,10 +25,10 @@ from dataclasses import field as dataclass_field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from pydantic import BaseModel, ConfigDict
+from query_processing_core.retrieval.metadata_filter import MetadataFieldInfo
 
 from ...domain.prompts import Prompt
 from ...domain.registry import Registry
-from ...domain.retrieval.metadata_filter import MetadataFieldInfo
 from ..workflow_state import WorkflowState
 
 # A dotted module path in front of a class name, as str() of a generic shows it.
@@ -182,7 +182,7 @@ class BaseStage(abc.ABC, Generic[ComponentT, SettingsT]):
             One value per field of ``reads``.
 
         Example:
-            >>> question, passages = stage.read_fields(state)
+            >>> question, records = stage.read_fields(state)
         """
         return [state[field] for field in self.fields.reads]
 
@@ -261,11 +261,11 @@ def type_name(annotation: object) -> str:
         annotation: A class or a generic alias.
 
     Returns:
-        Its name, such as ``str`` or ``list[ScoredPassage]``.
+        Its name, such as ``str`` or ``list[ScoredVectorStoreRecord]``.
 
     Example:
-        >>> type_name(list[ScoredPassage])
-        'list[ScoredPassage]'
+        >>> type_name(list[ScoredVectorStoreRecord])
+        'list[ScoredVectorStoreRecord]'
     """
     if isinstance(annotation, type) and not getattr(annotation, "__args__", None):
         return annotation.__name__

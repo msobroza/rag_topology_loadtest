@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from query_processing_core.query_response import RagMode
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 from query_processing.adapters.llm.fake.fake_llm import FakeLLM
 from query_processing.adapters.orchestrator.base_orchestrator import BaseOrchestrator
@@ -29,8 +31,6 @@ from query_processing.domain.components.component_requests import GenerateAnswer
 from query_processing.domain.graph_description import GraphDescription
 from query_processing.domain.prompts import Prompt, PromptMessage
 from query_processing.domain.retrieval.corpus import synthetic_questions
-from query_processing.domain.retrieval.metadata_filter import MetadataCondition
-from query_processing.domain.retrieval.passages import RagMode
 from rag_graphs import fixture_graph, rag_graph
 from workflow_fakes import (
     ON_LANGGRAPH_ALONE,
@@ -48,7 +48,7 @@ VACATION_QUESTION = synthetic_questions(1)[0]
 TIMING_KEYS = ["embed", "retrieve", "rerank", "generate", "total"]
 DEFAULT_TOP_K_RETRIEVE, DEFAULT_TOP_K_RERANK = 20, 10
 WorkflowFor = Callable[..., CompiledWorkflow]
-# A prompt other than the fixture's: the question, then the passages.
+# A prompt other than the fixture's: the question, then the vector-store records.
 # A generate stage before the fixture's: it rewrites the question it searches with.
 REWRITE_STAGE = {
     "type": "generate",
@@ -99,7 +99,7 @@ def scripted_deps(
 # --- the graph ----------------------------------------------------------------
 
 
-async def test_query_mode_answers_from_reranked_passages(
+async def test_query_mode_answers_from_reranked_records(
     fake_deps: RagDependencies, workflow_for: WorkflowFor
 ) -> None:
     result = await workflow_for(fake_deps).run(VACATION_QUESTION)
@@ -108,8 +108,8 @@ async def test_query_mode_answers_from_reranked_passages(
     assert result.mode == "query"
     assert result.answer is not None
     assert result.answer.startswith("[fake-llm]")
-    assert len(result.passages) == DEFAULT_TOP_K_RERANK
-    scores = [p.rerank_score for p in result.passages]
+    assert len(result.records) == DEFAULT_TOP_K_RERANK
+    scores = [p.rerank_score for p in result.records]
     assert all(score is not None for score in scores)
     assert scores == sorted(scores, reverse=True)  # type: ignore[type-var]
 
@@ -129,7 +129,7 @@ async def test_vacation_question_retrieves_vacation_policy(
 ) -> None:
     result = await workflow_for(fake_deps).run(VACATION_QUESTION)
 
-    topics = [p.metadata["topic"] for p in result.passages]
+    topics = [p.metadata["topic"] for p in result.records]
     # One seeded document in ten is a vacation policy; they outrank every other topic.
     assert topics[:3] == ["vacation-policy"] * 3
 
@@ -146,7 +146,7 @@ async def test_retrieve_mode_skips_generation(
     assert list(result.timings_ms) == TIMING_KEYS
     assert result.timings_ms["generate"] == 0.0
     assert result.timings_ms["total"] > 0
-    assert len(result.passages) == DEFAULT_TOP_K_RERANK
+    assert len(result.records) == DEFAULT_TOP_K_RERANK
 
 
 async def test_a_query_reports_the_tokens_of_its_answer_under_its_stage(
@@ -235,8 +235,8 @@ async def test_no_reranker_keeps_retrieval_order(
     vector = await deps.by_name["embedder"].embed_query(VACATION_QUESTION)
     expected = await deps.by_name["vector_store"].query(vector, DEFAULT_TOP_K_RETRIEVE)
     first_kept = [p.id for p in expected[:DEFAULT_TOP_K_RERANK]]
-    assert [p.id for p in result.passages] == first_kept
-    assert all(p.rerank_score is None for p in result.passages)
+    assert [p.id for p in result.records] == first_kept
+    assert all(p.rerank_score is None for p in result.records)
 
 
 async def test_non_default_settings_size_retrieval_rerank_and_prompt(
@@ -253,7 +253,7 @@ async def test_non_default_settings_size_retrieval_rerank_and_prompt(
 
     result = await workflow.run("vacation days")
 
-    assert len(result.passages) == 2
+    assert len(result.records) == 2
     assert result.answer is not None
     # FakeLLM echoes the first 200 characters of the user message.
     assert result.answer.startswith("[fake-llm] ASK vacation days USING [1] ")
@@ -317,7 +317,7 @@ async def test_dense_mode_asks_the_store_by_vector_only(
 
     result = await workflow.run("vacation days", mode="retrieve")
 
-    assert [p.id for p in result.passages] == ["a", "b"]
+    assert [p.id for p in result.records] == ["a", "b"]
     assert store.calls == [("dense", [1.0, 0.0], 2)]
 
 
@@ -332,7 +332,7 @@ async def test_lexical_mode_skips_the_embed_stage_and_asks_by_words(
 
     result = await workflow.run("vacation days", mode="retrieve")
 
-    assert [p.id for p in result.passages] == ["z", "y"]
+    assert [p.id for p in result.records] == ["z", "y"]
     assert store.calls == [("lexical", "vacation days", 2)]
     assert embedder.queries == []  # no vector is needed, so none is computed
     assert list(result.timings_ms) == ["retrieve", "rerank", "generate", "total"]
@@ -351,7 +351,7 @@ async def test_hybrid_mode_asks_both_ways_and_fuses_by_rank(
     result = await workflow.run("vacation days", mode="retrieve")
 
     # b is in both rankings; a and d each lead one; c is cut by retrieve's top_k.
-    assert [p.id for p in result.passages] == ["b", "a", "d"]
+    assert [p.id for p in result.records] == ["b", "a", "d"]
     assert sorted(store.calls, key=lambda call: call[0]) == [
         ("dense", [1.0, 0.0], 3),
         ("lexical", "vacation days", 3),
@@ -369,7 +369,7 @@ async def test_the_embed_stage_embeds_the_question_as_a_query(
     result = await workflow.run("vacation days", mode="retrieve")
 
     # As the user asked it: the embedder puts its own prefix in front.
-    assert (embedder.queries, embedder.passages) == (["vacation days"], [])
+    assert (embedder.queries, embedder.records) == (["vacation days"], [])
     lexical_calls = [call for call in store.calls if call[0] == "lexical"]
     assert lexical_calls == [("lexical", "vacation days", 20)]  # words, unprefixed
     assert result.question == "vacation days"
@@ -383,8 +383,8 @@ async def test_every_retrieval_mode_answers_over_the_fake_store(
 
     result = await workflow.run("How many vacation days do employees accrue?")
 
-    assert len(result.passages) == DEFAULT_TOP_K_RERANK
-    assert "vacation" in result.passages[0].text.lower()
+    assert len(result.records) == DEFAULT_TOP_K_RERANK
+    assert "vacation" in result.records[0].text.lower()
     assert result.answer is not None
 
 

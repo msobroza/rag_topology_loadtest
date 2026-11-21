@@ -24,9 +24,9 @@ components:
     backend: elasticsearch
     elasticsearch:
       url: http://localhost:9200
-      index: fixture_passages
+      index: fixture_records
     chroma:
-      collection: fixture_passages
+      collection: fixture_records
     metadata_field_info:
       - name: topic
         type: string

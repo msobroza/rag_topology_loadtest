@@ -183,19 +183,19 @@ async def test_the_calibration_limits_come_from_the_settings(
     assert reranker.scope.threads == 4
 
 
-async def test_the_rerankers_calibration_passages_bound_the_batch_sizes_tried(
+async def test_the_rerankers_calibration_records_bound_the_batch_sizes_tried(
     settings_factory: SettingsFactory,
     fake_weights: FakeSentenceTransformersModule,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     settings = four_thread_settings(
-        settings_factory, components__reranker__local__calibration_passages=8
+        settings_factory, components__reranker__local__calibration_records=8
     )
     await open_reranker(settings, caplog)
 
     trials = tried(calibrated_lines(caplog)["rerank"])
     assert trials[:4] == [(4, 8), (4, 4), (4, 2), (4, 1)]
-    assert ("predict", 8) in fake_weights.batch_sizes  # a request of 8 passages
+    assert ("predict", 8) in fake_weights.batch_sizes  # a request of 8 records
 
 
 async def test_rerank_calibration_reads_no_stages_setting(
@@ -207,23 +207,23 @@ async def test_rerank_calibration_reads_no_stages_setting(
     await open_reranker(four_thread_settings(settings_factory, graph=graph), caplog)
 
     trials = tried(calibrated_lines(caplog)["rerank"])
-    assert trials[0] == (4, 20)  # the reranker's 20 passages, not retrieve's 7
+    assert trials[0] == (4, 20)  # the reranker's 20 records, not retrieve's 7
 
 
-async def test_the_rerank_sample_is_one_question_and_its_calibration_passages(
+async def test_the_rerank_sample_is_one_question_and_its_calibration_records(
     pool: ThreadPoolExecutor,
 ) -> None:
     model = RecordingCrossEncoder()
     reranker = CrossEncoderReranker(
         model, pool, model_name="m", batch_size=4, scope=NativeThreadScope(1)
     )
-    stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=12)
+    stage = CalibratedRerankStage(TORCH_MODEL, pool, records=12)
 
     await stage.serve_sample(reranker)
 
     sample = calibration_sample(12)
     [pairs] = model.pairs
-    assert pairs == [(sample.question, text) for text in sample.passages]
+    assert pairs == [(sample.question, text) for text in sample.texts]
 
 
 # --- embed ---------------------------------------------------------------------------
@@ -313,7 +313,7 @@ async def test_the_embed_sample_is_one_question_embedded_as_a_query(
 def test_the_rerank_stage_is_pinned_by_its_threads_and_batch_size(
     pool: ThreadPoolExecutor,
 ) -> None:
-    stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=20)
+    stage = CalibratedRerankStage(TORCH_MODEL, pool, records=20)
 
     pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
 
@@ -337,7 +337,7 @@ def test_pinned_settings_read_back_as_the_tuning(
     pool: ThreadPoolExecutor,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    stage = CalibratedRerankStage(TORCH_MODEL, pool, passages=20)
+    stage = CalibratedRerankStage(TORCH_MODEL, pool, records=20)
     pinned = stage.pinned_settings(StageTuning(threads=2, batch_size=5))
     for setting, value in pinned.items():
         path = ("components", "reranker", "local", setting)

@@ -1,8 +1,9 @@
 """The import rule, read from the source with ``ast``: what each of the ten
 packages of ``query_processing`` may import (the table in the README's "Where a file
-goes"). And the mock rule: ``fake_domino`` imports nothing from ``query_processing``,
-and only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the
-mock's own tests, in ``tests/fake_domino/``, import nothing from ``query_processing``
+goes"), and the core (``query_processing_core``) too, which the reader never counts.
+And the mock rule: ``fake_domino`` imports nothing from ``query_processing``, and
+only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the mock's
+own tests, in ``tests/fake_domino/``, import nothing from ``query_processing``
 either. The one-way rule, that no file of the toolkit's source names a use case, is
 in test_one_way_to_use_cases.py."""
 
@@ -22,7 +23,7 @@ FAKE_DOMINO_IMPORTERS = {Path("deploy") / "qp_deploy.py"}  # relative to PACKAGE
 # What a use case imports of the toolkit: a module, not a package, outside the
 # table below. It may import every package, and none imports it.
 EXTENSION_API = PACKAGE / "extension_api.py"
-# Package -> the packages of query_processing its modules may import.
+# Package -> the packages of query_processing it may import (and the core, always).
 MAY_IMPORT: dict[str, set[str]] = {
     "domain": {"domain"},
     "application": {"application", "domain"},
@@ -237,6 +238,7 @@ def test_the_import_reader_on_literal_sources() -> None:
         (1, "deploy")
     ]
     assert imported_packages(nested, "import httpx\nfrom http import HTTPStatus") == []
+    assert imported_packages(nested, "import query_processing_core.retrieval") == []
     package_init = importer_name(PACKAGE / "adapters" / "llm" / "api" / "__init__.py")
     assert package_init == "query_processing.adapters.llm.api.__init__"
     assert imported_packages(package_init, "from ....domain.registry import x") == [

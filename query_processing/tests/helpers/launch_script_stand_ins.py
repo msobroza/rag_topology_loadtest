@@ -28,6 +28,10 @@ APP_SH = TOOLKIT_ROOT / "domino" / "app.sh"
 FAKES = ("ovms", "nginx", "qp-serve", "qp-model-server", "apt-get")
 VENV_FAKES = ("qp-serve", "qp-model-server")  # what ``uv venv`` puts in a venv
 PROXY_PAIR = {"ovms": "nginx", "nginx": "ovms"}  # run together behind the prefix proxy
+# Where an App that installs finds doclang's core, which no index has, and the
+# name a build of it gives its wheel.
+WHEELS_VARIABLE = "QP_BOOTSTRAP_WHEELS"
+DOCLANG_WHEEL = "doclang_domain_core-0.1.0-py3-none-any.whl"
 
 
 def write_fake(path: Path, log_file: Path, extra: str = "") -> None:
@@ -259,6 +263,23 @@ def started_env(tmp_path: Path, name: str) -> list[str]:
 def started_in(tmp_path: Path, name: str) -> Path:
     """The directory the stand-in ``name`` was last started in."""
     return Path((tmp_path / f"{name}.cwd").read_text().splitlines()[-1])
+
+
+def wheels_env(tmp_path: Path) -> dict[str, str]:
+    """``QP_BOOTSTRAP_WHEELS`` naming a directory that holds a wheel of doclang's core.
+
+    The wheel is an empty file under the name a build of doclang's core gives
+    it: the ``uv`` stand-in installs nothing, so only its name is read. The
+    directory plays the one on the Dataset that the deploy setting names.
+
+    Example::
+
+        run_app(tmp_path, bin_dir, QP_BOOTSTRAP="1", **wheels_env(tmp_path))
+    """
+    wheels = tmp_path / "wheels"
+    wheels.mkdir(exist_ok=True)
+    (wheels / DOCLANG_WHEEL).touch()
+    return {WHEELS_VARIABLE: str(wheels)}
 
 
 def models_dir(tmp_path: Path, weight_format: str = "fp32") -> Path:

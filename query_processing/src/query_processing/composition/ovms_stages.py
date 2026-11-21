@@ -7,7 +7,7 @@ app calls a served component with, on OVMS's /v3 routes, in the standard format
 of the component's type and with its alias as model.
 ``infrastructure/calibration/served_stage_calibration.py`` times them. The
 sample is the one the component's in-process calibration serves: a reranker's
-``local.calibration_passages`` passages, all kept, or one question an embedder
+``local.calibration_records`` records, all kept, or one question an embedder
 embeds as a query.
 
 Example:
@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Generic, Protocol, TypeVar
 
 import httpx
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from ..adapters.embedder.api.api_embedder import ApiEmbedder, open_api_embedder
 from ..adapters.reranker.api.api_reranker import ApiReranker, open_api_reranker
@@ -39,7 +40,6 @@ from ..domain.endpoints.api_endpoint import (
     ApiEndpoint,
 )
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
-from ..domain.retrieval.passages import ScoredPassage
 from ..domain.runtime.calibration import StageTuning, calibration_sample
 from ..infrastructure.calibration.served_stage_calibration import BaseServedStage
 from ..infrastructure.http.http_policy import HttpPolicy
@@ -275,7 +275,7 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
 class OvmsRerankStage(BaseOvmsStage[RerankerSettings, ApiReranker]):
     """Rerank on OVMS: the sample ``CalibratedRerankStage`` serves, one request each.
 
-    Its sample is a question and ``local.calibration_passages`` passages, all
+    Its sample is a question and ``local.calibration_records`` records, all
     kept: the model scores every candidate whatever it keeps.
     """
 
@@ -283,8 +283,8 @@ class OvmsRerankStage(BaseOvmsStage[RerankerSettings, ApiReranker]):
 
     @property
     def request_size(self) -> int:
-        """The passages of the sample request."""
-        return self._component.local.calibration_passages
+        """The vector-store records of the sample request."""
+        return self._component.local.calibration_records
 
     def _adapter_at(self, origin: str, policy: HttpPolicy) -> ApiReranker:
         calls = self._calls
@@ -292,17 +292,19 @@ class OvmsRerankStage(BaseOvmsStage[RerankerSettings, ApiReranker]):
         return open_api_reranker(calls.client, endpoint, key_source=None, policy=policy)
 
     @cached_property
-    def _sample(self) -> tuple[str, list[ScoredPassage]]:
+    def _sample(self) -> tuple[str, list[ScoredVectorStoreRecord]]:
         sample = calibration_sample(self.request_size)
-        passages = [
-            ScoredPassage(id=f"calibration-{i}", text=text, retrieval_score=0.0)
-            for i, text in enumerate(sample.passages)
+        records = [
+            ScoredVectorStoreRecord(
+                text=text, metadata={"id": f"calibration-{i}"}, retrieval_score=0.0
+            )
+            for i, text in enumerate(sample.texts)
         ]
-        return sample.question, passages
+        return sample.question, records
 
     async def _serve_one(self, adapter: ApiReranker) -> None:
-        question, passages = self._sample
-        await adapter.rerank(question, passages, top_n=len(passages))
+        question, records = self._sample
+        await adapter.rerank(question, records, top_n=len(records))
 
 
 class OvmsEmbedStage(BaseOvmsStage[EmbedderSettings, ApiEmbedder]):

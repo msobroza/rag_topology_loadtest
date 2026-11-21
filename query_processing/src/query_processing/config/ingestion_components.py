@@ -1,6 +1,6 @@
 """Which components ingestion fills the store with: one store, one embedder.
 
-``qp-ingest`` embeds passages with one embedder component of the workflow file
+``qp-ingest`` embeds records with one embedder component of the workflow file
 and fills its one vector store. With several embedders, one must be named.
 
 Example:

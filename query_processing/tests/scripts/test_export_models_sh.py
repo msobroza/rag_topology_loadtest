@@ -180,7 +180,7 @@ def test_without_qp_served_models_the_export_fails_before_any_download(
 
     assert result.returncode != 0
     assert "qp-served-models" in result.stderr
-    assert "make install" in result.stderr
+    assert_it_says_how_to_install_where_there_is_no_clone(result.stderr)
     assert calls(tmp_path, "curl") == []
     assert calls(tmp_path, "python") == []
 
@@ -263,5 +263,14 @@ def test_a_qp_served_models_without_the_weight_format_says_to_reinstall(
 
     assert result.returncode == 1
     assert "printed no weight format" in result.stderr
-    assert "make install" in result.stderr
+    assert_it_says_how_to_install_where_there_is_no_clone(result.stderr)
     assert calls(tmp_path, "python") == []
+
+
+def assert_it_says_how_to_install_where_there_is_no_clone(said: str) -> None:
+    # make install needs a clone of document_doclang, which a Workspace, where
+    # the script runs, does not have: there doclang's core comes from its wheel.
+    [line] = said.splitlines()
+    assert "make install" in line
+    assert "document_doclang" in line
+    assert "--find-links <the directory of the wheel of doclang's core>" in line

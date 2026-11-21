@@ -3,7 +3,7 @@
 ``workflow_builder.build_workflow`` builds the orchestrator's graph from its
 description; this module only runs it. The request's question starts the workflow state,
 and the final state becomes the result: the answer in ``query`` mode, the
-reranked passages, and each stage's wall time, keyed by the stages of the
+reranked records, and each stage's wall time, keyed by the stages of the
 graph that ran.
 
 Example:
@@ -17,10 +17,12 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 
+from query_processing_core.conversation import HistoryMessage
+from query_processing_core.query_response import TOTAL_TIMING_KEY, RagMode
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
+
 from ..adapters.orchestrator.base_orchestrator import BaseOrchestrator
-from ..domain.conversation import HistoryMessage
-from ..domain.retrieval.metadata_filter import MetadataCondition
-from ..domain.retrieval.passages import TOTAL_TIMING_KEY, RagMode, RagResult
+from ..domain.retrieval.rag_result import RagResult
 from .workflow_state import (
     METADATA_FILTER_FIELD,
     TIMINGS_FIELD,
@@ -86,7 +88,7 @@ class CompiledWorkflow:
             question=question,
             mode=mode,
             answer=final.get("answer") if mode == "query" else None,
-            passages=final.get("reranked", []),
+            records=final.get("reranked", []),
             metadata_filter=final.get(METADATA_FILTER_FIELD, []),
             timings_ms=stage_timings(self.stage_names, final[TIMINGS_FIELD], total_ms),
             tokens=stage_tokens(self.stage_names, final[TOKENS_FIELD]),

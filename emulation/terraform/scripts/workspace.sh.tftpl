@@ -19,15 +19,18 @@ CACHE_BUCKET='${cache_bucket}'
 DATASET_PATH='${dataset_path}'
 OVMS_BUNDLE='${ovms_bundle_path}'
 
-# The repository's one virtualenv, at the clone's root, with the toolkit installed from
+# The repository's one virtualenv, at the clone's root, with the core from
+# query_processing_core/, the toolkit installed from
 # query_processing/ with the loadtest and emulation extras (qp-deploy, qp-ingest,
 # qp-fetch-corpus, locust and qp-domino-emulation) and the RAG use case from
-# query_processing_rag_usecase/, in one command: no package index has the toolkit.
+# query_processing_rag_usecase/, in one command: no package index has the core or the toolkit.
+# doclang's core, which no index has either, is found among the wheels restore_wheels
+# copied (QP_BOOTSTRAP_WHEELS: sudo passes no variable, so it is the bash's $2).
 install_project() {
   if [ ! -x "$REPO_PATH/.venv/bin/python" ]; then
     retry 3 30 as_ubuntu timeout 900 bash -c 'cd "$1" && uv venv --python "$(cat .python-version)" .venv' _ "$REPO_PATH"
   fi
-  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python -e "./query_processing[loadtest,emulation]" -e ./query_processing_rag_usecase' _ "$REPO_PATH"
+  retry 3 30 as_ubuntu timeout 1800 bash -c 'cd "$1" && uv pip install --python .venv/bin/python --find-links "$2" -e ./query_processing_core -e "./query_processing[loadtest,emulation]" -e ./query_processing_rag_usecase' _ "$REPO_PATH" "$QP_BOOTSTRAP_WHEELS"
 }
 
 # The key the fake Domino logs in to the pool machines with, from Secret Manager.
@@ -89,6 +92,8 @@ domino_host: "http://${workspace_address}:${domino_port}"
 run_token_url: "http://localhost:${domino_port}/access-token"
 # On every pool machine and on this one (for an App whose server is ovms).
 ovms_bundle: "${ovms_bundle_path}"
+# The wheel of doclang's core, copied from the cache bucket at boot to every machine.
+bootstrap_wheels: "${dataset_path}/wheels"
 defaults:
   environment_id: "${environment_id}"
   hardware_tier_id: "${default_tier}"
@@ -132,6 +137,8 @@ sync_repo "$REPO_URL" "$GIT_REF" "$REPO_PATH"
 # Only the OpenVINO exports: what qp-ingest loads on this machine.
 write_cache_config "$CACHE_BUCKET" "$DATASET_PATH"
 restore_cached_models "$CACHE_BUCKET" "$CACHE_OPENVINO_PREFIX" "$DATASET_PATH"
+# doclang's core, from the bucket: for install_project below.
+restore_wheels "$CACHE_BUCKET" "$DATASET_PATH"
 # qp-deploy checks that deploy.yaml's ovms_bundle exists on this machine before an
 # OVMS deploy, as on Domino where the Workspace mounts the Apps' Dataset.
 fetch_ovms_bundle "$REPO_PATH/query_processing" "$OVMS_BUNDLE"

@@ -9,12 +9,13 @@ answer_from_context:
     content: >-
       You answer questions using only the numbered context passages.
       Cite passages as [n]. If the context is insufficient, say so.
-  # The passages kept, numbered one per line, then the user's message.
+  # The vector-store records kept, their texts numbered one per line, then the
+  # user's message. The system message keeps its wording: the LLM answers by it.
   - role: user
     content: |-
       Context:
-      {% for passage in reranked %}
-      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {% for record in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ record.text }}
       {%- endfor %}
 
 

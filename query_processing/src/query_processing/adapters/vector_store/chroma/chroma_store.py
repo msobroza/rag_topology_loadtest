@@ -17,10 +17,18 @@ from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataValue,
+)
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
+
 from ....domain.errors import RagDependencyError
-from ....domain.retrieval.metadata_filter import MetadataCondition
-from ....domain.retrieval.passages import MetadataValue, Passage, ScoredPassage
-from ..base_vector_store import BaseVectorStore
+from ....domain.retrieval.rag_result import required_record_id
+from ..base_vector_store import BaseVectorStore, record_as_read
 from .chroma_filter_translator import ChromaFilterTranslator
 
 # Cosine distance, so ``1 - distance`` is the cosine similarity ``query`` reports.
@@ -39,7 +47,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     Example:
         >>> store = await ChromaVectorStore.open(
-        ...     url="", path="chroma", collection="rag_passages")
+        ...     url="", path="chroma", collection="rag_records")
         >>> hits = await store.query(vector, top_k=20)
     """
 
@@ -55,7 +63,7 @@ class ChromaVectorStore(BaseVectorStore):
         Args:
             url: A Chroma server; "" opens the embedded store at ``path``.
             path: The embedded store's folder.
-            collection: The collection the passages live in, created (cosine
+            collection: The collection the records live in, created (cosine
                 distance) when missing.
 
         Returns:
@@ -72,28 +80,33 @@ class ChromaVectorStore(BaseVectorStore):
         return cls(await _off_loop(collection, connect))
 
     async def upsert(
-        self, passages: Sequence[Passage], embeddings: Sequence[Sequence[float]]
+        self,
+        records: Sequence[VectorStoreRecord],
+        embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Store passages with their vectors; a known id is replaced whole.
+        """Store records with their vectors; a known id is replaced whole.
 
         Args:
-            passages: The passages to store; none is a no-op.
-            embeddings: One vector per passage, in the same order.
+            records: The records to store; none is a no-op.
+            embeddings: One vector per record, in the same order.
+
+        Raises:
+            ValueError: A record holds no id; nothing is stored.
         """
-        if not passages:
+        if not records:
             return
-        ids = [p.id for p in passages]
-        vectors = [list(e) for _, e in zip(passages, embeddings, strict=True)]
+        ids = [required_record_id(p) for p in records]
+        vectors = [list(e) for _, e in zip(records, embeddings, strict=True)]
 
         def replace() -> None:
             # Chroma's own upsert merges new metadata into the old, so a key a
-            # re-ingested passage dropped would survive: delete, then add.
+            # re-ingested record dropped would survive: delete, then add.
             self._collection.delete(ids=ids)
             self._collection.add(
                 ids=ids,
                 embeddings=vectors,
-                documents=[p.text for p in passages],
-                metadatas=[_chroma_metadata(p.metadata) for p in passages],
+                documents=[p.text for p in records],
+                metadatas=[_chroma_metadata(p.metadata) for p in records],
             )
 
         await self._call(replace)
@@ -103,18 +116,18 @@ class ChromaVectorStore(BaseVectorStore):
         embedding: Sequence[float],
         top_k: int,
         metadata_filter: Sequence[MetadataCondition] = (),
-    ) -> list[ScoredPassage]:
-        """Find the passages nearest to a vector among those the filter keeps.
+    ) -> list[ScoredVectorStoreRecord]:
+        """Find the records nearest to a vector among those the filter keeps.
 
         Args:
             embedding: The query vector.
-            top_k: How many passages to return at most.
-            metadata_filter: Conditions a passage must all meet, sent as the
+            top_k: How many records to return at most.
+            metadata_filter: Conditions a record must all meet, sent as the
                 query's ``where``, which Chroma applies before its vector
                 search; none sends no ``where``.
 
         Returns:
-            The nearest passages, nearest first, with the cosine similarity
+            The nearest records, nearest first, with the cosine similarity
             (``1 - cosine distance``, higher is nearer) as ``retrieval_score``.
         """
         if top_k <= 0:
@@ -136,21 +149,21 @@ class ChromaVectorStore(BaseVectorStore):
         return [_scored(pid, text, meta, 1.0 - dist) for pid, text, meta, dist in rows]
 
     async def count(self) -> int:
-        """Count the stored passages.
+        """Count the stored records.
 
         Returns:
-            The number of passages in the collection.
+            The number of records in the collection.
         """
         return int(await self._call(self._collection.count))
 
     async def ready(self) -> tuple[bool, str]:
-        """Report whether the collection holds any passage.
+        """Report whether the collection holds any record.
 
         Returns:
-            Whether the collection is non-empty, and how many passages it holds.
+            Whether the collection is non-empty, and how many records it holds.
         """
         count = await self.count()
-        return count > 0, f"{count} passages in {self._name}"
+        return count > 0, f"{count} records in {self._name}"
 
     async def _call(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         return await _off_loop(self._name, fn, *args, **kwargs)
@@ -189,11 +202,7 @@ def _chroma_metadata(
 
 
 def _scored(
-    passage_id: str, text: str | None, metadata: Any, score: float
-) -> ScoredPassage:
-    return ScoredPassage(
-        id=passage_id,
-        text=text or "",
-        metadata=dict(metadata or {}),
-        retrieval_score=float(score),
-    )
+    record_id: str, text: str | None, metadata: Any, score: float
+) -> ScoredVectorStoreRecord:
+    # Chroma gives None for a row stored without metadata.
+    return record_as_read(record_id, text or "", dict(metadata or {}), score)

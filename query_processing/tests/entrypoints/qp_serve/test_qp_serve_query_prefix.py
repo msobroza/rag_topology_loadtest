@@ -1,7 +1,7 @@
 """The query prefix, seen from outside the workflow app: what the model receives.
 
 The embedder puts its model's query prefix in front of a question and never in
-front of a passage. Each test starts the workflow app from settings, so the fake
+front of a record. Each test starts the workflow app from settings, so the fake
 store is seeded through the embedder under test, asks ``/retrieve`` once, and
 reads the texts that reached the model or the endpoint.
 """
@@ -75,15 +75,15 @@ def seeded_then_asked(
     return seeded, received[at_start:]
 
 
-def corpus_passages(settings: WorkflowSettings) -> list[str]:
-    """The passages the fake store is seeded with, as their texts."""
+def corpus_texts(settings: WorkflowSettings) -> list[str]:
+    """The vector-store records the fake store is seeded with, as their texts."""
     seed_documents = settings.components["vector_store"].fake.seed_documents
     documents = synthetic_corpus(seed_documents)
-    return [passage.text for document in documents for passage in chunk(document)]
+    return [record.text for document in documents for record in chunk(document)]
 
 
 @pytest.mark.parametrize("prefix", ["query: ", ""])
-def test_an_endpoint_gets_the_prefixed_question_and_the_passages_as_they_are(
+def test_an_endpoint_gets_the_prefixed_question_and_the_records_as_they_are(
     settings_factory: SettingsFactory, prefix: str
 ) -> None:
     endpoint = FakeEmbeddingsEndpoint()
@@ -98,10 +98,10 @@ def test_an_endpoint_gets_the_prefixed_question_and_the_passages_as_they_are(
     seeded, asked = seeded_then_asked(composition, endpoint.inputs)
 
     assert asked == [[prefix + QUESTION]]
-    assert seeded == corpus_passages(settings)
+    assert seeded == corpus_texts(settings)
 
 
-def test_an_in_process_model_gets_the_prefixed_question_and_the_passages_as_they_are(
+def test_an_in_process_model_gets_the_prefixed_question_and_the_records_as_they_are(
     settings_factory: SettingsFactory, fake_weights: FakeSentenceTransformersModule
 ) -> None:
     settings = settings_factory(**FAKE_REST, **IN_PROCESS)
@@ -109,7 +109,7 @@ def test_an_in_process_model_gets_the_prefixed_question_and_the_passages_as_they
     seeded, asked = seeded_then_asked(CompositionRoot(settings), fake_weights.encoded)
 
     assert asked == [["query: " + QUESTION]]
-    assert seeded == corpus_passages(settings)
+    assert seeded == corpus_texts(settings)
 
 
 def test_a_model_server_embeds_what_it_receives_so_a_query_is_prefixed_once(
@@ -133,7 +133,7 @@ def test_a_model_server_embeds_what_it_receives_so_a_query_is_prefixed_once(
         )
 
     assert asked == [["query: " + QUESTION]]
-    assert seeded == corpus_passages(settings)
+    assert seeded == corpus_texts(settings)
 
 
 def test_the_fake_embedder_has_no_prefix(settings_factory: SettingsFactory) -> None:
@@ -147,5 +147,5 @@ def test_the_fake_embedder_has_no_prefix(settings_factory: SettingsFactory) -> N
         with TestClient(create_app(CompositionRoot(settings))) as client:
             answers.append(client.post("/retrieve", json={"question": QUESTION}))
 
-    with_prefix, without = (answer.json()["passages"] for answer in answers)
+    with_prefix, without = (answer.json()["records"] for answer in answers)
     assert with_prefix == without  # retrieval scores included: the same vector

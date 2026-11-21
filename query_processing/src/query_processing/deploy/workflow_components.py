@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, get_args, get_origin
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
@@ -54,6 +54,7 @@ from ..config.files.workflow_file import (
 )
 from ..config.workflow_settings import WorkflowSettings
 from .apps_client import DominoDeployError
+from .deploy_refusals import blocks_own_refusal, first_error_in_one_line
 from .deploy_settings import deploy_file
 
 Place = tuple[str, ...]  # a value's path under overrides, its levels in order
@@ -252,7 +253,19 @@ def _refuse_unknown_keys(
             annotation, inside = fields[name].annotation, _get(declared, name)
             _refuse_unknown_below(below, annotation, inside, (*place, name), file)
         elif model.model_config.get("extra") != "allow":  # a stage keeps the rest
-            raise DominoDeployError(_no_such_key(place, name, sorted(fields)))
+            raise DominoDeployError(_no_such_key_of(model, place, name, below))
+
+
+def _no_such_key_of(
+    model: type[BaseModel], place: Place, name: str, value: object
+) -> str:
+    # A renamed setting's refusal, as start-up words it, names (quoted) the key
+    # it became: it says more than the list of the block's keys.
+    fields = sorted(_fields_of(model))
+    said = blocks_own_refusal(model, name, value)
+    if any(f"'{field}'" in said for field in fields):
+        return f"{_overrides_at((*place, name))} in {deploy_file()}: {said}"
+    return _no_such_key(place, name, fields)
 
 
 def _refuse_unknown_below(
@@ -442,7 +455,7 @@ def _settings_with_overrides(
     except ValueError as exc:  # pydantic's ValidationError is one
         raise DominoDeployError(
             f"the workflow file {str(path)!r} with the overrides of {deploy_file()} "
-            f"makes settings the workflow app refuses: {_first_error(exc)}"
+            f"makes settings the workflow app refuses: {first_error_in_one_line(exc)}"
         ) from exc
 
 
@@ -476,15 +489,3 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
             )
 
     return FileWithOverrides
-
-
-def _first_error(exc: ValueError) -> str:
-    if not isinstance(exc, ValidationError):
-        return str(exc)
-    error = exc.errors()[0]
-    loc = list(error["loc"])
-    if not loc:  # a check of the whole names its variables itself
-        return str(error["msg"])
-    got = error["input"]
-    shown = "" if isinstance(got, (Mapping, list)) else f" (got {got!r})"
-    return f"{'.'.join(map(str, loc))}: {error['msg']}{shown}"

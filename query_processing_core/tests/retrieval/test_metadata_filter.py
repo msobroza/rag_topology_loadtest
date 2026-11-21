@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from query_processing.domain.retrieval.metadata_filter import (
+from query_processing_core.retrieval.metadata_filter import (
     MetadataCondition,
     MetadataFieldInfo,
     check_condition_shapes,
@@ -17,8 +17,8 @@ SOURCE = MetadataFieldInfo(
     name="source", type="string", description="d", allowed_values=["AMF", "GAA"]
 )
 ACTIVE = MetadataFieldInfo(name="active", type="boolean", description="d")
-CHUNK = MetadataFieldInfo(name="chunk", type="integer", description="d")
-FIELDS = [SOURCE, ACTIVE, CHUNK]
+SEQUENCE = MetadataFieldInfo(name="sequence", type="integer", description="d")
+FIELDS = [SOURCE, ACTIVE, SEQUENCE]
 
 
 @pytest.mark.parametrize(
@@ -49,7 +49,7 @@ FIELDS = [SOURCE, ACTIVE, CHUNK]
             "'in' takes a list",
         ),
         (
-            {"attribute": "chunk", "comparator": "eq", "value": [1, 2]},
+            {"attribute": "sequence", "comparator": "eq", "value": [1, 2]},
             "'eq' takes one value",
         ),
         (
@@ -57,11 +57,11 @@ FIELDS = [SOURCE, ACTIVE, CHUNK]
             "'in' takes a list of at least one value",
         ),
         (
-            {"attribute": "chunk", "comparator": "nin", "value": []},
+            {"attribute": "sequence", "comparator": "nin", "value": []},
             "'nin' takes a list of at least one value",
         ),
         (
-            {"attribute": "chunk", "comparator": "gte", "value": "two"},
+            {"attribute": "sequence", "comparator": "gte", "value": "two"},
             "'two' is not of type integer",
         ),
         (
@@ -85,7 +85,7 @@ def test_the_refusal_names_the_condition_and_the_fields_declared() -> None:
         )
 
     assert "sorce" in str(refused.value)
-    assert "'source', 'active', 'chunk'" in str(refused.value)
+    assert "'source', 'active', 'sequence'" in str(refused.value)
 
 
 @pytest.mark.parametrize(
@@ -94,8 +94,8 @@ def test_the_refusal_names_the_condition_and_the_fields_declared() -> None:
         {"attribute": "source", "comparator": "in", "value": ["AMF", "GAA"]},
         {"attribute": "source", "comparator": "ne", "value": "GAA"},
         {"attribute": "active", "comparator": "eq", "value": True},
-        {"attribute": "chunk", "comparator": "lt", "value": 3},
-        {"attribute": "chunk", "comparator": "nin", "value": [1, 2]},
+        {"attribute": "sequence", "comparator": "lt", "value": 3},
+        {"attribute": "sequence", "comparator": "nin", "value": [1, 2]},
     ],
 )
 def test_a_condition_that_fits_its_field_is_accepted(condition: dict[str, Any]) -> None:
@@ -124,7 +124,9 @@ def test_a_condition_keeps_the_type_of_its_value() -> None:
     )
 
     assert condition.value is True
-    assert MetadataCondition(attribute="chunk", comparator="in", value=[2]).value == [2]
+    assert MetadataCondition(
+        attribute="sequence", comparator="in", value=[2]
+    ).value == [2]
 
 
 @pytest.mark.parametrize(

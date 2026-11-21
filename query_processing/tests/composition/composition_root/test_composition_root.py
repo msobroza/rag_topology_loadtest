@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
 from cpu_fakes import FakeCpuCounter
 from query_processing.adapters.embedder.fake.fake_embedder import FakeEmbedder
@@ -28,7 +29,6 @@ from query_processing.adapters.vector_store.fake.in_memory_vector_store import (
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import ScoredPassage
 from rag_components import FAKE_BACKENDS
 from sentence_transformers_fakes import FakeSentenceTransformersModule
 
@@ -45,6 +45,7 @@ PINNED_THREADS = {  # no calibration
 FIRST_CANDIDATES = {"calibration__budget_s": 1e-9}
 EMBED_URL = "http://embedder/v3/embeddings"
 RERANK_URL = "http://reranker/v3/rerank"
+CANDIDATE = ScoredVectorStoreRecord(text="t", metadata={"id": "a"}, retrieval_score=0.1)
 
 
 @pytest.fixture
@@ -82,9 +83,9 @@ async def test_all_fake_settings_open_four_ports_over_a_seeded_store(
         assert isinstance(deps.by_name["vector_store"], InMemoryVectorStore)
         assert isinstance(deps.by_name["reranker"], FakeReranker)
         assert isinstance(deps.by_name["llm"], FakeLLM)
-        # Every synthetic document fits one chunk, so passages == documents.
+        # Every synthetic document fits one chunk, so records == documents.
         store = deps.by_name["vector_store"]
-        assert await store.ready() == (True, "200 passages in memory")
+        assert await store.ready() == (True, "200 records in memory")
 
 
 async def test_ports_open_once_and_are_reused(fake_settings: WorkflowSettings) -> None:
@@ -137,8 +138,7 @@ async def test_the_model_server_endpoints_share_one_domino_token(
     async with composition:
         deps = await composition.workflow_dependencies()
         assert await deps.by_name["embedder"].embed_documents(["q"]) == [[1.0, 0.0]]
-        candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
-        [ranked] = await deps.by_name["reranker"].rerank("q", [candidate], 1)
+        [ranked] = await deps.by_name["reranker"].rerank("q", [CANDIDATE], 1)
         assert ranked.rerank_score == 0.9
 
     # One domino key source a process: both endpoints share one token.
@@ -187,10 +187,9 @@ async def test_local_models_use_the_configured_batch_sizes(
         "components__reranker__local__batch_size": 8,
     }
     settings = settings_factory(**batch_sizes, **PINNED_THREADS)
-    candidate = ScoredPassage(id="a", text="t", retrieval_score=0.1)
     async with CompositionRoot(settings) as composition:
         await (await composition.local_embedder("embedder")).embed_documents(["hello"])
-        await (await composition.local_reranker("reranker")).rerank("q", [candidate], 1)
+        await (await composition.local_reranker("reranker")).rerank("q", [CANDIDATE], 1)
 
     assert fake_weights.batch_sizes == [("encode", 16), ("predict", 8)]
 
@@ -201,12 +200,12 @@ async def test_elasticsearch_store_opens_on_its_index_without_the_network(
     settings = settings_factory(
         components__embedder__backend="fake",
         **UNREACHABLE_STORE,
-        components__vector_store__elasticsearch__index="passages_v2",
+        components__vector_store__elasticsearch__index="records_v2",
     )
     async with CompositionRoot(settings) as composition:
         store = (await composition.ingest_ports()).vector_store
         assert isinstance(store, ElasticsearchVectorStore)
-        assert store.index == "passages_v2"
+        assert store.index == "records_v2"
 
 
 async def test_fake_store_is_seeded_with_the_configured_document_count(

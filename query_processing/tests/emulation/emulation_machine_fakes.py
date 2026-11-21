@@ -45,7 +45,7 @@ SERVED_MODEL_LINES = (
     f"embedder embedder {EMBEDDER} snowflake-arctic-embed-l-v2.0 fp32",
     "llm llm '' '' fp32",  # an LLM a vendor serves has no source id
 )
-PASSAGES = 1592
+INDEXED_RECORDS = 1592
 
 FAKE_CURL = r"""
 import json, os, shutil, sys
@@ -107,7 +107,7 @@ def elasticsearch(method, path, body, state):
             (snapshots / name).unlink()
         return (200, json.dumps({"snapshots": [{"snapshot": name}]})) if exists else (404, '{"error": "snapshot_missing_exception"}')
     if route.endswith("/_count"):
-        return 200, json.dumps({"count": int(os.environ["FAKE_ES_PASSAGES"])})
+        return 200, json.dumps({"count": int(os.environ["FAKE_ES_RECORDS"])})
     if method == "DELETE":
         return 404, '{"error": "index_not_found_exception"}'
     return 200, '{"acknowledged": true}'
@@ -216,7 +216,7 @@ def machine_env(machine: FakeMachine, **env: str) -> dict[str, str]:
         "QP_EMULATION_CACHE_ENV": str(machine.cache_env),
         "FAKE_STATE_DIR": str(machine.root),
         "FAKE_ES_URL": ES_URL,
-        "FAKE_ES_PASSAGES": str(PASSAGES),
+        "FAKE_ES_RECORDS": str(INDEXED_RECORDS),
         "FAKE_TOKEN": TOKEN,
         **env,
     }

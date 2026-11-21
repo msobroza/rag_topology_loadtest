@@ -2,13 +2,13 @@
 
 Each vector store has one translator, which turns our conditions into the
 filter its search takes: clauses for Elasticsearch, a ``where`` for Chroma, a
-predicate over a passage for the in-memory store. This module imports the
+predicate over a record for the in-memory store. This module imports the
 domain only.
 
 Example:
     >>> keep = InMemoryFilterTranslator().translate(
     ...     [MetadataCondition(attribute="topic", comparator="eq", value="pay")])
-    >>> keep(passage)
+    >>> keep(record)
     True
 """
 
@@ -18,7 +18,7 @@ import abc
 from collections.abc import Sequence
 from typing import Generic, TypeVar
 
-from ...domain.retrieval.metadata_filter import MetadataCondition
+from query_processing_core.retrieval.metadata_filter import MetadataCondition
 
 StoreFilterT = TypeVar("StoreFilterT")
 
@@ -38,6 +38,6 @@ class BaseMetadataFilterTranslator(abc.ABC, Generic[StoreFilterT]):
             The store's own filter.
 
         Example:
-            >>> InMemoryFilterTranslator().translate([])(passage)
+            >>> InMemoryFilterTranslator().translate([])(record)
             True
         """

@@ -188,7 +188,7 @@ def unknown_key_in_a_plain_call(graph: Graph) -> None:
 
 def plain_call_reading_too_little(graph: Graph) -> None:
     # A rerank under another name, with no stage type: a plain call whose reads
-    # leave the reranker's passages unfilled.
+    # leave the reranker's records unfilled.
     graph["stages"]["keep_best"] = {
         "call": "reranker",
         "top_k": 4,
@@ -353,9 +353,10 @@ MISTAKES: dict[str, tuple[Callable[[Graph], None], list[str]]] = {
     "a plain call whose reads do not fill its request": (
         plain_call_reading_too_little,
         [
-            "stage 'keep_best': reranker takes (query: str, passages: "
-            "list[ScoredPassage], top_k: int) and gives (passages: "
-            "list[ScoredPassage]); reads lists 1 field after its keys fill top_k"
+            "stage 'keep_best': reranker takes (query: str, records: "
+            "list[ScoredVectorStoreRecord], top_k: int) and gives (records: "
+            "list[ScoredVectorStoreRecord]); reads lists 1 field after its keys "
+            "fill top_k"
         ],
     ),
     "a prompt the prompts file does not define": (

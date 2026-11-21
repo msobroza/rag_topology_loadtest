@@ -61,7 +61,7 @@ def test_the_fixture_file_declares_three_model_components_and_a_store(
     assert reranker.source_id == "fixture-org/fixture-reranker"
     assert reranker.alias == "fixture-reranker"
     assert reranker.local == RerankerLocalSettings(
-        batch_size=0, threads=0, calibration_passages=20
+        batch_size=0, threads=0, calibration_records=20
     )
     assert reranker.api == RerankerEndpointSettings(api_format="cohere")
     assert reranker.http == ComponentHttpSettings()
@@ -104,7 +104,7 @@ def test_every_value_is_reachable_by_its_environment_path(
         "QP_COMPONENTS__RERANKER__ALIAS": "rr",
         "QP_COMPONENTS__RERANKER__LOCAL__BATCH_SIZE": "4",
         "QP_COMPONENTS__RERANKER__LOCAL__THREADS": "2",
-        "QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES": "12",
+        "QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS": "12",
         "QP_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.5",
         "QP_COMPONENTS__LLM__API__MODEL": "gpt-x",
         "QP_COMPONENTS__LLM__API__KEY__SOURCE": "env",
@@ -133,7 +133,7 @@ def test_every_value_is_reachable_by_its_environment_path(
     assert reranker.alias == "rr"
     assert reranker.source_id == "fixture-org/fixture-reranker"
     assert reranker.local == RerankerLocalSettings(
-        batch_size=4, threads=2, calibration_passages=12
+        batch_size=4, threads=2, calibration_records=12
     )
     assert reranker.http == ComponentHttpSettings(backoff_s=0.5)
     assert (llm.api.model, llm.api.temperature) == ("gpt-x", 0.5)
@@ -273,7 +273,32 @@ def test_the_calibration_request_reads_no_stages_setting(
     settings = settings_factory(graph=rag_graph(retrieve_top_k=7, rerank_top_k=3))
 
     local = settings.components["reranker"].local
-    assert local.calibration_passages == 20  # the reranker's own default
+    assert local.calibration_records == 20  # the reranker's own default
+
+
+@pytest.mark.parametrize("stated_as", ["the workflow file", "a variable"])
+def test_the_calibration_settings_old_name_is_refused_giving_the_new_one(
+    settings_factory: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stated_as: str,
+) -> None:
+    components = fixture_components()
+    if stated_as == "the workflow file":
+        components["reranker"]["local"] = {"calibration_passages": 12}
+    else:
+        monkeypatch.setenv("QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES", "12")
+    workflow = write_workflow_file(tmp_path / "w.yaml", fixture_graph(), components)
+    monkeypatch.setenv(WORKFLOW_FILE_VARIABLE, str(workflow))
+
+    with pytest.raises(ValidationError) as caught:
+        settings_factory()
+
+    assert (
+        "the setting 'calibration_passages' is now 'calibration_records' "
+        "(QP_COMPONENTS__<NAME>__LOCAL__CALIBRATION_RECORDS as a variable); "
+        "rename it"
+    ) in str(caught.value)
 
 
 def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None:
@@ -294,16 +319,16 @@ def test_the_vector_store_is_a_component_of_the_fixture_file(
 
     assert (store.type, store.backend) == ("vector_store", "elasticsearch")
     assert store.elasticsearch == ElasticsearchSettings(
-        url="http://localhost:9200", index="fixture_passages"
+        url="http://localhost:9200", index="fixture_records"
     )
     assert store.elasticsearch.text_analyzer == "standard"
     assert store.chroma == ChromaSettings(
-        url="", path="chroma", collection="fixture_passages"
+        url="", path="chroma", collection="fixture_records"
     )
     assert store.fake == FakeStoreSettings(seed_documents=200)
 
 
-def test_where_the_passages_are_kept_is_the_use_cases_with_no_default() -> None:
+def test_where_the_records_are_kept_is_the_use_cases_with_no_default() -> None:
     assert (ElasticsearchSettings().index, ChromaSettings().collection) == ("", "")
 
 
@@ -321,8 +346,8 @@ def test_a_store_naming_no_index_or_collection_is_refused_naming_its_variable(
     variable = f"QP_COMPONENTS__VECTOR_STORE__{backend.upper()}__{key.upper()}"
     assert (
         f"QP_COMPONENTS__VECTOR_STORE__BACKEND={backend!r} needs {variable}, the "
-        f"{key} the passages are kept in (components.vector_store.{backend}.{key} "
-        "in the workflow file); got ''"
+        f"{key} the vector-store records are kept in "
+        f"(components.vector_store.{backend}.{key} in the workflow file); got ''"
     ) in str(caught.value)
 
 
@@ -344,13 +369,13 @@ def test_each_block_of_the_vector_store_is_read_by_its_path(
     for path, value in {
         "BACKEND": "chroma",
         "ELASTICSEARCH__URL": "http://es:9200",
-        "ELASTICSEARCH__INDEX": "passages_v2",
+        "ELASTICSEARCH__INDEX": "records_v2",
         "ELASTICSEARCH__KEY__SOURCE": "env",
         "ELASTICSEARCH__KEY__VARIABLE": "ES_API_KEY",
         "ELASTICSEARCH__TEXT_ANALYZER": "french",
         "CHROMA__URL": "http://chroma:8000",
         "CHROMA__PATH": "here",
-        "CHROMA__COLLECTION": "passages",
+        "CHROMA__COLLECTION": "records",
         "FAKE__SEED_DOCUMENTS": "12",
     }.items():
         monkeypatch.setenv(prefix + path, value)
@@ -360,12 +385,12 @@ def test_each_block_of_the_vector_store_is_read_by_its_path(
     assert store.backend == "chroma"
     assert store.elasticsearch == ElasticsearchSettings(
         url="http://es:9200",
-        index="passages_v2",
+        index="records_v2",
         key=KeySettings(source="env", variable="ES_API_KEY"),
         text_analyzer="french",
     )
     assert store.chroma == ChromaSettings(
-        url="http://chroma:8000", path="here", collection="passages"
+        url="http://chroma:8000", path="here", collection="records"
     )
     assert store.fake == FakeStoreSettings(seed_documents=12)
 
@@ -387,16 +412,18 @@ def test_a_block_the_vector_store_does_not_have_is_refused_naming_its_keys(
 def test_a_vector_store_of_another_name_states_its_type(
     settings_factory: SettingsFactory,
 ) -> None:
-    passages = {
+    second_store = {
         "type": "vector_store",
         "backend": "fake",
         "fake": {"seed_documents": 5},
     }
 
-    settings = settings_factory(components={"passages": passages})
+    settings = settings_factory(components={"second_store": second_store})
 
-    assert settings.component_types()["passages"] == "vector_store"
-    assert settings.components["passages"].fake == FakeStoreSettings(seed_documents=5)
+    assert settings.component_types()["second_store"] == "vector_store"
+    assert settings.components["second_store"].fake == FakeStoreSettings(
+        seed_documents=5
+    )
 
 
 def test_the_model_components_are_every_component_but_the_store(
@@ -411,10 +438,12 @@ def test_ingestion_fills_the_one_vector_store_the_file_declares(
     settings_factory: SettingsFactory,
 ) -> None:
     assert settings_factory().ingestion_store() == "vector_store"
-    passages = {"type": "vector_store", "backend": "fake"}
+    second_store = {"type": "vector_store", "backend": "fake"}
 
-    with pytest.raises(ValueError, match=r"declares 2 .*'vector_store', 'passages'"):
-        settings_factory(components={"passages": passages}).ingestion_store()
+    with pytest.raises(
+        ValueError, match=r"declares 2 .*'vector_store', 'second_store'"
+    ):
+        settings_factory(components={"second_store": second_store}).ingestion_store()
 
 
 def test_ingestion_refuses_a_file_without_a_vector_store(

@@ -39,7 +39,7 @@ class ApiEmbedder(BaseEmbedder):
             ``embedder``).
         api_format: Builds each request body and reads each answer.
         batch_size: Texts per request.
-        query_prefix: Put in front of a query, never of a passage; "" for a
+        query_prefix: Put in front of a query, never of a text to store; "" for a
             model that takes none.
 
     Example:
@@ -152,7 +152,7 @@ def open_api_embedder(
         key_source: Where the endpoint's API key comes from; None sends no key.
         policy: Timeout, retries and backoff of every call.
         batch_size: Texts per request.
-        query_prefix: Put in front of a query, never of a passage.
+        query_prefix: Put in front of a query, never of a text to store.
 
     Returns:
         The embedder.

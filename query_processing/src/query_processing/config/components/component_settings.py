@@ -40,16 +40,16 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from query_processing_core.retrieval.metadata_filter import (
+    MetadataCondition,
+    MetadataFieldInfo,
+    check_condition_shapes,
+)
 
 from ...domain.components.base_component import COMPONENT_TYPES
 from ...domain.endpoints.api_endpoint import ApiEndpoint
 from ...domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ...domain.registry import Registry
-from ...domain.retrieval.metadata_filter import (
-    MetadataCondition,
-    MetadataFieldInfo,
-    check_condition_shapes,
-)
 from .key_settings import KeySettings
 from .registered_component_settings import RegisteredComponentSettings
 from .router_settings import RouterSettings
@@ -153,14 +153,44 @@ class RerankerLocalSettings(SettingsBlock):
     """The reranker's ``local`` block, with the size of its calibration request.
 
     A batch size or thread count of 0 is calibrated when the component opens.
-    The calibration request reranks ``calibration_passages`` passages and keeps
+    The calibration request reranks ``calibration_records`` records and keeps
     them all; their number also bounds the batch sizes tried.
     """
 
-    batch_size: int = Field(default=0, ge=0)  # passages per predict batch
+    batch_size: int = Field(default=0, ge=0)  # records per predict batch
     threads: int = Field(default=0, ge=0)
     # The reranker's own: calibration reads no stage's setting.
-    calibration_passages: int = Field(default=20, ge=1)
+    calibration_records: int = Field(default=20, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def refuse_the_old_calibration_name(cls, data: Any) -> Any:
+        """Refuse ``calibration_passages``, the setting's name before records.
+
+        A block's own refusal of an unknown key would not say what it became,
+        so a file or a variable written before the rename is told its new name.
+
+        Args:
+            data: The ``local`` block, as read from the file and the variables.
+
+        Returns:
+            ``data``, unchanged.
+
+        Raises:
+            ValueError: If the block states ``calibration_passages``.
+
+        Example:
+            >>> RerankerLocalSettings.model_validate({"calibration_passages": 8})
+            ValidationError: ... is now 'calibration_records' ...
+        """
+        if isinstance(data, Mapping) and "calibration_passages" in data:
+            raise ValueError(
+                "the setting 'calibration_passages' is now 'calibration_records' "
+                "(QP_COMPONENTS__<NAME>__LOCAL__CALIBRATION_RECORDS as a "
+                f"variable); rename it, got calibration_passages="
+                f"{data['calibration_passages']!r}"
+            )
+        return data
 
 
 class ModelComponentSettings(ComponentSettings):
@@ -200,7 +230,7 @@ class EmbedderSettings(ModelComponentSettings):
 
     type: Literal["embedder"] = "embedder"
     source_id: str
-    # Put in front of every query before it is embedded, never of a passage
+    # Put in front of every query before it is embedded, never of a record
     # (arctic-embed expects "query: "); "" for a model that takes none.
     query_prefix: str = ""
     local: EmbedderLocalSettings = Field(default_factory=EmbedderLocalSettings)
@@ -237,7 +267,7 @@ class ElasticsearchSettings(SettingsBlock):
     """The vector store's ``elasticsearch`` block: kNN, and BM25 for lexical search.
 
     Example:
-        >>> ElasticsearchSettings(index="passages_v2").url
+        >>> ElasticsearchSettings(index="records_v2").url
         'http://localhost:9200'
     """
 
@@ -247,7 +277,7 @@ class ElasticsearchSettings(SettingsBlock):
     # The key source of its Elasticsearch API key (key_settings.py); None sends
     # none: basic auth in the URL, or no security.
     key: KeySettings | None = None
-    # Analyzer of the passages' text, applied when the index is created and to
+    # Analyzer of the records' text, applied when the index is created and to
     # every lexical query: "standard", or a language's (e.g. "french"). An
     # index keeps the analyzer it was created with.
     text_analyzer: str = "standard"
@@ -282,24 +312,24 @@ class FakeStoreSettings(SettingsBlock):
 class VectorStoreSettings(ComponentSettings):
     """The vector store: one block per product, and the fake's.
 
-    The index or collection the passages are kept under is the use case's to
+    The index or collection the records are kept under is the use case's to
     name: the block of the backend in use states it, or start-up refuses it.
     ``metadata_field_info`` declares the metadata fields a request's filter
     can name; a condition on any other field is refused. ``prefilter`` holds
-    the conditions every search applies before a request's own: which passages
+    the conditions every search applies before a request's own: which records
     a workflow can read at all. Its fields need not be declared, and a client
     cannot name them; only each condition's shape is checked when read.
 
     Example:
         >>> settings.components["vector_store"].elasticsearch.index
-        'rag_passages'
+        'fixture_records'
     """
 
     type: Literal["vector_store"] = "vector_store"
     # None declared: a request's filter can name no field, and only an empty
     # filter is accepted.
     metadata_field_info: list[MetadataFieldInfo] = Field(default_factory=list)
-    # None by default: every passage of the store can be read.
+    # None by default: every record of the store can be read.
     prefilter: list[MetadataCondition] = Field(default_factory=list)
     elasticsearch: ElasticsearchSettings = Field(default_factory=ElasticsearchSettings)
     chroma: ChromaSettings = Field(default_factory=ChromaSettings)
@@ -315,14 +345,14 @@ class VectorStoreSettings(ComponentSettings):
         return prefilter
 
     def kept_in(self) -> tuple[str, str] | None:
-        """Return the key of its backend's block that names where passages are kept.
+        """Return the key of its backend's block that names where records are kept.
 
         Returns:
             The key and its value; None for a backend that names nothing.
 
         Example:
             >>> settings.components["vector_store"].kept_in()
-            ('index', 'rag_passages')
+            ('index', 'fixture_records')
         """
         if self.backend == "elasticsearch":
             return "index", self.elasticsearch.index

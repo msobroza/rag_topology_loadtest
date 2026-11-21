@@ -1,6 +1,6 @@
 """Doubles shared by the tests of the ``local`` embedder and reranker.
 
-A scope that records where a call ran, scored passages, a stand-in for the
+A scope that records where a call ran, scored records, a stand-in for the
 ``sentence_transformers`` package that records each model's load, and one whose
 models refuse overlapping calls as an OpenVINO model does. The fixtures over
 them are in ``local_model_fixtures.py``.
@@ -15,8 +15,8 @@ from types import ModuleType
 from typing import Any
 
 import numpy as np
+from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
-from query_processing.domain.retrieval.passages import ScoredPassage
 from query_processing.infrastructure.local_models.local_model import LocalModel
 from query_processing.infrastructure.local_models.native_threads import (
     NativeThreadScope,
@@ -35,8 +35,13 @@ class RecordingScope(NativeThreadScope):
         return super().run(fn, *args)
 
 
-def scored_passages(*ids: str) -> list[ScoredPassage]:
-    return [ScoredPassage(id=i, text=f"text of {i}", retrieval_score=0.5) for i in ids]
+def scored_records(*ids: str) -> list[ScoredVectorStoreRecord]:
+    return [
+        ScoredVectorStoreRecord(
+            text=f"text of {i}", metadata={"id": i}, retrieval_score=0.5
+        )
+        for i in ids
+    ]
 
 
 class FakeLoadingModule(ModuleType):

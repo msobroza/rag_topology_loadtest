@@ -10,6 +10,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from query_processing_core.retrieval.vector_store_record import (
+    ScoredVectorStoreRecord,
+    VectorStoreRecord,
+)
 
 from cpu_fakes import FakeCpuCounter
 from local_model_fakes import FakeOneRequestModule
@@ -21,7 +25,6 @@ from query_processing.adapters.vector_store.chroma.chroma_store import ChromaVec
 from query_processing.composition.composition_root import CompositionRoot
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.errors import RagDependencyError
-from query_processing.domain.retrieval.passages import Passage, ScoredPassage
 from query_processing.infrastructure.local_models.local_model import (
     exported_model_dir,
     local_model,
@@ -44,17 +47,19 @@ async def test_the_chroma_backend_opens_the_configured_embedded_collection(
         components__embedder__backend="fake",
         components__vector_store__backend="chroma",
         components__vector_store__chroma__path=str(tmp_path / "chroma"),
-        components__vector_store__chroma__collection="passages_under_test",
+        components__vector_store__chroma__collection="records_under_test",
     )
 
     async with CompositionRoot(settings) as composition:
         embedder, store = await composition.ingest_ports()
-        passage = Passage(id="p1", text="Employees accrue vacation days")
-        await store.upsert([passage], await embedder.embed_documents([passage.text]))
+        record = VectorStoreRecord(
+            text="Employees accrue vacation days", metadata={"id": "p1"}
+        )
+        await store.upsert([record], await embedder.embed_documents([record.text]))
 
         assert isinstance(store, ChromaVectorStore)
-        assert await store.ready() == (True, "1 passages in passages_under_test")
-        [vector] = await embedder.embed_documents([passage.text])
+        assert await store.ready() == (True, "1 records in records_under_test")
+        [vector] = await embedder.embed_documents([record.text])
         [hit] = await store.query(vector, 5)
         assert hit.id == "p1"
     assert (tmp_path / "chroma").is_dir()  # embedded: written where the settings say
@@ -460,11 +465,15 @@ async def test_concurrent_openvino_reranks_never_overlap_on_one_model(
 ) -> None:
     settings = exported_settings(settings_factory, tmp_path)
     container = FakeCpuCounter(8, "container")
-    passages = [ScoredPassage(id="p1", text="vacation", retrieval_score=0.5)]
+    records = [
+        ScoredVectorStoreRecord(
+            text="vacation", metadata={"id": "p1"}, retrieval_score=0.5
+        )
+    ]
     async with CompositionRoot(settings, container_cpus=container) as composition:
         reranker = await composition.local_reranker("reranker")
         ranked = await asyncio.gather(
-            *(reranker.rerank(f"q{i}", passages, top_n=1) for i in range(4))
+            *(reranker.rerank(f"q{i}", records, top_n=1) for i in range(4))
         )
 
     assert [[p.id for p in result] for result in ranked] == [["p1"]] * 4

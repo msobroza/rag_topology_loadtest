@@ -162,13 +162,25 @@ one per stage whose LLM reported its counts, `rewrite` and `generate`
 
 ### Install
 
+The core depends on doclang's core (`doclang-domain-core`), which is private
+and on no index: the machine needs a clone of `document_doclang`, beside the
+repository's main checkout (a worktree finds it beside the checkout it was made
+from), or anywhere `DOCLANG_CLONE` names (an empty `DOCLANG_CLONE=` is read as
+unset). The install takes its working tree as
+it stands; with no clone there, it stops in one line that names the directory
+it looked in. An App that installs at its start, a Workspace and the image have
+no clone: they take doclang's core from its wheel, which `make doclang-wheel`
+builds from the clone ([Deploy on Domino in a few
+commands](#deploy-on-domino-in-a-few-commands)).
+
 At the repository's root, create its one `.venv` on the Python of
 `.python-version`, 3.11 (`uv venv`, or `python3.11 -m venv .venv`), then
-install both distributions in one command, the toolkit first, since no package
-index has it:
+install the three distributions in one command, after doclang's core, the core
+first, then the toolkit, since no package index has any of them:
 
 ```bash
-make install-dev    # the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
+make install-dev    # doclang's core from its clone, the core, the toolkit with locust, rouge-score, Textual, pytest and the gate tools, the use case, and the charts package
+make install-dev DOCLANG_CLONE=$HOME/src/document_doclang   # the clone elsewhere
 ```
 
 The `make` targets use that `.venv` without activating it; a command typed by
@@ -200,14 +212,16 @@ qp-serve --host 127.0.0.1 --port 18888    # leave it running
 ```
 
 From a second shell, in the same directory (the second answer is cut where `...`
-stands: the question, the mode, the fake answer and the ten passages kept):
+stands: the question, the mode, the fake answer, the first record's text and the
+nine other vector-store records kept):
 
 ```bash
 curl -s localhost:18888/readyz
-# {"status":"ready","checks":[{"name":"router_embedder","ok":true,"detail":"fake-embedder"},{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 passages in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
+# {"status":"ready","checks":[{"name":"router_embedder","ok":true,"detail":"fake-embedder"},{"name":"embedder","ok":true,"detail":"fake-embedder"},{"name":"vector_store","ok":true,"detail":"200 records in memory"},{"name":"reranker","ok":true,"detail":"fake-reranker"}]}
 curl -s -X POST localhost:18888/query -H 'Content-Type: application/json' \
   -d '{"question":"How many paid vacation days do employees accrue each year at Northwind Analytics?"}'
 # {"request_id":"e1e69f34fa1844e19be2beec8510fcdf","topology":null,"run_label":"embedder=fake+router_embedder=fake+router=fake+reranker=fake+llm=fake+vector_store=fake",...,
+#  "records":[{"text":"Full-time employees at Northwind Analytics accrue 15 paid vacation days each year; ...","metadata":{"topic":"vacation-policy","seq":90,"doc_id":"doc-0090","title":"Northwind Analytics Vacation Policy (revision 24)","sequence":0,"id":"doc-0090:0"},"retrieval_score":0.7078702665436842,"rerank_score":0.23809523809523808},...],
 #  "timings_ms":{"embed_for_route":0.0,"route":0.0,"rewrite":0.0,"embed":0.2180000301450491,"retrieve":0.8875830098986626,"rerank":0.3361250273883343,"generate":0.3732079640030861,"total":9.341874858364463},"tokens":{"generate":{"prompt":605,"completion":32}},"metadata_filter":[]}
 make loadtest RUN_NAME=first-run HOST=http://localhost:18888 USERS=2 SPAWN_RATE=2 RUN_TIME=5s
 make compare
@@ -222,9 +236,10 @@ record `first-run_target.json`, which counts the responses under that run
 label; `make compare` writes `results/comparison.md`, one table per endpoint and
 per stage. `sed` copies the deploy example with each `<placeholder>` made a
 value; against a fake Domino in its own process, the dry run runs every check of
-a real deploy that needs no answer from Domino, and sends nothing (a hardware tier's
-name and a revision's number are shown as written: their ids are asked of
-Domino only at a deploy). It lists `qp-rag-embedder` and
+a real deploy that needs no answer from Domino nor the Dataset, and sends nothing
+(a hardware tier's name and a revision's number are shown as written, and the
+wheels' directory is not looked for: the ids are asked of Domino, and the
+Dataset is read, only at a deploy). It lists `qp-rag-embedder` and
 `qp-rag-reranker`, model servers of kind `fastapi`, then `qp-rag-workflow`,
 whose entry script holds:
 
@@ -269,9 +284,12 @@ vectors, which no model gives, and names the variable to unset. Commit both
 files of a training together. The calls of the
 first run reach it on port 8888; `make infra-down` stops the
 containers. `make ingest` embeds with the component `embedder`, which it names
-since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by passage id; `qp-ingest
+since the file declares two embedders (`qp-ingest --embedder NAME`), and upserts by the vector-store record's id; `qp-ingest
 --corpus docs.jsonl` loads a real corpus, one `{"id","title","text","metadata"}`
-object per line. The export: [In-process models on OpenVINO](#in-process-models-on-openvino).
+object per line. It ends with one summary line, such as
+`{"event": "ingest_done", "documents": 200, "records": 200, "embedder": "...", "store": "200 records in rag_passages"}`:
+the documents read, the vector-store records upserted, the embedder's model
+name and what the store reports holding. The export: [In-process models on OpenVINO](#in-process-models-on-openvino).
 
 **The split topologies on a laptop.** A component is moved behind a model
 server by its backend, `served`, and its served URL, and by nothing else. With
@@ -323,11 +341,13 @@ Start from a copy of the RAG's:
 | `tests/` | Its tests through the two seams, as the RAG's do: its workflow file answers through the workflow app's HTTP API, and a dry run of each topology alias publishes the expected Apps. An implementation of its own is tested by a subclass of a test class the toolkit ships, and its imports by a structure test of its own (the RAG's `tests/test_layering.py`). |
 
 The root `Makefile` and the CI install and test the RAG use case only: install
-another with the toolkit in one command (`python -m pip install -e
-./query_processing -e ./query_processing_<name>_usecase`) and run its tests in
+another with doclang's core, the core and the toolkit in one command (`python -m
+pip install -e <the clone of document_doclang>/packages/core -e
+./query_processing_core -e ./query_processing -e
+./query_processing_<name>_usecase`) and run its tests in
 its directory. The `rag` image of `domino/Dockerfile` takes
 `--build-arg USE_CASE=<its directory>`. A minimal workflow file, run from a
-scratch directory: a lexical search that keeps three passages, with no LLM and
+scratch directory: a lexical search that keeps three vector-store records, with no LLM and
 no code:
 
 ```yaml
@@ -344,7 +364,7 @@ graph:
 ```
 
 `qp-serve` in that directory answers `/retrieve` and `/query` alike: three
-passages, `"answer": null`, `timings_ms` with `retrieve`, `rerank` and `total`.
+`records`, `"answer": null`, `timings_ms` with `retrieve`, `rerank` and `total`.
 The `fake` store is seeded through the file's embedder, so the file declares
 one that no stage calls: without it the app does not start (`vector_store
 unavailable: could not open backend 'fake': ValueError: ingestion embeds with
@@ -589,13 +609,27 @@ the router's `RouterSettings` is, kept in `config/components/router_settings.py`
 
 ### Where a file goes
 
-The repository holds the product's two distributions (ADR 0005), each a
-directory of its own at its root:
+The repository holds the product's three distributions (ADR 0005, ADR 0014),
+each a directory of its own at its root:
 
+- **The core**, in `query_processing_core/`: what one toolkit writes and
+  another reads, today the metadata filter, the conversational history, the
+  body of a request and of a response, and the vector-store record with its
+  scores. Data only:
+  no port, no settings, no I/O; it imports the standard library, Pydantic and,
+  in one module, doclang's core (see [Install](#install)), and no toolkit
+  and no use case (its own `tests/test_core_imports.py` checks it). The
+  toolkit depends on it, so every install names its directory before the
+  toolkit's. What a client sends and reads sits at the top of its package (the
+  conversational history, the body of a request and of a response), the rest
+  in a sub-package named after its area of the glossary (`retrieval/`), and
+  rules 3 and 9 below, the tree's listing and the code shape apply to it (the
+  toolkit's `tests/structure/test_core_rules.py` measures them on it).
 - **The toolkit**, in `query_processing/`: what any use case can assemble.
   Every path of this section and of the tree below it is relative to that
-  directory, except the use case's and the repository's own entries at the end
-  of the tree (`query_processing_rag_usecase/`, `experiment_charts/`,
+  directory, except the core's, the use case's and the repository's own
+  entries at the end of the tree (`query_processing_core/`,
+  `query_processing_rag_usecase/`, `experiment_charts/`,
   `emulation/`, `experiments/`, `experiments-explained/`, `docs/`, the root
   `Makefile`, `.python-version`, and this README, `CONTEXT.md`, `CLAUDE.md` and
   `.github/`). It ships no workflow file and no default that is a use case's
@@ -627,11 +661,13 @@ through, and no package of the toolkit imports it. `testing/` holds the test
 classes a use case's tests subclass, imported as `query_processing.testing`,
 and no package imports it either, `extension_api` included.
 
-1. **Imports.** A package imports only what this table allows.
+1. **Imports.** A package imports only what this table allows, and every
+   package, `domain` included, may also import the core
+   (`query_processing_core`), which is data that every toolkit shares.
 
    | Package | May import |
    | --- | --- |
-   | `domain` | `domain` |
+   | `domain` | `domain` (and, as every package, the core) |
    | `application` | itself, `domain`, and the ports of the adapters (`adapters/<component>/base_<component>.py`), nothing else of them |
    | `config` | itself and `domain` |
    | `adapters` | `adapters`, `infrastructure` and `domain`, and a port only `domain` |
@@ -802,11 +838,11 @@ which keep the names of their day, and the rules above do not apply to them.
 `experiments-explained/` explains those measurements to a reader who does not know the
 domain: a tour with one chart per finding (see
 [experiments-explained/README.md](experiments-explained/README.md)). Its charts and the
-table behind each are drawn from the registry by `experiment_charts/`, a third
+table behind each are drawn from the registry by `experiment_charts/`, a fourth
 folder at the repository's root with a distribution of its own
 (`make experiment-charts`, from the root). That package is not part of the
 product: it depends on matplotlib and PyYAML, imports nothing from
-`query_processing`, `fake_domino` or a use case (its own
+`query_processing_core`, `query_processing`, `fake_domino` or a use case (its own
 `tests/test_experiment_charts_imports.py` checks it), and of the rules above
 only rule 9 applies to it.
 
@@ -821,9 +857,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
     domain/           no I/O, no framework; imports no other package
       errors.py       RagDependencyError, describe_error, MissingKeyError (a key its source finds nowhere, a settings mistake)
       registry.py     Registry: named things of one sort, filled by a decorator (rule 6), its names; import_package_modules; import_package_tree, which an extension is loaded by
-      conversation.py  HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
       prompts.py      PromptMessage, PromptPlaceholder, Prompt: a prompt of prompts.yaml, a list of messages with roles and placeholders
-      query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
       graph_description.py  GraphDescription, StageDescription, ConditionalEdge: a graph's stages and edges, START and END
       opened_graph.py  OpenedGraph, OpenedConditionalEdge: what an orchestrator is built from, the description with each stage opened and timed, each conditional edge with what it asks, the state's field types and reducers; merged, how the state takes a stage's update
       run_label.py    the run label: its default (each component with its backend), what a valid one is
@@ -838,8 +872,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         api_format.py   BaseApiFormat: a component type's request and answer to the wire and back; COMPONENT_API_FORMATS; api_format_of, the registered format or the one that mirrors the request and the answer
         standard_formats.py  the request and answer shapes of the standard formats (pydantic): OpenAI embeddings, Cohere rerank, OpenAI chat; STANDARD_API_FORMATS, the format name of each component type
       retrieval/      what is searched and what comes back
-        passages.py   Passage, ScoredPassage, RagResult, TOTAL_TIMING_KEY, top_by_score
-        metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
+        rag_result.py  RagResult, top_by_score, required_record_id: a record's id, or a refusal in words when its metadata holds none (the records, RagMode and TOTAL_TIMING_KEY are the core's)
         retrieval_mode.py  RetrievalMode: dense, lexical or hybrid, a setting of the retrieve stage
         rank_fusion.py  reciprocal_rank_fusion: what a hybrid retrieval ends with
         corpus.py     synthetic handbook corpus, its questions, chunking
@@ -868,7 +901,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
         is_query_mode.py  is_query_mode: whether the request goes on to generate, from the mode
         has_history.py  has_history: whether the request carries a conversational history, from that field
         label.py      label: answers with the one field it reads, such as a route
-      ingest.py       embed passages in batches and upsert them
+      ingest.py       embed vector-store records in batches and upsert them
     config/           the settings; imports domain only
       workflow_settings.py  WorkflowSettings: every top-level key of the workflow file (the components, the graph, the orchestrator, the shared blocks), the topology alias and the run label (two labels), Domino's own run variables (pydantic-settings, .env and workflow file aware)
       ingestion_components.py  ingestion_store, ingestion_embedder: the one vector store qp-ingest fills, and the embedder it fills it with
@@ -948,7 +981,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
           chroma_filter_translator.py  ChromaFilterTranslator: a metadata filter as a where
         fake/         backend: fake
           in_memory_vector_store.py  InMemoryVectorStore (its lexical ranking counts shared words)
-          in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a passage
+          in_memory_filter_translator.py  InMemoryFilterTranslator: a metadata filter as a predicate over a record's metadata
       orchestrator/   the library that runs the workflow graph; importing it imports every module under it, so each orchestrator registers itself
         base_orchestrator.py  BaseOrchestrator, the port: check_graph_runs refuses a graph before anything opens, built from an opened graph, ainvoke runs a request from its first state to its last; ORCHESTRATORS
         langgraph/    orchestrator: langgraph, the default
@@ -1039,7 +1072,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       qp_fetch_corpus.py  qp-fetch-corpus: download a public corpus for qp-ingest and Locust
     deploy/           the deploy tool: qp-deploy on Domino 6.2
       deploy_settings.py  DeploySettings: deploy.yaml (the topology aliases, shared defaults, one block per App, each writing its hardware tier by name or id and its environment revision by number or id, the overrides), QP_DEPLOY_* overrides, require_deploy_file (a refusal naming where it looked), project_or_workspace; Placement (local or served); override_values, each override by its path
-      deploy_refusals.py  what is refused in the deploy settings before anything is published: a name ending in _API_KEY in a settings block, whatever its value, a value still holding an example placeholder
+      deploy_refusals.py  what is refused in the deploy settings before anything is published: a name ending in _API_KEY in a settings block, whatever its value, a value still holding an example placeholder, no directory of wheels the Apps can install from; and the words of what the workflow settings refuse of an override, which workflow_components.py quotes
       workflow_components.py  the workflow file the workflow App reads: its components (name, type, backend), the variable of a value's path and the path of a variable, the overrides' keys walked and their values checked with the workflow settings' models, then the file with them refused as an App's start-up refuses it (start-up's two checks, and its lines for a key block not shaped as one and for the old api_key), and the variables its key sources read keys from
       overrides.py    the overrides, this site's values of the workflow file: checked before anything is published, with or without overrides what start-up refuses (and a workflow setting refused in a free list, and a variable a key source of the settings with them reads), then each App's exports
       registered_backends.py  registered_backends: a component type's backends, read from the names of its opener modules in composition/openers/ (rule 5) without importing them
@@ -1079,7 +1112,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
       response_checks.py  what to record: a response becomes a failure or STAGE rows, one per stage its timings_ms names
       target_record.py  the target record (_target.json): TargetRecord, written as a run stops and read by qp-compare
       qp_compare.py   qp-compare: Locust *_stats.csv files to markdown tables
-      answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers
+      answer_record.py  the answer record (_answers.json): AnswerRecord, what a target answered without what changes from run to run, written by qp-record-answers and read by qp-compare-answers; answer_in_the_new_shape, the one mapping from the old shape of a response's body and of a record's file to the new one, read whichever was given
       target_client.py  TargetKey, opened_target_key: the API key each request carries, from the key source composition opens, told of a 401; TargetClient: the JSON POST qp-record-answers makes, its timeout, retries and backoff from the load test's settings, a 401 sent again once its source is told
       qp_record_answers.py  qp-record-answers: each request of the request pool sent once, its answer recorded
       answer_comparison.py  what differs between two answer records of the same requests: exactly, within the score tolerance, the answers' text with a metric on demand
@@ -1108,11 +1141,21 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/, and in a crowded folder one sub-folder per sub-package, module or command (rule 9)
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
     testing/answer_records/   the pinned answer record of the fixture workflow on fake backends (make -C query_processing pin-answers)
-    scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
-    structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9)
+    scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries; the Makefiles, read with make -n; the CI workflow's clone step, run on stand-ins (test_ci_workflow.py)
+    structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9), measured on the core too (test_core_rules.py)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
-    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the two roots (REPO_ROOT, TOOLKIT_ROOT) shared by several test files (on pytest's path)
+    helpers/          named fakes, fixtures, fixture_workflow.yaml (the tests' workflow file: made-up models) and its fixture_prompts.yaml, shout_extension/ (a component type of the tests' own, defined as a use case would), and the three roots (REPO_ROOT, TOOLKIT_ROOT, CORE_ROOT) shared by several test files (on pytest's path)
+query_processing_core/   the core, one distribution (query-processing-core) that the toolkit installs: what toolkits exchange (ADR 0014)
+  pyproject.toml      the distribution: Pydantic and doclang's core (doclang-domain-core, by name and version alone, installed from its clone); its package under src/
+  src/query_processing_core/   its package; it imports the standard library, Pydantic and doclang's core, no toolkit and no use case
+    conversation.py   HistoryMessage: one message of the conversational history a request carries, its role, content and conditions; check_history_conditions
+    query_request.py  QueryRequest: the body of /query and /retrieve, which the app and the load test's questions file both check
+    query_response.py  QueryResponse: the body the app answers /query and /retrieve with, the scored vector-store records as they are under records; RagMode and TOTAL_TIMING_KEY, which the workflow's result and the load-test client name too
+    retrieval/        what a search is asked and the records it gives back
+      metadata_filter.py  MetadataCondition, MetadataFieldInfo, check_conditions: a metadata filter's conditions, checked against the fields a vector store declares
+      vector_store_record.py  VectorStoreRecord and from_vector_store, doclang's, handed on, and ScoredVectorStoreRecord, the record with its retrieval and rerank scores: the one module of the repository that imports doclang
+  tests/              its own tests, mirroring src/: the metadata filter's, the scored record's (a chunk built by hand), the conversational history's, the request body's, the response body's, and its imports (test_core_imports.py), read from its files with no toolkit started
 query_processing_rag_usecase/   the RAG use case, one distribution that installs the toolkit: its settings, and its kNN router (ADR 0006)
   pyproject.toml      the distribution (query-processing-rag-usecase): the toolkit, scikit-learn pinned exactly and joblib; its package under src/; qp-rag-train-router
   workflow.yaml       the RAG's workflow file: its extension, its components (models, router, endpoint, store) and its graph (stages, sizes, edges)
@@ -1148,7 +1191,9 @@ experiments/        the registry of every measurement: one folder per sitting (R
 experiments-explained/  the measurements told to a newcomer: README.md, and figures/ and data/ drawn by experiment_charts/
 docs/adr/           the decisions
 docs/plans/         dated records: a plan as it was approved, and what became of it
-Makefile            installs the toolkit and the use case in one command, and the charts package with them for development; hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; the one .venv here
+Makefile            installs the core, the toolkit and the use case in one command, and the charts package with them for development; runs check (with the core's tests) and lint, typecheck, complexity and deps over the core first, hands check and each gate to query_processing/, then runs them over the use case and over the charts package, each followed by its tests; experiment-charts; doclang-wheel; the one .venv here
+doclang.mk          where doclang's core is (its clone, DOCLANG_CLONE), read by this Makefile and query_processing/'s
+wheels/             the wheel of doclang's core that make doclang-wheel builds, for an App's install and the image (git-ignored)
 .python-version     the project's Python, read by uv and by domino/app.sh
 ```
 
@@ -1279,7 +1324,7 @@ the counts are words of the echo, not tokens of a model, so its token figures
 say nothing of a server. The settings of a run that measures the LLM: "The
 waits on the path of an answer" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands).
 
-### Answer records: the same requests, the same passages
+### Answer records: the same requests, the same vector-store records
 
 The load test says how fast a target answers; an answer record says what it
 answered. The two commands are the check that a refactor, or a move to
@@ -1323,20 +1368,48 @@ after `QP_LOADTEST_BACKOFF_S` doubled before each next retry (default 2 and
 0.2 s, the defaults of the workflow file's shared `http` block); then the command
 stops with status 3 and writes nothing, since half a record would pass for a
 whole one. Any response the target gives is recorded, an error status
-included; a 200 whose JSON object is not of the answer's shape (a passage
-without an `id`, say) stops it with status 4, naming the endpoint and the
-field, and nothing is written either.
+included; a 200 whose JSON object is not of the answer's shape (a
+vector-store record without an id, say) stops it with status 4, naming the
+endpoint and the field, and nothing is written either.
 
 It writes `<prefix>_answers.json`, the answer record. For each request it
 holds the endpoint, the body sent and the status, and from a 200's JSON object
-the `mode`, the `metadata_filter` applied, the `answer`, and each passage in
-order with its `id`, the SHA-256 of its `text`, its `metadata`, its
-`retrieval_score` and its `rerank_score`; a response that is not a 200 with a
-JSON object is recorded with its status alone. It also holds, under `seen`,
-each topology alias and run label the responses reported, as the target
-record does. It keeps none of `timings_ms`, `tokens`, `request_id`,
-`run_label` or the passages' text: they change from run to run, or a hash
-says as much.
+the `mode`, the `metadata_filter` applied, the `answer`, and under `records`
+each vector-store record in order with the SHA-256 of its `text`, its
+`metadata` holding its `id`, its `retrieval_score` and its `rerank_score`; a
+response that is not a 200 with a JSON object is recorded with its status
+alone. Of a chunk it holds hashes alone: a vector-store record made from a
+chunk holds the whole chunk as a text under the metadata key `chunk`, and its
+context under `chunk__context__text`, and the answer record keeps the SHA-256
+of each in its place, under `chunk_sha256` and `chunk__context__text_sha256`,
+so that two records of the same chunks compare alike and a record of a
+private corpus does not hold the corpus; a record written before, holding
+those texts, is hashed as it is read. It also holds, under `seen`, each
+topology alias and run label the responses reported, as the target record
+does. It keeps none of `timings_ms`, `tokens`, `request_id`, `run_label` or
+the vector-store records' text: they change from run to run, or a hash says
+as much.
+
+The record is of that form whichever shape the target answered in. The
+workflow app answered in an old shape until ADR 0014, and answer records were
+written in an old form: the vector-store records under `passages`, each with
+its `id` beside its `metadata`, the handbook's window index under the metadata
+key `chunk`.
+One mapping of the load-test client reads the old into the new, for a
+response's body and for a record's file alike: `passages` is read as
+`records`, the `id` into the metadata, and a whole number under `chunk` as
+`sequence`, in either shape, since an index ingested before keeps that key (a
+text under `chunk` is a chunk's own payload, kept as its hash, and a boolean
+is no whole number). An `id` beside the metadata is read into it only for a
+list of the old shape: beside an entry under `records`, it is a key the
+answer record's file does not know, and refused. So `qp-compare-answers` reads a record of either form, finds
+an old one and a new one alike when the answers are the same, and names a
+difference in the new form's words (`records[0].rerank_score`). The old form
+is read with no end date: the registry's records in `experiments/` are of
+it and are never rewritten. The pinned records below were made again in the
+new form when the response took its shape, once the mapping had shown the
+new answers equal to the old ones: the same ids, text hashes, metadata,
+scores and answers, on every registered orchestrator.
 
 `qp-compare-answers <prefix> <prefix>... [--out <file>]` compares each run's
 record with the first, the baseline, and names a run by the last component of
@@ -1344,7 +1417,7 @@ its prefix, as `qp-compare` does:
 
 | What | How |
 | --- | --- |
-| status, mode, metadata filter, the passages' ids in order, their text hashes and metadata | exactly; an absent metadata filter equals an empty one, since both apply no condition (an app from before the field records none) |
+| status, mode, metadata filter, the vector-store records' ids in order, their text hashes and metadata | exactly; an absent metadata filter equals an empty one, since both apply no condition (an app from before the field records none) |
 | the retrieval and rerank scores | within `QP_LOADTEST_SCORE_TOLERANCE` (default `0.0001`, 0 or more); an absent score equals only an absent one |
 | the answer the LLM wrote | only with `QP_LOADTEST_ANSWER_ROUGE_L=true`, with ROUGE-L's F-measure against the baseline's at or above `QP_LOADTEST_ANSWER_ROUGE_L_THRESHOLD` (default `0.9`); two equal texts are the same, two empty ones included, as are two absent ones (on `/retrieve`), and a text on one side only is different |
 
@@ -1376,7 +1449,7 @@ check` and CI run its own tests and the pinned answer records below, on
 fakes. What to expect: the same code on two topologies answers the same, since
 a component served over HTTP returns what it returns in process. Two model-server
 kinds (FastAPI, OVMS, vLLM) or two weight formats may not: their scores move,
-and a passage can change places. Compare each with a baseline of its own.
+and a vector-store record can change places. Compare each with a baseline of its own.
 
 #### Pinned answer records: the answers on fake backends, in the gate
 
@@ -1442,7 +1515,7 @@ make compare-answers BASELINE=langgraph   # results/answers-comparison.md
 ```
 
 The report shows the run label each record saw beside its run, so it says
-which orchestrator answered. The passages, their order and their scores are
+which orchestrator answered. The vector-store records, their order and their scores are
 compared as for two topologies; the LLM's text only with
 `QP_LOADTEST_ANSWER_ROUGE_L=true`.
 
@@ -1462,7 +1535,7 @@ other. Both servers answer a request for an unknown model with the same
 `404 {"error": "Mediapipe graph definition with requested name is not found"}`.
 
 Direct comparison (Locust straight at the model servers, same payloads as the
-workflow sends: 20 candidate passages per rerank, one question per embedding):
+workflow sends: 20 candidate vector-store records per rerank, one question per embedding):
 
 ```bash
 make infra-up                                   # OVMS reranker :8001, embedder :8002
@@ -1525,7 +1598,7 @@ qp-compare results/rerank-ovms results/rerank-vllm --out results/rerank.md
 
 | Route | Body → result |
 | --- | --- |
-| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, passages[], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}`; a stage that ran more than once in the request, in a loop or where two branches join at different depths, reports in both the sum of its runs |
+| `POST /query` | `{question, conversational_history?, metadata_filter?}` → `{request_id, topology, run_label, question, mode, answer, records[{text, metadata{id, ...}, retrieval_score, rerank_score}], timings_ms{embed_for_route,route,rewrite,embed,retrieve,rerank,generate,total}, tokens{rewrite?,generate?}, metadata_filter}`; `conversational_history` holds the earlier turns, `{role: user\|assistant, content, metadata_filter?}`, a user message's conditions being read by the prompts only, never applied to retrieval; `records` holds the scored vector-store records as their store holds them (ADR 0014), each with its id in its `metadata` and, for a record made from a chunk, the chunk under the metadata key `chunk`, which doclang's `from_vector_store` rebuilds (a record of the synthetic handbook holds none, and its window's index under `sequence`), then its `retrieval_score` and its `rerank_score` (`null` when no rerank stage ran); the response's `metadata_filter` is the conditions applied; `topology` is the topology alias, `null` when none was given; `timings_ms` has one key per stage of the graph, in its order, then `total` (lexical retrieval: no `embed`); `tokens` has one key per stage whose LLM reported both its counts in this request, in the graph's order, each `{"prompt": n, "completion": m}`, the sum over the attempts of an answer asked again; a stage that did not run, or whose LLM reported a count as none, has no key, so a request whose stages reported none has `{}`; a stage that ran more than once in the request, in a loop or where two branches join at different depths, reports in both the sum of its runs |
 | `POST /retrieve` | same request → same response with `answer: null` (`generate` skipped, `generate = 0`, no `generate` key in `tokens`: `{}` unless `rewrite` ran) |
 | `GET /healthz` | `{"status":"ok"}` |
 | `GET /readyz` | `{"status":"ready"\|"not_ready","checks":[{name,ok,detail}]}`, one check per vector store (index count > 0), embedder and reranker a stage calls, named after the component (`vector_store`, `embedder`, `router_embedder`, `reranker`); `503` when a check fails |
@@ -1599,11 +1672,11 @@ block, and `qp-ingest` fills the one the file declares.
 | every type | `type` | the router's embedder's: `embedder`; not written for the others: the component's name | `embedder` \| `reranker` \| `llm` \| `vector_store` \| `router`, or a type an extension registers |
 | every model | `source_id` | the three models' Hugging Face ids | the weights, a Hugging Face id or a folder; required of an embedder and a reranker; an LLM's is the model OVMS pulls when it serves the LLM ("A served LLM" in [Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)), and the RAG's file writes none |
 | every model | `alias` | not written: the last part of `source_id` | the name a model server of ours serves the model under (`snowflake-arctic-embed-l-v2.0`), and the model name a `served` component sends |
-| `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a passage (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
+| `embedder` | `query_prefix` | `query: ` | put in front of each query before it is embedded, never of a text to store (arctic-embed expects it); the `local`, `served` and `api` embedders apply it, the `fake` one has none, and a model server adds none to what it receives; empty for a model that takes none |
 | `embedder` | `local.batch_size`, `local.threads` | not written: `64`, `0` | texts per encode call (>= 1); native (OpenMP/BLAS) threads one call may use, `0` = calibrated at start-up, up to the budget's share |
 | `embedder` | `local.normalize` | not written: `false` | scale each vector the in-process (`local`) embedder returns to unit length; off is safe because every store compares vectors by cosine, which ignores their length. The RAG's embedder ends its own pipeline with a normalisation step, so its vectors are unit-length whatever this says (measured: length 1.000000 with it off and on). It does not change OVMS: its own export normalises on its side (the exporter's default) |
-| `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | passages per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_passages` |
-| `reranker` | `local.calibration_passages` | not written: `20` | passages in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
+| `reranker` | `local.batch_size`, `local.threads` | not written: `0`, `0` | vector-store records per predict batch and native threads per call; `0` = calibrated at start-up, the batch size up to `local.calibration_records` |
+| `reranker` | `local.calibration_records` | not written: `20` | vector-store records in calibration's sample rerank request, all kept; also the largest batch size it tries (>= 1). The reranker's own: calibration reads no stage's setting |
 | every model | `served.url` | not written | the full route of the model server of ours that serves it, e.g. `http://localhost:8001/v3/rerank`; required with the `served` backend. The rest follows: the standard format of its type, the alias as the model name, the Domino run token under `qp-serve --domino` and no key elsewhere |
 | `embedder` | `served.batch_size` | not written: `64` | texts per model-server request (>= 1) |
 | `llm` | `served.temperature` | not written: `0` | sampling temperature, 0 to 2 |
@@ -1618,11 +1691,11 @@ block, and `qp-ingest` fills the one the file declares.
 | every model | `http.retries` | not written: the top-level `http.retries` (`2`) | requests after the first (>= 0), on a transport error, a 5xx, a 429, and a 401 when the call carries a key from a key source (the source is told first, and asked again); any other 4xx fails at once |
 | every model | `http.backoff_s` | not written: the top-level `http.backoff_s` (`0.2`) | wait before the first retry, doubled before each next one (>= 0) |
 | `vector_store` | `elasticsearch.url` | `http://localhost:9200` | the cluster; `http://user:password@host:9200` for basic auth |
-| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the passages; required on `elasticsearch`: no default, start-up refuses an empty one |
+| `vector_store` | `elasticsearch.index` | `rag_passages` | the index holding the vector-store records; required on `elasticsearch`: no default, start-up refuses an empty one |
 | `vector_store` | `elasticsearch.key` | not written: none | where its Elasticsearch API key comes from, the alternative to basic auth, never the key: the same block as a model's `api.key` (`{source: env, variable: <name>}` or `{source: domino}`), refused at start-up the same way, and so is the old `elasticsearch.api_key`; no block sends no key. A call Elasticsearch refuses for its key (a 401) opens a new client with the key its source then gives and is made once more |
-| `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the passages' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
+| `vector_store` | `elasticsearch.text_analyzer` | not written: `standard` | analyzer of the vector-store records' text, used by lexical and hybrid search: `standard`, or a language's such as `french` (stemming, elision, stop words). An index keeps the analyzer it was created with, so changing it means ingesting into a new index |
 | `vector_store` | `chroma.url` | not written: empty | a Chroma server, e.g. `http://localhost:8000` (name the port); empty = embedded Chroma at `chroma.path` |
-| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the passages; the collection is required on `chroma`: no default |
+| `vector_store` | `chroma.path`, `chroma.collection` | not written: `chroma`; `rag_passages` | the folder of the embedded Chroma store, in the working directory, and the collection holding the vector-store records; the collection is required on `chroma`: no default |
 | `vector_store` | `fake.seed_documents` | not written: `200` | synthetic documents seeded into the `fake` store when it opens (>= 1) |
 | `vector_store` | `metadata_field_info` | `source`, a string of seven values | the metadata fields a request's metadata filter, and an output schema narrowed to this store, can name: each a `name`, a `type` (`string`, `integer`, `float`, `boolean`), a `description` and optionally its `allowed_values`; none declared accepts only an empty filter ([The metadata filter](#the-metadata-filter-and-the-prefilter)) |
 | `vector_store` | `prefilter` | not written: none | conditions every search applies before the request's own, on fields a client cannot name; the RAG's `deploy.example.yaml` shows one under `overrides` |
@@ -1695,7 +1768,7 @@ QP_LOCAL_MODELS__RUNTIME=torch QP_LOCAL_MODELS__CPUS=4 make serve
 | `retrieve` | `retrieval_mode` | `dense` | `dense` (by vector) \| `lexical` (by words, ranked by the store) \| `hybrid` (both, fused by reciprocal rank); `lexical` and `hybrid` need `elasticsearch` or `fake`, and are refused with `chroma` when the graph is built |
 | `retrieve` | `top_k` | `20` | candidates from the vector store (>= 1) |
 | `retrieve` | `rrf_k` | not written: `60` | rank constant of the hybrid fusion (>= 1); smaller widens the gap between ranks |
-| `rerank` | `top_k` | `10` | passages kept after reranking and sent to the LLM (>= 1) |
+| `rerank` | `top_k` | `10` | vector-store records kept after reranking and sent to the LLM (>= 1) |
 | `generate` | `prompt` | `rewrite_as_standalone`, `answer_from_context` | the prompt of `prompts.yaml` it renders; the fields of its `reads` are the prompt's variables, any number of them, and it writes one field, the text, unless it names an output schema |
 | `generate` | `output_schema` | the rewrite's: `standalone_query_with_filter`; not written for `generate` | a registered output schema the LLM answers in; the stage writes each of its fields to the field of `writes` of the same name, and `writes` lists them all ([Structured output](#structured-output)) |
 | `generate` | `metadata_fields_of` | the rewrite's: `vector_store` | a vector store whose declared fields narrow the output schema's conditions, and which the prompt gets as `metadata_field_info` |
@@ -1720,8 +1793,8 @@ answer_from_context:
   - role: user
     content: |-
       Context:
-      {% for passage in reranked %}
-      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ passage.text }}
+      {% for record in reranked %}
+      {{ "\n" if not loop.first }}[{{ loop.index }}] {{ record.text }}
       {%- endfor %}
 
 
@@ -1788,7 +1861,7 @@ overrides:
 An unknown name stops every command that opens components, as an unknown
 backend does (see the variables below). The workflow app's `rag_startup` log
 line names the orchestrator it runs on. For every graph its check accepts, an
-orchestrator gives the last state LangGraph gives: the same answer, passages
+orchestrator gives the last state LangGraph gives: the same answer, `records`
 and metadata filter, and `timings_ms` and `tokens` with the same keys in the
 same order. Each library is imported by its own directory alone, never by
 `application/` or `domain/`.
@@ -1839,7 +1912,7 @@ run on every name `query_processing.testing.registered_orchestrators()` gives.
 A use case cannot add one: `extension_api` does not expose the port.
 
 Lexical retrieval is a workflow file without the embed stage, its components
-the same (ingestion still embeds the passages, with the embedder):
+the same (ingestion still embeds the vector-store records, with the embedder):
 
 ```yaml
 components: {…}
@@ -2146,7 +2219,7 @@ the runtime.
 choice. So when an in-process model loads, the process times its stage (embed
 or rerank) under each candidate and keeps the fastest. It does so only for a
 parameter of a component's `local` block left at `0`: a reranker's
-`batch_size` tries its `calibration_passages` (20, the size of the sample
+`batch_size` tries its `calibration_records` (20, the size of the sample
 request), then half of it, down to 1; the `threads` of a reranker or an
 embedder try the budget's share, then half of it, down to 1. The embedder's batch size is not
 searched: a query is one text. Batch sizes are timed first, on the budget's
@@ -2159,7 +2232,7 @@ is one `stage_calibrated` JSON log line per stage: the choice, every trial and
 its seconds, the time spent, and whether the budget cut the search short.
 
 Why: on a 2-CPU App machine (one core, two hyper-threads), under `openvino`, a
-rerank request of 20 passages took 5.49 s with one batch of 20, 3.38 s with
+rerank request of 20 vector-store records took 5.49 s with one batch of 20, 3.38 s with
 batches of 2, and 2.94 s with batches of 2 on 2 real threads: 0.340 requests
 per second instead of 0.182. OpenVINO had kept to the physical core until it was
 allowed hyper-threads (`ENABLE_HYPER_THREADING`, set by default since:
@@ -2170,7 +2243,7 @@ the model with one thread each gave nothing more.
 Limits. It times one request at a time, which is how a stage runs under
 `openvino`. With a fixed number of users, latency is the users divided by the
 requests per second, so the fastest request is the best at any number of users.
-Its passages are synthetic, cut to 150 to 800 characters. An App does not
+Its vector-store records are synthetic, their texts cut to 150 to 800 characters. An App does not
 remember the result: every start and every replica calibrates again, about 70 s
 for the reranker on a 2-CPU machine. `qp-calibrate` finds the values once
 instead (below). Under `torch` with several workers, calls share the CPUs, and
@@ -2192,7 +2265,7 @@ streams than cores, and 16 streams on 8 cores were the slowest candidate
 measured, so a 2-vCPU App tries one stream alone. A pinned stream count is
 tried as pinned. Under a performance hint (`QP_OVMS_OPENVINO__PERFORMANCE_HINT`)
 OVMS chooses the streams, so only the thread counts are searched. The warm-up and rounds are the in-process ones,
-and so is the sample: a reranker's `local.calibration_passages` passages, all
+and so is the sample: a reranker's `local.calibration_records` vector-store records, all
 kept, or one question an embedder embeds as a query.
 The budget also bounds a trial: one still running when it is spent is
 abandoned, its `ovms` stopped, and the search ends there. The fastest completed
@@ -2346,8 +2419,8 @@ any more by the workflow app:
 | `RAG_TOP_K_RETRIEVE`, `RAG_TOP_K_RERANK` | the retrieve and rerank stages' `top_k` (`QP_GRAPH__STAGES__RETRIEVE__TOP_K`, `QP_GRAPH__STAGES__RERANK__TOP_K`); Locust still reads `QP_TOP_K_RETRIEVE` and `QP_TOP_K_RERANK` for a `rerank` target |
 | `RAG_HYBRID_RRF_K` | the retrieve stage's `rrf_k` |
 | `RAG_SYSTEM_PROMPT`, `RAG_USER_PROMPT`, `RAG_PROMPTS_FILE` (`config/prompts.yaml`) | the use case's `prompts.yaml` (`QP_PROMPTS_FILE`, else `./prompts.yaml`), which the generate stage names by its `prompt` |
-| the generate stage's `system_prompt` and `user_prompt` in the workflow file (`QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT`, `__USER_PROMPT`), the user template holding `{context}` and `{question}` | a prompt of `prompts.yaml` (the RAG's `answer_from_context`), a list of messages whose contents are Jinja2 templates over the fields the stage reads (the passages by a loop over `reranked`), named by the stage's `prompt`; a variable by its path replaces the whole prompt, as JSON (`QP_PROMPTS__ANSWER_FROM_CONTEXT`) |
-| the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES` passages, all kept |
+| the generate stage's `system_prompt` and `user_prompt` in the workflow file (`QP_GRAPH__STAGES__GENERATE__SYSTEM_PROMPT`, `__USER_PROMPT`), the user template holding `{context}` and `{question}` | a prompt of `prompts.yaml` (the RAG's `answer_from_context`), a list of messages whose contents are Jinja2 templates over the fields the stage reads (the vector-store records by a loop over `reranked`), named by the stage's `prompt`; a variable by its path replaces the whole prompt, as JSON (`QP_PROMPTS__ANSWER_FROM_CONTEXT`) |
+| the calibration request sized by `RAG_TOP_K_RETRIEVE`, kept to `RAG_TOP_K_RERANK` | `QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS` vector-store records, all kept |
 | `RAG_EMBEDDING_*`, `RAG_RERANK_*`, `RAG_GENERATION_*`, and before them `RAG_EMBEDDER_*`, `RAG_RERANKER_*` | each model component's entry in the workflow file, by its path: `RAG_EMBEDDING_MODEL` is the embedder's `source_id` (`QP_COMPONENTS__EMBEDDER__SOURCE_ID`), `RAG_RERANK_API_MODEL` its alias as a model server serves it (`QP_COMPONENTS__RERANKER__ALIAS`) or the name sent to an endpoint (`api.model`), `RAG_RERANK_THREADS` `QP_COMPONENTS__RERANKER__LOCAL__THREADS`, `RAG_EMBEDDING_NORMALIZE` `QP_COMPONENTS__EMBEDDER__LOCAL__NORMALIZE`, `RAG_GENERATION_TIMEOUT_S` `QP_COMPONENTS__LLM__HTTP__TIMEOUT_S` |
 | `RAG_OVMS_EMBEDDINGS_URL`, `RAG_OVMS_RERANK_URL` (a base URL with a localhost default) | `QP_COMPONENTS__EMBEDDER__SERVED__URL`, `QP_COMPONENTS__RERANKER__SERVED__URL` (the full route, no default) |
 | `RAG_OVMS_EMBEDDINGS_MODEL`, `RAG_OVMS_RERANK_MODEL` | the components' aliases (`QP_COMPONENTS__EMBEDDER__ALIAS`, `QP_COMPONENTS__RERANKER__ALIAS`), the model name a `served` component sends |
@@ -2362,27 +2435,29 @@ any more by the workflow app:
 | `RAG_LOCAL_MODEL_RUNTIME`, `RAG_OPENVINO_MODELS_DIR`, `RAG_OPENVINO_WEIGHT_FORMAT`, `RAG_MODEL_WORKERS`, `RAG_MODEL_CPUS` | the `local_models` block: `QP_LOCAL_MODELS__RUNTIME`, `QP_LOCAL_MODELS__OPENVINO_DIR`, `QP_LOCAL_MODELS__OPENVINO_WEIGHT_FORMAT`, `QP_LOCAL_MODELS__WORKERS`, `QP_LOCAL_MODELS__CPUS` |
 | `RAG_CALIBRATION_BUDGET_S`, `RAG_CALIBRATION_ROUNDS`, `RAG_CALIBRATION_USERS` | the `calibration` block: `QP_CALIBRATION__BUDGET_S`, `QP_CALIBRATION__ROUNDS`, `QP_CALIBRATION__USERS` |
 | `RAG_OVMS_NUM_STREAMS`, `RAG_OVMS_THREADS`, `RAG_OVMS_START_TIMEOUT_S` | `QP_OVMS_NUM_STREAMS`, `QP_OVMS_THREADS`, `QP_OVMS_START_TIMEOUT_S`: an OVMS model server App's own variables, no value of the workflow file, set in that App's block of `deploy.yaml` (`apps.<component>.settings`) |
-| the calibration request OVMS was sent, sized by `RAG_TOP_K_RETRIEVE` and kept to `RAG_TOP_K_RERANK` | the reranker's `local.calibration_passages` passages, all kept, as for its in-process calibration |
+| the calibration request OVMS was sent, sized by `RAG_TOP_K_RETRIEVE` and kept to `RAG_TOP_K_RERANK` | the reranker's `local.calibration_records` vector-store records, all kept, as for its in-process calibration |
 | `RAG_HTTP_TIMEOUT_S`, `RAG_HTTP_RETRIES`, `RAG_HTTP_BACKOFF_S` | the top-level `http` block: `QP_HTTP__TIMEOUT_S`, `QP_HTTP__RETRIES`, `QP_HTTP__BACKOFF_S` |
 | `RAG_DOMINO_TOKEN_URL`, `RAG_DOMINO_TOKEN_TTL_S`, `RAG_DOMINO_TRACING` | the `domino` block: `QP_DOMINO__TOKEN_URL`, `QP_DOMINO__TOKEN_TTL_S`, `QP_DOMINO__TRACING` |
 | `RAG_OPENAI_MODEL`, `RAG_LLM_TEMPERATURE` | `QP_COMPONENTS__LLM__API__MODEL`, `QP_COMPONENTS__LLM__API__TEMPERATURE` |
 | `OPENAI_BASE_URL`, `OPENAI_API_KEY` | `QP_COMPONENTS__LLM__API__URL` (the full route); `OPENAI_API_KEY` itself, which the LLM's `key` block names (`{source: env, variable: OPENAI_API_KEY}`) |
 | backends `ovms`, `openai`, `cohere` | backend `served` for a model server of ours (OVMS among them), `api` for an endpoint in an API format |
 | `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `api` block instead; the BM25 tunables have no replacement |
+| the handbook's window index under the metadata key `chunk`, in a vector store's `prefilter` or in a field it declares under `metadata_field_info` | `sequence`, the key `qp-ingest` writes: a condition on `chunk` is not refused (a prefilter's fields are not declared) and finds nothing in a store `qp-ingest` filled, silently; an index ingested before keeps `chunk`, and is ingested again to be filtered on `sequence` |
+| a reranker's `local.calibration_passages` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES`) | `local.calibration_records` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS`); start-up refuses the old name, in the workflow file or as a variable, in one line that gives the new one, and `qp-deploy` does in a deploy file's overrides |
 
 <!-- old-names:end -->
 
 ## Retrieval, stores and model endpoints
 
 **Retrieval mode** (the retrieve stage's `retrieval_mode`). `dense` asks the
-store for the passages nearest to the question's vector. `lexical` asks for the
-passages whose words match best, as the store ranks them: no vector is needed,
+store for the vector-store records nearest to the question's vector. `lexical`
+asks for the records whose words match best, as the store ranks them: no vector is needed,
 so a lexical workflow file has no embed stage (no `embed` timing, and the
 workflow app opens no embedder unless a fake store is seeded through it). `hybrid` asks
 both ways at once, the retrieve stage's `top_k` each, and fuses the two rankings
-by reciprocal rank (`1 / (rrf_k + rank)`, summed per passage). The fusion runs in the
+by reciprocal rank (`1 / (rrf_k + rank)`, summed per record). The fusion runs in the
 workflow, so it needs no Elasticsearch licence, at the price of two store calls
-where a server-side fusion would make one. Passages are always ingested with
+where a server-side fusion would make one. Vector-store records are always ingested with
 their vectors, so one index serves the three modes.
 
 Lexical and hybrid retrieval need a store that ranks text. With `chroma` they
@@ -2392,7 +2467,7 @@ are refused at start-up.
 | --- | --- | --- |
 | `elasticsearch` | kNN on the vector field | Elasticsearch's own BM25 (`match` on the `text` field) |
 | `chroma` | cosine, HNSW | refused at start-up |
-| `fake` | brute-force cosine | a stand-in: passages ranked by how many distinct words they share with the question |
+| `fake` | brute-force cosine | a stand-in: vector-store records ranked by how many distinct words they share with the question |
 
 **Chroma** (`QP_COMPONENTS__VECTOR_STORE__BACKEND=chroma`, the toolkit's `[chroma]` extra).
 Embedded by default: a folder (its `chroma.path`, in the use case's directory), no server to run, filled by
@@ -2400,7 +2475,7 @@ Embedded by default: a folder (its `chroma.path`, in the use case's directory), 
 Chroma serves dense retrieval only. Open-source Chroma filters text by substring
 but does not rank it (its ranked Search API is Chroma Cloud only), so a
 `lexical` or `hybrid` retrieve stage with `chroma` stops `qp-serve` at
-start-up. On Chroma, `ne` and `nin` keep a passage that lacks the field, where
+start-up. On Chroma, `ne` and `nin` keep a vector-store record that lacks the field, where
 the other stores drop it
 ([The metadata filter](#the-metadata-filter-and-the-prefilter)).
 
@@ -2496,7 +2571,7 @@ elsewhere leaves one unused.
 **A French corpus.** The synthetic handbook is English. For a French,
 domain-specific corpus, `qp-fetch-corpus quebec-insurance --out DIR` downloads
 the Quebec automobile insurance corpus of GRAAL-Research (Beauchemin et al.,
-NLLP 2024: about 1,200 passages and 82 questions) and writes `DIR/corpus.jsonl`
+NLLP 2024: about 1,200 texts and 82 questions) and writes `DIR/corpus.jsonl`
 for `qp-ingest --corpus` and `DIR/questions.jsonl` for
 `QP_LOADTEST_QUESTIONS_FILE`. Its source repository states no licence: research
 use, cite the paper, and commit none of it. With Elasticsearch, ingest it into
@@ -2551,7 +2626,7 @@ stage can add conditions, as the RAG's `rewrite` does, and never removes the
 client's; the response's `metadata_filter` is the conditions applied.
 
 A vector store can also state a `prefilter`, conditions in the same shape that
-every search applies before the request's own: which passages a workflow can
+every search applies before the request's own: which vector-store records a workflow can
 read at all. Its fields are not declared, so neither a client nor the LLM can
 name them, and the response does not report them. `qp-ingest` writes none of
 them, so a store filled by it returns nothing under a prefilter; the RAG's
@@ -2560,11 +2635,11 @@ workflow file states none, and its `deploy.example.yaml` shows one under
 
 Each store turns the conditions into its own filter:
 
-| Store | The filter | A passage that lacks the field |
+| Store | The filter | A vector-store record that lacks the field |
 | --- | --- | --- |
 | `elasticsearch` | filter clauses on `metadata.<attribute>`, a string on its `.keyword` sub-field; inside the `knn` clause of a vector search, which the server applies during the search, and in the filter of a text search | dropped, whatever the comparator |
 | `chroma` | a `where` with Chroma's operators, applied before its vector search | dropped, except that `ne` and `nin` keep it, since Chroma has no operator that asks for a field |
-| `fake` | a predicate over a passage's metadata | dropped, whatever the comparator |
+| `fake` | a predicate over a record's metadata | dropped, whatever the comparator |
 
 ### Structured output
 
@@ -2590,8 +2665,9 @@ showing the text. The fake LLM answers a valid instance.
 
 * The store is LangChain's `AsyncElasticsearchStore` over index `rag_passages`,
   created on the first `qp-ingest` with a dense-vector kNN mapping; documents
-  hold `text`, `metadata` and the vector, and the `_id` is the passage id
-  (`<doc id>:<chunk>`), so re-ingesting overwrites in place.
+  hold `text`, `metadata` and the vector, and the `_id` is the vector-store record's id
+  (`<doc id>:<sequence>`, the window's index, which the handbook's records also
+  hold under the metadata key `sequence`), so re-ingesting overwrites in place.
 * Auth: basic credentials inside the `elasticsearch.url` of the vector store
   (`https://user:password@host:9200`), or an Elasticsearch API key from the key
   source its `elasticsearch.key` block names, such as `{source: env, variable:
@@ -2790,7 +2866,9 @@ is exported on first start. See [Weight format](#weight-format) for who checks.
 `config_<component>.json` missing under
 `QP_OVMS_MODELS_DIR` runs `export_models.sh` itself, once, before serving: it
 needs `uv`, installs the toolkit and the use case into `$HOME/qp-venv` when
-`qp-served-models` is not on `PATH`, runs in the use case's directory, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
+`qp-served-models` is not on `PATH` (doclang's core from the directory
+`QP_BOOTSTRAP_WHEELS` names: see "doclang's core" in
+[Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)), runs in the use case's directory, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
 prebuilt `ovms` image has no `uv`, so there the models still have to be mounted.
 This path has not been run for real.
 
@@ -2821,7 +2899,9 @@ then the pass-through `QP_OVMS_ARGS`; at the defaults none, so the command is
 it can stay on a read-only Dataset shared by several Apps. With both variables pinned nothing is
 calibrated and the App starts at once. When `qp-ovms-config` is not on `PATH`
 (the `ovms` kind's bootstrap installs no project), the script installs the
-toolkit and the use case with `uv` into `$HOME/qp-venv` first. Without `uv` it
+toolkit and the use case with `uv` into `$HOME/qp-venv` first, doclang's core
+from the directory `QP_BOOTSTRAP_WHEELS` names, with `QP_BOOTSTRAP` set or not.
+Without `uv` it
 serves the export's own config, one stream and not calibrated, and says so on
 standard error; a set `QP_OVMS_*` variable that only Python reads (every one but
 `QP_OVMS_MODELS_DIR`, `QP_OVMS_BUNDLE` and `QP_OVMS_PREFIX_PROXY`) then stops
@@ -2912,7 +2992,8 @@ image (it pre-downloads the source ids) and refill the models Dataset.
 ## Deploying on Domino 6.2
 
 Every app is published with the same entry point, the toolkit's `domino/app.sh`,
-which installs the toolkit and the use case (`QP_BOOTSTRAP=1`), then runs its
+which installs doclang's core from its wheel, the core, the toolkit and the use
+case (`QP_BOOTSTRAP=1`, `QP_BOOTSTRAP_WHEELS`), then runs its
 role's command in the use case's directory (`QP_USE_CASE_DIR`, the directory
 `qp-deploy` ran from), where that command finds the use case's workflow file,
 reads its role from `QP_ROLE` and listens on `0.0.0.0:8888` (a Domino
@@ -2942,7 +3023,7 @@ The table shows the three aliases of `deploy.example.yaml`.
 | Topology | App | `QP_ROLE` (kind: OVMS / FastAPI / vLLM) | Environment variables | Image: OVMS / FastAPI / vLLM |
 | --- | --- | --- | --- | --- |
 | `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `OPENAI_API_KEY` (the LLM's key block names it), `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one) | `rag` |
-| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
+| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, `QP_BOOTSTRAP_WHEELS` when it has no `qp-vllm-config` (the toolkit is then installed), and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
 | | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank` (`/v1/rerank` on vLLM), `OPENAI_API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 | `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | as above | `ovms` / `rag` / as above |
 | | **C** model server: embedder | `model-server` (`ovms` / `fastapi` / `vllm`) | as above, `QP_MODEL_SERVER_COMPONENT=embedder` (FastAPI and vLLM: weights from `QP_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` / as above |
@@ -2961,7 +3042,8 @@ root, the build context (commands in its header): `rag` starts from
 `quay.io/domino/domino-standard-environment:ubuntu22-py3.10-r4.5-domino6.2-standard`,
 installs this package with the `[loadtest,domino]` extras into a virtualenv of
 its own on Python 3.11 (the image's Python is 3.10 and its packages clash with
-ours), pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
+ours), doclang's core from the wheel in the build context's `wheels/` (run
+`make doclang-wheel` first: the build stops without it), pre-downloads both HF models and sets `HF_HUB_OFFLINE=1`; `ovms` unpacks the
 pinned binary tarball under `/opt/ovms`. Push both images and create two Domino
 Environments from them (custom base image), or paste one stage's instructions
 into the Dockerfile Instructions field. Workspaces that ingest or run Locust use
@@ -3116,7 +3198,10 @@ or one that already has the `vllm` command. vLLM's own image,
 `vllm/vllm-openai-cpu:v0.32.0-x86_64` (7.4 GB), has the command, so an
 environment built from it would install nothing. The App also needs
 `qp-vllm-config`: when it is missing, the script installs the toolkit and the
-use case into `$HOME/qp-venv` with `uv`, as an OVMS App does. The toolkit and
+use case into `$HOME/qp-venv` with `uv`, as an OVMS App does, doclang's core
+from the directory `QP_BOOTSTRAP_WHEELS` names, with `QP_BOOTSTRAP` set or not;
+asked to install (`QP_BOOTSTRAP=1`), it looks for that wheel before it installs
+vLLM. The toolkit and
 vLLM never share a virtualenv.
 
 **The command line.** The App serves the weights its component's `source_id`
@@ -3194,7 +3279,7 @@ From the use case's directory (for example
 that hosts all the Apps:
 
 ```bash
-cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, each App's server
+cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, bootstrap_wheels, each App's server
 make deploy                           # model server Apps first, then the workflow App with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
@@ -3219,10 +3304,54 @@ and every App runs that script by its absolute path and its role's command in
 that directory (`QP_USE_CASE_DIR`, one of `qp-deploy`'s own exports), the Apps
 mounting the repository at the same path as the Workspace.
 
+**doclang's core.** The core depends on doclang's core (`doclang-domain-core`),
+which is private and on no package index, and an App has no clone of
+`document_doclang` and holds no credential to fetch one. So each App finds it
+among the wheels of a directory, everything else on the index: build the wheel
+where the clone is, at the repository's root, then copy it to a Dataset the
+Apps mount, as the models are copied, and name that directory with the deploy
+setting `bootstrap_wheels`:
+
+```bash
+make doclang-wheel    # at the root: wheels/doclang_domain_core-<version>-py3-none-any.whl, from the clone as it stands (git-ignored)
+# copy that .whl into the directory on the Dataset, e.g. /domino/datasets/local/<dataset>/wheels
+```
+
+`qp-deploy` hands the directory to every App as `QP_BOOTSTRAP_WHEELS`, beside
+`QP_BOOTSTRAP=1`, and `domino/app.sh` adds it to its one `uv pip install` as
+the place to find wheels (`--find-links`), for the workflow app and every
+model-server kind that installs the toolkit. A deploy file without
+`bootstrap_wheels` is refused before anything is published:
+
+```
+qp-deploy: error: bootstrap_wheels is not set in deploy.yaml: set it (or QP_DEPLOY_BOOTSTRAP_WHEELS) to the directory on the Dataset holding the wheel of doclang's core, which make doclang-wheel builds; every App installs doclang's core from there, as no package index has it
+```
+
+and so is one whose `bootstrap_wheels` is a relative path. A deploy, which runs
+in the Workspace (it mounts the Apps' Dataset at the same path, as for
+`ovms_bundle`), also refuses a directory that is not there and one without
+exactly one wheel of doclang's core, in one line that names the setting and the
+path; a dry run, which also runs where no Dataset is mounted, does not look. An App asked to install whose
+directory holds no wheel of doclang's core
+stops before it installs, in one line that names `QP_BOOTSTRAP_WHEELS`, the
+setting and the directory. Nothing is pinned: an App installs the wheel as last
+built and copied, so build and copy it again after a change to doclang's core.
+An App on a prebuilt image (`QP_BOOTSTRAP` unset, as in the step-by-step run
+below) installs nothing and needs no wheel: the image took it from its build
+context (**Environments**, above). An App of the `ovms` or `vllm` kind is the
+exception: with `uv` and without the toolkit's command it reads
+(`qp-ovms-config` or `qp-served-models`, `qp-vllm-config`), it installs the
+toolkit, `QP_BOOTSTRAP` set or not, and needs `QP_BOOTSTRAP_WHEELS` too, as the
+`rag-ovms-llm` and `rag-vllm-*` rows of the step-by-step run say. An App that
+will install the toolkit, of any kind, looks for the wheel before it installs
+anything, vLLM and OVMS's system packages included, and stops when the
+directory holds more than one wheel of doclang's core, naming them: leave the
+one `make doclang-wheel` built.
+
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
 `topology_alias`, `project_id`, `app_name_prefix`, `ovms_bundle`,
-`domino_host`) and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
+`bootstrap_wheels`, `domino_host`) and how to talk to Domino (`wait_timeout_s`, `poll_interval_s`,
 `no_instance_grace_s`, `http_timeout_s`, `http_retries`, `run_token_url`); a
 `QP_DEPLOY_<KEY>` variable overrides one, e.g.
 `QP_DEPLOY_TOPOLOGY=monolith make deploy`, and
@@ -3295,7 +3424,7 @@ topology alias names and `QP_COMPONENTS__<COMPONENT>__SERVED__URL` of each serve
 one (the model server App's URL plus the route its kind declares for its type,
 `/v3/rerank`, `/v3/embeddings` or, for an LLM, `/v3/chat/completions`, and on
 vLLM `/v1/rerank`, `/v1/embeddings` or `/v1/chat/completions`), and
-`QP_BOOTSTRAP` itself (they win over the
+`QP_BOOTSTRAP` itself with `QP_BOOTSTRAP_WHEELS` (they win over the
 settings and the overrides, which come first in the launch script), and
 `QP_RUN_LABEL` unless the overrides set `run_label`. Secrets stay in
 Domino's project or user environment variables, because `settings` and
@@ -3619,10 +3748,14 @@ deploy-reranker` or `make deploy-llm` alone, `qp-deploy` reminds you that the wo
 deploy-workflow`. Every model server call in a split topology goes through
 Domino's proxy: it is part of what the split topologies measure on Domino.
 
-One-time prerequisites that stay manual: install the toolkit and the use case in
-the Workspace (`make install-dev` at the root, or `uv pip install -e
-"./query_processing[loadtest]" -e ./query_processing_rag_usecase`, both in one
-command), `make ingest`, and for `ovms` the exported models.
+One-time prerequisites that stay manual: the wheel of doclang's core on the
+Dataset (above); install the core, the toolkit and the use case in the
+Workspace, which has no clone of `document_doclang` either, so it takes
+doclang's core from the same directory as an App does, all in one command, at
+the repository's root (`uv pip install --find-links
+/domino/datasets/local/<dataset>/wheels -e ./query_processing_core -e
+"./query_processing[loadtest]" -e ./query_processing_rag_usecase`); `make
+ingest`; and for `ovms` the exported models.
 
 #### Try the deploy without Domino
 
@@ -3647,7 +3780,8 @@ checked as in a deploy. `QP_DEPLOY_TOPOLOGY=<alias> make deploy-dry-run` shows
 another alias. One of the checks: no value may still hold an `<angle-bracket>`
 placeholder from the example (in the `settings` of the Apps being deployed,
 their `environment_id`, `environment_revision_id`, `hardware_tier` and
-`hardware_tier_id`, `ovms_bundle`, and the `overrides`, which every App gets).
+`hardware_tier_id`, `ovms_bundle`, the `overrides`, which every App gets, and
+`bootstrap_wheels`).
 The example copied unchanged stops on the first one:
 
 ```
@@ -3812,6 +3946,7 @@ instance. Replace the placeholders once; the code itself does not change.
 repository's root, then create two Environments from them as custom base images:
 
 ```bash
+make doclang-wheel   # the wheel of doclang's core into wheels/, which the rag stage copies
 docker build -f query_processing/domino/Dockerfile --target rag  -t <registry>/query-processing-rag  .
 docker build -f query_processing/domino/Dockerfile --target ovms -t <registry>/query-processing-ovms .
 docker push <registry>/query-processing-rag && docker push <registry>/query-processing-ovms
@@ -3835,8 +3970,8 @@ set, in Project → Settings → Environment variables:
 | `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one), `OPENAI_API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
 | `rag-ovms-reranker` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
-| `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
-| `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
+| `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_BOOTSTRAP_WHEELS` (the directory on a Dataset holding the wheel of doclang's core: it installs the toolkit), `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
+| `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, `QP_BOOTSTRAP_WHEELS` (the directory on a Dataset holding the wheel of doclang's core) when it has no `qp-vllm-config`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ the variable the store's key block names, if it has one), `OPENAI_API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
@@ -3950,15 +4085,17 @@ Keep `USERS`, `SPAWN_RATE`, `RUN_TIME`, the hardware tiers, the corpus and
 ## Development
 
 ```bash
-make check         # every gate below, in order, stopping at the first failure, then the use case's tests and the charts package's
+make check         # the core's gates and tests, then every gate below, in order, stopping at the first failure, then the use case's tests and the charts package's
 make test          # pytest: fakes + httpx.MockTransport only; no weights, no network, no Elasticsearch
 make format        # ruff --fix + black
 ```
 
 These run from the repository's root, whose `Makefile` hands them to
 `query_processing/`'s, or from `query_processing/` itself, over the toolkit alone
-(`make -C query_processing check`). At the root, `make check` then runs the RAG
-use case's own tests, from `query_processing_rag_usecase/`, linted with ruff and
+(`make -C query_processing check`). At the root, `make check` first runs lint,
+typecheck, complexity and deps over the core (`query_processing_core/`) under the
+toolkit's configuration, then the core's own tests; then the toolkit's gates; then
+the RAG use case's own tests, from `query_processing_rag_usecase/`, linted with ruff and
 black under the toolkit's configuration: its workflow file answers through the
 workflow app's HTTP API, and a dry run of each topology alias of its
 `deploy.example.yaml` publishes the expected Apps on the fake Domino. Last, it
@@ -3977,7 +4114,11 @@ image `query_processing/domino/Dockerfile` builds from (Domino's 6.2 standard
 environment, Ubuntu 22.04), as the `ubuntu` user Domino runs Apps as, and in a
 virtualenv on the Python of `.python-version`, which is how the Apps start too.
 The workflow reads the image from the Dockerfile's `BASE_IMAGE` line, so the two
-cannot drift. Each gate is also a `make` target of its own, and its paths below
+cannot drift. It clones `document_doclang` beside the checkout with a read-only
+deploy key, the secret `DOCLANG_DEPLOY_KEY`, against GitHub's host key pinned in
+the workflow, then installs what `make install-dev` installs. A pull request from
+a fork gets no secret: its checks stop at that step, in one line that says so.
+Each gate is also a `make` target of its own, and its paths below
 are in `query_processing/`:
 
 | target | runs | passes when |
@@ -4025,5 +4166,5 @@ for the fake's own tests. A crowded folder holds one sub-folder per sub-package,
 module or command (`tests/entrypoints/qp_serve/`, rule 9 of
 [Where a file goes](#where-a-file-goes)). The folders are not packages, so a test file's name is
 unique across the tree. What several files share (named fakes, fixtures,
-`REPO_ROOT` and `TOOLKIT_ROOT`) is in `tests/helpers`, on pytest's path and
+`REPO_ROOT`, `TOOLKIT_ROOT` and `CORE_ROOT`) is in `tests/helpers`, on pytest's path and
 imported by plain module name. The Chroma store's tests run a real embedded Chroma in a temporary folder.

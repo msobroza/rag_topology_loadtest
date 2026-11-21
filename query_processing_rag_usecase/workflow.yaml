@@ -45,7 +45,7 @@ components:
   embedder:
     backend: local # local | served | api | fake
     source_id: Snowflake/snowflake-arctic-embed-l-v2.0
-    query_prefix: "query: " # in front of every query, never of a passage
+    query_prefix: "query: " # in front of every query, never of a text to store
   # The embedder the router reads: a second embedder, so it states its type.
   # Its vectors never reach the vector store, which `embedder` fills and
   # searches (make ingest names it).
@@ -84,11 +84,11 @@ components:
   vector_store:
     # elasticsearch | chroma | fake (in memory, seeded with the synthetic
     # corpus when it opens). Only the block of the backend in use is written;
-    # where the passages are kept has no default, so another store's block
-    # names it (chroma: its collection).
+    # where the vector-store records are kept has no default, so another
+    # store's block names it (chroma: its collection).
     backend: elasticsearch
     # No prefilter here: an index qp-ingest filled has neither of its fields.
-    # A site whose passages carry them states it in deploy.yaml.
+    # A site whose vector-store records carry them states it in deploy.yaml.
     elasticsearch:
       url: http://localhost:9200 # http://user:password@host:9200 for basic auth
       index: rag_passages # an index or an alias
@@ -139,18 +139,18 @@ graph:
       top_k: 20 # candidates from the store
       # [query_embedding] for dense, [standalone_query] for lexical,
       # [query_embedding, standalone_query] for hybrid; then metadata_filter,
-      # the request's conditions and the rewrite's, which every passage found
-      # meets
+      # the request's conditions and the rewrite's, which every vector-store
+      # record found meets
       reads: [query_embedding, metadata_filter]
       writes: [candidates]
     rerank:
       call: reranker
-      top_k: 10 # passages kept and sent to the LLM
+      top_k: 10 # vector-store records kept and sent to the LLM
       reads: [standalone_query, candidates]
       writes: [reranked]
     generate:
       call: llm
-      # what the user asked, then the passages; the answer
+      # what the user asked, then the vector-store records; the answer
       reads: [conversational_query, reranked]
       writes: [answer]
       # A prompt of prompts.yaml, whose variables are the fields it reads.

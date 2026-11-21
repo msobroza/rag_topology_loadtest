@@ -6,9 +6,13 @@ one committed beside the test with ``qp-compare-answers``: every answer
 identical, its text included (ROUGE-L at 1). Each answer's text is then held
 exactly, so a change of punctuation, case, line breaks or a ``[1]`` marker,
 which ROUGE-L does not see, fails too. The committed record is the
-"before" a change to how the graph runs is held to. A change that alters the
-answers on purpose makes the record again with the record's pin command, which
-runs the same test with ``--pin-answers``; the failing test names it.
+"before" a change to how the graph runs is held to. The committed records are
+of the new form, the vector-store records under ``records``; one of the old
+form, its records under ``passages``, would be read through the answer
+record's mapping into the new form, so it still compares with a record made
+today. A change that alters the answers on purpose makes the record
+again with the record's pin command, which runs the same test with
+``--pin-answers``; the failing test names it.
 
 The app is started with ``TestClient``, an ``httpx.Client`` that
 ``qp-record-answers`` is handed, so no socket is opened. The load test's

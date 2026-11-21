@@ -34,9 +34,7 @@ from pydantic import (
     create_model,
 )
 from pydantic.fields import FieldInfo
-
-from ..domain.registry import Registry
-from ..domain.retrieval.metadata_filter import (
+from query_processing_core.retrieval.metadata_filter import (
     COMPARATORS_BY_TYPE,
     LIST_COMPARATORS,
     Comparator,
@@ -44,6 +42,8 @@ from ..domain.retrieval.metadata_filter import (
     MetadataFieldInfo,
     MetadataFieldType,
 )
+
+from ..domain.registry import Registry
 
 OUTPUT_SCHEMAS: Registry[type[BaseModel]] = Registry("output schema")
 

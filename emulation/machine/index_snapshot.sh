@@ -89,17 +89,19 @@ snapshot_name() {
   printf '%s-%s\n' "$1" "$embedder" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g'
 }
 
-# snapshot_request: the snapshot's body, with the clone's commit and the passage count.
+# snapshot_request: the snapshot's body, with the clone's commit and the count of
+# vector-store records. The metadata keeps its key "passages": the cache bucket
+# holds snapshots written with it.
 snapshot_request() {
-  local commit passages
+  local commit records
   commit=$(git -C "$HERE" rev-parse HEAD)
-  passages=$(es_require GET "/$ES_INDEX/_count" | json_field count)
+  records=$(es_require GET "/$ES_INDEX/_count" | json_field count)
   python3 -c '
 import json, sys
-index, commit, passages = sys.argv[1:]
-metadata = {"commit": commit, "passages": int(passages)}
+index, commit, records = sys.argv[1:]
+metadata = {"commit": commit, "passages": int(records)}
 print(json.dumps({"indices": index, "include_global_state": False, "metadata": metadata}))
-' "$ES_INDEX" "$commit" "$passages"
+' "$ES_INDEX" "$commit" "$records"
 }
 
 save_snapshot() {
@@ -113,14 +115,14 @@ save_snapshot() {
 }
 
 restore_snapshot() {
-  local name=$1 passages
+  local name=$1 records
   es_call GET "/_snapshot/$SNAPSHOT_REPOSITORY/$name" >/dev/null \
     || die "no snapshot $name in gs://$CACHE_BUCKET/$SNAPSHOT_BASE_PATH; make -C emulation corpus corpus-save creates it (same corpus, analyzer and embedder)"
   es_delete_if_present "/$ES_INDEX"
   es_require POST "/_snapshot/$SNAPSHOT_REPOSITORY/$name/_restore?wait_for_completion=true" \
     "{\"indices\": \"$ES_INDEX\", \"include_global_state\": false}" >/dev/null
-  passages=$(es_require GET "/$ES_INDEX/_count" | json_field count)
-  echo "restored: snapshot $name; index $ES_INDEX holds $passages passages"
+  records=$(es_require GET "/$ES_INDEX/_count" | json_field count)
+  echo "restored: snapshot $name; index $ES_INDEX holds $records vector-store records"
 }
 
 list_snapshots() {

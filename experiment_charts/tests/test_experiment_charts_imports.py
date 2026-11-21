@@ -1,9 +1,9 @@
 """The charts package takes nothing from the product, read from its files.
 
 It draws the registry of measurements for a reader and is no part of the
-product, so it may import neither the toolkit, nor the fake Domino, nor a use
-case, and its distribution may depend on none of theirs. The names are those of
-the repository's layout (the README's "Where a file goes").
+product, so it may import neither the core, nor the toolkit, nor the fake
+Domino, nor a use case, and its distribution may depend on none of theirs. The
+names are those of the repository's layout (the README's "Where a file goes").
 """
 
 from __future__ import annotations
@@ -16,8 +16,14 @@ from pathlib import Path
 from experiment_chart_support import CHARTS_ROOT
 
 CHARTS_SOURCE = CHARTS_ROOT / "src" / "experiment_charts"
-# The toolkit, its test double and the RAG use case: the packages of the product.
-PRODUCT_PACKAGES = ("query_processing", "fake_domino", "query_processing_rag_usecase")
+# The core, the toolkit, its test double and the RAG use case: the packages of
+# the product.
+PRODUCT_PACKAGES = (
+    "query_processing_core",
+    "query_processing",
+    "fake_domino",
+    "query_processing_rag_usecase",
+)
 # Their distributions all start with the toolkit's name.
 PRODUCT_DISTRIBUTION_PREFIX = "query-processing"
 
@@ -59,6 +65,7 @@ def test_the_search_finds_an_import_of_each_package_of_the_product(
         "from query_processing.domain import passages\n"
         "from query_processing_rag_usecase import config\n"
         "from . import chart_table\n"
+        "from query_processing_core.retrieval import metadata_filter\n"
         "import matplotlib\n",
         encoding="utf-8",
     )
@@ -67,6 +74,7 @@ def test_the_search_finds_an_import_of_each_package_of_the_product(
         "query_processing": [(2, "query_processing.domain")],
         "fake_domino": [(1, "fake_domino.server")],
         "query_processing_rag_usecase": [(3, "query_processing_rag_usecase")],
+        "query_processing_core": [(5, "query_processing_core.retrieval")],
     }
 
 
