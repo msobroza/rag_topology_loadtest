@@ -6,6 +6,7 @@ The fixtures (domino_env, no_real_http, run_main) are in domino_deploy_fixtures.
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ from domino_deploy_helpers import (
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.apps_client import DominoDeployError
 from query_processing.deploy.publish import deploy
+from repo_paths import REPO_ROOT
 
 pytest_plugins = ["domino_deploy_fixtures"]
 
@@ -242,7 +244,8 @@ def test_dry_run_hands_every_app_the_wheels_directory_beside_the_bootstrap(
     Path("deploy.yaml").write_text(ENV_1)
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
     assert (code, err) == (0, "")
-    beside = f"    export QP_BOOTSTRAP=1\n    export QP_BOOTSTRAP_WHEELS={WHEELS}\n"
+    wheels = shlex.quote(WHEELS)
+    beside = f"    export QP_BOOTSTRAP=1\n    export QP_BOOTSTRAP_WHEELS={wheels}\n"
     assert out.count(beside) == 3  # the two model servers and the workflow App
 
 
@@ -264,3 +267,57 @@ def test_a_deploy_without_the_wheels_directory_publishes_nothing() -> None:
     with pytest.raises(DominoDeployError, match="bootstrap_wheels is not set"):
         deploy(make_client(apps), settings, "all", launch=LAUNCH, sleep=no_sleep)
     assert apps.received == []  # not even a lookup reached Domino
+
+
+def test_the_readmes_copy_of_the_example_says_to_set_the_wheels_directory() -> None:
+    # A deploy refuses it unset, so the line that copies the example names it.
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    [copy] = [line for line in readme.splitlines() if line.startswith("cp deploy.")]
+
+    assert "bootstrap_wheels" in copy.split("#", 1)[1]
+
+
+def a_wheels_directory(where: Path, *versions: str) -> Path:
+    """A directory at ``where`` holding a wheel of doclang's core per version."""
+    where.mkdir(parents=True)
+    for version in versions:
+        (where / f"doclang_domain_core-{version}-py3-none-any.whl").touch()
+    return where
+
+
+@pytest.mark.parametrize(
+    ("given", "refusal"),
+    [
+        ("missing", "does not exist"),
+        ("empty", "holds no wheel of doclang's core (doclang_domain_core-*.whl)"),
+        ("three versions", "holds 3 wheels of doclang's core"),
+        ("relative", "is a relative path"),
+        ("spaces", "is not set"),
+    ],
+)
+def test_a_wheels_directory_the_apps_cannot_install_from_is_refused_in_one_line(
+    run_main: RunMain, tmp_path: Path, given: str, refusal: str
+) -> None:
+    # As an OVMS bundle that does not exist is: before anything is published,
+    # not at each App's start.
+    paths = {
+        "missing": str(tmp_path / "no such directory"),
+        "empty": str(a_wheels_directory(tmp_path / "empty")),
+        "three versions": str(
+            a_wheels_directory(tmp_path / "three", "0.1.0", "0.1.1", "0.2.0")
+        ),
+        "relative": "wheels",
+        "spaces": "   ",
+    }
+    Path("deploy.yaml").write_text(
+        ENV_1.replace(WHEELS_YAML, f"bootstrap_wheels: '{paths[given]}'\n")
+    )
+
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+
+    assert (code, out) == (2, "")
+    line = err.splitlines()[-1]  # after argparse's usage
+    assert line.startswith("qp-deploy: error: bootstrap_wheels")
+    assert refusal in line
+    if given != "spaces":
+        assert f"bootstrap_wheels={paths[given]} " in line

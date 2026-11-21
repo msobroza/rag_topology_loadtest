@@ -1,18 +1,17 @@
 """A machine of the emulation takes doclang's core from the cache bucket.
 
-It has no clone of ``document_doclang``: ``make -C emulation wheel-save`` copies
+It has no clone of ``document_doclang``: on the laptop, where the clone is and
+Terraform is not, ``make -C emulation wheel-save CACHE_BUCKET=<name>`` copies
 the wheel that ``make doclang-wheel`` built into the bucket, and at boot each
 machine copies every wheel there to its dataset folder, names it with
 ``QP_BOOTSTRAP_WHEELS`` for its own install, and the Workspace's ``deploy.yaml``
 names it for the Apps. ``curl`` plays the bucket
-(``tests/emulation/emulation_machine_fakes.py``); the Makefile is read with
-``make -n``; nothing reaches the network.
+(``tests/emulation/emulation_machine_fakes.py``); ``wheel-save`` runs on
+stand-ins of ``gcloud`` and Terraform; nothing reaches the network.
 """
 
 from __future__ import annotations
 
-import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -147,14 +146,47 @@ def test_every_app_is_handed_the_wheels_folder_of_its_machine() -> None:
     assert deploy["bootstrap_wheels"] == f"{DATASET_PATH}/{wheels}"
 
 
-def wheel_save(*args: str) -> subprocess.CompletedProcess[str]:
-    """``make -n wheel-save`` in the emulation's folder: printed, never run."""
-    inherited = ("MAKEFLAGS", "MFLAGS")
-    env = {k: v for k, v in os.environ.items() if k not in inherited}
+TERRAFORMS_BUCKET = "bucket-from-terraform"
+
+
+def a_machine_for_wheel_save(where: Path, *, terraform: bool) -> Path:
+    """Stand-ins of ``gcloud`` and, if ``terraform``, of Terraform, under ``where/bin``.
+
+    ``gcloud`` logs its argv to ``where/gcloud.log``; ``terraform`` answers the
+    cache bucket's name with ``TERRAFORMS_BUCKET``, as after the first apply.
+
+    Returns:
+        The folder of the stand-ins, to put first on the PATH.
+    """
+    bin_dir = where / "bin"
+    bin_dir.mkdir(parents=True)
+    stand_ins = {"gcloud": f'echo "$@" >> "{where}/gcloud.log"'}
+    if terraform:
+        question = "-chdir=terraform output -raw cache_bucket"
+        stand_ins["terraform"] = (
+            f'[ "$*" = "{question}" ] || exit 1\nprintf {TERRAFORMS_BUCKET}'
+        )
+    for name, body in stand_ins.items():
+        (bin_dir / name).write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    return bin_dir
+
+
+def wheel_save(
+    where: Path, *args: str, terraform: bool
+) -> subprocess.CompletedProcess[str]:
+    """``make wheel-save`` in the emulation's folder, on stand-ins, a wheel built.
+
+    The wheel is in ``where/wheels``; no Terraform, gcloud or network is reached.
+    """
+    wheels = where / "wheels"
+    wheels.mkdir()
+    (wheels / DOCLANG_WHEEL).write_text("the wheel")
+    bin_dir = a_machine_for_wheel_save(where, terraform=terraform)
     return subprocess.run(
-        ["make", "-n", "wheel-save", *args],
+        ["make", "wheel-save", f"WHEELS={wheels}", *args],
         cwd=EMULATION,
-        env={**env, "MAKELEVEL": "0"},
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(where)},
         capture_output=True,
         text=True,
         timeout=60,
@@ -162,20 +194,52 @@ def wheel_save(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_wheel_save_copies_the_built_wheel_under_the_prefix_the_machines_read() -> None:
-    run = wheel_save()
+def gcloud_was_asked(where: Path) -> list[str]:
+    log = where / "gcloud.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+@pytest.mark.parametrize(
+    ("terraform", "given", "bucket"),
+    [
+        (True, (), TERRAFORMS_BUCKET),
+        (False, ("CACHE_BUCKET=named-bucket",), "named-bucket"),
+        (True, ("CACHE_BUCKET=named-bucket",), "named-bucket"),
+    ],
+    ids=["terraform-names-it", "named-without-terraform", "named-over-terraform"],
+)
+def test_wheel_save_copies_the_built_wheel_under_the_prefix_the_machines_read(
+    tmp_path: Path, terraform: bool, given: tuple[str, ...], bucket: str
+) -> None:
+    # The laptop builds the wheel and has no Terraform: it names the bucket.
+    run = wheel_save(tmp_path, *given, terraform=terraform)
 
     assert run.returncode == 0, run.stderr
     prefix = common_constant("CACHE_WHEELS_PREFIX")
-    copy = (
-        "gcloud storage cp ../wheels/doclang_domain_core-*.whl "
-        f'"gs://$(terraform -chdir=terraform output -raw cache_bucket)/{prefix}"'
-    )
-    assert copy in run.stdout.splitlines()
+    wheel = tmp_path / "wheels" / DOCLANG_WHEEL
+    assert gcloud_was_asked(tmp_path) == [f"storage cp {wheel} gs://{bucket}/{prefix}"]
 
 
-def test_the_readme_names_the_command_that_puts_the_wheel_in_the_bucket() -> None:
+def test_wheel_save_without_terraform_nor_a_name_stops_in_one_line(
+    tmp_path: Path,
+) -> None:
+    # It went on with an empty name: gs:///wheels/.
+    run = wheel_save(tmp_path, terraform=False)
+
+    assert run.returncode != 0
+    [line, *make_says] = run.stderr.splitlines()
+    assert "CACHE_BUCKET=<cache bucket>" in line
+    assert "terraform" in line
+    assert all(said.startswith("make: ***") for said in make_says)
+    assert gcloud_was_asked(tmp_path) == []
+
+
+def test_the_readme_says_where_the_wheel_is_built_and_saved() -> None:
+    # The wheel is built where the clone is, the laptop, which has no Terraform:
+    # it names the bucket, whose name Cloud Shell's Terraform prints.
     readme = (EMULATION / "README.md").read_text(encoding="utf-8")
 
-    assert re.search(r"make -C emulation (apply )?wheel-save", readme)
+    assert "make -C emulation apply wheel-save" not in readme
     assert "make doclang-wheel" in readme
+    assert "make -C emulation wheel-save CACHE_BUCKET=<cache bucket>" in readme
+    assert "terraform -chdir=emulation/terraform output -raw cache_bucket" in readme

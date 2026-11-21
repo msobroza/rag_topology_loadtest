@@ -10,7 +10,9 @@
 # Bootstrap (QP_BOOTSTRAP=1): apt-get libxml2 and curl (plus nginx with
 # QP_OVMS_PREFIX_PROXY=1, via sudo unless root), and run ovms from QP_OVMS_BUNDLE
 # (a folder with bin/ovms and lib/, or its .tar.gz), which qp-deploy sets. It
-# installs no project: the prebuilt `ovms` image has ovms on PATH.
+# installs no project: the prebuilt `ovms` image has ovms on PATH. When serving
+# will install the toolkit (below), the wheel of doclang's core is looked for
+# before apt-get runs.
 #
 # Models are provisioned on the App's own disk the first time it starts without
 # them, then reused. A config missing from QP_OVMS_MODELS_DIR makes it run
@@ -79,6 +81,8 @@ bootstrap_model_server() {
   local bundle=${QP_OVMS_BUNDLE:-} packages="libxml2 curl" sudo=""
   [ -n "$bundle" ] && [ -e "$bundle" ] \
     || die "QP_OVMS_BUNDLE='$bundle' not found; set it to the OVMS bundle (a folder with bin/ovms and lib/, or its .tar.gz)"
+  # The toolkit's wheel is looked for before the system packages are installed.
+  if ovms_installs_this_project; then require_doclang_wheel; fi
   if [ "${QP_OVMS_PREFIX_PROXY:-}" = 1 ]; then packages="$packages nginx"; fi
   [ "$(id -u)" = 0 ] || sudo=sudo
   $sudo apt-get update
@@ -92,6 +96,17 @@ bootstrap_model_server() {
   fi
   export PATH="$bundle/bin:$PATH"
   export LD_LIBRARY_PATH="$bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+}
+
+# ovms_installs_this_project: whether serving will uv-install the toolkit, as
+# serve_model_server, ovms_learn_component and ovms_provision_models do when
+# their command is missing and uv is there.
+ovms_installs_this_project() {
+  command -v uv >/dev/null 2>&1 || return 1
+  if ! command -v qp-ovms-config >/dev/null 2>&1; then return 0; fi
+  # Without its config, qp-served-models says what the component is.
+  [ ! -f "$OVMS_MODELS_DIR/config_${QP_MODEL_SERVER_COMPONENT:-}.json" ] \
+    && ! command -v qp-served-models >/dev/null 2>&1
 }
 
 # serve_model_server <component>: serve that component with OpenVINO Model Server.

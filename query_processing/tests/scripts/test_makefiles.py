@@ -82,17 +82,30 @@ def a_clone(where: Path) -> Path:
     return where
 
 
-def main_checkout() -> Path:
-    """The repository's main checkout, which a worktree shares its git directory with."""
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
+def a_main_checkout_with_its_clone_beside(where: Path) -> dict[str, str]:
+    """A stood-in main checkout under ``where``, a clone beside it, and a ``git`` naming it.
+
+    The ``git`` first on the PATH answers the one question the Makefiles ask,
+    where git's common directory is, with the stood-in checkout's ``.git``; it
+    refuses any other. The clone is then ``where/projects/document_doclang``.
+
+    Returns:
+        The environment to add: the PATH with the stand-in first.
+    """
+    checkout = where / "projects" / "rag_topology_loadtest"
+    (checkout / ".git").mkdir(parents=True)
+    a_clone(where / "projects" / "document_doclang")
+    git = where / "bin" / "git"
+    git.parent.mkdir()
+    question = "rev-parse --path-format=absolute --git-common-dir"
+    git.write_text(
+        "#!/bin/sh\n"
+        f'[ "$*" = "{question}" ] || {{ echo "stand-in git: $*" >&2; exit 1; }}\n'
+        f'echo "{checkout}/.git"\n',
+        encoding="utf-8",
     )
-    return Path(common.stdout.strip()).parent
+    git.chmod(0o755)
+    return {"PATH": f"{git.parent}:{os.environ['PATH']}"}
 
 
 @pytest.mark.parametrize("target", ["check", "format", *GATES])
@@ -154,16 +167,55 @@ DOCLANG_MK = REPO_ROOT / "doclang.mk"
 @pytest.mark.parametrize("directory", INSTALLING, ids=["root", "toolkit"])
 @pytest.mark.parametrize("target", INSTALLS)
 def test_the_clone_is_found_beside_the_main_checkout(
-    target: str, directory: Path
+    target: str, directory: Path, tmp_path: Path
 ) -> None:
     # From git, so that a worktree, wherever it sits, finds the clone beside
-    # the checkout it was made from; CI clones it beside its checkout too.
-    lines = dry_run(directory, target, f"BIN={TOOLS}")
+    # the checkout it was made from; CI clones it beside its checkout too. The
+    # checkout and its clone are stood in: read from this machine, the test
+    # failed on one whose clone is elsewhere, named by DOCLANG_CLONE.
+    env = a_main_checkout_with_its_clone_beside(tmp_path)
 
-    clone = main_checkout().parent / "document_doclang"
+    lines = dry_run(directory, target, f"BIN={TOOLS}", env=env)
+
+    clone = tmp_path / "projects" / "document_doclang"
     assert lines[0].startswith(
         f"{TOOLS}python -m pip install -e {clone}/{DOCLANG_CORE} "
     )
+
+
+@pytest.mark.parametrize("directory", INSTALLING, ids=["root", "toolkit"])
+@pytest.mark.parametrize("given", ["on-the-command-line", "in-the-environment"])
+def test_an_empty_doclang_clone_is_read_as_unset(
+    given: str, directory: Path, tmp_path: Path
+) -> None:
+    # DOCLANG_CLONE= names no directory: read as unset, the clone beside the
+    # main checkout is found, not one at the file system's root.
+    env = a_main_checkout_with_its_clone_beside(tmp_path)
+    on_the_command_line = given == "on-the-command-line"
+
+    lines = dry_run(
+        directory,
+        "install",
+        f"BIN={TOOLS}",
+        *(["DOCLANG_CLONE="] if on_the_command_line else []),
+        env={**env, **({} if on_the_command_line else {"DOCLANG_CLONE": ""})},
+    )
+
+    clone = tmp_path / "projects" / "document_doclang"
+    assert lines[0].startswith(
+        f"{TOOLS}python -m pip install -e {clone}/{DOCLANG_CORE} "
+    )
+
+
+def test_the_toolkits_header_says_the_root_hands_it_no_install() -> None:
+    # The root installs doclang's core, the core, the toolkit and the use case
+    # itself, in one command: its header said the root handed it install.
+    lines = (TOOLKIT_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    header = " ".join(line.lstrip("# ") for line in lines if line.startswith("#"))
+    [handed] = re.findall(r"root Makefile hands ([^.;]+?) here", header)
+
+    assert "install" not in handed
+    assert "check" in handed
 
 
 def test_both_makefiles_read_where_the_clone_is_from_one_file() -> None:
@@ -172,7 +224,7 @@ def test_both_makefiles_read_where_the_clone_is_from_one_file() -> None:
     defined = [
         path.name
         for path in (REPO_ROOT / "Makefile", TOOLKIT_ROOT / "Makefile", DOCLANG_MK)
-        if "DOCLANG_CLONE ?=" in path.read_text(encoding="utf-8")
+        if re.search(r"^(override )?DOCLANG_CLONE \??=", path.read_text("utf-8"), re.M)
     ]
     assert defined == [DOCLANG_MK.name]
     for makefile, include in [
@@ -237,8 +289,11 @@ def test_the_wheel_of_doclangs_core_is_built_from_the_clone_into_an_ignored_fold
         REPO_ROOT, "doclang-wheel", f"BIN={TOOLS}", f"DOCLANG_CLONE={clone}"
     )
 
+    # The earlier wheels of doclang's core go first: the image and an App's
+    # install would otherwise take every one, and an App stops on several.
     assert lines == [
-        f"{TOOLS}python -m pip wheel --no-deps --wheel-dir wheels {clone}/{DOCLANG_CORE}"
+        "rm -f wheels/doclang_domain_core-*.whl",
+        f"{TOOLS}python -m pip wheel --no-deps --wheel-dir wheels {clone}/{DOCLANG_CORE}",
     ]
     ignored = subprocess.run(
         [

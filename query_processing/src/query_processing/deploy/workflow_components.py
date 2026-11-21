@@ -245,7 +245,29 @@ def _refuse_unknown_keys(
             annotation, inside = fields[name].annotation, _get(declared, name)
             _refuse_unknown_below(below, annotation, inside, (*place, name), file)
         elif model.model_config.get("extra") != "allow":  # a stage keeps the rest
-            raise DominoDeployError(_no_such_key(place, name, sorted(fields)))
+            raise DominoDeployError(_no_such_key_of(model, place, name, below))
+
+
+def _no_such_key_of(
+    model: type[BaseModel], place: Place, name: str, value: object
+) -> str:
+    # A renamed setting's refusal, as start-up words it, names (quoted) the key
+    # it became: it says more than the list of the block's keys.
+    fields = sorted(_fields_of(model))
+    said = _the_blocks_own_refusal(model, name, value)
+    if any(f"'{field}'" in said for field in fields):
+        return f"{_overrides_at((*place, name))} in {deploy_file()}: {said}"
+    return _no_such_key(place, name, fields)
+
+
+def _the_blocks_own_refusal(model: type[BaseModel], name: str, value: object) -> str:
+    # The block's own words for a key it refuses; "" if it takes the key.
+    try:
+        model.model_validate({name: value})
+    except ValidationError as error:
+        said = [e["msg"] for e in error.errors() if e["type"] == "value_error"]
+        return said[0].removeprefix("Value error, ") if said else ""
+    return ""
 
 
 def _refuse_unknown_below(

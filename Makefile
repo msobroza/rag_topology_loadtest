@@ -69,7 +69,10 @@ install-dev: ## Install doclang's core from its clone, the core, the toolkit wit
 # doclang's core from this wheel, built from the clone as it stands. Without its
 # dependencies, which are on the index the install reads. Copying it to the
 # Dataset (the deploy setting bootstrap_wheels names the directory) is the owner's.
-doclang-wheel: ## Build the wheel of doclang's core from its clone into wheels/ (git-ignored), for an App's install and the image
+# The earlier wheels of doclang's core go first, so that wheels/ holds the one
+# built: the image copies every wheel there, and an App stops on several.
+doclang-wheel: ## Build the wheel of doclang's core from its clone into wheels/ (git-ignored), replacing an earlier one, for an App's install and the image
+	rm -f $(WHEELS)/doclang_domain_core-*.whl
 	$(BIN)python -m pip wheel --no-deps --wheel-dir $(WHEELS) $(DOCLANG_CORE_OR_STOP)
 
 # The gates over a distribution beside the toolkit, $(1) its directory, each run

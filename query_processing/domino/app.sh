@@ -28,8 +28,9 @@
 # QP_BOOTSTRAP_WHEELS (set by qp-deploy, from its setting bootstrap_wheels: a
 # directory on the Dataset) is where every install of the project finds
 # doclang's core (doclang-domain-core), which the core depends on and no package
-# index has; everything else comes from the index. An install without a wheel of
-# it there stops before it starts, in one line (ADR 0014).
+# index has; everything else comes from the index. An install without one wheel
+# of it there (none, or several) stops before anything is installed, in one line
+# (ADR 0014): a kind whose bootstrap installs something first looks for it then.
 #
 # The workflow app reads everything else from its own variables: each component's
 # backend and served URL, and QP_TOPOLOGY_ALIAS, only a label (qp-deploy sets
@@ -72,16 +73,23 @@ install_project() {
   export PATH="$venv/bin:$PATH"
 }
 
-# require_doclang_wheel: QP_BOOTSTRAP_WHEELS names a directory holding a wheel
-# of doclang's core, or the App stops: uv would otherwise fail on the index,
-# which reads as a network failure.
+# require_doclang_wheel: QP_BOOTSTRAP_WHEELS names a directory holding one wheel
+# of doclang's core, or the App stops: with none, uv would fail on the index,
+# which reads as a network failure; with several, it would take the highest
+# version, not the one last built. A kind's bootstrap calls it before installing
+# anything when the toolkit will be installed.
 require_doclang_wheel() {
-  local wheels=${QP_BOOTSTRAP_WHEELS:-} wheel
+  local wheels=${QP_BOOTSTRAP_WHEELS:-} wheel names="" count=0
   if [ -n "$wheels" ]; then
     for wheel in "$wheels"/doclang_domain_core-*.whl; do
-      if [ -f "$wheel" ]; then return 0; fi
+      [ -f "$wheel" ] || continue
+      count=$((count + 1))
+      names="$names ${wheel##*/}"
     done
   fi
+  [ "$count" != 1 ] || return 0
+  [ "$count" = 0 ] \
+    || die "QP_BOOTSTRAP_WHEELS='$wheels' holds $count wheels of doclang's core:$names; leave one there, the one make doclang-wheel built last, or the install takes the highest version"
   die "QP_BOOTSTRAP_WHEELS='$wheels' names no directory holding a wheel of doclang's core (doclang_domain_core-*.whl); set the deploy setting bootstrap_wheels to the directory on the Dataset holding that wheel, which make doclang-wheel builds"
 }
 

@@ -56,11 +56,27 @@ def example(use_case_dir: Path) -> str:
 def filled_example(
     use_case_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> Path:
-    """The example with every <placeholder> made a real value, nothing else changed."""
+    """The example with every <placeholder> made a real value, nothing else changed.
+
+    But its wheels' directory, which a deploy requires to exist with one wheel of
+    doclang's core: a stand-in one (``wheels_on_the_dataset``), named by the
+    variable that overrides the setting.
+    """
     filled = tmp_path / "deploy.yaml"
     filled.write_text(re.sub(r"<([^<>]+)>", "real", example(use_case_dir)))
     monkeypatch.setenv("QP_DEPLOY_FILE", str(filled))
+    monkeypatch.setenv(
+        "QP_DEPLOY_BOOTSTRAP_WHEELS", str(wheels_on_the_dataset(tmp_path))
+    )
     return filled
+
+
+def wheels_on_the_dataset(tmp_path: Path) -> Path:
+    """A directory holding a stand-in wheel of doclang's core (an empty file)."""
+    wheels = tmp_path / "dataset" / "wheels"
+    wheels.mkdir(parents=True, exist_ok=True)
+    (wheels / "doclang_domain_core-0.1.0-py3-none-any.whl").touch()
+    return wheels
 
 
 def dry_run(capsys: pytest.CaptureFixture[str]) -> tuple[int, str, str]:
@@ -287,17 +303,21 @@ def test_the_llm_entry_and_the_cap_reach_every_app_with_the_llm_on_its_api(
 
 
 def test_every_app_runs_the_toolkits_launch_script_in_this_directory(
-    filled_example: Path, use_case_dir: Path, capsys: pytest.CaptureFixture[str]
+    filled_example: Path,
+    use_case_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
     code, out, _ = dry_run(capsys)
 
     assert code == 0
     launch_script = use_case_dir.parent / "query_processing" / "domino" / "app.sh"
+    wheels = shlex.quote(str(wheels_on_the_dataset(tmp_path)))
     tail = (
         f"    export QP_USE_CASE_DIR={shlex.quote(str(use_case_dir))}\n"
         "    export QP_BOOTSTRAP=1\n"
-        # The example's made-up directory on the Dataset, its placeholder filled.
-        "    export QP_BOOTSTRAP_WHEELS=/domino/datasets/local/real/wheels\n"
+        # The stand-in directory on the Dataset, which the deploy looked at.
+        f"    export QP_BOOTSTRAP_WHEELS={wheels}\n"
         f"    exec bash {shlex.quote(str(launch_script))}\n"
     )
     assert out.count(tail) == len(TOPOLOGY_APPS["split-all"])  # the example's

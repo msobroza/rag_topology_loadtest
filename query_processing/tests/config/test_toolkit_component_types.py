@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from domino_deploy_helpers import WHEELS
 from rag_graphs import (
     FIXTURE_PROMPTS,
     fake_router,
@@ -34,7 +35,7 @@ ROUTER_PORT = "query_processing.adapters.router.base_router"
 # A deploy file whose override makes qp-deploy read the whole settings.
 DEPLOY_FILE = {
     "app_name_prefix": "rag",
-    "bootstrap_wheels": "/domino/datasets/local/qp/wheels",
+    "bootstrap_wheels": WHEELS,  # a deploy refuses one that does not exist
     "topology": "t",
     "topology_alias": {"t": {"embedder": "local", "reranker": "local"}},
     "defaults": {"environment_id": "env-1"},

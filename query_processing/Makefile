@@ -1,6 +1,7 @@
 # query_processing — the toolkit's developer tasks: its install and its gates (run from
-# this directory; the repository's root Makefile hands install, install-dev, check
-# and each gate here). The run targets read a use case's files and write its
+# this directory; the repository's root Makefile hands check, format and each gate
+# here, and installs doclang's core, the core, the toolkit and the use case itself,
+# in one command). The run targets read a use case's files and write its
 # output, so they are a use case's: make -C ../query_processing_rag_usecase help.
 .DEFAULT_GOAL := help
 .PHONY: help install install-dev check lint format typecheck complexity deadcode deps test pin-answers fake-domino

@@ -165,7 +165,8 @@ one per stage whose LLM reported its counts, `rewrite` and `generate`
 The core depends on doclang's core (`doclang-domain-core`), which is private
 and on no index: the machine needs a clone of `document_doclang`, beside the
 repository's main checkout (a worktree finds it beside the checkout it was made
-from), or anywhere `DOCLANG_CLONE` names. The install takes its working tree as
+from), or anywhere `DOCLANG_CLONE` names (an empty `DOCLANG_CLONE=` is read as
+unset). The install takes its working tree as
 it stands; with no clone there, it stops in one line that names the directory
 it looked in. An App that installs at its start, a Workspace and the image have
 no clone: they take doclang's core from its wheel, which `make doclang-wheel`
@@ -1122,7 +1123,7 @@ query_processing/   the toolkit, one distribution: pyproject.toml, its Makefile 
   tests/              pytest: no model weights, no network, no Elasticsearch; one folder per package of src/query_processing/, and in a crowded folder one sub-folder per sub-package, module or command (rule 9)
     domain/ application/ config/ adapters/ infrastructure/ composition/ entrypoints/ loadtest/ deploy/ testing/   the tests of that sub-package
     testing/answer_records/   the pinned answer record of the fixture workflow on fake backends (make -C query_processing pin-answers)
-    scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries
+    scripts/          domino/app.sh and ovms/export_models.sh, run against fake binaries; the Makefiles, read with make -n; the CI workflow's clone step, run on stand-ins (test_ci_workflow.py)
     structure/        the import, placement and code-shape rules, read from the source with ast, and the directory-size rule (rule 9), measured on the core too (test_core_rules.py)
     fake_domino/      the fake Domino's own tests; they import nothing from query_processing
     emulation/        TEMPORARY: the emulation's Terraform, parsed, and the rules that keep it removable
@@ -2800,7 +2801,9 @@ is exported on first start. See [Weight format](#weight-format) for who checks.
 `config_<component>.json` missing under
 `QP_OVMS_MODELS_DIR` runs `export_models.sh` itself, once, before serving: it
 needs `uv`, installs the toolkit and the use case into `$HOME/qp-venv` when
-`qp-served-models` is not on `PATH`, runs in the use case's directory, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
+`qp-served-models` is not on `PATH` (doclang's core from the directory
+`QP_BOOTSTRAP_WHEELS` names: see "doclang's core" in
+[Deploy on Domino in a few commands](#deploy-on-domino-in-a-few-commands)), runs in the use case's directory, and gives the exporter its own `$HOME/ovms-exporter-venv`. The
 prebuilt `ovms` image has no `uv`, so there the models still have to be mounted.
 This path has not been run for real.
 
@@ -2831,7 +2834,9 @@ then the pass-through `QP_OVMS_ARGS`; at the defaults none, so the command is
 it can stay on a read-only Dataset shared by several Apps. With both variables pinned nothing is
 calibrated and the App starts at once. When `qp-ovms-config` is not on `PATH`
 (the `ovms` kind's bootstrap installs no project), the script installs the
-toolkit and the use case with `uv` into `$HOME/qp-venv` first. Without `uv` it
+toolkit and the use case with `uv` into `$HOME/qp-venv` first, doclang's core
+from the directory `QP_BOOTSTRAP_WHEELS` names, with `QP_BOOTSTRAP` set or not.
+Without `uv` it
 serves the export's own config, one stream and not calibrated, and says so on
 standard error; a set `QP_OVMS_*` variable that only Python reads (every one but
 `QP_OVMS_MODELS_DIR`, `QP_OVMS_BUNDLE` and `QP_OVMS_PREFIX_PROXY`) then stops
@@ -2952,7 +2957,7 @@ The table shows the three aliases of `deploy.example.yaml`.
 | Topology | App | `QP_ROLE` (kind: OVMS / FastAPI / vLLM) | Environment variables | Image: OVMS / FastAPI / vLLM |
 | --- | --- | --- | --- | --- |
 | `monolith` | one app: workflow + embedder + reranker | `workflow` (default) | `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` (+ `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`) | `rag` |
-| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
+| `split-reranker` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND`; OVMS: `QP_OVMS_MODELS_DIR` when the Dataset is not at `/mnt/data/ovms-models`, `QP_OVMS_PREFIX_PROXY=1` if the prefix reaches OVMS; FastAPI: none (weights from `QP_COMPONENTS__RERANKER__SOURCE_ID`); vLLM: `QP_BOOTSTRAP=1` when the environment has no `vllm`, `QP_BOOTSTRAP_WHEELS` when it has no `qp-vllm-config` (the toolkit is then installed), and its `QP_VLLM_*` settings | `ovms` / `rag` / one with `vllm`, or glibc 2.39 and `uv` |
 | | **B** workflow + embedder | `workflow` | `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL=<URL of A>/v3/rerank` (`/v1/rerank` on vLLM), `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL` | `rag` |
 | `split-all` | **A** model server: reranker | `model-server` (`ovms` / `fastapi` / `vllm`) | as above | `ovms` / `rag` / as above |
 | | **C** model server: embedder | `model-server` (`ovms` / `fastapi` / `vllm`) | as above, `QP_MODEL_SERVER_COMPONENT=embedder` (FastAPI and vLLM: weights from `QP_COMPONENTS__EMBEDDER__SOURCE_ID`) | `ovms` / `rag` / as above |
@@ -3121,7 +3126,10 @@ or one that already has the `vllm` command. vLLM's own image,
 `vllm/vllm-openai-cpu:v0.32.0-x86_64` (7.4 GB), has the command, so an
 environment built from it would install nothing. The App also needs
 `qp-vllm-config`: when it is missing, the script installs the toolkit and the
-use case into `$HOME/qp-venv` with `uv`, as an OVMS App does. The toolkit and
+use case into `$HOME/qp-venv` with `uv`, as an OVMS App does, doclang's core
+from the directory `QP_BOOTSTRAP_WHEELS` names, with `QP_BOOTSTRAP` set or not;
+asked to install (`QP_BOOTSTRAP=1`), it looks for that wheel before it installs
+vLLM. The toolkit and
 vLLM never share a virtualenv.
 
 **The command line.** The App serves the weights its component's `source_id`
@@ -3199,7 +3207,7 @@ From the use case's directory (for example
 that hosts all the Apps:
 
 ```bash
-cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, each App's server
+cp deploy.example.yaml deploy.yaml   # set defaults.environment_id, topology, bootstrap_wheels, each App's server
 make deploy                           # model server Apps first, then the workflow App with their URLs
 make status                           # each App's status and URL, then the workflow App's /readyz
 make loadtest-domino RUN_NAME=split-all
@@ -3247,13 +3255,25 @@ model-server kind that installs the toolkit. A deploy file without
 qp-deploy: error: bootstrap_wheels is not set in deploy.yaml: set it (or QP_DEPLOY_BOOTSTRAP_WHEELS) to the directory on the Dataset holding the wheel of doclang's core, which make doclang-wheel builds; every App installs doclang's core from there, as no package index has it
 ```
 
-and an App asked to install whose directory holds no wheel of doclang's core
+and so is one whose `bootstrap_wheels` is a relative path, names no directory
+on the Workspace (which mounts the Apps' Dataset at the same path, as for
+`ovms_bundle`), or a directory without exactly one wheel of doclang's core, in
+one line that names the setting and the path. An App asked to install whose
+directory holds no wheel of doclang's core
 stops before it installs, in one line that names `QP_BOOTSTRAP_WHEELS`, the
 setting and the directory. Nothing is pinned: an App installs the wheel as last
 built and copied, so build and copy it again after a change to doclang's core.
 An App on a prebuilt image (`QP_BOOTSTRAP` unset, as in the step-by-step run
 below) installs nothing and needs no wheel: the image took it from its build
-context (**Environments**, above).
+context (**Environments**, above). An App of the `ovms` or `vllm` kind is the
+exception: with `uv` and without the toolkit's command it reads
+(`qp-ovms-config` or `qp-served-models`, `qp-vllm-config`), it installs the
+toolkit, `QP_BOOTSTRAP` set or not, and needs `QP_BOOTSTRAP_WHEELS` too, as the
+`rag-ovms-llm` and `rag-vllm-*` rows of the step-by-step run say. An App that
+will install the toolkit, of any kind, looks for the wheel before it installs
+anything, vLLM and OVMS's system packages included, and stops when the
+directory holds more than one wheel of doclang's core, naming them: leave the
+one `make doclang-wheel` built.
 
 **`deploy.yaml`** (git-ignored; `deploy.example.yaml` documents every key) holds
 every setting in one place. Top-level keys say what to deploy (`topology`,
@@ -3861,8 +3881,8 @@ set, in Project → Settings → Environment variables:
 | `rag-monolith` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_TOPOLOGY_ALIAS=monolith` to report the topology |
 | `rag-ovms-reranker` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
 | `rag-ovms-embedder` | `model-server` | `ovms` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=ovms`, `QP_OVMS_MODELS_DIR` if needed |
-| `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
-| `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
+| `rag-ovms-llm` | `model-server` | the generic environment `qp-deploy` publishes into, with `uv` (not `ovms`: see "An LLM on OVMS" in [OpenVINO Model Server](#openvino-model-server)) | `QP_MODEL_SERVER_COMPONENT=llm`, `QP_MODEL_SERVER_KIND=ovms`, `QP_BOOTSTRAP=1`, `QP_OVMS_BUNDLE`, `QP_BOOTSTRAP_WHEELS` (the directory on a Dataset holding the wheel of doclang's core: it installs the toolkit), `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` (the model OVMS pulls and the name it serves it under), `QP_OVMS_MODELS_DIR` (a folder the App can write) if needed, `QP_OVMS_DYNAMIC_SPLIT_FUSE` and `QP_OVMS_MAX_BATCHED_TOKENS` to change its batching |
+| `rag-vllm-reranker`, `rag-vllm-embedder`, `rag-vllm-llm` | `model-server` | one with the `vllm` command, or one with glibc 2.39 or later (Ubuntu 24.04) and `uv` ([vLLM](#vllm)) | `QP_MODEL_SERVER_COMPONENT`, `QP_MODEL_SERVER_KIND=vllm`, `QP_BOOTSTRAP=1` when the environment has no `vllm`, `QP_BOOTSTRAP_WHEELS` (the directory on a Dataset holding the wheel of doclang's core) when it has no `qp-vllm-config`, the App's `QP_VLLM_*` settings (`QP_VLLM_MAX_MODEL_LEN=4096` for the LLM), and the LLM's `QP_COMPONENTS__LLM__SOURCE_ID` and `QP_COMPONENTS__LLM__ALIAS` |
 | `rag-fastapi-reranker` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=reranker`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-fastapi-embedder` | `model-server` | `rag` | `QP_MODEL_SERVER_COMPONENT=embedder`, `QP_MODEL_SERVER_KIND=fastapi` |
 | `rag-workflow` | `workflow` | `rag` | `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__URL`, `QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY`, `QP_COMPONENTS__LLM__API__API_KEY`, `QP_COMPONENTS__RERANKER__BACKEND=served`, `QP_COMPONENTS__RERANKER__SERVED__URL` (+ `QP_COMPONENTS__EMBEDDER__BACKEND=served`, `QP_COMPONENTS__EMBEDDER__SERVED__URL` for split-all), `QP_TOPOLOGY_ALIAS=split-reranker` (or `split-all`) to report the topology, `QP_RUN_LABEL` for a variant |
@@ -4003,7 +4023,11 @@ image `query_processing/domino/Dockerfile` builds from (Domino's 6.2 standard
 environment, Ubuntu 22.04), as the `ubuntu` user Domino runs Apps as, and in a
 virtualenv on the Python of `.python-version`, which is how the Apps start too.
 The workflow reads the image from the Dockerfile's `BASE_IMAGE` line, so the two
-cannot drift. Each gate is also a `make` target of its own, and its paths below
+cannot drift. It clones `document_doclang` beside the checkout with a read-only
+deploy key, the secret `DOCLANG_DEPLOY_KEY`, against GitHub's host key pinned in
+the workflow, then installs what `make install-dev` installs. A pull request from
+a fork gets no secret: its checks stop at that step, in one line that says so.
+Each gate is also a `make` target of its own, and its paths below
 are in `query_processing/`:
 
 | target | runs | passes when |

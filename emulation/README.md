@@ -104,7 +104,8 @@ cp emulation/terraform/terraform.tfvars.example emulation/terraform/terraform.tf
 # project_env_secret = "rag-emu-project-env" if you created it
 make -C emulation init BUCKET=<bucket name>
 make -C emulation plan
-make -C emulation apply wheel-save   # the machines, then the wheel of doclang's core into the cache bucket
+make -C emulation apply         # the machines and the cache bucket
+terraform -chdir=emulation/terraform output -raw cache_bucket   # the cache bucket's name, for the laptop
 make -C emulation ready         # repeat until every machine says done (about 2 min)
 ```
 
@@ -113,16 +114,20 @@ The machines install the toolkit, whose core depends on doclang's core
 of `document_doclang`. So each machine copies, at boot, every wheel under
 `wheels/` in the cache bucket to its dataset folder (`<dataset_path>/wheels`),
 installs with it, and the Workspace's `deploy.yaml` names that folder for the
-Apps (`bootstrap_wheels`), as on Domino the Dataset holds it. Build the wheel
-where the clone is, at the repository's root, then store it from there (with
-`gcloud` signed in to the project, as in Cloud Shell):
+Apps (`bootstrap_wheels`), as on Domino the Dataset holds it. Cloud Shell has
+Terraform and no clone to build the wheel from; the laptop has the clone and no
+Terraform. So the wheel is built and stored from the laptop, with `gcloud`
+signed in to the project there, naming the bucket Cloud Shell printed:
 
 ```bash
-make doclang-wheel                  # at the repository's root: wheels/doclang_domain_core-<version>-py3-none-any.whl
-make -C emulation wheel-save        # gcloud storage cp of that wheel to gs://<cache bucket>/wheels/
+# On the laptop, at the repository's root:
+make doclang-wheel                  # wheels/doclang_domain_core-<version>-py3-none-any.whl
+make -C emulation wheel-save CACHE_BUCKET=<cache bucket>   # gcloud storage cp of that wheel to gs://<cache bucket>/wheels/
 ```
 
-The bucket comes with the first `apply`, so `wheel-save` follows it. A machine
+Without `CACHE_BUCKET`, `wheel-save` asks Terraform for the name, where Terraform
+is set up, and stops in one line when it has none. The bucket comes with the
+first `apply`, so `wheel-save` follows it. A machine
 that reached that step of its boot before the wheel was there says `failed`, its
 log ending in one line that names `wheel-save`: start it again (`gcloud compute
 instances reset <machine> --zone europe-west1-b`). The bucket outlives the
@@ -555,6 +560,11 @@ Delete:
   folders not yet split that belong to the emulated Domino
   (`src/fake_domino/emulation` and `tests/fake_domino`), which fail as stale
   once it is gone, and their mention in rule 9 of the main `README.md`
+- in `query_processing/tests/structure/test_the_word_*.py`, the test that keeps
+  the vector-store record's retired name out, every file above from its `KEPT`
+  entries: the index's name lists two, which go, and the snapshot metadata's key
+  lists those two alone, so that entry goes whole; a kept file that is gone
+  fails it as stale
 
 `docs/adr/0001-emulation-platform-and-app-placement.md` and
 `docs/adr/0002-replicas-on-machines-and-an-assumed-balancing-rule.md` may be kept as

@@ -7,6 +7,7 @@ CLI tests' fixtures are in ``domino_deploy_fixtures.py``.
 from __future__ import annotations
 
 import shlex
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from fake_domino.api_shapes import (
 from fake_domino.server import FAKE_DOMINO_URL, create_fake_domino, fake_domino_http
 from fake_domino.stand_ins import fake_environment
 from fake_domino.state import FakeDominoApps
+from launch_script_stand_ins import DOCLANG_WHEEL
 from query_processing.deploy.app_id_cache import AppIdCache
 from query_processing.deploy.apps_client import DominoAppsClient
 from query_processing.deploy.deploy_settings import DeploySettings
@@ -35,16 +37,37 @@ LAUNCH = LaunchPaths(
     "/repos/rag topology/query_processing/domino/app.sh",
     "/repos/rag topology/my_use_case",
 )
+
+
+def a_wheels_directory_on_the_dataset() -> str:
+    """The directory of wheels every deploy file of the tests names, made here.
+
+    A deploy refuses a directory that does not exist on the Workspace or holds
+    not exactly one wheel of doclang's core, so it is a real one, holding a
+    stand-in wheel (an empty file under the name a build gives it). It sits in
+    the system's temporary folder under a fixed name, so that every constant
+    below can name it at import; making it again changes nothing.
+
+    Example::
+
+        WHEELS = a_wheels_directory_on_the_dataset()  # ".../qp-deploy-tests/wheels"
+    """
+    wheels = Path(tempfile.gettempdir()) / "qp-deploy-tests" / "wheels"
+    wheels.mkdir(parents=True, exist_ok=True)
+    (wheels / DOCLANG_WHEEL).touch()
+    return str(wheels)
+
+
 # Where the Apps that install find doclang's core: a directory on the Dataset,
 # which every deploy file the tests write names.
-WHEELS = "/domino/datasets/local/qp/wheels"
-WHEELS_YAML = f"bootstrap_wheels: {WHEELS}\n"
+WHEELS = a_wheels_directory_on_the_dataset()
+WHEELS_YAML = f"bootstrap_wheels: '{WHEELS}'\n"
 # How every entry script ends: the use case's directory, the bootstrap and its
 # wheels, the script.
 BOOTSTRAP_AND_EXEC = (
     "export QP_USE_CASE_DIR='/repos/rag topology/my_use_case'\n"
     "export QP_BOOTSTRAP=1\n"
-    f"export QP_BOOTSTRAP_WHEELS={WHEELS}\n"
+    f"export QP_BOOTSTRAP_WHEELS={shlex.quote(WHEELS)}\n"
     "exec bash '/repos/rag topology/query_processing/domino/app.sh'"
 )
 # What an Agent (the workflow App by default) exports before QP_BOOTSTRAP.
@@ -234,7 +257,7 @@ def launched() -> str:
     return (
         f"export QP_USE_CASE_DIR={shlex.quote(str(use_case))}\n"
         "export QP_BOOTSTRAP=1\n"
-        f"export QP_BOOTSTRAP_WHEELS={WHEELS}\n"
+        f"export QP_BOOTSTRAP_WHEELS={shlex.quote(WHEELS)}\n"
         f"exec bash {shlex.quote(str(script))}"
     )
 

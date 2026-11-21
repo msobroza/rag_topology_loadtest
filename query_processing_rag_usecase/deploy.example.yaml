@@ -66,8 +66,10 @@ ovms_bundle: ""
 # package index has: every App finds it there when it installs at its start
 # (QP_BOOTSTRAP_WHEELS), everything else on the index. Build it at the
 # repository's root with `make doclang-wheel` (into wheels/, which git ignores)
-# and copy the .whl here, as the models are copied. An App whose wheel is not
-# there stops at its start, in one line naming this setting.
+# and copy the .whl here, as the models are copied, the one wheel of doclang's
+# core there. The deploy refuses, before publishing, a relative path, a directory
+# the Workspace does not see (it mounts the Dataset as the Apps do) and one
+# without exactly one such wheel, in one line naming this setting.
 bootstrap_wheels: /domino/datasets/local/<dataset>/wheels
 # Where Apps answer: {domino_host}/{owner}/{project}/r/notebookSession/{instance id}.
 # "" = the scheme and host of the App's own url.

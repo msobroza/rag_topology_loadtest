@@ -54,6 +54,36 @@ def rag_stage_copies(dockerfile: str, use_case: str) -> list[tuple[str, str]]:
     return copies
 
 
+def rag_stage_install(dockerfile: str) -> list[str]:
+    """The words of the rag stage's one ``uv pip install``, after ``install``.
+
+    Example::
+
+        rag_stage_install(text)[:2]   # ["--no-cache", "--python"]
+    """
+    joined = dockerfile.replace("\\\n", " ")
+    stage = re.search(r"^FROM \S+ AS rag$(.*?)(?=^FROM |\Z)", joined, re.M | re.S)
+    assert stage, f"no stage 'rag' in {DOCKERFILE}"
+    [command] = re.findall(r"uv pip install ([^&\n]+)", stage.group(1))
+    return command.split()
+
+
+def test_the_image_installs_doclangs_core_from_the_wheels_it_copies() -> None:
+    # No package index has doclang's core: the install finds it among the wheels
+    # the stage copied, then installs the core, the toolkit and the use case.
+    dockerfile = DOCKERFILE.read_text("utf-8")
+    copies = dict(rag_stage_copies(dockerfile, USE_CASE_DIR.name))
+    words = rag_stage_install(dockerfile)
+
+    found_in = words.index("--find-links") + 1
+    assert f"{words[found_in]}/" == copies[WHEELS]
+    assert [word.strip('"') for word in words[found_in + 1 :]] == [
+        f"{IMAGE_ROOT}query_processing_core",
+        f"{IMAGE_ROOT}query_processing[loadtest,domino]",
+        f"{IMAGE_ROOT}${{USE_CASE}}",
+    ]
+
+
 def copy_as_the_image(copies: list[tuple[str, str]], image: Path) -> None:
     """Copy each source from the repository as ``COPY`` does, ``/opt/qp/`` at ``image``."""
     for source, destination in copies:
