@@ -300,18 +300,86 @@ def test_a_response_of_either_shape_is_written_in_the_new_form(
     ]
 
 
+def sha256_of(text: str) -> str:
+    """The hash an answer record keeps in place of ``text``."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 @pytest.mark.parametrize(
-    "chunk",
-    ["a chunk's own payload", True],
-    ids=["a-text-is-a-chunk", "a-boolean-is-no-whole-number"],
+    ("chunk", "kept"),
+    [
+        ("a chunk's own payload", {"chunk_sha256": sha256_of("a chunk's own payload")}),
+        (True, {"chunk": True}),
+    ],
+    ids=["a-text-is-a-chunk-kept-as-its-hash", "a-boolean-is-no-whole-number"],
 )
 def test_only_a_whole_number_under_chunk_is_read_as_sequence(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, chunk: object
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    chunk: object,
+    kept: dict[str, object],
 ) -> None:
     body = {"mode": "retrieve", "passages": [old_entry("doc-1#0", "first", chunk)]}
 
     answer = recorded_answer_of(monkeypatch, tmp_path, body)
 
     assert answer["records"][0]["metadata"] == {
-        "doc_id": "doc-1", "chunk": chunk, "id": "doc-1#0"
+        "doc_id": "doc-1", **kept, "id": "doc-1#0"
     }  # fmt: skip
+
+
+CORPUS_SENTENCE = "Employees accrue twenty paid vacation days each year."
+CONTEXT_SENTENCE = "This part of the handbook is about leave."
+# A vector-store record made from a chunk: the whole chunk as a text under
+# "chunk", its context of Contextual Retrieval under "chunk__context__text".
+CHUNK_BODY: dict[str, Any] = {
+    "mode": "retrieve",
+    "records": [
+        {
+            "text": CORPUS_SENTENCE,
+            "metadata": {
+                "id": "doc-handbook#0",
+                "chunk": json.dumps({"id": "doc-handbook#0", "text": CORPUS_SENTENCE}),
+                "chunk__context__text": CONTEXT_SENTENCE,
+                "sequence": 0,
+            },
+            **SCORES,
+        }
+    ],
+}
+
+
+def test_a_record_made_from_a_chunk_keeps_a_hash_of_its_texts_not_the_corpus(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    answer = recorded_answer_of(monkeypatch, tmp_path, CHUNK_BODY)
+
+    metadata = CHUNK_BODY["records"][0]["metadata"]
+    assert answer["records"][0]["metadata"] == {
+        "id": "doc-handbook#0",
+        "chunk_sha256": sha256_of(metadata["chunk"]),
+        "chunk__context__text_sha256": sha256_of(CONTEXT_SENTENCE),
+        "sequence": 0,
+    }
+    written = Path(f"{tmp_path / 'run'}_answers.json").read_text(encoding="utf-8")
+    assert CORPUS_SENTENCE not in written
+    assert CONTEXT_SENTENCE not in written
+
+
+@pytest.mark.parametrize(
+    ("body", "read_id"),
+    [
+        ({"passages": [{"id": "beside", "metadata": {"id": "inside"}}]}, "beside"),
+        ({"records": [{"id": "beside", "metadata": {"id": "inside"}}]}, "inside"),
+    ],
+    ids=["old-shape-its-id-is-moved", "new-shape-a-stray-id-is-left-out"],
+)
+def test_an_id_beside_the_metadata_is_read_into_it_only_in_the_old_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    body: dict[str, Any],
+    read_id: str,
+) -> None:
+    answer = recorded_answer_of(monkeypatch, tmp_path, {"mode": "retrieve", **body})
+
+    assert answer["records"][0]["metadata"] == {"id": read_id}

@@ -213,6 +213,23 @@ def test_a_record_of_the_wrong_shape_names_its_file_its_field_and_the_shape(
     assert 'expected an answer record {"seen": [' in error
 
 
+def test_an_id_beside_the_metadata_in_the_new_form_is_refused_as_any_unknown_key(
+    baseline: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Only a list of the old form has its id beside its metadata; under
+    # "records" one is a key the record does not know.
+    def put_an_id_beside(document: dict[str, Any]) -> None:
+        records_of(document)[0]["id"] = "beside"
+
+    run = run_edited(baseline, put_an_id_beside)
+
+    status, _ = compared(baseline, run)
+
+    error = capsys.readouterr().err
+    assert status == 2
+    assert f"{run}_answers.json: answers.1.records.0.id: Extra inputs" in error
+
+
 def test_two_runs_of_one_name_are_refused_not_one_dropped(
     baseline: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1341,10 +1341,17 @@ the `mode`, the `metadata_filter` applied, the `answer`, and under `records`
 each vector-store record in order with the SHA-256 of its `text`, its
 `metadata` holding its `id`, its `retrieval_score` and its `rerank_score`; a
 response that is not a 200 with a JSON object is recorded with its status
-alone. It also holds, under `seen`, each topology alias and run label the
-responses reported, as the target record does. It keeps none of `timings_ms`,
-`tokens`, `request_id`, `run_label` or the vector-store records' text: they
-change from run to run, or a hash says as much.
+alone. Of a chunk it holds hashes alone: a vector-store record made from a
+chunk holds the whole chunk as a text under the metadata key `chunk`, and its
+context under `chunk__context__text`, and the answer record keeps the SHA-256
+of each in its place, under `chunk_sha256` and `chunk__context__text_sha256`,
+so that two records of the same chunks compare alike and a record of a
+private corpus does not hold the corpus; a record written before, holding
+those texts, is hashed as it is read. It also holds, under `seen`, each
+topology alias and run label the responses reported, as the target record
+does. It keeps none of `timings_ms`, `tokens`, `request_id`, `run_label` or
+the vector-store records' text: they change from run to run, or a hash says
+as much.
 
 The record is of that form whichever shape the target answered in. The
 workflow app answered in an old shape until ADR 0014, and answer records were
@@ -1355,8 +1362,10 @@ One mapping of the load-test client reads the old into the new, for a
 response's body and for a record's file alike: `passages` is read as
 `records`, the `id` into the metadata, and a whole number under `chunk` as
 `sequence`, in either shape, since an index ingested before keeps that key (a
-text under `chunk` is a chunk's own payload and stays, and a boolean is no
-whole number). So `qp-compare-answers` reads a record of either form, finds
+text under `chunk` is a chunk's own payload, kept as its hash, and a boolean
+is no whole number). An `id` beside the metadata is read into it only for a
+list of the old shape: beside an entry under `records`, it is a key the
+answer record's file does not know, and refused. So `qp-compare-answers` reads a record of either form, finds
 an old one and a new one alike when the answers are the same, and names a
 difference in the new form's words (`records[0].rerank_score`). The old form
 is read with no end date: the registry's records in `experiments/` are of
