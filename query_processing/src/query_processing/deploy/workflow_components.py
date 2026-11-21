@@ -8,12 +8,13 @@ in, each component or stage named one the file declares, then the file with
 the overrides merged as the workflow app merges a variable over it. Then it
 asks of those settings what an App's start-up refuses before it opens
 anything, with start-up's own two checks: a name nobody registered, and a
-graph that cannot run or that the chosen orchestrator does not run. It reads
+graph that cannot run or that the chosen orchestrator does not run; and names
+the variables their key sources read keys from. It reads
 the file the workflow App will read, and the prompts and routes files a
 command finds here, as the App finds them beside it, and nothing else: the
 variables of this Workspace are not the App's. The one module of ``deploy``
-that may import the workflow settings, and the composition's two start-up
-checks (README rule 1).
+that may import the workflow settings, and of the composition the two start-up
+checks and ``key_source_variables`` (README rule 1).
 
 Example:
     >>> read_workflow_components(Path("workflow.yaml"))["reranker"]
@@ -30,17 +31,18 @@ from pathlib import Path
 from typing import Any, get_args, get_origin
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
 from ..composition.composition_root import check_workflow_graph
-from ..composition.registered_names import check_registered_names
+from ..composition.registered_names import check_registered_names, key_source_variables
 from ..config.components.component_settings import (
     COMPONENT_TYPE_SETTINGS,
     Component,
     typed_by_name,
 )
+from ..config.components.key_blocks import KeyBlocksChecked, refuse_key_mistakes
 from ..config.extensions import load_extensions
 from ..config.files.prompts_file import prompts_file, prompts_file_source
 from ..config.files.routes_file import routes_file, routes_file_source
@@ -52,6 +54,7 @@ from ..config.files.workflow_file import (
 )
 from ..config.workflow_settings import WorkflowSettings
 from .apps_client import DominoDeployError
+from .deploy_refusals import blocks_own_refusal, first_error_in_one_line
 from .deploy_settings import deploy_file
 
 Place = tuple[str, ...]  # a value's path under overrides, its levels in order
@@ -226,12 +229,17 @@ def refuse_unknown_override_keys(overrides: Mapping[str, object], path: Path) ->
 
     Raises:
         DominoDeployError: The first misspelt key, undeclared name, block that
-            is not a mapping, or value left empty, with its place.
+            is not a mapping, or value left empty, with its place; first, an
+            old ``api_key``, with the line start-up prints of it.
 
     Example:
         >>> refuse_unknown_override_keys({"htpp": {"retries": 0}}, path)
         DominoDeployError: overrides in deploy.yaml has no key 'htpp': ...
     """
+    try:  # its own line, which names the key block, not "no key 'api_key'"
+        refuse_key_mistakes(overrides.get("components"), WorkflowSettings.variable_of)
+    except ValueError as exc:
+        raise DominoDeployError(f"overrides in {deploy_file()}: {exc}") from exc
     _refuse_unknown_keys(overrides, WorkflowSettings, _workflow_data(path), (), path)
 
 
@@ -254,20 +262,10 @@ def _no_such_key_of(
     # A renamed setting's refusal, as start-up words it, names (quoted) the key
     # it became: it says more than the list of the block's keys.
     fields = sorted(_fields_of(model))
-    said = _the_blocks_own_refusal(model, name, value)
+    said = blocks_own_refusal(model, name, value)
     if any(f"'{field}'" in said for field in fields):
         return f"{_overrides_at((*place, name))} in {deploy_file()}: {said}"
     return _no_such_key(place, name, fields)
-
-
-def _the_blocks_own_refusal(model: type[BaseModel], name: str, value: object) -> str:
-    # The block's own words for a key it refuses; "" if it takes the key.
-    try:
-        model.model_validate({name: value})
-    except ValidationError as error:
-        said = [e["msg"] for e in error.errors() if e["type"] == "value_error"]
-        return said[0].removeprefix("Value error, ") if said else ""
-    return ""
 
 
 def _refuse_unknown_below(
@@ -428,6 +426,25 @@ def refuse_what_start_up_refuses(overrides: Mapping[str, object], path: Path) ->
         ) from exc
 
 
+def key_variables_of(overrides: Mapping[str, object], path: Path) -> dict[str, str]:
+    """Name the variables the key sources of an App's settings read keys from.
+
+    Args:
+        overrides: The ``overrides`` block, already checked with the file.
+        path: The workflow file the workflow App reads.
+
+    Returns:
+        Each variable an ``env`` source names, in the file or an override, and
+        the place of its ``key`` block (``key_source_variables``).
+
+    Example:
+        >>> # workflow.yaml's llm: api.key {source: env, variable: EXAMPLE_LLM_KEY}.
+        >>> key_variables_of({}, Path("workflow.yaml"))
+        {'EXAMPLE_LLM_KEY': 'components.llm.api.key'}
+    """
+    return key_source_variables(_settings_with_overrides(overrides, path))
+
+
 def _settings_with_overrides(
     overrides: Mapping[str, object], path: Path
 ) -> WorkflowSettings:
@@ -438,7 +455,7 @@ def _settings_with_overrides(
     except ValueError as exc:  # pydantic's ValidationError is one
         raise DominoDeployError(
             f"the workflow file {str(path)!r} with the overrides of {deploy_file()} "
-            f"makes settings the workflow app refuses: {_first_error(exc)}"
+            f"makes settings the workflow app refuses: {first_error_in_one_line(exc)}"
         ) from exc
 
 
@@ -462,24 +479,13 @@ def _file_with_overrides(path: Path) -> type[WorkflowSettings]:
             file_secret_settings: PydanticBaseSettingsSource,
         ) -> tuple[PydanticBaseSettingsSource, ...]:
             del env_settings, dotenv_settings, file_secret_settings
-            workflow = workflow_file_source(settings_cls, path)
+            # The key blocks checked as start-up checks them, never quoting one.
             return (
                 init_settings,
-                workflow,
+                workflow_file_source(settings_cls, path),
                 prompts_file_source(settings_cls, prompts_file()),
                 routes_file_source(settings_cls, routes_file()),
+                KeyBlocksChecked(settings_cls, WorkflowSettings.variable_of),
             )
 
     return FileWithOverrides
-
-
-def _first_error(exc: ValueError) -> str:
-    if not isinstance(exc, ValidationError):
-        return str(exc)
-    error = exc.errors()[0]
-    loc = list(error["loc"])
-    if not loc:  # a check of the whole names its variables itself
-        return str(error["msg"])
-    got = error["input"]
-    shown = "" if isinstance(got, (Mapping, list)) else f" (got {got!r})"
-    return f"{'.'.join(map(str, loc))}: {error['msg']}{shown}"

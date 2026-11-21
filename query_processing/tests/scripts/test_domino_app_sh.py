@@ -100,7 +100,7 @@ def test_workflow_role_passes_backends_and_auth_through_untouched(
     assert "QP_COMPONENTS__RERANKER__SERVED__URL=http://a/v3/rerank" in env
     assert not any(line.startswith("QP_COMPONENTS__EMBEDDER__BACKEND=") for line in env)
     assert not any(
-        line.startswith("QP_COMPONENTS__RERANKER__API__API_KEY=") for line in env
+        line.startswith("QP_COMPONENTS__RERANKER__API__KEY__") for line in env
     )
 
 

@@ -33,6 +33,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -143,8 +144,13 @@ def clear_loadtest_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     Example:
         >>> clear_loadtest_variables(monkeypatch)
     """
-    for name in LoadTestSettings.model_fields:
-        monkeypatch.delenv(LoadTestSettings.variable_of(name), raising=False)
+    fields = LoadTestSettings.model_fields
+    variables = [LoadTestSettings.variable_of(name) for name in fields]
+    # A block, such as QP_LOADTEST_KEY, is read from one variable per key.
+    blocks = tuple(f"{variable}__" for variable in variables)
+    nested = [name for name in os.environ if name.startswith(blocks)]
+    for variable in (*variables, *nested):
+        monkeypatch.delenv(variable, raising=False)
 
 
 def use_loadtest_variables(

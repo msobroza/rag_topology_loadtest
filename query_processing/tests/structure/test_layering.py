@@ -2,14 +2,15 @@
 packages of ``query_processing`` may import (the table in the README's "Where a file
 goes"), and the core (``query_processing_core``) too, which the reader never counts.
 And the mock rule: ``fake_domino`` imports nothing from ``query_processing``, and
-only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the mock's own tests, in ``tests/fake_domino/``, import nothing from ``query_processing``
-either. And the one-way rule: no file of the toolkit's source names a use case."""
+only ``deploy/qp_deploy.py`` (``--dry-run``) imports ``fake_domino``; the mock's
+own tests, in ``tests/fake_domino/``, import nothing from ``query_processing``
+either. The one-way rule, that no file of the toolkit's source names a use case, is
+in test_one_way_to_use_cases.py."""
 
 from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -66,19 +67,31 @@ MAY_IMPORT: dict[str, set[str]] = {
         "loadtest",
     },
 }
-# A port: adapters/<component>/base_<component>.py. The application depends on
-# the ports and on nothing else of the adapters; a port imports only the domain.
+# A port: adapters/<component>/base_<component>.py, which imports only the domain.
+# The application imports ports and nothing else of the adapters.
 PORT_MODULE = re.compile(r"query_processing\.adapters\.(\w+)\.base_\1")
 MAY_IMPORT_PORTS = {"application"}
-# The named exceptions: one module each, allowed more than its package.
+# The named exceptions: one module each, and what it may import beyond its
+# package's table: a package, or a module, each with what lies under it.
+KEY_SOURCE_PORT = "query_processing.adapters.key_source.base_key_source"
+STANDALONE_KEY_SOURCE = "query_processing.composition.standalone_key_source"
 ALSO_MAY_IMPORT: dict[str, set[str]] = {
-    # For the defaults of the four QP_* values a load test sends, and of the
-    # retries qp-record-answers makes (the shared http block's), nothing else.
-    "query_processing.loadtest.loadtest_settings": {"config"},
+    # The defaults of a load test's QP_* values and retries; its key and domino blocks.
+    "query_processing.loadtest.loadtest_settings": {"query_processing.config"},
+    # The key source of the load test's key block, which composition opens, and
+    # the port, to name its type.
+    "query_processing.loadtest.target_client": {STANDALONE_KEY_SOURCE, KEY_SOURCE_PORT},
     # The deploy tool reads the workflow settings (ADR 0003), checks the overrides,
-    # and asks the composition's two start-up checks what an App would refuse;
-    # the rest of deploy reads them through it.
-    "query_processing.deploy.workflow_components": {"config", "composition"},
+    # asks the composition's two start-up checks what an App would refuse, and
+    # its key_source_variables what the key sources read; the rest of deploy
+    # reads them through it.
+    "query_processing.deploy.workflow_components": {
+        "query_processing.config",
+        "query_processing.composition.composition_root",
+        "query_processing.composition.registered_names",
+    },
+    # qp-deploy status sends the run token, which only a key source asks for.
+    "query_processing.deploy.status": {STANDALONE_KEY_SOURCE, KEY_SOURCE_PORT},
 }
 # The named exceptions that load modules by name, as an extension is loaded,
 # from a package their own may not import: one module each, and the modules
@@ -184,15 +197,32 @@ def forbidden_imports(module: str, source: str) -> list[str]:
                           "from ..adapters import embedder")
         # ["query_processing.domain.registry:1 imports query_processing.adapters"]
     """
-    package = module.split(".")[1]
-    allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
-    may_import_ports = package in MAY_IMPORT_PORTS
+    may_import_ports = module.split(".")[1] in MAY_IMPORT_PORTS
     return [
         f"{module}:{line} imports {imported}"
         for line, imported in imported_product_modules(module, source)
-        if imported.split(".")[1] not in allowed
+        if not table_allows(module, imported)
         and not (may_import_ports and PORT_MODULE.fullmatch(imported))
     ]
+
+
+def table_allows(module: str, imported: str) -> bool:
+    """Whether the table lets ``module`` import, or load, the module ``imported``.
+
+    Its package's row, or what ``ALSO_MAY_IMPORT`` names for it alone, a module
+    named there with what lies under it.
+
+    Example::
+
+        table_allows("query_processing.deploy.status",
+                     "query_processing.composition.composition_root")   # False
+    """
+    if imported.split(".")[1] in MAY_IMPORT[module.split(".")[1]]:
+        return True
+    return any(
+        imported == named or imported.startswith(f"{named}.")
+        for named in ALSO_MAY_IMPORT.get(module, set())
+    )
 
 
 def test_the_import_reader_on_literal_sources() -> None:
@@ -288,8 +318,6 @@ def forbidden_names(module: str, source: str) -> list[str]:
                         "X = 'query_processing.adapters.router'")
         # ["query_processing.domain.registry:1 names query_processing.adapters.router"]
     """
-    package = module.split(".")[1]
-    allowed = MAY_IMPORT[package] | ALSO_MAY_IMPORT.get(module, set())
     named = LOADED_BY_NAME.get(module, set())
     return [
         f"{module}:{node.lineno} names {node.value}"
@@ -297,7 +325,7 @@ def forbidden_names(module: str, source: str) -> list[str]:
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
         and DOTTED_MODULE_NAME.fullmatch(node.value)
-        and node.value.split(".")[1] not in allowed
+        and not table_allows(module, node.value)
         and node.value not in named
     ]
 
@@ -386,8 +414,9 @@ def test_the_ports_import_only_the_domain() -> None:
         )
         if imported.split(".")[1] != "domain"
     ]
-    # The five components' ports and the orchestrator's (ADR 0010).
-    assert len(ports) == 6, f"expected the six ports, found {ports}"
+    # The five components' ports, the orchestrator's (ADR 0010) and the key
+    # source's (ADR 0012).
+    assert len(ports) == 7, f"expected the seven ports, found {ports}"
     assert not offending, f"a port may import only the domain: {offending}"
 
 
@@ -458,43 +487,3 @@ def test_only_qp_deploy_imports_fake_domino() -> None:
     assert (
         not offending
     ), f"only deploy/qp_deploy.py may import fake_domino: {offending}"
-
-
-# --- one way: a use case installs the toolkit, never the reverse --------------------
-
-# A use case is a distribution of its own beside the toolkit (ADR 0005), named
-# query_processing_<name>_usecase (its distribution with hyphens). No file of the
-# toolkit's source names one: not in an import, not as a path or a default.
-USE_CASE_NAME = re.compile(r"query[_-]processing[_-]\w+?[_-]usecase")
-
-
-def files_naming_a_use_case(files: Mapping[str, str]) -> list[str]:
-    """The paths of ``files`` (path to text) whose text names a use case.
-
-    Example::
-
-        files_naming_a_use_case({"a.py": "import query_processing_rag_usecase"})
-        # ["a.py"]
-    """
-    return sorted(path for path, text in files.items() if USE_CASE_NAME.search(text))
-
-
-def test_the_use_case_rule_on_literal_files() -> None:
-    files = {
-        "a.py": "from query_processing_rag_usecase import settings\n",
-        "b.py": "import query_processing  # the toolkit's own name\n",
-        "c.yaml": "dependencies: [query-processing-legal-usecase]\n",
-        "d.py": "# a use case's directory holds workflow.yaml\n",
-    }
-    assert files_naming_a_use_case(files) == ["a.py", "c.yaml"]
-
-
-def test_no_file_of_the_toolkits_source_names_a_use_case() -> None:
-    source = TOOLKIT_ROOT / "src"
-    files = {
-        str(path.relative_to(source)): path.read_text(encoding="utf-8")
-        for path in sorted(source.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    }
-    assert files, f"no file was read under {source}: the walk is wrong"
-    assert files_naming_a_use_case(files) == []

@@ -14,14 +14,14 @@ from typing import Any
 import httpx
 from query_processing_core.retrieval.vector_store_record import ScoredVectorStoreRecord
 
+from query_processing.adapters.key_source.base_key_source import BaseKeySource
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.infrastructure.endpoint.api_endpoint_client import (
     ApiEndpointClient,
 )
-from query_processing.infrastructure.endpoint.bearer_token import BearerToken
+from query_processing.infrastructure.endpoint.bearer_key import BearerKey
 from query_processing.infrastructure.http.http_policy import HttpPolicy
 
-TOKEN_URL = "http://token.test/access-token"
 TIMEOUT_S = 12.5
 NO_WAIT = HttpPolicy(timeout_s=TIMEOUT_S, retries=2, backoff_s=0.0)
 
@@ -77,12 +77,28 @@ class HttpClients:
             await client.aclose()
 
 
-def bearer(
-    client: httpx.AsyncClient, api_key: str, *, ttl_s: float = 240.0
-) -> BearerToken:
-    return BearerToken(
-        client, api_key, token_url=TOKEN_URL, ttl_s=ttl_s, policy=NO_WAIT
-    )
+class FakeKeySource(BaseKeySource):
+    """A key source that gives its keys in turn: the next one once told of a refusal.
+
+    It never asks anything, so it is always called on the event loop; it
+    records each key it was told was refused.
+    """
+
+    def __init__(self, *keys: str) -> None:
+        self._keys = list(keys)
+        self.refusals: list[str] = []
+
+    def key(self, *, may_ask: bool) -> str | None:
+        del may_ask
+        return self._keys[0]
+
+    def refused(self, key: str) -> None:
+        self.refusals.append(key)
+        if key == self._keys[0] and len(self._keys) > 1:
+            self._keys.pop(0)
+
+    def described(self) -> str:
+        return "its key is the fake source's"
 
 
 def endpoint_client(
@@ -90,16 +106,14 @@ def endpoint_client(
     endpoint: ApiEndpoint,
     *,
     component: str,
+    key: str = "",
     policy: HttpPolicy = NO_WAIT,  # retries must not sleep in tests
 ) -> ApiEndpointClient:
-    token = bearer(client, endpoint.api_key)
+    """The client of ``endpoint``, sending ``key`` from a fake key source, or none."""
+    bearer = BearerKey(FakeKeySource(key)) if key else None
     return ApiEndpointClient(
-        client, endpoint, component=component, token=token, policy=policy
+        client, endpoint, component=component, key=bearer, policy=policy
     )
-
-
-def token_text(token: str) -> httpx.Response:
-    return httpx.Response(200, text=token)
 
 
 def standard_answer(body: dict[str, Any]) -> dict[str, Any]:

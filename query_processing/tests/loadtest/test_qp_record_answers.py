@@ -35,6 +35,7 @@ from rag_components import FAKE_BACKENDS
 
 SettingsFactory = Callable[..., WorkflowSettings]
 HOST = "http://target.test"
+TOKEN_URL = "http://domino.test/access-token"
 
 
 def recorded_with(
@@ -188,26 +189,6 @@ def test_a_200_not_of_the_answers_shape_stops_the_command_naming_it(
     assert '"passages"?: [' in error
     assert "nothing written" in error
     assert not list(tmp_path.glob("*_answers.json"))
-
-
-def test_the_load_tests_credentials_are_sent(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    use_loadtest_variables(
-        monkeypatch,
-        tmp_path,
-        {"QP_LOADTEST_QUESTIONS": "1", "QP_LOADTEST_BEARER_TOKEN": "run-token"},
-    )
-    sent: list[str | None] = []
-
-    def answer(request: httpx.Request) -> httpx.Response:
-        sent.append(request.headers.get("Authorization"))
-        return httpx.Response(200, json={})
-
-    client = httpx.Client(transport=httpx.MockTransport(answer))
-
-    assert record_answers_main(["--host", HOST, "--out", "run"], client=client) == 0
-    assert sent == ["Bearer run-token"] * 2
 
 
 def test_without_a_questions_file_it_reads_no_file_and_calls_its_target_alone(

@@ -7,8 +7,12 @@
 # and each value is overridden by the variable its path names, its levels
 # joined by __, such as QP_GRAPH__STAGES__RERANK__TOP_K=5 or
 # QP_COMPONENTS__RERANKER__BACKEND=fake. An API key is never written here:
-# set it by its path, such as QP_COMPONENTS__LLM__API__API_KEY or
-# QP_COMPONENTS__VECTOR_STORE__ELASTICSEARCH__API_KEY.
+# an endpoint's api block names where its key comes from in a key block, such
+# as {source: env, variable: OPENAI_API_KEY} (the variable that holds it, in
+# the environment or in .env) or {source: domino} (the Domino run token); with
+# no key block, no key is sent. The vector store's elasticsearch block takes
+# the same key block, for an Elasticsearch API key; with none, it sends no key
+# (basic auth in its URL, or no security).
 
 # The packages of this use case whose classes register before the components
 # are read (ADR 0006): its kNN router, the router's local backend.
@@ -73,6 +77,7 @@ components:
       url: https://api.openai.com/v1/chat/completions
       api_format: openai
       model: gpt-4o-mini
+      key: {source: env, variable: OPENAI_API_KEY} # qp-serve refuses to start without it
       # structured_output: json_schema # the default; format_instructions for an endpoint that imposes no schema
     http:
       timeout_s: 120 # an answer takes longer than a model-server call

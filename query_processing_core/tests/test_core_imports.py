@@ -18,7 +18,7 @@ CORE_SOURCE = CORE_ROOT / "src" / "query_processing_core"
 # The third-party packages the core may import, by top-level module name:
 # Pydantic, and doclang's core (doclang-domain-core, whose namespace is
 # doclang_domain) for the vector-store record. One module of the core names
-# doclang (the toolkit's tests/structure/test_doclang_imports.py).
+# doclang (the toolkit's tests/structure/test_core_rules.py).
 ALLOWED_THIRD_PARTY = frozenset({"pydantic", "doclang_domain"})
 
 

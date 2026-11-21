@@ -24,6 +24,7 @@ from query_processing.config.components.component_settings import (
     alias_of,
     typed_by_name,
 )
+from query_processing.config.components.key_settings import KeySettings
 from query_processing.config.files.workflow_file import WORKFLOW_FILE_VARIABLE
 from query_processing.config.workflow_settings import WorkflowSettings
 from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
@@ -52,7 +53,7 @@ def test_the_fixture_file_declares_three_model_components_and_a_store(
     assert embedder.query_prefix == "query: "
     assert embedder.local == EmbedderLocalSettings(batch_size=64, threads=0)
     assert embedder.api == EmbedderEndpointSettings(
-        url="", api_format="openai", api_key="", model="", batch_size=64
+        url="", api_format="openai", key=None, model="", batch_size=64
     )
     assert embedder.http == ComponentHttpSettings()  # every value the default
     reranker = components["reranker"]
@@ -69,7 +70,7 @@ def test_the_fixture_file_declares_three_model_components_and_a_store(
     assert llm.api == LlmEndpointSettings(
         url="https://llm.fixture.test/v1/chat/completions",
         api_format="openai",
-        api_key="",
+        key=None,
         model="fixture-chat-model",
         temperature=0.0,
     )
@@ -97,7 +98,7 @@ def test_every_value_is_reachable_by_its_environment_path(
         "QP_COMPONENTS__EMBEDDER__LOCAL__BATCH_SIZE": "8",
         "QP_COMPONENTS__EMBEDDER__LOCAL__THREADS": "3",
         "QP_COMPONENTS__EMBEDDER__API__URL": EMBED_URL,
-        "QP_COMPONENTS__EMBEDDER__API__API_KEY": "domino",
+        "QP_COMPONENTS__EMBEDDER__API__KEY__SOURCE": "domino",
         "QP_COMPONENTS__EMBEDDER__API__BATCH_SIZE": "16",
         "QP_COMPONENTS__EMBEDDER__HTTP__RETRIES": "5",
         "QP_COMPONENTS__RERANKER__ALIAS": "rr",
@@ -106,7 +107,8 @@ def test_every_value_is_reachable_by_its_environment_path(
         "QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS": "12",
         "QP_COMPONENTS__RERANKER__HTTP__BACKOFF_S": "0.5",
         "QP_COMPONENTS__LLM__API__MODEL": "gpt-x",
-        "QP_COMPONENTS__LLM__API__API_KEY": "sk-key",
+        "QP_COMPONENTS__LLM__API__KEY__SOURCE": "env",
+        "QP_COMPONENTS__LLM__API__KEY__VARIABLE": "LLM_GATEWAY_KEY",
         "QP_COMPONENTS__LLM__API__TEMPERATURE": "0.5",
         "QP_COMPONENTS__LLM__HTTP__TIMEOUT_S": "9",
     }
@@ -122,7 +124,10 @@ def test_every_value_is_reachable_by_its_environment_path(
         "",
     )
     assert embedder.local == EmbedderLocalSettings(batch_size=8, threads=3)
-    assert (embedder.api.url, embedder.api.api_key) == (EMBED_URL, "domino")
+    assert (embedder.api.url, embedder.api.key) == (
+        EMBED_URL,
+        KeySettings(source="domino"),
+    )
     assert embedder.api.batch_size == 16
     assert embedder.http == ComponentHttpSettings(retries=5)
     assert reranker.alias == "rr"
@@ -131,11 +136,8 @@ def test_every_value_is_reachable_by_its_environment_path(
         batch_size=4, threads=2, calibration_records=12
     )
     assert reranker.http == ComponentHttpSettings(backoff_s=0.5)
-    assert (llm.api.model, llm.api.api_key, llm.api.temperature) == (
-        "gpt-x",
-        "sk-key",
-        0.5,
-    )
+    assert (llm.api.model, llm.api.temperature) == ("gpt-x", 0.5)
+    assert llm.api.key == KeySettings(source="env", variable="LLM_GATEWAY_KEY")
     assert llm.api.url == "https://llm.fixture.test/v1/chat/completions"  # kept
     assert llm.http == ComponentHttpSettings(timeout_s=9.0)
 
@@ -300,15 +302,11 @@ def test_the_calibration_settings_old_name_is_refused_giving_the_new_one(
 
 
 def test_an_endpoint_block_gives_its_endpoint_its_model_else_the_alias() -> None:
-    block = EndpointSettings(
-        url=RERANK_URL, api_format="cohere", api_key="key", model="rerank-v3.5"
-    )
+    block = EndpointSettings(url=RERANK_URL, api_format="cohere", model="rerank-v3.5")
 
-    assert block.endpoint("rr") == ApiEndpoint(
-        RERANK_URL, "cohere", "key", "rerank-v3.5"
-    )
+    assert block.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "rerank-v3.5")
     unnamed = block.model_copy(update={"model": ""})
-    assert unnamed.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "key", "rr")
+    assert unnamed.endpoint("rr") == ApiEndpoint(RERANK_URL, "cohere", "rr")
 
 
 # --- the vector store ------------------------------------------------------------------
@@ -372,7 +370,8 @@ def test_each_block_of_the_vector_store_is_read_by_its_path(
         "BACKEND": "chroma",
         "ELASTICSEARCH__URL": "http://es:9200",
         "ELASTICSEARCH__INDEX": "records_v2",
-        "ELASTICSEARCH__API_KEY": "es-key",
+        "ELASTICSEARCH__KEY__SOURCE": "env",
+        "ELASTICSEARCH__KEY__VARIABLE": "ES_API_KEY",
         "ELASTICSEARCH__TEXT_ANALYZER": "french",
         "CHROMA__URL": "http://chroma:8000",
         "CHROMA__PATH": "here",
@@ -387,7 +386,7 @@ def test_each_block_of_the_vector_store_is_read_by_its_path(
     assert store.elasticsearch == ElasticsearchSettings(
         url="http://es:9200",
         index="records_v2",
-        api_key="es-key",
+        key=KeySettings(source="env", variable="ES_API_KEY"),
         text_analyzer="french",
     )
     assert store.chroma == ChromaSettings(

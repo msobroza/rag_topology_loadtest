@@ -50,6 +50,7 @@ from ...domain.components.base_component import COMPONENT_TYPES
 from ...domain.endpoints.api_endpoint import ApiEndpoint
 from ...domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ...domain.registry import Registry
+from .key_settings import KeySettings
 from .registered_component_settings import RegisteredComponentSettings
 from .router_settings import RouterSettings
 from .settings_blocks import (
@@ -64,7 +65,8 @@ class EndpointSettings(ServedSettings):
     """An ``api`` block: an endpoint we do not run, its API format, key and model name.
 
     It holds what a ``served`` block holds, plus what a served component takes
-    from its type, its alias and where the app runs: the format, model and key.
+    from its type, its alias and where the app runs: the format, the model and
+    the ``key`` block that names where its API key comes from.
 
     Example:
         >>> EndpointSettings(url="http://h/v3/rerank", api_format="cohere"
@@ -76,9 +78,8 @@ class EndpointSettings(ServedSettings):
     # import that registry, so each command refuses an unknown name before it
     # opens anything (composition/registered_names.py).
     api_format: str
-    # "" = no Authorization header, "domino" = the run's token, else a bearer
-    # token. Read from the environment: a key is never written in the file.
-    api_key: str = ""
+    # The key source its API key comes from (key_settings.py); None sends none.
+    key: KeySettings | None = None
     model: str = ""  # the name sent; "" = the component's alias
 
     def endpoint(self, alias: str) -> ApiEndpoint:
@@ -88,13 +89,14 @@ class EndpointSettings(ServedSettings):
             alias: The component's alias, sent when the block names no model.
 
         Returns:
-            Its URL, API format, key and model name.
+            Its URL, API format and model name; its ``key`` block is the
+            composition root's to turn into a key source.
 
         Example:
             >>> components["llm"].api.endpoint("").url
             'https://api.openai.com/v1/chat/completions'
         """
-        return ApiEndpoint(self.url, self.api_format, self.api_key, self.model or alias)
+        return ApiEndpoint(self.url, self.api_format, self.model or alias)
 
 
 class EmbedderServedSettings(ServedSettings):
@@ -272,9 +274,9 @@ class ElasticsearchSettings(SettingsBlock):
     url: str = "http://localhost:9200"  # user:password@ in the URL for basic auth
     # The use case's own: "" = unset, refused on this backend (WorkflowSettings).
     index: str = ""
-    # "" = none (basic auth in the URL, or no security). Read from the
-    # environment: a key is never written in the file.
-    api_key: str = ""
+    # The key source of its Elasticsearch API key (key_settings.py); None sends
+    # none: basic auth in the URL, or no security.
+    key: KeySettings | None = None
     # Analyzer of the records' text, applied when the index is created and to
     # every lexical query: "standard", or a language's (e.g. "french"). An
     # index keeps the analyzer it was created with.

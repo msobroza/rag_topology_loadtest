@@ -22,19 +22,24 @@ async def open_vector_store_on_elasticsearch(
 
     Args:
         component: The store's ``elasticsearch`` block.
-        shared: The scope, which closes the client.
+        shared: The scope, which closes the client, and the key source its
+            ``key`` block names, shared with every block naming the same.
 
     Returns:
         The Elasticsearch store, under the settings' prefilter.
+
+    Raises:
+        MissingKeyError: If its key source finds no key, such as an ``env``
+            variable unset or empty.
 
     Example:
         >>> store = await open_vector_store_on_elasticsearch(vector_store, shared)
     """
     block = component.elasticsearch
-    store = ElasticsearchVectorStore.open(
+    store = await ElasticsearchVectorStore.open(
         block.url,
         index=block.index,
-        api_key=block.api_key,
+        key_source=await shared.http.key_source_of(block.key),
         text_analyzer=block.text_analyzer,
     )
     store.prefilter = tuple(component.prefilter)

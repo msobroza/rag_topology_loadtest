@@ -46,14 +46,14 @@ RERANK_ALIAS = "fixture-reranker"  # the reranker's
 
 def api_reranker(client: httpx.AsyncClient, alias: str) -> ApiReranker:
     """An ``ApiReranker`` at ``http://models/v3/rerank`` without auth, no sleeping."""
-    endpoint = ApiEndpoint("http://models/v3/rerank", "cohere", "", alias)
+    endpoint = ApiEndpoint("http://models/v3/rerank", "cohere", alias)
     rerank_client = endpoint_client(client, endpoint, component="reranker")
     return ApiReranker(rerank_client, CohereRerankFormat())
 
 
 def api_embedder(client: httpx.AsyncClient, alias: str) -> ApiEmbedder:
     """An ``ApiEmbedder`` at ``http://models/v3/embeddings`` without auth."""
-    endpoint = ApiEndpoint("http://models/v3/embeddings", "openai", "", alias)
+    endpoint = ApiEndpoint("http://models/v3/embeddings", "openai", alias)
     embed_client = endpoint_client(client, endpoint, component="embedder")
     return ApiEmbedder(
         embed_client, OpenAIEmbeddingsFormat(), batch_size=64, query_prefix=""

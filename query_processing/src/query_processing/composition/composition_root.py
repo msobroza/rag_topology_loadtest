@@ -165,8 +165,9 @@ class CompositionRoot:
     async def workflow_dependencies(self) -> RagDependencies:
         """Open the components the graph's stages call, for the workflow app.
 
-        An LLM opens first: it is cheap, so a bad generation setting fails
-        before any weights load. The others open in the order the stages call
+        The key sources of those components open first, then an LLM: both are
+        cheap, so a missing key or a bad generation setting fails before any
+        weights load. The others open in the order the stages call
         them. If a component cannot open, the error propagates and nothing is
         returned.
 
@@ -183,6 +184,7 @@ class CompositionRoot:
         llms_first = sorted(
             called, key=lambda name: self._component(name).type != "llm"
         )
+        await self._open_key_sources(llms_first)
         return RagDependencies({name: await self._open(name) for name in llms_first})
 
     def orchestrator(self) -> type[BaseOrchestrator]:
@@ -218,6 +220,7 @@ class CompositionRoot:
             >>> embedder, store = await composition.ingest_ports()
         """
         name = self.settings.ingestion_embedder(embedder)
+        await self._open_key_sources([name, self.settings.ingestion_store()])
         return IngestPorts(await self._embedder(name), await self._vector_store())
 
     async def local_embedder(self, name: str) -> BaseEmbedder:
@@ -393,6 +396,11 @@ class CompositionRoot:
             f"component {name!r} is of type {component.type!r}: OVMS serves an "
             "export of an embedder or a reranker only (it pulls an LLM itself)"
         )
+
+    async def _open_key_sources(self, names: list[str]) -> None:
+        # Before any component opens: a missing key is refused before a model loads.
+        for name in names:
+            await self._factory.open_key_source(name, self._component(name))
 
     async def _open(self, name: str) -> object:
         component = self._component(name)

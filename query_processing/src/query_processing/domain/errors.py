@@ -1,4 +1,4 @@
-"""Errors shared by every layer: a dependency failure and its one-line description."""
+"""Errors shared by every layer: a failed dependency, its description, a missing key."""
 
 from __future__ import annotations
 
@@ -53,3 +53,16 @@ class RagDependencyError(RuntimeError):
         )
         suffix = f" (target={target})" if target else ""
         super().__init__(f"{component} {kind}: {detail}{suffix}")
+
+
+class MissingKeyError(ValueError):
+    """An API key a key source must give is nowhere to be read: a settings mistake.
+
+    Raised when the source opens, such as an ``env`` source whose variable is
+    unset or empty, so a command that opens no endpoint needs no key. It names
+    where the key was looked for and never holds a key. The resource scope lets
+    it through unwrapped, and ``qp-serve`` reports it as its start-up's one line.
+
+    Example:
+        >>> raise MissingKeyError("the 'llm' component's API key: X is unset")
+    """

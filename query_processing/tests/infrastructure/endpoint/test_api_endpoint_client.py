@@ -10,18 +10,20 @@ import pytest
 from pydantic import ValidationError
 
 from model_api_fakes import (
+    NO_WAIT,
     TIMEOUT_S,
+    FakeKeySource,
     HttpClients,
     ScriptedRoute,
     endpoint_client,
-    token_text,
 )
-from query_processing.domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN, ApiEndpoint
+from query_processing.domain.endpoints.api_endpoint import ApiEndpoint
 from query_processing.domain.endpoints.standard_formats import CohereRerankResponse
 from query_processing.domain.errors import RagDependencyError
 from query_processing.infrastructure.endpoint.api_endpoint_client import (
     ApiEndpointClient,
 )
+from query_processing.infrastructure.endpoint.bearer_key import BearerKey
 from query_processing.infrastructure.http.http_policy import HttpPolicy
 
 URL = "http://models.test:8001/v3/rerank"
@@ -44,10 +46,10 @@ def make(
     policy: HttpPolicy | None = None,
 ) -> tuple[ApiEndpointClient, ScriptedRoute]:
     route = ScriptedRoute(*script)
-    endpoint = ApiEndpoint(url=URL, api_format="cohere", api_key=api_key, model=MODEL)
+    endpoint = ApiEndpoint(url=URL, api_format="cohere", model=MODEL)
     extra = {"policy": policy} if policy else {}
     client = endpoint_client(
-        clients.over(route), endpoint, component="reranker", **extra
+        clients.over(route), endpoint, component="reranker", key=api_key, **extra
     )
     return client, route
 
@@ -76,7 +78,7 @@ async def test_authorization_header_only_with_a_key(
 
 async def test_endpoint_and_described(clients: HttpClients) -> None:
     client, _ = make(clients, OK)
-    assert client.endpoint == ApiEndpoint(URL, "cohere", "", MODEL)
+    assert client.endpoint == ApiEndpoint(URL, "cohere", MODEL)
     assert client.described() == f"{MODEL} at {URL}"
 
 
@@ -100,24 +102,27 @@ async def test_retries_then_succeeds(
     assert len(route.requests) == 3
 
 
-async def test_401_refetches_the_domino_token_then_succeeds(
+async def test_a_401_tells_the_source_the_key_the_refused_call_carried(
     clients: HttpClients,
 ) -> None:
-    client, route = make(
-        clients,
-        token_text("tok-1"),
-        httpx.Response(401, text="expired"),
-        token_text("tok-2"),
-        OK,
-        api_key=DOMINO_RUN_TOKEN,
+    # Shown here, not at the workflow app: the source is told the key read back
+    # from the refused call's own headers, which only a fake source can record.
+    route = ScriptedRoute(httpx.Response(401, text="refused"), OK)
+    source = FakeKeySource("k1", "k2")
+    endpoint = ApiEndpoint(url=URL, api_format="cohere", model=MODEL)
+    client = ApiEndpointClient(
+        clients.over(route),
+        endpoint,
+        component="reranker",
+        key=BearerKey(source),
+        policy=NO_WAIT,
     )
-    await client.post(PAYLOAD)
-    assert route.methods == ["GET", "POST", "GET", "POST"]
-    posts = [r.authorization for r in route.requests if r.method == "POST"]
-    assert posts == ["Bearer tok-1", "Bearer tok-2"]
+    assert await client.post(PAYLOAD) == {"results": []}
+    assert source.refusals == ["k1"]
+    assert [r.authorization for r in route.requests] == ["Bearer k1", "Bearer k2"]
 
 
-@pytest.mark.parametrize("status", [400, 401, 403])
+@pytest.mark.parametrize("status", [400])
 async def test_a_static_key_rejected_fails_at_once(
     clients: HttpClients, status: int
 ) -> None:

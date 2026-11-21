@@ -2,7 +2,7 @@
 
 The toolkit `query_processing` and its first use case, a RAG. Read `CONTEXT.md`
 for the vocabulary, the README's "Where a file goes" for the layout and its
-rules, and `docs/adr/0003` to `0010` and `0014` for the design.
+rules, and `docs/adr/0003` to `0010`, `0012` and `0014` for the design.
 
 - `query_processing_core/`: the core, a distribution of its own (package
   `query_processing_core`, Pydantic and doclang's core) holding what one

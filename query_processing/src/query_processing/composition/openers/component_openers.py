@@ -51,7 +51,7 @@ class SharedResources:
     """
 
     scope: ResourceScope  # closes what an opener registers on its exit stack
-    http: HttpResources  # the shared HTTP client, policy and run tokens
+    http: HttpResources  # the shared HTTP client, policy and key sources
     local_models: LocalModelResources  # the budget, pool, files and calibration
     # The embedder that seeds a fake store: the one its searches use
     # (config/searched_embedder.py, seeding_embedder), else the only one declared.

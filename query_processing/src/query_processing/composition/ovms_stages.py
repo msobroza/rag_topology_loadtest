@@ -42,7 +42,6 @@ from ..domain.endpoints.api_endpoint import (
 from ..domain.endpoints.standard_formats import STANDARD_API_FORMATS
 from ..domain.runtime.calibration import StageTuning, calibration_sample
 from ..infrastructure.calibration.served_stage_calibration import BaseServedStage
-from ..infrastructure.endpoint.open_endpoint_client import RunTokenSource
 from ..infrastructure.http.http_policy import HttpPolicy
 from ..infrastructure.ovms.ovms_graph import (
     OvmsGraphOptions,
@@ -106,12 +105,11 @@ class OvmsCalls:
     """How the candidates of one OVMS calibration are called.
 
     Example:
-        >>> calls = OvmsCalls(client, tokens, ready=ready_policy,
+        >>> calls = OvmsCalls(client, ready=ready_policy,
         ...                   sample=calibration_http_policy(calibration), users=4)
     """
 
     client: httpx.AsyncClient  # the HTTP client the adapters share
-    tokens: RunTokenSource  # never asked: OVMS on 127.0.0.1 takes no key
     # The readiness request while OVMS starts is one, alone: the component's own
     # HTTP timeout bounds it. The sample's requests wait up to the budget.
     ready: HttpPolicy
@@ -257,7 +255,6 @@ class BaseOvmsStage(BaseServedStage, Generic[C, A]):
         return ApiEndpoint(
             url=origin + route,
             api_format=STANDARD_API_FORMATS[component.type],
-            api_key="",
             model=component.alias,
         )
 
@@ -292,9 +289,7 @@ class OvmsRerankStage(BaseOvmsStage[RerankerSettings, ApiReranker]):
     def _adapter_at(self, origin: str, policy: HttpPolicy) -> ApiReranker:
         calls = self._calls
         endpoint = self._endpoint(origin, MODEL_SERVER_RERANK_PATH)
-        return open_api_reranker(
-            calls.client, endpoint, tokens=calls.tokens, policy=policy
-        )
+        return open_api_reranker(calls.client, endpoint, key_source=None, policy=policy)
 
     @cached_property
     def _sample(self) -> tuple[str, list[ScoredVectorStoreRecord]]:
@@ -328,7 +323,7 @@ class OvmsEmbedStage(BaseOvmsStage[EmbedderSettings, ApiEmbedder]):
         return open_api_embedder(
             calls.client,
             endpoint,
-            tokens=calls.tokens,
+            key_source=None,
             policy=policy,
             batch_size=1,
             query_prefix=self._component.query_prefix,

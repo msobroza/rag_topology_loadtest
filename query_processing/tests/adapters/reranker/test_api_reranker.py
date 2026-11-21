@@ -37,8 +37,10 @@ def make(
     clients: HttpClients, *script: httpx.Response | Exception, api_key: str = ""
 ) -> tuple[ApiReranker, ScriptedRoute]:
     route = ScriptedRoute(*script)
-    endpoint = ApiEndpoint(url=URL, api_format="cohere", api_key=api_key, model=MODEL)
-    client = endpoint_client(clients.over(route), endpoint, component="reranker")
+    endpoint = ApiEndpoint(url=URL, api_format="cohere", model=MODEL)
+    client = endpoint_client(
+        clients.over(route), endpoint, component="reranker", key=api_key
+    )
     return ApiReranker(client, CohereRerankFormat()), route
 
 

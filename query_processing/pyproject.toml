@@ -33,6 +33,9 @@ dependencies = [
     "httpx>=0.27",
     "pydantic>=2.12",  # the floor of pydantic-graph, which every install gets
     "pydantic-settings>=2.3",
+    # The env key source reads the .env file the settings read, with the parser
+    # pydantic-settings itself uses.
+    "python-dotenv>=1.0",
     "pyyaml>=6",  # a use case's workflow.yaml, read by pydantic-settings and workflow_file.py
     "jinja2>=3.1",  # the contents of a use case's prompts.yaml, rendered in prompt_rendering.py
     "joblib>=1.3",  # cpu_count() honours the container's CPU quota

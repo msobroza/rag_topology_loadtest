@@ -9,6 +9,7 @@ Example:
 
 from __future__ import annotations
 
+from ...adapters.key_source.base_key_source import BaseKeySource
 from ...adapters.reranker.api.api_reranker import open_api_reranker
 from ...adapters.reranker.base_reranker import BaseReranker
 from ...config.components.component_settings import RerankerSettings
@@ -24,7 +25,7 @@ async def open_reranker_on_api(
 
     Args:
         component: The reranker's alias, ``api`` and ``http`` blocks.
-        shared: The shared HTTP client, the default policy and the run tokens.
+        shared: The shared HTTP client, the default policy and the key sources.
 
     Returns:
         The endpoint's reranker; an unknown API format is refused here.
@@ -33,27 +34,32 @@ async def open_reranker_on_api(
         >>> reranker = await open_reranker_on_api(reranker_settings, shared)
     """
     endpoint = component.api.endpoint(component.alias)
-    return await open_reranker_at(endpoint, component, shared)
+    key_source = await shared.http.key_source_of(component.api.key)
+    return await open_reranker_at(endpoint, key_source, component, shared)
 
 
 async def open_reranker_at(
-    endpoint: ApiEndpoint, component: RerankerSettings, shared: SharedResources
+    endpoint: ApiEndpoint,
+    key_source: BaseKeySource | None,
+    component: RerankerSettings,
+    shared: SharedResources,
 ) -> BaseReranker:
     """Open the reranker of one endpoint, however it was resolved.
 
     Args:
-        endpoint: The route, its API format, its key and the model name sent.
+        endpoint: The route, its API format and the model name sent.
+        key_source: Where its API key comes from; None sends no key.
         component: The reranker, for how patiently it is called.
-        shared: The shared HTTP client, the default policy and the run tokens.
+        shared: The shared HTTP client, the default policy and the key sources.
 
     Returns:
         The endpoint's reranker; an unknown API format is refused here.
 
     Example:
-        >>> reranker = await open_reranker_at(endpoint, component, shared)
+        >>> reranker = await open_reranker_at(endpoint, None, component, shared)
     """
     http = shared.http
     policy = http.policy_of(component)
     return open_api_reranker(
-        await http.client(), endpoint, tokens=http.run_tokens, policy=policy
+        await http.client(), endpoint, key_source=key_source, policy=policy
     )

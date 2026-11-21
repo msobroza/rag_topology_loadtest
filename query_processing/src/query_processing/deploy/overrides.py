@@ -5,10 +5,13 @@ shape, so that no one hand-writes a nested variable name. Before anything is
 published they are checked against the workflow settings (each key a value of
 the file, no secret, each value one the workflow app accepts), then the
 workflow file with them is asked what an App's start-up refuses (a name
-nobody registered, a graph its orchestrator does not run), even with no
-overrides at all; and a workflow
-setting written in a free list (``defaults.settings``, ``apps.<part>.settings``)
-is refused: those lists are for the variables the launch scripts read. Each
+nobody registered, a key block its source does not read, a graph its
+orchestrator does not run), even with no overrides at all. A ``key`` block may
+be overridden, since it holds no key; an old ``api_key`` gets start-up's line.
+A workflow setting written in a free list (``defaults.settings``,
+``apps.<part>.settings``) is refused: those lists are for the variables the
+launch scripts read; so is a variable an ``env`` key source of the settings
+with the overrides names, which holds a key. Each
 App's launch script then exports every override under the variable the
 workflow settings read for its path, so nothing new is read on the App's side.
 The deploy tool's own exports win over an override, and an override wins over
@@ -21,11 +24,13 @@ Example:
 
 from __future__ import annotations
 
-from ..domain.endpoints.api_endpoint import DOMINO_RUN_TOKEN
+from pathlib import Path
+
 from ..domain.roles import WORKFLOW_APP
 from .apps_client import DominoDeployError
 from .deploy_settings import DeploySettings, deploy_file, override_values
 from .workflow_components import (
+    key_variables_of,
     refuse_override_values,
     refuse_unknown_override_keys,
     refuse_what_start_up_refuses,
@@ -39,7 +44,8 @@ def check_overrides(settings: DeploySettings) -> None:
     """Refuse overrides the workflow App could not start with, before publishing.
 
     Then, even when ``deploy.yaml`` has no overrides, the workflow file with
-    them is asked what an App's start-up refuses.
+    them is asked what an App's start-up refuses; and a free list may not give
+    a value to a variable an ``env`` key source of those settings names.
 
     Args:
         settings: The deploy settings; the workflow App's free list names the
@@ -49,7 +55,8 @@ def check_overrides(settings: DeploySettings) -> None:
         DominoDeployError: If a key is no value of the workflow file (naming
             it and its place), a value is a secret, the workflow settings
             refuse a value, or an App's start-up would refuse the settings
-            (start-up's own line, after the names of the two files).
+            (start-up's own line, after the names of the two files), or a free
+            list sets a variable a key source reads a key from.
 
     Example:
         >>> check_overrides(DeploySettings(overrides={"htpp": {"retries": 0}}))
@@ -63,19 +70,34 @@ def check_overrides(settings: DeploySettings) -> None:
     # Even with no overrides: the workflow file alone can name an orchestrator
     # nobody registered, or hold a graph its orchestrator does not run.
     refuse_what_start_up_refuses(settings.overrides, path)
+    _refuse_key_variables_in_free_lists(settings, path)
 
 
 def _refuse_secrets_in_overrides(settings: DeploySettings) -> None:
-    # The rule of the free lists: an API key is a secret unless it is empty or
-    # names the Domino run token.
+    # The rule of the free lists, whatever the value: a stage keeps keys of its
+    # own, which no model of the workflow settings refuses as unknown.
     for value in override_values(settings.overrides):
         variable = workflow_variable(value.path)
-        if not variable.endswith("_API_KEY") or value.text in ("", DOMINO_RUN_TOKEN):
+        if not variable.endswith("_API_KEY"):
             continue
         raise DominoDeployError(
             f"overrides.{value.place} is set in {deploy_file()}, whose values are "
             f"written into the Apps' launch scripts: set {variable} as a Domino "
             "project or user environment variable instead"
+        )
+
+
+def _refuse_key_variables_in_free_lists(settings: DeploySettings, path: Path) -> None:
+    # As the Apps will read the key blocks: the file's with the overrides over it.
+    named = key_variables_of(settings.overrides, path)
+    for block_name, variable, _value in _free_list_variables(settings):
+        if variable not in named:
+            continue
+        raise DominoDeployError(
+            f"{variable} is set in {deploy_file()} under {block_name}.settings, "
+            "whose values are written into the Apps' launch scripts, but the key "
+            f"source of {named[variable]} reads an API key from it: set it as a "
+            "Domino project or user environment variable instead"
         )
 
 

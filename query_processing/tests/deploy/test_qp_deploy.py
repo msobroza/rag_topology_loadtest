@@ -132,9 +132,35 @@ def test_status_still_succeeds_when_the_run_token_is_unavailable(
     assert out == (
         f"rag-workflow   Running        {INSTANCES_URL}/app-1-v1-i\n"
         "readyz: not checked (run token from http://localhost:8899/access-token: "
-        "HTTP 500)\n"
+        "HTTP 500: 'no token' (expected 200 with the token as the body))\n"
     )
     assert ("GET", READYZ) not in apps.received
+
+
+def test_status_asks_for_the_run_token_again_within_its_retries(
+    run_main: RunMain, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The domino key source asks: a 5xx of the token URL is asked again.
+    monkeypatch.setenv("QP_DEPLOY_TOPOLOGY", "monolith")
+    apps = FakeDominoApps(["Running"])
+    add_app(apps, "rag-workflow")
+    answers = iter(
+        [PlainTextResponse("busy", status_code=503), PlainTextResponse("tok-2")]
+    )
+
+    async def token(scope: Scope, receive: Receive, send: Send) -> None:
+        await next(answers)(scope, receive, send)
+
+    canned = {
+        "/access-token": token,
+        READYZ: JSONResponse(READY_BODY, headers=RUN_HEADERS),
+    }
+    fake, seen = answering(create_fake_domino(apps), canned)  # type: ignore[arg-type]
+    code, out, _ = run_main(["status"], fake)
+    assert code == 0
+    assert out.splitlines()[1].startswith("readyz: HTTP 200, X-RAG-Topology: ")
+    assert [request.url.path for request in seen] == ["/access-token"] * 2 + [READYZ]
+    assert seen[2].headers["Authorization"] == "Bearer tok-2"
 
 
 def test_status_asks_for_the_run_token_where_the_settings_say(
@@ -142,6 +168,7 @@ def test_status_asks_for_the_run_token_where_the_settings_say(
 ) -> None:
     Path("deploy.yaml").write_text(
         ENV_1 + "topology: monolith\nrun_token_url: http://tokens.test/t\n"
+        "http_retries: 1\n"
     )
     apps = FakeDominoApps(["Running"])
     add_app(apps, "rag-workflow")
@@ -150,7 +177,8 @@ def test_status_asks_for_the_run_token_where_the_settings_say(
     code, out, _ = run_main(["status"], fake)
     assert code == 0
     assert "run token from http://tokens.test/t: HTTP 500" in out
-    assert [str(request.url) for request in seen] == ["http://tokens.test/t"]
+    # Asked within the deploy tool's own retries, which it reads no http block for.
+    assert [str(request.url) for request in seen] == ["http://tokens.test/t"] * 2
 
 
 def test_status_skips_readiness_when_the_workflow_app_is_not_running(

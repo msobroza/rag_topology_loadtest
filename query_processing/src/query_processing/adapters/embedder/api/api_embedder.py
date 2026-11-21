@@ -20,11 +20,9 @@ from pydantic import ValidationError
 from ....domain.endpoints.api_endpoint import ApiEndpoint
 from ....domain.errors import RagDependencyError, describe_error
 from ....infrastructure.endpoint.api_endpoint_client import ApiEndpointClient
-from ....infrastructure.endpoint.open_endpoint_client import (
-    RunTokenSource,
-    open_endpoint_client,
-)
+from ....infrastructure.endpoint.open_endpoint_client import open_endpoint_client
 from ....infrastructure.http.http_policy import HttpPolicy
+from ...key_source.base_key_source import BaseKeySource
 from ..base_embedder import BaseEmbedder
 from .base_embedding_api_format import EMBEDDING_API_FORMATS, BaseEmbeddingApiFormat
 
@@ -141,7 +139,7 @@ def open_api_embedder(
     client: httpx.AsyncClient,
     endpoint: ApiEndpoint,
     *,
-    tokens: RunTokenSource,
+    key_source: BaseKeySource | None,
     policy: HttpPolicy,
     batch_size: int,
     query_prefix: str,
@@ -150,8 +148,8 @@ def open_api_embedder(
 
     Args:
         client: The shared HTTP client.
-        endpoint: The embeddings route, its API format, its key and its model.
-        tokens: Where the Domino run token comes from, for the ``domino`` key.
+        endpoint: The embeddings route, its API format and its model.
+        key_source: Where the endpoint's API key comes from; None sends no key.
         policy: Timeout, retries and backoff of every call.
         batch_size: Texts per request.
         query_prefix: Put in front of a query, never of a text to store.
@@ -163,12 +161,12 @@ def open_api_embedder(
         ValueError: If ``endpoint.api_format`` names no embeddings API format.
 
     Example:
-        >>> open_api_embedder(client, endpoint, tokens=tokens, policy=policy,
+        >>> open_api_embedder(client, endpoint, key_source=key_source, policy=policy,
         ...                   batch_size=64, query_prefix="query: ")
     """
     api_format = EMBEDDING_API_FORMATS.get(endpoint.api_format)()
     endpoint_client = open_endpoint_client(
-        client, endpoint, component="embedder", tokens=tokens, policy=policy
+        client, endpoint, component="embedder", key_source=key_source, policy=policy
     )
     return ApiEmbedder(
         endpoint_client, api_format, batch_size=batch_size, query_prefix=query_prefix

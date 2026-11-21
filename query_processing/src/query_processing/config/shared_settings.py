@@ -132,8 +132,8 @@ class DominoSettings(SettingsBlock):
         240.0
     """
 
-    # Where a Domino run serves its token, for a served component under
-    # qp-serve --domino and for an api key set to "domino".
+    # Where a Domino run serves its token: the domino key source's settings, for
+    # a served component under qp-serve --domino and a key block {source: domino}.
     token_url: str = "http://localhost:8899/access-token"
     token_ttl_s: float = Field(default=240.0, gt=0)  # tokens live ~5 min
     tracing: bool = False  # wrap the workflow run with Domino's add_tracing
