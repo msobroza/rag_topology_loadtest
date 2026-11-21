@@ -217,3 +217,56 @@ The toolkit ships no new test class: a use case cannot add a kind of record.
 - **Not checked.** Nothing was run against doclang's core from this repository: that it imports on this repository's Python with the toolkit's Pydantic, that an editable install of its namespace package sits beside the others, and that the start script's installer finds a local wheel with no network are all to be shown by the first ticket that needs each.
 - **The break.** A client of the workflow app reads `records` where it read `passages`, and a record's id in its metadata. An `.env` file or a deploy file that names the old calibration setting is refused at start-up. A deploy file names the wheels' directory. An answer record written before is still read.
 - **What this repository now says in public.** It is public and names `document_doclang` and `doclang-domain-core`, which are not. A reader without the clone cannot install the toolkit.
+
+## What was built
+
+Built on 20 and 21 November 2026 on the branch `claude/package-core-domain-objects-b2dda8`: eleven tickets, each by an agent with a clean context, then a review of the whole branch by two reviewers who had built none of it, one reading the code by area and one using the toolkit from the README alone, then four fix tickets from what they found. Steps 1 to 3 of "The order" are built. Step 4, the comparison of main and the branch on real models, is not: it waits for the owner's word.
+
+### What differs from the plan
+
+- **The response body moved in the third step**, as "What moves, and what stays" now says: until then it held the toolkit's scored passage, and the core may not import the toolkit.
+- **The core is installed in more places than were listed**: the image's Dockerfile and the toolkit's own Makefile name it too. One fragment, `doclang.mk`, says how the clone is found, and both Makefiles read it.
+- **The deploy setting is `bootstrap_wheels`, the variable `QP_BOOTSTRAP_WHEELS`.** A deploy refuses, before anything is published, a file without the setting, a relative path, a directory that is not there and one without exactly one wheel of doclang's core. A dry run, which also runs off Domino, refuses the first two alone. The start script stops in one line for the same, before anything is installed, in every model-server kind.
+- **A record with no id is refused in words**, by one refusal, before any store writes. The plan did not ask for it.
+- **An answer record keeps a hash in place of a chunk's texts.** The plan kept a vector-store record's metadata whole; a record made from a chunk holds the chunk's text there, and an answer record of a private corpus must not hold the corpus.
+- **Eight things keep the word "passage", not four.** Beyond the four of "The response and the names": the E5 models' own prefix, the old shape's key in the load-test client, the calibration setting's old name where it is refused and told, and the glossary's two "Avoid" lines. The structure test lists each as it is written, in named files, and six folders whole.
+- **Two guides under `docs/` were reworded**, the model servers' and the server settings': only `docs/adr/`, `docs/specs/` and `docs/plans/` are dated records.
+- **Start-up's refusal of the calibration setting's old name is code of its own**, on the local reranker's settings: the refusal of an unknown key did not give the new name. The deploy tool gives the new name too.
+- **The structure tests hold the core** to rules 3 and 9, the README's tree, the code shape and its manifest, from the toolkit's tests: the core's own may not import the toolkit.
+- **The handbook's chunking puts a record's id last**, so a document's own `id` cannot replace it, and the in-memory store can be given the rows it holds from the start, so that a test shows which id it reads.
+- **The CI step** stops in one line when the secret is missing, as on a pull request from a fork, and pins GitHub's host key.
+- **The emulation**: the wheel is built and saved from the laptop, with the cache bucket's name given, since Cloud Shell has no clone; its removal list names the entries of the word's test that go with it.
+
+The eleven points "decided here and not put to the owner in these words" were built as written.
+
+### What it was held to
+
+- At the base, the toolkit collected 3272 tests, the use case 127 and the charts package 72. At the end, the core collects 48, the toolkit 3380, the use case 130 and the charts package 72, and `make check` passes over all four, the strict type checker included.
+- Steps 1 and 2 left the three pinned answer records untouched and equal on every registered orchestrator.
+- In step 3 they were made again once. Before that, the new answers were shown equal to the old records through the mapping; after it, the old files and the new, read by the load-test client's own reader, were equal on every field: 36 answers, 320 vector-store records.
+- A chunk doclang built goes through `/query` and `/retrieve` and is rebuilt equal from the body.
+
+### Not shown, since each needs a real machine
+
+`make install-dev` installing doclang's core beside the others; `make doclang-wheel` building a wheel; an installer finding that wheel with no network, and which it takes if an index offered the same name; the image's build; the CI step on GitHub, which also needs the deploy key and its secret; the emulation's boot; Elasticsearch; real models.
+
+### Left to the owner
+
+Choices the plan did not settle, found by the review:
+
+1. A metadata filter on `id` acts on the stored metadata, while a record read shows the id its store holds it under: a row ingested before cannot be found by id.
+2. A document's own metadata keys `id` and `sequence` are replaced silently by the handbook's chunking; a key `chunk` is kept as it is and would be read as a chunk.
+3. A use case's tests import the core directly; its layering test does not see it, and its manifest does not list the core.
+4. The E5 prefix keeps the word, a thing beyond the plan's four.
+5. The mapping reads a whole number under `chunk` as `sequence` in the new shape too, so an answer record does not say which key the app returned; a response with both lists is read by `records` and drops the other.
+6. No committed test holds the app to a genuine record of the old form any more.
+7. `metadata.id` is not in the wire's schema: the response's model accepts a record with no id, as doclang's record does.
+8. Ids that differ only by type are one id: a metadata id `7` and an id `"7"` both read as `'7'`.
+9. An index ingested before maps `metadata.chunk` as a number: a doclang-made record cannot be written into it.
+10. An answer record says whether two chunks are the same, no longer what a chunk held.
+11. `qp-deploy` asks every App to install at its start, as before: a site on the prebuilt image must still put the wheel on the Dataset.
+12. An OVMS App with the installer, without the project and without a wheel now stops; without the installer it serves the export as exported.
+13. The wheels' directory is added to what the index offers; it does not replace the index.
+14. The core's manifest caps doclang's core below 0.2, while nothing is pinned.
+15. CI takes the tip of doclang's default branch; the wheel carries what is uncommitted in the clone.
+16. The emulation's `wheel-save` does not clear earlier wheels from the bucket.
