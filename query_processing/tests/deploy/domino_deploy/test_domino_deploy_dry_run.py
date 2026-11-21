@@ -30,6 +30,7 @@ from domino_deploy_helpers import (
     model_server_exports,
     no_sleep,
 )
+from fake_domino.server import create_fake_domino
 from fake_domino.state import FakeDominoApps
 from query_processing.deploy.apps_client import DominoDeployError
 from query_processing.deploy.publish import deploy
@@ -291,33 +292,62 @@ def a_wheels_directory(where: Path, *versions: str) -> Path:
         ("missing", "does not exist"),
         ("empty", "holds no wheel of doclang's core (doclang_domain_core-*.whl)"),
         ("three versions", "holds 3 wheels of doclang's core"),
-        ("relative", "is a relative path"),
-        ("spaces", "is not set"),
     ],
 )
-def test_a_wheels_directory_the_apps_cannot_install_from_is_refused_in_one_line(
+def test_a_deploy_refuses_a_wheels_directory_the_apps_cannot_install_from(
     run_main: RunMain, tmp_path: Path, given: str, refusal: str
 ) -> None:
     # As an OVMS bundle that does not exist is: before anything is published,
-    # not at each App's start.
+    # not at each App's start. A deploy, not a dry run: it runs in a Workspace,
+    # which mounts the Apps' Dataset, so it can look.
     paths = {
         "missing": str(tmp_path / "no such directory"),
         "empty": str(a_wheels_directory(tmp_path / "empty")),
         "three versions": str(
             a_wheels_directory(tmp_path / "three", "0.1.0", "0.1.1", "0.2.0")
         ),
-        "relative": "wheels",
-        "spaces": "   ",
     }
     Path("deploy.yaml").write_text(
         ENV_1.replace(WHEELS_YAML, f"bootstrap_wheels: '{paths[given]}'\n")
+    )
+    apps = FakeDominoApps(["Running"])
+
+    code, out, err = run_main(["deploy", "all"], create_fake_domino(apps))
+
+    assert (code, out, apps.creates) == (2, "", [])
+    line = err.splitlines()[-1]  # after argparse's usage
+    assert line.startswith(f"qp-deploy: error: bootstrap_wheels={paths[given]} ")
+    assert refusal in line
+
+
+@pytest.mark.parametrize(
+    ("written", "refusal"),
+    [("wheels", "bootstrap_wheels=wheels is a relative path"), ("   ", "is not set")],
+)
+def test_a_dry_run_refuses_a_wheels_directory_no_app_could_read(
+    run_main: RunMain, written: str, refusal: str
+) -> None:
+    Path("deploy.yaml").write_text(
+        ENV_1.replace(WHEELS_YAML, f"bootstrap_wheels: '{written}'\n")
     )
 
     code, out, err = run_main(["--dry-run", "deploy", "all"], None)
 
     assert (code, out) == (2, "")
-    line = err.splitlines()[-1]  # after argparse's usage
-    assert line.startswith("qp-deploy: error: bootstrap_wheels")
-    assert refusal in line
-    if given != "spaces":
-        assert f"bootstrap_wheels={paths[given]} " in line
+    assert refusal in err.splitlines()[-1]  # after argparse's usage
+
+
+def test_a_dry_run_does_not_look_for_the_wheels_directory_on_its_machine(
+    run_main: RunMain, tmp_path: Path
+) -> None:
+    # A dry run also runs off Domino, on a laptop that mounts no Dataset: the
+    # README's first run copies the example, whose directory is not there.
+    nowhere = tmp_path / "datasets" / "wheels"
+    Path("deploy.yaml").write_text(
+        ENV_1.replace(WHEELS_YAML, f"bootstrap_wheels: '{nowhere}'\n")
+    )
+
+    code, out, err = run_main(["--dry-run", "deploy", "all"], None)
+
+    assert (code, err) == (0, "")
+    assert f"export QP_BOOTSTRAP_WHEELS={nowhere}" in out

@@ -67,9 +67,10 @@ ovms_bundle: ""
 # (QP_BOOTSTRAP_WHEELS), everything else on the index. Build it at the
 # repository's root with `make doclang-wheel` (into wheels/, which git ignores)
 # and copy the .whl here, as the models are copied, the one wheel of doclang's
-# core there. The deploy refuses, before publishing, a relative path, a directory
+# core there. A deploy refuses, before publishing, a relative path, a directory
 # the Workspace does not see (it mounts the Dataset as the Apps do) and one
-# without exactly one such wheel, in one line naming this setting.
+# without exactly one such wheel, in one line naming this setting; a dry run,
+# which also runs off Domino, refuses the relative path alone.
 bootstrap_wheels: /domino/datasets/local/<dataset>/wheels
 # Where Apps answer: {domino_host}/{owner}/{project}/r/notebookSession/{instance id}.
 # "" = the scheme and host of the App's own url.

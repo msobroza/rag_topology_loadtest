@@ -236,9 +236,10 @@ record `first-run_target.json`, which counts the responses under that run
 label; `make compare` writes `results/comparison.md`, one table per endpoint and
 per stage. `sed` copies the deploy example with each `<placeholder>` made a
 value; against a fake Domino in its own process, the dry run runs every check of
-a real deploy that needs no answer from Domino, and sends nothing (a hardware tier's
-name and a revision's number are shown as written: their ids are asked of
-Domino only at a deploy). It lists `qp-rag-embedder` and
+a real deploy that needs no answer from Domino nor the Dataset, and sends nothing
+(a hardware tier's name and a revision's number are shown as written, and the
+wheels' directory is not looked for: the ids are asked of Domino, and the
+Dataset is read, only at a deploy). It lists `qp-rag-embedder` and
 `qp-rag-reranker`, model servers of kind `fastapi`, then `qp-rag-workflow`,
 whose entry script holds:
 
@@ -2391,7 +2392,7 @@ any more by the workflow app:
 | backends `ovms`, `openai`, `cohere` | backend `served` for a model server of ours (OVMS among them), `api` for an endpoint in an API format |
 | `RAG_OPENAI_EMBEDDING_MODEL`, `RAG_COHERE_RERANK_URL`, `RAG_COHERE_RERANK_MODEL`, `RAG_OPENAI_RERANK_MODEL`, `COHERE_API_KEY`, `RAG_BM25_K1`, `RAG_BM25_B` | removed: set the component's `api` block instead; the BM25 tunables have no replacement |
 | the handbook's window index under the metadata key `chunk`, in a vector store's `prefilter` or in a field it declares under `metadata_field_info` | `sequence`, the key `qp-ingest` writes: a condition on `chunk` is not refused (a prefilter's fields are not declared) and finds nothing in a store `qp-ingest` filled, silently; an index ingested before keeps `chunk`, and is ingested again to be filtered on `sequence` |
-| a reranker's `local.calibration_passages` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES`) | `local.calibration_records` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS`); start-up refuses the old name, in the workflow file or as a variable, in one line that gives the new one |
+| a reranker's `local.calibration_passages` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_PASSAGES`) | `local.calibration_records` (`QP_COMPONENTS__RERANKER__LOCAL__CALIBRATION_RECORDS`); start-up refuses the old name, in the workflow file or as a variable, in one line that gives the new one, and `qp-deploy` does in a deploy file's overrides |
 
 <!-- old-names:end -->
 
@@ -3255,10 +3256,11 @@ model-server kind that installs the toolkit. A deploy file without
 qp-deploy: error: bootstrap_wheels is not set in deploy.yaml: set it (or QP_DEPLOY_BOOTSTRAP_WHEELS) to the directory on the Dataset holding the wheel of doclang's core, which make doclang-wheel builds; every App installs doclang's core from there, as no package index has it
 ```
 
-and so is one whose `bootstrap_wheels` is a relative path, names no directory
-on the Workspace (which mounts the Apps' Dataset at the same path, as for
-`ovms_bundle`), or a directory without exactly one wheel of doclang's core, in
-one line that names the setting and the path. An App asked to install whose
+and so is one whose `bootstrap_wheels` is a relative path. A deploy, which runs
+in the Workspace (it mounts the Apps' Dataset at the same path, as for
+`ovms_bundle`), also refuses a directory that is not there and one without
+exactly one wheel of doclang's core, in one line that names the setting and the
+path; a dry run, which also runs where no Dataset is mounted, does not look. An App asked to install whose
 directory holds no wheel of doclang's core
 stops before it installs, in one line that names `QP_BOOTSTRAP_WHEELS`, the
 setting and the directory. Nothing is pinned: an App installs the wheel as last

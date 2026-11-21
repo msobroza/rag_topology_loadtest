@@ -50,7 +50,7 @@ def refuse_secrets(settings: DeploySettings) -> None:
             )
 
 
-def refuse_no_wheels(settings: DeploySettings) -> None:
+def refuse_no_wheels(settings: DeploySettings, *, on_this_machine: bool = True) -> None:
     """Refuse settings that name no directory of wheels the Apps can install from.
 
     Every App installs at its start, and doclang's core, which the core depends
@@ -60,11 +60,15 @@ def refuse_no_wheels(settings: DeploySettings) -> None:
 
     Args:
         settings: The deploy settings.
+        on_this_machine: Whether the directory is looked at here. A dry run
+            passes False: it runs where no Dataset is mounted, on a laptop, and
+            holds the setting to what it can tell there, a path that is set
+            and absolute.
 
     Raises:
-        DominoDeployError: If ``bootstrap_wheels`` is blank, relative, names
-            no directory, or a directory without exactly one wheel of
-            doclang's core.
+        DominoDeployError: If ``bootstrap_wheels`` is blank or relative, or,
+            looked at here, names no directory or one without exactly one
+            wheel of doclang's core.
 
     Example:
         >>> refuse_no_wheels(DeploySettings(bootstrap_wheels=""))
@@ -78,7 +82,7 @@ def refuse_no_wheels(settings: DeploySettings) -> None:
             "the wheel of doclang's core, which make doclang-wheel builds; every "
             "App installs doclang's core from there, as no package index has it"
         )
-    unusable = _why_the_apps_cannot_install_from(Path(directory))
+    unusable = _why_the_apps_cannot_install_from(Path(directory), on_this_machine)
     if unusable:
         raise DominoDeployError(
             f"bootstrap_wheels={directory} {unusable}; set it to the absolute "
@@ -87,10 +91,13 @@ def refuse_no_wheels(settings: DeploySettings) -> None:
         )
 
 
-def _why_the_apps_cannot_install_from(directory: Path) -> str:
-    # "" when the directory holds what an App's install needs.
+def _why_the_apps_cannot_install_from(directory: Path, on_this_machine: bool) -> str:
+    # "" when the directory holds what an App's install needs, as far as this
+    # machine can tell: only a deploy looks at the directory itself.
     if not directory.is_absolute():
         return "is a relative path, which each App would read from its own directory"
+    if not on_this_machine:
+        return ""
     if not directory.is_dir():
         return "does not exist"
     wheels = sorted(path.name for path in directory.glob(DOCLANG_WHEELS))
